@@ -447,12 +447,16 @@ async def call_tool(name: str, arguments: dict):
     return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}]}
 
 
-async def main():
+async def _run():
     await init()
     async with stdio_server() as (read, write):
         await server.run(read, write)
 
 
-if __name__ == "__main__":
+def main():
     import asyncio
-    asyncio.run(main())
+    asyncio.run(_run())
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,24 @@
+[project]
+name = "memcp"
+version = "0.1.0"
+description = "MCP server with SurrealDB knowledge graph for persistent agent memory"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "surrealdb>=0.3.0",
+    "sentence-transformers>=2.2.0",
+]
+
+[project.scripts]
+memcp = "memcp:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["memcp.py"]
+
+[tool.hatch.build.targets.wheel.sources]
+"memcp.py" = "memcp.py"
