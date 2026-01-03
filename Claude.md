@@ -19,3 +19,4 @@ This server enables AI agents to store and retrieve knowledge across sessions, p
 - Retrieve relevant knowledge for new sessions
 - Query and search stored information
 - Manage knowledge lifecycle (create, read, update, delete)
+
