@@ -1,9 +1,17 @@
 import json
+import os
 from datetime import datetime, timedelta
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from surrealdb import Surreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
+
+# Configuration from environment
+SURREALDB_URL = os.getenv("SURREALDB_URL", "ws://localhost:8000/rpc")
+SURREALDB_NAMESPACE = os.getenv("SURREALDB_NAMESPACE", "knowledge")
+SURREALDB_DATABASE = os.getenv("SURREALDB_DATABASE", "graph")
+SURREALDB_USER = os.getenv("SURREALDB_USER")
+SURREALDB_PASS = os.getenv("SURREALDB_PASS")
 
 server = Server("knowledge-graph")
 db = Surreal()
@@ -15,8 +23,12 @@ NLI_LABELS = ['contradiction', 'entailment', 'neutral']
 
 
 async def init():
-    await db.connect("ws://localhost:8000/rpc")
-    await db.use("knowledge", "graph")
+    await db.connect(SURREALDB_URL)
+
+    if SURREALDB_USER and SURREALDB_PASS:
+        await db.signin({"user": SURREALDB_USER, "pass": SURREALDB_PASS})
+
+    await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
 
     # Schema setup with new fields
     await db.query("""
