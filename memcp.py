@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import FastMCP, Context, ToolError
 from pydantic import BaseModel, Field
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -164,49 +164,39 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 mcp = FastMCP("knowledge-graph", lifespan=app_lifespan)
 
 
-class ValidationError(Exception):
-    """Raised when input validation fails."""
-    pass
-
-
-class DatabaseError(Exception):
-    """Raised when database operations fail."""
-    pass
-
-
 def validate_entity(entity: dict) -> None:
     """Validate entity structure before storing."""
     if not isinstance(entity, dict):
-        raise ValidationError(f"Entity must be a dict, got {type(entity).__name__}")
+        raise ToolError(f"Entity must be a dict, got {type(entity).__name__}")
     if "id" not in entity:
-        raise ValidationError("Entity missing required field: 'id'")
+        raise ToolError("Entity missing required field: 'id'")
     if "content" not in entity:
-        raise ValidationError("Entity missing required field: 'content'")
+        raise ToolError("Entity missing required field: 'content'")
     if not isinstance(entity["id"], str) or not entity["id"].strip():
-        raise ValidationError("Entity 'id' must be a non-empty string")
+        raise ToolError("Entity 'id' must be a non-empty string")
     if not isinstance(entity["content"], str) or not entity["content"].strip():
-        raise ValidationError("Entity 'content' must be a non-empty string")
+        raise ToolError("Entity 'content' must be a non-empty string")
     if "labels" in entity and not isinstance(entity.get("labels"), list):
-        raise ValidationError("Entity 'labels' must be a list")
+        raise ToolError("Entity 'labels' must be a list")
     if "confidence" in entity:
         conf = entity["confidence"]
         if not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
-            raise ValidationError("Entity 'confidence' must be a number between 0 and 1")
+            raise ToolError("Entity 'confidence' must be a number between 0 and 1")
 
 
 def validate_relation(relation: dict) -> None:
     """Validate relation structure before storing."""
     if not isinstance(relation, dict):
-        raise ValidationError(f"Relation must be a dict, got {type(relation).__name__}")
+        raise ToolError(f"Relation must be a dict, got {type(relation).__name__}")
     for field in ("from", "to", "type"):
         if field not in relation:
-            raise ValidationError(f"Relation missing required field: '{field}'")
+            raise ToolError(f"Relation missing required field: '{field}'")
         if not isinstance(relation[field], str) or not relation[field].strip():
-            raise ValidationError(f"Relation '{field}' must be a non-empty string")
+            raise ToolError(f"Relation '{field}' must be a non-empty string")
     if "weight" in relation:
         weight = relation["weight"]
         if not isinstance(weight, (int, float)):
-            raise ValidationError("Relation 'weight' must be a number")
+            raise ToolError("Relation 'weight' must be a number")
 
 
 def get_db(ctx: Context) -> AsyncSurreal:
@@ -224,10 +214,12 @@ async def query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> Q
             return cast(QueryResult, result)
     except asyncio.TimeoutError:
         await ctx.error(f"Query timed out after {QUERY_TIMEOUT}s")
-        raise DatabaseError(f"Query timed out after {QUERY_TIMEOUT}s")
+        raise ToolError(f"Database query timed out after {QUERY_TIMEOUT}s")
+    except ToolError:
+        raise
     except Exception as e:
         await ctx.error(f"Database query failed: {e}")
-        raise DatabaseError(f"Database query failed: {e}") from e
+        raise ToolError(f"Database query failed: {e}")
 
 
 def embed(text: str) -> list[float]:
@@ -263,11 +255,11 @@ async def search(
 ) -> list[EntityResult]:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
     if not search_query or not search_query.strip():
-        raise ValidationError("Query cannot be empty")
+        raise ToolError("Query cannot be empty")
     if limit < 1 or limit > 100:
-        raise ValidationError("Limit must be between 1 and 100")
+        raise ToolError("Limit must be between 1 and 100")
     if not 0 <= semantic_weight <= 1:
-        raise ValidationError("semantic_weight must be between 0 and 1")
+        raise ToolError("semantic_weight must be between 0 and 1")
 
     await ctx.info(f"Searching for: {search_query[:50]}...")
 
@@ -316,7 +308,7 @@ async def search(
 async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
     """Retrieve a specific memory by its ID. Use when you have an exact entity ID from a previous search or traversal."""
     if not entity_id or not entity_id.strip():
-        raise ValidationError("ID cannot be empty")
+        raise ToolError("ID cannot be empty")
 
     results = await query(ctx, """
         SELECT * FROM type::thing("entity", $id)
@@ -340,7 +332,7 @@ async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
     return None
 
 
-@mcp.tool(annotations={"readOnlyHint": True})
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def list_labels(ctx: Context) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
     results = await query(ctx, """
@@ -349,7 +341,7 @@ async def list_labels(ctx: Context) -> list[str]:
     return results[0][0]['labels'] if results and results[0] else []
 
 
-@mcp.tool(annotations={"readOnlyHint": True})
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def traverse(
     start: str,
     ctx: Context,
@@ -358,9 +350,9 @@ async def traverse(
 ) -> str:
     """Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic."""
     if not start or not start.strip():
-        raise ValidationError("start ID cannot be empty")
+        raise ToolError("start ID cannot be empty")
     if depth < 1 or depth > 10:
-        raise ValidationError("depth must be between 1 and 10")
+        raise ToolError("depth must be between 1 and 10")
 
     await ctx.info(f"Traversing from {start} with depth {depth}")
 
@@ -381,7 +373,7 @@ async def traverse(
     return json.dumps(results[0] if results else [], indent=2, default=str)
 
 
-@mcp.tool(annotations={"readOnlyHint": True})
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def find_path(
     from_id: str,
     to_id: str,
@@ -390,11 +382,11 @@ async def find_path(
 ) -> str:
     """Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts."""
     if not from_id or not from_id.strip():
-        raise ValidationError("from_id cannot be empty")
+        raise ToolError("from_id cannot be empty")
     if not to_id or not to_id.strip():
-        raise ValidationError("to_id cannot be empty")
+        raise ToolError("to_id cannot be empty")
     if max_depth < 1 or max_depth > 20:
-        raise ValidationError("max_depth must be between 1 and 20")
+        raise ToolError("max_depth must be between 1 and 20")
 
     await ctx.info(f"Finding path from {from_id} to {to_id}")
 
@@ -489,7 +481,7 @@ async def remember(
 async def forget(entity_id: str, ctx: Context) -> str:
     """Delete information from persistent memory. Use when the user says 'forget this', 'remove...', 'delete...', or when information is explicitly outdated or wrong."""
     if not entity_id or not entity_id.strip():
-        raise ValidationError("ID cannot be empty")
+        raise ToolError("ID cannot be empty")
 
     await ctx.info(f"Deleting entity: {entity_id}")
 
@@ -518,9 +510,9 @@ async def reflect(
     counts are equal, the more recently accessed entity is kept.
     """
     if decay_days < 1:
-        raise ValidationError("decay_days must be at least 1")
+        raise ToolError("decay_days must be at least 1")
     if not 0 <= similarity_threshold <= 1:
-        raise ValidationError("similarity_threshold must be between 0 and 1")
+        raise ToolError("similarity_threshold must be between 0 and 1")
 
     result = ReflectResult()
 
@@ -593,7 +585,7 @@ async def reflect(
     return result
 
 
-@mcp.tool(annotations={"readOnlyHint": True})
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def check_contradictions_tool(
     ctx: Context,
     entity_id: str | None = None,
