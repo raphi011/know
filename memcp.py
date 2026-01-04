@@ -1,7 +1,9 @@
 import asyncio
+import atexit
 import json
 import logging
 import os
+import signal
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -46,9 +48,48 @@ nli_model = CrossEncoder('cross-encoder/nli-deberta-v3-base')
 NLI_LABELS = ['contradiction', 'entailment', 'neutral']
 
 _initialized = False
+_shutdown_event = asyncio.Event()
 
 # Query timeout in seconds
 QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
+
+
+async def shutdown():
+    """Gracefully close database connection."""
+    global _initialized
+    if _initialized:
+        try:
+            await db.close()
+            logger.info("Database connection closed")
+        except Exception as e:
+            logger.error(f"Error closing database connection: {e}")
+        finally:
+            _initialized = False
+
+
+def _sync_shutdown():
+    """Synchronous wrapper for shutdown, used by atexit."""
+    if _initialized:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(shutdown())
+            else:
+                loop.run_until_complete(shutdown())
+        except RuntimeError:
+            # No event loop, create a new one
+            asyncio.run(shutdown())
+
+
+def _signal_handler(signum: int, frame: Any) -> None:
+    """Handle shutdown signals gracefully."""
+    logger.info(f"Received signal {signum}, shutting down...")
+    _sync_shutdown()
+
+
+# Register cleanup handlers
+atexit.register(_sync_shutdown)
+signal.signal(signal.SIGTERM, _signal_handler)
 
 
 class ValidationError(Exception):
@@ -466,9 +507,15 @@ async def reflect(
     apply_decay: bool = True,
     decay_days: int = 30,
     find_similar: bool = True,
-    similarity_threshold: float = 0.85
+    similarity_threshold: float = 0.85,
+    auto_merge: bool = False
 ) -> str:
-    """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories."""
+    """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories.
+
+    When auto_merge is True, duplicate entities (similarity >= threshold) are automatically
+    merged: the entity with higher access_count is kept, the other is deleted. If access
+    counts are equal, the more recently accessed entity is kept.
+    """
     if decay_days < 1:
         return "Error: decay_days must be at least 1"
     if not 0 <= similarity_threshold <= 1:
@@ -476,7 +523,7 @@ async def reflect(
 
     await ensure_init()
 
-    report = {"decayed": 0, "similar_pairs": []}
+    report: dict[str, Any] = {"decayed": 0, "similar_pairs": [], "merged": 0}
 
     if apply_decay:
         # Temporal decay: memories not accessed recently lose "weight", making
@@ -491,36 +538,75 @@ async def reflect(
 
     if find_similar:
         # Duplicate detection: high cosine similarity (>threshold) suggests redundant
-        # entries that could be merged. Returns pairs for manual review - doesn't
-        # auto-merge because slight differences may be intentional.
-        entities = await _query("SELECT id, content, embedding FROM entity")
+        # entries that could be merged. When auto_merge is False, returns pairs for
+        # manual review. When True, automatically merges duplicates.
+        entities = await _query("SELECT id, content, embedding, access_count, accessed FROM entity")
         entities = entities[0] if entities else []
 
         # Use MTREE vector index to find k-nearest neighbors for each entity.
         # This is O(n*k) instead of O(n²) - much faster for large knowledge bases.
-        # Track seen pairs to avoid duplicates (A~B and B~A).
+        # Track seen/merged pairs to avoid duplicates (A~B and B~A).
         seen_pairs: set[tuple[str, str]] = set()
+        deleted_ids: set[str] = set()
 
         for entity in entities:
+            # Skip if this entity was already deleted in a previous merge
+            if str(entity['id']) in deleted_ids:
+                continue
+
             # Query k-nearest neighbors using the vector index
             similar = await _query("""
-                SELECT id, content, vector::similarity::cosine(embedding, $emb) AS sim
+                SELECT id, content, access_count, accessed,
+                       vector::similarity::cosine(embedding, $emb) AS sim
                 FROM entity
                 WHERE embedding <|10,100|> $emb AND id != $id
             """, {'emb': entity['embedding'], 'id': entity['id']})
 
             for candidate in (similar[0] if similar else []):
+                # Skip if candidate was already deleted
+                if str(candidate['id']) in deleted_ids:
+                    continue
+
                 if candidate['sim'] >= similarity_threshold:
                     # Create canonical pair key to avoid duplicates
                     id1, id2 = str(entity['id']), str(candidate['id'])
                     pair_key = (id1, id2) if id1 < id2 else (id2, id1)
                     if pair_key not in seen_pairs:
                         seen_pairs.add(pair_key)
-                        report['similar_pairs'].append({
-                            'entity1': {'id': entity['id'], 'content': entity['content'][:100]},
-                            'entity2': {'id': candidate['id'], 'content': candidate['content'][:100]},
-                            'similarity': candidate['sim']
-                        })
+
+                        if auto_merge:
+                            # Decide which to keep: higher access_count wins,
+                            # tie-breaker is more recent access
+                            e_count = entity.get('access_count', 0)
+                            c_count = candidate.get('access_count', 0)
+                            e_accessed = entity.get('accessed', '')
+                            c_accessed = candidate.get('accessed', '')
+
+                            if c_count > e_count or (c_count == e_count and c_accessed > e_accessed):
+                                # Keep candidate, delete entity
+                                to_delete = entity['id']
+                                kept = candidate['id']
+                            else:
+                                # Keep entity, delete candidate
+                                to_delete = candidate['id']
+                                kept = entity['id']
+
+                            # Delete the duplicate and its relations
+                            await _query("""
+                                DELETE $id;
+                                DELETE FROM $id->?;
+                                DELETE FROM ?->$id;
+                            """, {'id': to_delete})
+
+                            deleted_ids.add(str(to_delete))
+                            report['merged'] += 1
+                            logger.info(f"Merged duplicate: deleted {to_delete}, kept {kept}")
+                        else:
+                            report['similar_pairs'].append({
+                                'entity1': {'id': entity['id'], 'content': entity['content'][:100]},
+                                'entity2': {'id': candidate['id'], 'content': candidate['content'][:100]},
+                                'similarity': candidate['sim']
+                            })
 
     return json.dumps(report, indent=2, default=str)
 
