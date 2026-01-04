@@ -1,9 +1,16 @@
+import asyncio
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
+
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("memcp")
+
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
@@ -40,11 +47,67 @@ NLI_LABELS = ['contradiction', 'entailment', 'neutral']
 
 _initialized = False
 
+# Query timeout in seconds
+QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
+
+
+class ValidationError(Exception):
+    """Raised when input validation fails."""
+    pass
+
+
+class DatabaseError(Exception):
+    """Raised when database operations fail."""
+    pass
+
+
+def validate_entity(entity: dict) -> None:
+    """Validate entity structure before storing."""
+    if not isinstance(entity, dict):
+        raise ValidationError(f"Entity must be a dict, got {type(entity).__name__}")
+    if "id" not in entity:
+        raise ValidationError("Entity missing required field: 'id'")
+    if "content" not in entity:
+        raise ValidationError("Entity missing required field: 'content'")
+    if not isinstance(entity["id"], str) or not entity["id"].strip():
+        raise ValidationError("Entity 'id' must be a non-empty string")
+    if not isinstance(entity["content"], str) or not entity["content"].strip():
+        raise ValidationError("Entity 'content' must be a non-empty string")
+    if "labels" in entity and not isinstance(entity.get("labels"), list):
+        raise ValidationError("Entity 'labels' must be a list")
+    if "confidence" in entity:
+        conf = entity["confidence"]
+        if not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
+            raise ValidationError("Entity 'confidence' must be a number between 0 and 1")
+
+
+def validate_relation(relation: dict) -> None:
+    """Validate relation structure before storing."""
+    if not isinstance(relation, dict):
+        raise ValidationError(f"Relation must be a dict, got {type(relation).__name__}")
+    for field in ("from", "to", "type"):
+        if field not in relation:
+            raise ValidationError(f"Relation missing required field: '{field}'")
+        if not isinstance(relation[field], str) or not relation[field].strip():
+            raise ValidationError(f"Relation '{field}' must be a non-empty string")
+    if "weight" in relation:
+        weight = relation["weight"]
+        if not isinstance(weight, (int, float)):
+            raise ValidationError("Relation 'weight' must be a number")
+
 
 async def _query(sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
-    """Typed wrapper around db.query() to handle SurrealDB's Value union type."""
-    result = await _query(sql, cast(Any, vars))
-    return cast(QueryResult, result)
+    """Typed wrapper around db.query() with timeout and error handling."""
+    try:
+        async with asyncio.timeout(QUERY_TIMEOUT):
+            result = await db.query(sql, cast(Any, vars))
+            return cast(QueryResult, result)
+    except asyncio.TimeoutError:
+        logger.error(f"Query timed out after {QUERY_TIMEOUT}s")
+        raise DatabaseError(f"Query timed out after {QUERY_TIMEOUT}s")
+    except Exception as e:
+        logger.error(f"Database query failed: {e}")
+        raise DatabaseError(f"Database query failed: {e}") from e
 
 
 async def ensure_init():
@@ -53,15 +116,27 @@ async def ensure_init():
     if _initialized:
         return
 
-    if SURREALDB_USER and SURREALDB_PASS:
-        await db.signin({
-            "namespace": SURREALDB_NAMESPACE,
-            "database": SURREALDB_DATABASE,
-            "username": SURREALDB_USER,
-            "password": SURREALDB_PASS
-        })
+    try:
+        async with asyncio.timeout(QUERY_TIMEOUT):
+            await db.connect()
 
-    await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
+            if SURREALDB_USER and SURREALDB_PASS:
+                await db.signin({
+                    "namespace": SURREALDB_NAMESPACE,
+                    "database": SURREALDB_DATABASE,
+                    "username": SURREALDB_USER,
+                    "password": SURREALDB_PASS
+                })
+
+            await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
+    except asyncio.TimeoutError:
+        logger.error(f"Database connection timed out after {QUERY_TIMEOUT}s")
+        raise DatabaseError(f"Could not connect to SurrealDB at {SURREALDB_URL}: connection timed out")
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        raise DatabaseError(f"Could not connect to SurrealDB at {SURREALDB_URL}: {e}") from e
+
+    logger.info(f"Connected to SurrealDB at {SURREALDB_URL}")
 
     # Schema: each entity stores content + its vector embedding for similarity search.
     # decay_weight enables "forgetting" - memories accessed less often fade over time.
@@ -129,6 +204,13 @@ async def search(
     semantic_weight: float = 0.5
 ) -> str:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
+    if not query or not query.strip():
+        return "Error: Query cannot be empty"
+    if limit < 1 or limit > 100:
+        return "Error: Limit must be between 1 and 100"
+    if not 0 <= semantic_weight <= 1:
+        return "Error: semantic_weight must be between 0 and 1"
+
     await ensure_init()
 
     query_embedding = embed(query)
@@ -170,6 +252,9 @@ async def search(
 @mcp.tool()
 async def get_entity(id: str) -> str:
     """Retrieve a specific memory by its ID. Use when you have an exact entity ID from a previous search or traversal."""
+    if not id or not id.strip():
+        return "Error: ID cannot be empty"
+
     await ensure_init()
 
     # type::thing() constructs a record ID from table name + id string
@@ -206,6 +291,11 @@ async def traverse(
     relation_types: list[str] | None = None
 ) -> str:
     """Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic."""
+    if not start or not start.strip():
+        return "Error: start ID cannot be empty"
+    if depth < 1 or depth > 10:
+        return "Error: depth must be between 1 and 10"
+
     await ensure_init()
 
     relation_types = relation_types or []
@@ -236,6 +326,13 @@ async def find_path(
     max_depth: int = 5
 ) -> str:
     """Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts."""
+    if not from_id or not from_id.strip():
+        return "Error: from_id cannot be empty"
+    if not to_id or not to_id.strip():
+        return "Error: to_id cannot be empty"
+    if max_depth < 1 or max_depth > 20:
+        return "Error: max_depth must be between 1 and 20"
+
     await ensure_init()
 
     # SurrealDB 2.2+ shortest path: {..N+shortest=target} finds minimum-hop path
@@ -259,10 +356,24 @@ async def remember(
     entities: list of {id, content, type?, labels?, confidence?, source?}
     relations: list of {from, to, type, weight?}
     """
-    await ensure_init()
-
     entities = entities or []
     relations = relations or []
+
+    # Validate all inputs before any DB operations
+    for i, entity in enumerate(entities):
+        try:
+            validate_entity(entity)
+        except ValidationError as e:
+            return f"Error: Invalid entity at index {i}: {e}"
+
+    for i, relation in enumerate(relations):
+        try:
+            validate_relation(relation)
+        except ValidationError as e:
+            return f"Error: Invalid relation at index {i}: {e}"
+
+    await ensure_init()
+
     stored = {"entities": 0, "relations": 0, "contradictions": []}
 
     for entity in entities:
@@ -334,6 +445,9 @@ async def remember(
 @mcp.tool()
 async def forget(id: str) -> str:
     """Delete information from persistent memory. Use when the user says 'forget this', 'remove...', 'delete...', or when information is explicitly outdated or wrong."""
+    if not id or not id.strip():
+        return "Error: ID cannot be empty"
+
     await ensure_init()
 
     # Delete entity + all edges pointing to/from it (both directions)
@@ -355,6 +469,11 @@ async def reflect(
     similarity_threshold: float = 0.85
 ) -> str:
     """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories."""
+    if decay_days < 1:
+        return "Error: decay_days must be at least 1"
+    if not 0 <= similarity_threshold <= 1:
+        return "Error: similarity_threshold must be between 0 and 1"
+
     await ensure_init()
 
     report = {"decayed": 0, "similar_pairs": []}
