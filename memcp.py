@@ -1,9 +1,15 @@
 import json
 import os
 from datetime import datetime, timedelta
+from typing import Any, cast
+
 from mcp.server.fastmcp import FastMCP
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
+
+# Type alias for query results - SurrealDB returns list[Value] but we know
+# our queries return list of dicts in practice
+QueryResult = list[list[dict[str, Any]]]
 
 # Configuration from environment
 SURREALDB_URL = os.getenv("SURREALDB_URL", "ws://localhost:8000/rpc")
@@ -14,16 +20,35 @@ SURREALDB_PASS = os.getenv("SURREALDB_PASS")
 
 mcp = FastMCP("knowledge-graph")
 db = AsyncSurreal(SURREALDB_URL)
+
+# Embedding model: Transforms text into 384-dimensional vectors where semantically
+# similar texts cluster together in vector space. "all-MiniLM-L6-v2" is a lightweight
+# model trained on 1B+ sentence pairs - good balance of speed vs quality.
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+# NLI (Natural Language Inference) model: Given two sentences, classifies their
+# relationship as contradiction/entailment/neutral. Uses DeBERTa architecture
+# fine-tuned on SNLI+MNLI datasets. CrossEncoder means both sentences are processed
+# together (vs bi-encoder which encodes separately) - slower but more accurate.
 nli_model = CrossEncoder('cross-encoder/nli-deberta-v3-base')
 
-# NLI labels: contradiction, entailment, neutral
+# NLI output labels:
+# - contradiction: statements cannot both be true ("sky is blue" vs "sky is green")
+# - entailment: first statement implies second ("dog is running" -> "animal is moving")
+# - neutral: statements are unrelated or compatible but independent
 NLI_LABELS = ['contradiction', 'entailment', 'neutral']
 
 _initialized = False
 
 
+async def _query(sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
+    """Typed wrapper around db.query() to handle SurrealDB's Value union type."""
+    result = await _query(sql, cast(Any, vars))
+    return cast(QueryResult, result)
+
+
 async def ensure_init():
+    """Lazy init: schema creation happens on first tool call, not import."""
     global _initialized
     if _initialized:
         return
@@ -38,8 +63,10 @@ async def ensure_init():
 
     await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
 
-    # Schema setup with new fields
-    await db.query("""
+    # Schema: each entity stores content + its vector embedding for similarity search.
+    # decay_weight enables "forgetting" - memories accessed less often fade over time.
+    # access_count tracks retrieval frequency for importance scoring.
+    await _query("""
         DEFINE TABLE entity SCHEMAFULL;
         DEFINE FIELD type ON entity TYPE string;
         DEFINE FIELD labels ON entity TYPE array<string>;
@@ -53,9 +80,18 @@ async def ensure_init():
         DEFINE FIELD access_count ON entity TYPE int DEFAULT 0;
 
         DEFINE INDEX entity_labels ON entity FIELDS labels;
+
+        -- MTREE index: data structure optimized for approximate nearest neighbor (ANN)
+        -- search in high-dimensional spaces. DIMENSION 384 matches our embedding size.
+        -- COSINE distance: measures angle between vectors (1 = identical direction,
+        -- 0 = orthogonal, -1 = opposite). Preferred over Euclidean for text because
+        -- it's magnitude-invariant - "dog" and "DOG DOG DOG" point same direction.
         DEFINE INDEX entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
 
-        -- Full-text search index with BM25
+        -- BM25 (Best Match 25): probabilistic ranking function for keyword search.
+        -- Improves on TF-IDF by adding document length normalization and term
+        -- saturation (diminishing returns for repeated terms). Snowball stemmer
+        -- reduces words to roots ("running" -> "run") for better recall.
         DEFINE ANALYZER entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
         DEFINE INDEX entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
     """)
@@ -63,11 +99,20 @@ async def ensure_init():
 
 
 def embed(text: str) -> list[float]:
+    """
+    Convert text to dense vector representation. The model maps semantically
+    similar texts to nearby points in 384-dim space. This enables "fuzzy" search -
+    "canine" matches "dog" even though they share no characters.
+    """
     return embedder.encode(text).tolist()
 
 
 def check_contradiction(text1: str, text2: str) -> dict:
-    """Check if two texts contradict each other using NLI."""
+    """
+    Use NLI to detect logical conflicts between statements. The model outputs
+    logits for each class; we return both the winning label and raw scores
+    (useful for thresholding - e.g., only flag if contradiction score > 0.8).
+    """
     scores = nli_model.predict([(text1, text2)])
     label_idx = scores.argmax()
     return {
@@ -91,8 +136,12 @@ async def search(
 
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
 
-    # Hybrid search using SurrealDB's native capabilities
-    results = await db.query(f"""
+    # Hybrid search combines two complementary approaches:
+    # 1. BM25 (@1@): exact keyword matching - good for names, IDs, specific terms
+    # 2. Vector similarity (<|K,EF|>): semantic matching - good for concepts, paraphrases
+    # The semantic_weight param blends them: 0.0 = pure keyword, 1.0 = pure semantic.
+    # <|K,EF|> syntax: K=candidates to consider, EF=expansion factor for ANN accuracy.
+    results = await _query(f"""
         SELECT id, type, labels, content, confidence, source, decay_weight,
                search::score(1) AS bm25_score,
                vector::similarity::cosine(embedding, $emb) AS vec_score
@@ -108,10 +157,10 @@ async def search(
         'sem_weight': semantic_weight
     })
 
-    # Update access metadata
+    # Track access patterns - used by reflect() to identify stale memories
     entities = results[0] if results and results[0] else []
     for r in entities:
-        await db.query("""
+        await _query("""
             UPDATE $id SET accessed = time::now(), access_count += 1
         """, {'id': r['id']})
 
@@ -123,13 +172,14 @@ async def get_entity(id: str) -> str:
     """Retrieve a specific memory by its ID. Use when you have an exact entity ID from a previous search or traversal."""
     await ensure_init()
 
-    results = await db.query("""
+    # type::thing() constructs a record ID from table name + id string
+    results = await _query("""
         SELECT * FROM type::thing("entity", $id)
     """, {'id': id})
 
     entity = results[0][0] if results and results[0] else None
     if entity:
-        await db.query("""
+        await _query("""
             UPDATE type::thing("entity", $id) SET accessed = time::now(), access_count += 1
         """, {'id': id})
 
@@ -141,7 +191,8 @@ async def list_labels() -> str:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
     await ensure_init()
 
-    results = await db.query("""
+    # Flatten all label arrays into one, then deduplicate
+    results = await _query("""
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
     """)
     labels = results[0][0]['labels'] if results and results[0] else []
@@ -159,15 +210,18 @@ async def traverse(
 
     relation_types = relation_types or []
 
+    # SurrealDB graph traversal syntax:
+    # -> follows outgoing edges, ..N means up to N hops
+    # ->? means any edge type, ->(type1|type2) filters to specific types
+    # Returns the starting entity plus all reachable entities within depth
     if relation_types:
-        # Filtered traversal by relation type
         type_filter = '|'.join(relation_types)
-        results = await db.query(f"""
+        results = await _query(f"""
             SELECT *, ->(({type_filter}))..{depth}->entity AS connected
             FROM type::thing("entity", $id)
         """, {'id': start})
     else:
-        results = await db.query(f"""
+        results = await _query(f"""
             SELECT *, ->?..{depth}->entity AS connected
             FROM type::thing("entity", $id)
         """, {'id': start})
@@ -184,8 +238,10 @@ async def find_path(
     """Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts."""
     await ensure_init()
 
-    # Use SurrealDB 2.2+ native shortest path
-    results = await db.query(f"""
+    # SurrealDB 2.2+ shortest path: {..N+shortest=target} finds minimum-hop path
+    # between two nodes. Useful for explaining how concepts relate through
+    # intermediate nodes (e.g., "how is Python related to web development?")
+    results = await _query(f"""
         SELECT * FROM type::thing("entity", $from).{{..{max_depth}+shortest=type::thing("entity", $to)}}->?->entity
     """, {'from': from_id, 'to': to_id})
 
@@ -210,9 +266,11 @@ async def remember(
     stored = {"entities": 0, "relations": 0, "contradictions": []}
 
     for entity in entities:
-        # Check for contradictions if requested
         if check_contradictions:
-            similar = await db.query("""
+            # Find semantically similar entities using vector search, then run
+            # NLI to check for logical conflicts. This catches cases like storing
+            # "user prefers dark mode" when "user prefers light mode" already exists.
+            similar = await _query("""
                 SELECT id, content FROM entity
                 WHERE embedding <|5,100|> $emb AND id != $id
             """, {
@@ -230,7 +288,9 @@ async def remember(
                         'confidence': result['scores']['contradiction']
                     })
 
-        await db.query("""
+        # UPSERT: insert if new, update if exists. Embedding is regenerated
+        # on every update to ensure it matches current content.
+        await _query("""
             UPSERT type::thing("entity", $id) SET
                 type = $type,
                 labels = $labels,
@@ -250,7 +310,10 @@ async def remember(
         stored['entities'] += 1
 
     for rel in relations:
-        await db.query("""
+        # RELATE creates graph edges. The edge type becomes a table name,
+        # enabling queries like "find all 'causes' relationships".
+        # Weight can represent strength, certainty, or recency of relationship.
+        await _query("""
             RELATE type::thing("entity", $from)->$type->type::thing("entity", $to) SET weight = $weight
         """, {
             'from': rel['from'],
@@ -262,7 +325,7 @@ async def remember(
 
     msg = f"Stored {stored['entities']} entities, {stored['relations']} relations"
     if stored['contradictions']:
-        msg += f"\n⚠️ Found {len(stored['contradictions'])} potential contradictions:\n"
+        msg += f"\n Warning: Found {len(stored['contradictions'])} potential contradictions:\n"
         msg += json.dumps(stored['contradictions'], indent=2)
 
     return msg
@@ -273,7 +336,9 @@ async def forget(id: str) -> str:
     """Delete information from persistent memory. Use when the user says 'forget this', 'remove...', 'delete...', or when information is explicitly outdated or wrong."""
     await ensure_init()
 
-    await db.query("""
+    # Delete entity + all edges pointing to/from it (both directions)
+    # to avoid orphaned relationships in the graph
+    await _query("""
         DELETE type::thing("entity", $id);
         DELETE FROM type::thing("entity", $id)->?;
         DELETE FROM ?->type::thing("entity", $id);
@@ -294,23 +359,29 @@ async def reflect(
 
     report = {"decayed": 0, "similar_pairs": []}
 
-    # Apply temporal decay
     if apply_decay:
+        # Temporal decay: memories not accessed recently lose "weight", making
+        # them rank lower in searches. Mimics human forgetting - unused info fades.
+        # Multiplier 0.9 = 10% decay per reflect call; floor at 0.1 prevents total loss.
         cutoff = datetime.now() - timedelta(days=decay_days)
-        result = await db.query("""
+        result = await _query("""
             UPDATE entity SET decay_weight = decay_weight * 0.9
             WHERE accessed < $cutoff AND decay_weight > 0.1
         """, {'cutoff': cutoff.isoformat()})
         report['decayed'] = len(result[0]) if result and result[0] else 0
 
-    # Find similar entities that might be duplicates
     if find_similar:
-        entities = await db.query("SELECT id, content, embedding FROM entity")
+        # Duplicate detection: high cosine similarity (>0.85) suggests redundant
+        # entries that could be merged. Returns pairs for manual review - doesn't
+        # auto-merge because slight differences may be intentional.
+        entities = await _query("SELECT id, content, embedding FROM entity")
         entities = entities[0] if entities else []
 
+        # O(n^2) comparison - fine for small knowledge bases, may need optimization
+        # (e.g., locality-sensitive hashing) for large datasets
         for i, e1 in enumerate(entities):
             for e2 in entities[i+1:]:
-                similar = await db.query("""
+                similar = await _query("""
                     SELECT vector::similarity::cosine($emb1, $emb2) AS sim
                 """, {'emb1': e1['embedding'], 'emb2': e2['embedding']})
 
@@ -337,12 +408,12 @@ async def check_contradictions_tool(
     contradictions = []
 
     if entity_id:
-        # Check specific entity against similar ones
-        entity = await db.query('SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
+        # Check one entity against its semantic neighbors
+        entity = await _query('SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
         entity = entity[0][0] if entity and entity[0] else None
 
         if entity:
-            similar = await db.query("""
+            similar = await _query("""
                 SELECT id, content FROM entity
                 WHERE embedding <|10,100|> $emb AND id != type::thing("entity", $id)
             """, {'emb': entity['embedding'], 'id': entity_id})
@@ -356,21 +427,23 @@ async def check_contradictions_tool(
                         'confidence': result['scores']['contradiction']
                     })
     else:
-        # Check within labels or all entities
+        # Check all entities (optionally filtered by label)
         label_filter = "WHERE labels CONTAINSANY $labels" if labels else ""
-        entities = await db.query(f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
+        entities = await _query(f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
         entities = entities[0] if entities else []
 
-        # Compare semantically similar pairs
+        # Two-stage filter: first check semantic similarity (fast vector math),
+        # then run NLI only on related pairs (expensive model inference).
+        # Threshold 0.5 = moderately related - catches "sky is blue" vs "sky is green"
+        # but skips "sky is blue" vs "pizza is delicious".
         for i, e1 in enumerate(entities):
             for e2 in entities[i+1:]:
-                # Only check pairs that are somewhat similar
-                similar = await db.query("""
+                similar = await _query("""
                     SELECT vector::similarity::cosine($emb1, $emb2) AS sim
                 """, {'emb1': e1['embedding'], 'emb2': e2['embedding']})
 
                 sim = similar[0][0]['sim'] if similar and similar[0] else 0
-                if sim > 0.5:  # Only check semantically related content
+                if sim > 0.5:
                     result = check_contradiction(e1['content'], e2['content'])
                     if result['label'] == 'contradiction':
                         contradictions.append({
