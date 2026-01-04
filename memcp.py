@@ -490,27 +490,37 @@ async def reflect(
         report['decayed'] = len(result[0]) if result and result[0] else 0
 
     if find_similar:
-        # Duplicate detection: high cosine similarity (>0.85) suggests redundant
+        # Duplicate detection: high cosine similarity (>threshold) suggests redundant
         # entries that could be merged. Returns pairs for manual review - doesn't
         # auto-merge because slight differences may be intentional.
         entities = await _query("SELECT id, content, embedding FROM entity")
         entities = entities[0] if entities else []
 
-        # O(n^2) comparison - fine for small knowledge bases, may need optimization
-        # (e.g., locality-sensitive hashing) for large datasets
-        for i, e1 in enumerate(entities):
-            for e2 in entities[i+1:]:
-                similar = await _query("""
-                    SELECT vector::similarity::cosine($emb1, $emb2) AS sim
-                """, {'emb1': e1['embedding'], 'emb2': e2['embedding']})
+        # Use MTREE vector index to find k-nearest neighbors for each entity.
+        # This is O(n*k) instead of O(n²) - much faster for large knowledge bases.
+        # Track seen pairs to avoid duplicates (A~B and B~A).
+        seen_pairs: set[tuple[str, str]] = set()
 
-                sim = similar[0][0]['sim'] if similar and similar[0] else 0
-                if sim >= similarity_threshold:
-                    report['similar_pairs'].append({
-                        'entity1': {'id': e1['id'], 'content': e1['content'][:100]},
-                        'entity2': {'id': e2['id'], 'content': e2['content'][:100]},
-                        'similarity': sim
-                    })
+        for entity in entities:
+            # Query k-nearest neighbors using the vector index
+            similar = await _query("""
+                SELECT id, content, vector::similarity::cosine(embedding, $emb) AS sim
+                FROM entity
+                WHERE embedding <|10,100|> $emb AND id != $id
+            """, {'emb': entity['embedding'], 'id': entity['id']})
+
+            for candidate in (similar[0] if similar else []):
+                if candidate['sim'] >= similarity_threshold:
+                    # Create canonical pair key to avoid duplicates
+                    id1, id2 = str(entity['id']), str(candidate['id'])
+                    pair_key = (id1, id2) if id1 < id2 else (id2, id1)
+                    if pair_key not in seen_pairs:
+                        seen_pairs.add(pair_key)
+                        report['similar_pairs'].append({
+                            'entity1': {'id': entity['id'], 'content': entity['content'][:100]},
+                            'entity2': {'id': candidate['id'], 'content': candidate['content'][:100]},
+                            'similarity': candidate['sim']
+                        })
 
     return json.dumps(report, indent=2, default=str)
 
