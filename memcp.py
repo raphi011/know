@@ -59,6 +59,7 @@ class SearchResult(BaseModel):
     """Result from a memory search."""
     entities: list[EntityResult] = Field(default_factory=list)
     count: int = 0
+    summary: str | None = None
 
 
 class SimilarPair(BaseModel):
@@ -206,7 +207,7 @@ def get_db(ctx: Context) -> AsyncSurreal:
     return app_ctx.db
 
 
-async def query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
+async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
     """Execute a database query with timeout and error handling."""
     db = get_db(ctx)
     try:
@@ -248,28 +249,29 @@ def check_contradiction(text1: str, text2: str) -> dict:
 
 @mcp.tool(annotations={"readOnlyHint": True})
 async def search(
-    search_query: str,
+    query: str,
     labels: list[str] | None = None,
     limit: int = 10,
     semantic_weight: float = 0.5,
+    summarize: bool = False,
     ctx: Context = Depends()
-) -> list[EntityResult]:
+) -> SearchResult:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
-    if not search_query or not search_query.strip():
+    if not query or not query.strip():
         raise ToolError("Query cannot be empty")
     if limit < 1 or limit > 100:
         raise ToolError("Limit must be between 1 and 100")
     if not 0 <= semantic_weight <= 1:
         raise ToolError("semantic_weight must be between 0 and 1")
 
-    await ctx.info(f"Searching for: {search_query[:50]}...")
+    await ctx.info(f"Searching for: {query[:50]}...")
 
-    query_embedding = embed(search_query)
-    labels = labels or []
-    label_filter = "AND labels CONTAINSANY $labels" if labels else ""
+    query_embedding = embed(query)
+    filter_labels = labels or []
+    label_filter = "AND labels CONTAINSANY $labels" if filter_labels else ""
 
     # Hybrid search: BM25 keyword matching + vector similarity
-    results = await query(ctx, f"""
+    results = await run_query(ctx, f"""
         SELECT id, type, labels, content, confidence, source, decay_weight,
                search::score(1) AS bm25_score,
                vector::similarity::cosine(embedding, $emb) AS vec_score
@@ -278,9 +280,9 @@ async def search(
         ORDER BY (vec_score * $sem_weight + search::score(1) * (1 - $sem_weight)) DESC
         LIMIT $limit
     """, {
-        'q': search_query,
+        'q': query,
         'emb': query_embedding,
-        'labels': labels,
+        'labels': filter_labels,
         'limit': limit,
         'sem_weight': semantic_weight
     })
@@ -288,13 +290,13 @@ async def search(
     # Track access patterns
     entities = results[0] if results and results[0] else []
     for r in entities:
-        await query(ctx, """
+        await run_query(ctx, """
             UPDATE $id SET accessed = time::now(), access_count += 1
         """, {'id': r['id']})
 
     await ctx.info(f"Found {len(entities)} results")
 
-    return [EntityResult(
+    entity_results = [EntityResult(
         id=str(e['id']),
         type=e.get('type'),
         labels=e.get('labels', []),
@@ -304,6 +306,19 @@ async def search(
         decay_weight=e.get('decay_weight')
     ) for e in entities]
 
+    # Generate summary using LLM if requested
+    summary = None
+    if summarize and entity_results:
+        await ctx.info("Generating summary of search results")
+        contents = "\n---\n".join([f"[{e.id}]: {e.content[:200]}" for e in entity_results[:10]])
+        summary_response = await ctx.sample(
+            f"Summarize these memory search results for the query '{query}' in 2-3 sentences. "
+            f"Focus on the most relevant information.\n\nResults:\n{contents}"
+        )
+        summary = summary_response.text
+
+    return SearchResult(entities=entity_results, count=len(entity_results), summary=summary)
+
 
 @mcp.tool(annotations={"readOnlyHint": True})
 async def get_entity(entity_id: str, ctx: Context = Depends()) -> EntityResult | None:
@@ -311,13 +326,13 @@ async def get_entity(entity_id: str, ctx: Context = Depends()) -> EntityResult |
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
 
-    results = await query(ctx, """
+    results = await run_query(ctx, """
         SELECT * FROM type::thing("entity", $id)
     """, {'id': entity_id})
 
     entity = results[0][0] if results and results[0] else None
     if entity:
-        await query(ctx, """
+        await run_query(ctx, """
             UPDATE type::thing("entity", $id) SET accessed = time::now(), access_count += 1
         """, {'id': entity_id})
 
@@ -336,7 +351,7 @@ async def get_entity(entity_id: str, ctx: Context = Depends()) -> EntityResult |
 @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def list_labels(ctx: Context = Depends()) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
-    results = await query(ctx, """
+    results = await run_query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
     """)
     return results[0][0]['labels'] if results and results[0] else []
@@ -361,12 +376,12 @@ async def traverse(
 
     if relation_types:
         type_filter = '|'.join(relation_types)
-        results = await query(ctx, f"""
+        results = await run_query(ctx, f"""
             SELECT *, ->(({type_filter}))..{depth}->entity AS connected
             FROM type::thing("entity", $id)
         """, {'id': start})
     else:
-        results = await query(ctx, f"""
+        results = await run_query(ctx, f"""
             SELECT *, ->?..{depth}->entity AS connected
             FROM type::thing("entity", $id)
         """, {'id': start})
@@ -391,7 +406,7 @@ async def find_path(
 
     await ctx.info(f"Finding path from {from_id} to {to_id}")
 
-    results = await query(ctx, f"""
+    results = await run_query(ctx, f"""
         SELECT * FROM type::thing("entity", $from).{{..{max_depth}+shortest=type::thing("entity", $to)}}->?->entity
     """, {'from': from_id, 'to': to_id})
 
@@ -403,12 +418,14 @@ async def remember(
     entities: list[dict] | None = None,
     relations: list[dict] | None = None,
     detect_contradictions: bool = False,
+    auto_tag: bool = False,
     ctx: Context = Depends()
 ) -> RememberResult:
     """Store important information in persistent memory for future sessions. Use proactively when the user shares preferences, facts about themselves, project context, decisions, or anything they'd want you to recall later. Supports confidence scores and contradiction detection.
 
     entities: list of {id, content, type?, labels?, confidence?, source?}
     relations: list of {from, to, type, weight?}
+    auto_tag: if True, uses LLM to generate labels for entities without labels
     """
     entities = entities or []
     relations = relations or []
@@ -425,8 +442,19 @@ async def remember(
     await ctx.info(f"Storing {len(entities)} entities and {len(relations)} relations")
 
     for entity in entities:
+        # Auto-generate labels using LLM if requested and no labels provided
+        if auto_tag and not entity.get('labels'):
+            await ctx.info(f"Auto-tagging entity: {entity['id']}")
+            tag_response = await ctx.sample(
+                f"Generate 3-5 short, lowercase category tags (comma-separated) for this content. "
+                f"Only output the tags, nothing else.\n\nContent: {entity['content'][:500]}"
+            )
+            # Parse comma-separated tags
+            tags = [t.strip().lower() for t in tag_response.text.split(',') if t.strip()]
+            entity['labels'] = tags[:5]  # Limit to 5 tags
+
         if detect_contradictions:
-            similar = await query(ctx, """
+            similar = await run_query(ctx, """
                 SELECT id, content FROM entity
                 WHERE embedding <|5,100|> $emb AND id != $id
             """, {
@@ -443,7 +471,7 @@ async def remember(
                         confidence=nli_result['scores']['contradiction']
                     ))
 
-        await query(ctx, """
+        await run_query(ctx, """
             UPSERT type::thing("entity", $id) SET
                 type = $type,
                 labels = $labels,
@@ -463,7 +491,7 @@ async def remember(
         result.entities_stored += 1
 
     for rel in relations:
-        await query(ctx, """
+        await run_query(ctx, """
             RELATE type::thing("entity", $from)->$type->type::thing("entity", $to) SET weight = $weight
         """, {
             'from': rel['from'],
@@ -486,7 +514,7 @@ async def forget(entity_id: str, ctx: Context = Depends()) -> str:
 
     await ctx.info(f"Deleting entity: {entity_id}")
 
-    await query(ctx, """
+    await run_query(ctx, """
         DELETE type::thing("entity", $id);
         DELETE FROM type::thing("entity", $id)->?;
         DELETE FROM ?->type::thing("entity", $id);
@@ -524,7 +552,7 @@ async def reflect(
     if apply_decay:
         await ctx.info("Applying temporal decay to old memories")
         cutoff = datetime.now() - timedelta(days=decay_days)
-        decay_result = await query(ctx, """
+        decay_result = await run_query(ctx, """
             UPDATE entity SET decay_weight = decay_weight * 0.9
             WHERE accessed < $cutoff AND decay_weight > 0.1
         """, {'cutoff': cutoff.isoformat()})
@@ -532,7 +560,7 @@ async def reflect(
 
     if find_similar:
         await ctx.info("Finding similar entities")
-        entities = await query(ctx, "SELECT id, content, embedding, access_count, accessed FROM entity")
+        entities = await run_query(ctx, "SELECT id, content, embedding, access_count, accessed FROM entity")
         entities = entities[0] if entities else []
 
         seen_pairs: set[tuple[str, str]] = set()
@@ -542,7 +570,7 @@ async def reflect(
             if str(entity['id']) in deleted_ids:
                 continue
 
-            similar = await query(ctx, """
+            similar = await run_query(ctx, """
                 SELECT id, content, access_count, accessed,
                        vector::similarity::cosine(embedding, $emb) AS sim
                 FROM entity
@@ -570,7 +598,7 @@ async def reflect(
                             else:
                                 to_delete = candidate['id']
 
-                            await query(ctx, """
+                            await run_query(ctx, """
                                 DELETE $id;
                                 DELETE FROM $id->?;
                                 DELETE FROM ?->$id;
@@ -603,11 +631,11 @@ async def check_contradictions_tool(
     await ctx.info("Checking for contradictions")
 
     if entity_id:
-        entity = await query(ctx, 'SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
+        entity = await run_query(ctx, 'SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
         entity = entity[0][0] if entity and entity[0] else None
 
         if entity:
-            similar = await query(ctx, """
+            similar = await run_query(ctx, """
                 SELECT id, content FROM entity
                 WHERE embedding <|10,100|> $emb AND id != type::thing("entity", $id)
             """, {'emb': entity['embedding'], 'id': entity_id})
@@ -622,12 +650,12 @@ async def check_contradictions_tool(
                     ))
     else:
         label_filter = "WHERE labels CONTAINSANY $labels" if labels else ""
-        entities = await query(ctx, f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
+        entities = await run_query(ctx, f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
         entities = entities[0] if entities else []
 
         for i, e1 in enumerate(entities):
             for e2 in entities[i+1:]:
-                similar = await query(ctx, """
+                similar = await run_query(ctx, """
                     SELECT vector::similarity::cosine($emb1, $emb2) AS sim
                 """, {'emb1': e1['embedding'], 'emb2': e2['embedding']})
 
@@ -652,17 +680,17 @@ async def check_contradictions_tool(
 @mcp.resource("memory://stats")
 async def get_memory_stats(ctx: Context = Depends()) -> MemoryStats:
     """Get statistics about the memory store."""
-    entity_count = await query(ctx, "SELECT count() FROM entity GROUP ALL")
+    entity_count = await run_query(ctx, "SELECT count() FROM entity GROUP ALL")
     total_entities = entity_count[0][0]['count'] if entity_count and entity_count[0] else 0
 
     # Count relations by querying all edge tables
     # Note: This is approximate as we'd need to know all relation types
-    relation_count = await query(ctx, """
+    relation_count = await run_query(ctx, """
         SELECT count() FROM (SELECT * FROM ->?) GROUP ALL
     """)
     total_relations = relation_count[0][0]['count'] if relation_count and relation_count[0] else 0
 
-    labels_result = await query(ctx, """
+    labels_result = await run_query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
     """)
     all_labels = labels_result[0][0]['labels'] if labels_result and labels_result[0] else []
@@ -670,7 +698,7 @@ async def get_memory_stats(ctx: Context = Depends()) -> MemoryStats:
     # Count entities per label
     label_counts: dict[str, int] = {}
     for label in all_labels:
-        count_result = await query(ctx, """
+        count_result = await run_query(ctx, """
             SELECT count() FROM entity WHERE labels CONTAINS $label GROUP ALL
         """, {'label': label})
         label_counts[label] = count_result[0][0]['count'] if count_result and count_result[0] else 0
@@ -686,7 +714,7 @@ async def get_memory_stats(ctx: Context = Depends()) -> MemoryStats:
 @mcp.resource("memory://labels")
 async def get_all_labels(ctx: Context = Depends()) -> list[str]:
     """Get all labels/categories used in memory."""
-    results = await query(ctx, """
+    results = await run_query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
     """)
     return results[0][0]['labels'] if results and results[0] else []
