@@ -1,18 +1,14 @@
 import asyncio
-import atexit
 import json
-import logging
 import os
-import signal
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-from mcp.server.fastmcp import FastMCP
-
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("memcp")
-
+from mcp.server.fastmcp import FastMCP, Context
+from pydantic import BaseModel, Field
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
@@ -26,9 +22,7 @@ SURREALDB_NAMESPACE = os.getenv("SURREALDB_NAMESPACE", "knowledge")
 SURREALDB_DATABASE = os.getenv("SURREALDB_DATABASE", "graph")
 SURREALDB_USER = os.getenv("SURREALDB_USER")
 SURREALDB_PASS = os.getenv("SURREALDB_PASS")
-
-mcp = FastMCP("knowledge-graph")
-db = AsyncSurreal(SURREALDB_URL)
+QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
 
 # Embedding model: Transforms text into 384-dimensional vectors where semantically
 # similar texts cluster together in vector space. "all-MiniLM-L6-v2" is a lightweight
@@ -41,55 +35,133 @@ embedder = SentenceTransformer('all-MiniLM-L6-v2')
 # together (vs bi-encoder which encodes separately) - slower but more accurate.
 nli_model = CrossEncoder('cross-encoder/nli-deberta-v3-base')
 
-# NLI output labels:
-# - contradiction: statements cannot both be true ("sky is blue" vs "sky is green")
-# - entailment: first statement implies second ("dog is running" -> "animal is moving")
-# - neutral: statements are unrelated or compatible but independent
+# NLI output labels
 NLI_LABELS = ['contradiction', 'entailment', 'neutral']
 
-_initialized = False
-_shutdown_event = asyncio.Event()
 
-# Query timeout in seconds
-QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
+# =============================================================================
+# Pydantic Response Models
+# =============================================================================
 
-
-async def shutdown():
-    """Gracefully close database connection."""
-    global _initialized
-    if _initialized:
-        try:
-            await db.close()
-            logger.info("Database connection closed")
-        except Exception as e:
-            logger.error(f"Error closing database connection: {e}")
-        finally:
-            _initialized = False
+class EntityResult(BaseModel):
+    """A memory entity returned from search or retrieval."""
+    id: str
+    type: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    content: str
+    confidence: float | None = None
+    source: str | None = None
+    decay_weight: float | None = None
 
 
-def _sync_shutdown():
-    """Synchronous wrapper for shutdown, used by atexit."""
-    if _initialized:
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(shutdown())
-            else:
-                loop.run_until_complete(shutdown())
-        except RuntimeError:
-            # No event loop, create a new one
-            asyncio.run(shutdown())
+class SearchResult(BaseModel):
+    """Result from a memory search."""
+    entities: list[EntityResult] = Field(default_factory=list)
+    count: int = 0
 
 
-def _signal_handler(signum: int, frame: Any) -> None:
-    """Handle shutdown signals gracefully."""
-    logger.info(f"Received signal {signum}, shutting down...")
-    _sync_shutdown()
+class SimilarPair(BaseModel):
+    """A pair of similar entities found during reflection."""
+    entity1: EntityResult
+    entity2: EntityResult
+    similarity: float
 
 
-# Register cleanup handlers
-atexit.register(_sync_shutdown)
-signal.signal(signal.SIGTERM, _signal_handler)
+class Contradiction(BaseModel):
+    """A contradiction detected between two entities."""
+    entity1: EntityResult
+    entity2: EntityResult
+    confidence: float
+
+
+class ReflectResult(BaseModel):
+    """Result from the reflect maintenance operation."""
+    decayed: int = 0
+    similar_pairs: list[SimilarPair] = Field(default_factory=list)
+    merged: int = 0
+
+
+class RememberResult(BaseModel):
+    """Result from storing memories."""
+    entities_stored: int = 0
+    relations_stored: int = 0
+    contradictions: list[Contradiction] = Field(default_factory=list)
+
+
+class MemoryStats(BaseModel):
+    """Statistics about the memory store."""
+    total_entities: int = 0
+    total_relations: int = 0
+    labels: list[str] = Field(default_factory=list)
+    label_counts: dict[str, int] = Field(default_factory=dict)
+
+
+# =============================================================================
+# Lifespan Context & Database Management
+# =============================================================================
+
+@dataclass
+class AppContext:
+    """Application context available during server lifetime."""
+    db: AsyncSurreal
+    initialized: bool = False
+
+
+@asynccontextmanager
+async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+    """Manage database connection lifecycle."""
+    db = AsyncSurreal(SURREALDB_URL)
+    ctx = AppContext(db=db)
+
+    try:
+        # Connect to database
+        async with asyncio.timeout(QUERY_TIMEOUT):
+            await db.connect()
+
+            if SURREALDB_USER and SURREALDB_PASS:
+                await db.signin({
+                    "namespace": SURREALDB_NAMESPACE,
+                    "database": SURREALDB_DATABASE,
+                    "username": SURREALDB_USER,
+                    "password": SURREALDB_PASS
+                })
+
+            await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
+
+        # Initialize schema
+        await db.query(cast(Any, """
+            DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
+            DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
+            DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string>;
+            DEFINE FIELD IF NOT EXISTS content ON entity TYPE string;
+            DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
+            DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 1.0;
+            DEFINE FIELD IF NOT EXISTS source ON entity TYPE string;
+            DEFINE FIELD IF NOT EXISTS decay_weight ON entity TYPE float DEFAULT 1.0;
+            DEFINE FIELD IF NOT EXISTS created ON entity TYPE datetime DEFAULT time::now();
+            DEFINE FIELD IF NOT EXISTS accessed ON entity TYPE datetime DEFAULT time::now();
+            DEFINE FIELD IF NOT EXISTS access_count ON entity TYPE int DEFAULT 0;
+
+            DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
+            DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
+            DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
+            DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
+        """))
+
+        ctx.initialized = True
+        yield ctx
+
+    finally:
+        # Cleanup on shutdown
+        if ctx.initialized:
+            try:
+                await db.close()
+            except Exception:
+                pass
+
+
+# Create server with lifespan
+mcp = FastMCP("knowledge-graph", lifespan=app_lifespan)
 
 
 class ValidationError(Exception):
@@ -137,81 +209,25 @@ def validate_relation(relation: dict) -> None:
             raise ValidationError("Relation 'weight' must be a number")
 
 
-async def _query(sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
-    """Typed wrapper around db.query() with timeout and error handling."""
+def get_db(ctx: Context) -> AsyncSurreal:
+    """Get database connection from context."""
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+    return app_ctx.db
+
+
+async def query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
+    """Execute a database query with timeout and error handling."""
+    db = get_db(ctx)
     try:
         async with asyncio.timeout(QUERY_TIMEOUT):
             result = await db.query(sql, cast(Any, vars))
             return cast(QueryResult, result)
     except asyncio.TimeoutError:
-        logger.error(f"Query timed out after {QUERY_TIMEOUT}s")
+        await ctx.error(f"Query timed out after {QUERY_TIMEOUT}s")
         raise DatabaseError(f"Query timed out after {QUERY_TIMEOUT}s")
     except Exception as e:
-        logger.error(f"Database query failed: {e}")
+        await ctx.error(f"Database query failed: {e}")
         raise DatabaseError(f"Database query failed: {e}") from e
-
-
-async def ensure_init():
-    """Lazy init: schema creation happens on first tool call, not import."""
-    global _initialized
-    if _initialized:
-        return
-
-    try:
-        async with asyncio.timeout(QUERY_TIMEOUT):
-            await db.connect()
-
-            if SURREALDB_USER and SURREALDB_PASS:
-                await db.signin({
-                    "namespace": SURREALDB_NAMESPACE,
-                    "database": SURREALDB_DATABASE,
-                    "username": SURREALDB_USER,
-                    "password": SURREALDB_PASS
-                })
-
-            await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
-    except asyncio.TimeoutError:
-        logger.error(f"Database connection timed out after {QUERY_TIMEOUT}s")
-        raise DatabaseError(f"Could not connect to SurrealDB at {SURREALDB_URL}: connection timed out")
-    except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        raise DatabaseError(f"Could not connect to SurrealDB at {SURREALDB_URL}: {e}") from e
-
-    logger.info(f"Connected to SurrealDB at {SURREALDB_URL}")
-
-    # Schema: each entity stores content + its vector embedding for similarity search.
-    # decay_weight enables "forgetting" - memories accessed less often fade over time.
-    # access_count tracks retrieval frequency for importance scoring.
-    await _query("""
-        DEFINE TABLE entity SCHEMAFULL;
-        DEFINE FIELD type ON entity TYPE string;
-        DEFINE FIELD labels ON entity TYPE array<string>;
-        DEFINE FIELD content ON entity TYPE string;
-        DEFINE FIELD embedding ON entity TYPE array<float>;
-        DEFINE FIELD confidence ON entity TYPE float DEFAULT 1.0;
-        DEFINE FIELD source ON entity TYPE string;
-        DEFINE FIELD decay_weight ON entity TYPE float DEFAULT 1.0;
-        DEFINE FIELD created ON entity TYPE datetime DEFAULT time::now();
-        DEFINE FIELD accessed ON entity TYPE datetime DEFAULT time::now();
-        DEFINE FIELD access_count ON entity TYPE int DEFAULT 0;
-
-        DEFINE INDEX entity_labels ON entity FIELDS labels;
-
-        -- MTREE index: data structure optimized for approximate nearest neighbor (ANN)
-        -- search in high-dimensional spaces. DIMENSION 384 matches our embedding size.
-        -- COSINE distance: measures angle between vectors (1 = identical direction,
-        -- 0 = orthogonal, -1 = opposite). Preferred over Euclidean for text because
-        -- it's magnitude-invariant - "dog" and "DOG DOG DOG" point same direction.
-        DEFINE INDEX entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
-
-        -- BM25 (Best Match 25): probabilistic ranking function for keyword search.
-        -- Improves on TF-IDF by adding document length normalization and term
-        -- saturation (diminishing returns for repeated terms). Snowball stemmer
-        -- reduces words to roots ("running" -> "run") for better recall.
-        DEFINE ANALYZER entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
-        DEFINE INDEX entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
-    """)
-    _initialized = True
 
 
 def embed(text: str) -> list[float]:
@@ -237,122 +253,127 @@ def check_contradiction(text1: str, text2: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 async def search(
-    query: str,
+    search_query: str,
+    ctx: Context,
     labels: list[str] | None = None,
     limit: int = 10,
     semantic_weight: float = 0.5
-) -> str:
+) -> list[EntityResult]:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
-    if not query or not query.strip():
-        return "Error: Query cannot be empty"
+    if not search_query or not search_query.strip():
+        raise ValidationError("Query cannot be empty")
     if limit < 1 or limit > 100:
-        return "Error: Limit must be between 1 and 100"
+        raise ValidationError("Limit must be between 1 and 100")
     if not 0 <= semantic_weight <= 1:
-        return "Error: semantic_weight must be between 0 and 1"
+        raise ValidationError("semantic_weight must be between 0 and 1")
 
-    await ensure_init()
+    await ctx.info(f"Searching for: {search_query[:50]}...")
 
-    query_embedding = embed(query)
+    query_embedding = embed(search_query)
     labels = labels or []
-
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
 
-    # Hybrid search combines two complementary approaches:
-    # 1. BM25 (@1@): exact keyword matching - good for names, IDs, specific terms
-    # 2. Vector similarity (<|K,EF|>): semantic matching - good for concepts, paraphrases
-    # The semantic_weight param blends them: 0.0 = pure keyword, 1.0 = pure semantic.
-    # <|K,EF|> syntax: K=candidates to consider, EF=expansion factor for ANN accuracy.
-    results = await _query(f"""
+    # Hybrid search: BM25 keyword matching + vector similarity
+    results = await query(ctx, f"""
         SELECT id, type, labels, content, confidence, source, decay_weight,
                search::score(1) AS bm25_score,
                vector::similarity::cosine(embedding, $emb) AS vec_score
         FROM entity
-        WHERE (content @1@ $query OR embedding <|{limit * 2},100|> $emb) {label_filter}
+        WHERE (content @1@ $q OR embedding <|{limit * 2},100|> $emb) {label_filter}
         ORDER BY (vec_score * $sem_weight + search::score(1) * (1 - $sem_weight)) DESC
         LIMIT $limit
     """, {
-        'query': query,
+        'q': search_query,
         'emb': query_embedding,
         'labels': labels,
         'limit': limit,
         'sem_weight': semantic_weight
     })
 
-    # Track access patterns - used by reflect() to identify stale memories
+    # Track access patterns
     entities = results[0] if results and results[0] else []
     for r in entities:
-        await _query("""
+        await query(ctx, """
             UPDATE $id SET accessed = time::now(), access_count += 1
         """, {'id': r['id']})
 
-    return json.dumps(entities, indent=2, default=str)
+    await ctx.info(f"Found {len(entities)} results")
+
+    return [EntityResult(
+        id=str(e['id']),
+        type=e.get('type'),
+        labels=e.get('labels', []),
+        content=e['content'],
+        confidence=e.get('confidence'),
+        source=e.get('source'),
+        decay_weight=e.get('decay_weight')
+    ) for e in entities]
 
 
-@mcp.tool()
-async def get_entity(id: str) -> str:
+@mcp.tool(annotations={"readOnlyHint": True})
+async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
     """Retrieve a specific memory by its ID. Use when you have an exact entity ID from a previous search or traversal."""
-    if not id or not id.strip():
-        return "Error: ID cannot be empty"
+    if not entity_id or not entity_id.strip():
+        raise ValidationError("ID cannot be empty")
 
-    await ensure_init()
-
-    # type::thing() constructs a record ID from table name + id string
-    results = await _query("""
+    results = await query(ctx, """
         SELECT * FROM type::thing("entity", $id)
-    """, {'id': id})
+    """, {'id': entity_id})
 
     entity = results[0][0] if results and results[0] else None
     if entity:
-        await _query("""
+        await query(ctx, """
             UPDATE type::thing("entity", $id) SET accessed = time::now(), access_count += 1
-        """, {'id': id})
+        """, {'id': entity_id})
 
-    return json.dumps(entity, indent=2, default=str)
+        return EntityResult(
+            id=str(entity['id']),
+            type=entity.get('type'),
+            labels=entity.get('labels', []),
+            content=entity['content'],
+            confidence=entity.get('confidence'),
+            source=entity.get('source'),
+            decay_weight=entity.get('decay_weight')
+        )
+    return None
 
 
-@mcp.tool()
-async def list_labels() -> str:
+@mcp.tool(annotations={"readOnlyHint": True})
+async def list_labels(ctx: Context) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
-    await ensure_init()
-
-    # Flatten all label arrays into one, then deduplicate
-    results = await _query("""
+    results = await query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
     """)
-    labels = results[0][0]['labels'] if results and results[0] else []
-    return json.dumps(labels, indent=2)
+    return results[0][0]['labels'] if results and results[0] else []
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 async def traverse(
     start: str,
+    ctx: Context,
     depth: int = 2,
     relation_types: list[str] | None = None
 ) -> str:
     """Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic."""
     if not start or not start.strip():
-        return "Error: start ID cannot be empty"
+        raise ValidationError("start ID cannot be empty")
     if depth < 1 or depth > 10:
-        return "Error: depth must be between 1 and 10"
+        raise ValidationError("depth must be between 1 and 10")
 
-    await ensure_init()
+    await ctx.info(f"Traversing from {start} with depth {depth}")
 
     relation_types = relation_types or []
 
-    # SurrealDB graph traversal syntax:
-    # -> follows outgoing edges, ..N means up to N hops
-    # ->? means any edge type, ->(type1|type2) filters to specific types
-    # Returns the starting entity plus all reachable entities within depth
     if relation_types:
         type_filter = '|'.join(relation_types)
-        results = await _query(f"""
+        results = await query(ctx, f"""
             SELECT *, ->(({type_filter}))..{depth}->entity AS connected
             FROM type::thing("entity", $id)
         """, {'id': start})
     else:
-        results = await _query(f"""
+        results = await query(ctx, f"""
             SELECT *, ->?..{depth}->entity AS connected
             FROM type::thing("entity", $id)
         """, {'id': start})
@@ -360,38 +381,37 @@ async def traverse(
     return json.dumps(results[0] if results else [], indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 async def find_path(
     from_id: str,
     to_id: str,
+    ctx: Context,
     max_depth: int = 5
 ) -> str:
     """Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts."""
     if not from_id or not from_id.strip():
-        return "Error: from_id cannot be empty"
+        raise ValidationError("from_id cannot be empty")
     if not to_id or not to_id.strip():
-        return "Error: to_id cannot be empty"
+        raise ValidationError("to_id cannot be empty")
     if max_depth < 1 or max_depth > 20:
-        return "Error: max_depth must be between 1 and 20"
+        raise ValidationError("max_depth must be between 1 and 20")
 
-    await ensure_init()
+    await ctx.info(f"Finding path from {from_id} to {to_id}")
 
-    # SurrealDB 2.2+ shortest path: {..N+shortest=target} finds minimum-hop path
-    # between two nodes. Useful for explaining how concepts relate through
-    # intermediate nodes (e.g., "how is Python related to web development?")
-    results = await _query(f"""
+    results = await query(ctx, f"""
         SELECT * FROM type::thing("entity", $from).{{..{max_depth}+shortest=type::thing("entity", $to)}}->?->entity
     """, {'from': from_id, 'to': to_id})
 
     return json.dumps(results[0] if results else [], indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"destructiveHint": False})
 async def remember(
+    ctx: Context,
     entities: list[dict] | None = None,
     relations: list[dict] | None = None,
-    check_contradictions: bool = False
-) -> str:
+    detect_contradictions: bool = False
+) -> RememberResult:
     """Store important information in persistent memory for future sessions. Use proactively when the user shares preferences, facts about themselves, project context, decisions, or anything they'd want you to recall later. Supports confidence scores and contradiction detection.
 
     entities: list of {id, content, type?, labels?, confidence?, source?}
@@ -402,27 +422,18 @@ async def remember(
 
     # Validate all inputs before any DB operations
     for i, entity in enumerate(entities):
-        try:
-            validate_entity(entity)
-        except ValidationError as e:
-            return f"Error: Invalid entity at index {i}: {e}"
+        validate_entity(entity)
 
     for i, relation in enumerate(relations):
-        try:
-            validate_relation(relation)
-        except ValidationError as e:
-            return f"Error: Invalid relation at index {i}: {e}"
+        validate_relation(relation)
 
-    await ensure_init()
+    result = RememberResult()
 
-    stored = {"entities": 0, "relations": 0, "contradictions": []}
+    await ctx.info(f"Storing {len(entities)} entities and {len(relations)} relations")
 
     for entity in entities:
-        if check_contradictions:
-            # Find semantically similar entities using vector search, then run
-            # NLI to check for logical conflicts. This catches cases like storing
-            # "user prefers dark mode" when "user prefers light mode" already exists.
-            similar = await _query("""
+        if detect_contradictions:
+            similar = await query(ctx, """
                 SELECT id, content FROM entity
                 WHERE embedding <|5,100|> $emb AND id != $id
             """, {
@@ -431,18 +442,15 @@ async def remember(
             })
 
             for existing in (similar[0] if similar else []):
-                result = check_contradiction(entity['content'], existing['content'])
-                if result['label'] == 'contradiction':
-                    stored['contradictions'].append({
-                        'new': entity['content'],
-                        'existing_id': existing['id'],
-                        'existing': existing['content'],
-                        'confidence': result['scores']['contradiction']
-                    })
+                nli_result = check_contradiction(entity['content'], existing['content'])
+                if nli_result['label'] == 'contradiction':
+                    result.contradictions.append(Contradiction(
+                        entity1=EntityResult(id=entity['id'], content=entity['content']),
+                        entity2=EntityResult(id=str(existing['id']), content=existing['content']),
+                        confidence=nli_result['scores']['contradiction']
+                    ))
 
-        # UPSERT: insert if new, update if exists. Embedding is regenerated
-        # on every update to ensure it matches current content.
-        await _query("""
+        await query(ctx, """
             UPSERT type::thing("entity", $id) SET
                 type = $type,
                 labels = $labels,
@@ -459,13 +467,10 @@ async def remember(
             'confidence': entity.get('confidence', 1.0),
             'source': entity.get('source')
         })
-        stored['entities'] += 1
+        result.entities_stored += 1
 
     for rel in relations:
-        # RELATE creates graph edges. The edge type becomes a table name,
-        # enabling queries like "find all 'causes' relationships".
-        # Weight can represent strength, certainty, or recency of relationship.
-        await _query("""
+        await query(ctx, """
             RELATE type::thing("entity", $from)->$type->type::thing("entity", $to) SET weight = $weight
         """, {
             'from': rel['from'],
@@ -473,43 +478,39 @@ async def remember(
             'to': rel['to'],
             'weight': rel.get('weight', 1.0)
         })
-        stored['relations'] += 1
+        result.relations_stored += 1
 
-    msg = f"Stored {stored['entities']} entities, {stored['relations']} relations"
-    if stored['contradictions']:
-        msg += f"\n Warning: Found {len(stored['contradictions'])} potential contradictions:\n"
-        msg += json.dumps(stored['contradictions'], indent=2)
+    await ctx.info(f"Stored {result.entities_stored} entities, {result.relations_stored} relations")
 
-    return msg
+    return result
 
 
-@mcp.tool()
-async def forget(id: str) -> str:
+@mcp.tool(annotations={"destructiveHint": True})
+async def forget(entity_id: str, ctx: Context) -> str:
     """Delete information from persistent memory. Use when the user says 'forget this', 'remove...', 'delete...', or when information is explicitly outdated or wrong."""
-    if not id or not id.strip():
-        return "Error: ID cannot be empty"
+    if not entity_id or not entity_id.strip():
+        raise ValidationError("ID cannot be empty")
 
-    await ensure_init()
+    await ctx.info(f"Deleting entity: {entity_id}")
 
-    # Delete entity + all edges pointing to/from it (both directions)
-    # to avoid orphaned relationships in the graph
-    await _query("""
+    await query(ctx, """
         DELETE type::thing("entity", $id);
         DELETE FROM type::thing("entity", $id)->?;
         DELETE FROM ?->type::thing("entity", $id);
-    """, {'id': id})
+    """, {'id': entity_id})
 
-    return f"Removed {id}"
+    return f"Removed {entity_id}"
 
 
-@mcp.tool()
+@mcp.tool(annotations={"destructiveHint": True})
 async def reflect(
+    ctx: Context,
     apply_decay: bool = True,
     decay_days: int = 30,
     find_similar: bool = True,
     similarity_threshold: float = 0.85,
     auto_merge: bool = False
-) -> str:
+) -> ReflectResult:
     """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories.
 
     When auto_merge is True, duplicate entities (similarity >= threshold) are automatically
@@ -517,45 +518,34 @@ async def reflect(
     counts are equal, the more recently accessed entity is kept.
     """
     if decay_days < 1:
-        return "Error: decay_days must be at least 1"
+        raise ValidationError("decay_days must be at least 1")
     if not 0 <= similarity_threshold <= 1:
-        return "Error: similarity_threshold must be between 0 and 1"
+        raise ValidationError("similarity_threshold must be between 0 and 1")
 
-    await ensure_init()
-
-    report: dict[str, Any] = {"decayed": 0, "similar_pairs": [], "merged": 0}
+    result = ReflectResult()
 
     if apply_decay:
-        # Temporal decay: memories not accessed recently lose "weight", making
-        # them rank lower in searches. Mimics human forgetting - unused info fades.
-        # Multiplier 0.9 = 10% decay per reflect call; floor at 0.1 prevents total loss.
+        await ctx.info("Applying temporal decay to old memories")
         cutoff = datetime.now() - timedelta(days=decay_days)
-        result = await _query("""
+        decay_result = await query(ctx, """
             UPDATE entity SET decay_weight = decay_weight * 0.9
             WHERE accessed < $cutoff AND decay_weight > 0.1
         """, {'cutoff': cutoff.isoformat()})
-        report['decayed'] = len(result[0]) if result and result[0] else 0
+        result.decayed = len(decay_result[0]) if decay_result and decay_result[0] else 0
 
     if find_similar:
-        # Duplicate detection: high cosine similarity (>threshold) suggests redundant
-        # entries that could be merged. When auto_merge is False, returns pairs for
-        # manual review. When True, automatically merges duplicates.
-        entities = await _query("SELECT id, content, embedding, access_count, accessed FROM entity")
+        await ctx.info("Finding similar entities")
+        entities = await query(ctx, "SELECT id, content, embedding, access_count, accessed FROM entity")
         entities = entities[0] if entities else []
 
-        # Use MTREE vector index to find k-nearest neighbors for each entity.
-        # This is O(n*k) instead of O(n²) - much faster for large knowledge bases.
-        # Track seen/merged pairs to avoid duplicates (A~B and B~A).
         seen_pairs: set[tuple[str, str]] = set()
         deleted_ids: set[str] = set()
 
         for entity in entities:
-            # Skip if this entity was already deleted in a previous merge
             if str(entity['id']) in deleted_ids:
                 continue
 
-            # Query k-nearest neighbors using the vector index
-            similar = await _query("""
+            similar = await query(ctx, """
                 SELECT id, content, access_count, accessed,
                        vector::similarity::cosine(embedding, $emb) AS sim
                 FROM entity
@@ -563,111 +553,203 @@ async def reflect(
             """, {'emb': entity['embedding'], 'id': entity['id']})
 
             for candidate in (similar[0] if similar else []):
-                # Skip if candidate was already deleted
                 if str(candidate['id']) in deleted_ids:
                     continue
 
                 if candidate['sim'] >= similarity_threshold:
-                    # Create canonical pair key to avoid duplicates
                     id1, id2 = str(entity['id']), str(candidate['id'])
                     pair_key = (id1, id2) if id1 < id2 else (id2, id1)
                     if pair_key not in seen_pairs:
                         seen_pairs.add(pair_key)
 
                         if auto_merge:
-                            # Decide which to keep: higher access_count wins,
-                            # tie-breaker is more recent access
                             e_count = entity.get('access_count', 0)
                             c_count = candidate.get('access_count', 0)
                             e_accessed = entity.get('accessed', '')
                             c_accessed = candidate.get('accessed', '')
 
                             if c_count > e_count or (c_count == e_count and c_accessed > e_accessed):
-                                # Keep candidate, delete entity
                                 to_delete = entity['id']
-                                kept = candidate['id']
                             else:
-                                # Keep entity, delete candidate
                                 to_delete = candidate['id']
-                                kept = entity['id']
 
-                            # Delete the duplicate and its relations
-                            await _query("""
+                            await query(ctx, """
                                 DELETE $id;
                                 DELETE FROM $id->?;
                                 DELETE FROM ?->$id;
                             """, {'id': to_delete})
 
                             deleted_ids.add(str(to_delete))
-                            report['merged'] += 1
-                            logger.info(f"Merged duplicate: deleted {to_delete}, kept {kept}")
+                            result.merged += 1
+                            await ctx.info(f"Merged duplicate: deleted {to_delete}")
                         else:
-                            report['similar_pairs'].append({
-                                'entity1': {'id': entity['id'], 'content': entity['content'][:100]},
-                                'entity2': {'id': candidate['id'], 'content': candidate['content'][:100]},
-                                'similarity': candidate['sim']
-                            })
+                            result.similar_pairs.append(SimilarPair(
+                                entity1=EntityResult(id=str(entity['id']), content=entity['content'][:100]),
+                                entity2=EntityResult(id=str(candidate['id']), content=candidate['content'][:100]),
+                                similarity=candidate['sim']
+                            ))
 
-    return json.dumps(report, indent=2, default=str)
+    await ctx.info(f"Reflect complete: {result.decayed} decayed, {len(result.similar_pairs)} similar, {result.merged} merged")
+    return result
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 async def check_contradictions_tool(
+    ctx: Context,
     entity_id: str | None = None,
     labels: list[str] | None = None
-) -> str:
+) -> list[Contradiction]:
     """Detect conflicting information in memory. Use when the user asks to verify consistency, or proactively before storing facts that might conflict with existing knowledge."""
-    await ensure_init()
-
     labels = labels or []
-    contradictions = []
+    contradictions: list[Contradiction] = []
+
+    await ctx.info("Checking for contradictions")
 
     if entity_id:
-        # Check one entity against its semantic neighbors
-        entity = await _query('SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
+        entity = await query(ctx, 'SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
         entity = entity[0][0] if entity and entity[0] else None
 
         if entity:
-            similar = await _query("""
+            similar = await query(ctx, """
                 SELECT id, content FROM entity
                 WHERE embedding <|10,100|> $emb AND id != type::thing("entity", $id)
             """, {'emb': entity['embedding'], 'id': entity_id})
 
             for other in (similar[0] if similar else []):
-                result = check_contradiction(entity['content'], other['content'])
-                if result['label'] == 'contradiction':
-                    contradictions.append({
-                        'entity1': {'id': entity_id, 'content': entity['content']},
-                        'entity2': {'id': other['id'], 'content': other['content']},
-                        'confidence': result['scores']['contradiction']
-                    })
+                nli_result = check_contradiction(entity['content'], other['content'])
+                if nli_result['label'] == 'contradiction':
+                    contradictions.append(Contradiction(
+                        entity1=EntityResult(id=entity_id, content=entity['content']),
+                        entity2=EntityResult(id=str(other['id']), content=other['content']),
+                        confidence=nli_result['scores']['contradiction']
+                    ))
     else:
-        # Check all entities (optionally filtered by label)
         label_filter = "WHERE labels CONTAINSANY $labels" if labels else ""
-        entities = await _query(f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
+        entities = await query(ctx, f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
         entities = entities[0] if entities else []
 
-        # Two-stage filter: first check semantic similarity (fast vector math),
-        # then run NLI only on related pairs (expensive model inference).
-        # Threshold 0.5 = moderately related - catches "sky is blue" vs "sky is green"
-        # but skips "sky is blue" vs "pizza is delicious".
         for i, e1 in enumerate(entities):
             for e2 in entities[i+1:]:
-                similar = await _query("""
+                similar = await query(ctx, """
                     SELECT vector::similarity::cosine($emb1, $emb2) AS sim
                 """, {'emb1': e1['embedding'], 'emb2': e2['embedding']})
 
                 sim = similar[0][0]['sim'] if similar and similar[0] else 0
                 if sim > 0.5:
-                    result = check_contradiction(e1['content'], e2['content'])
-                    if result['label'] == 'contradiction':
-                        contradictions.append({
-                            'entity1': {'id': e1['id'], 'content': e1['content']},
-                            'entity2': {'id': e2['id'], 'content': e2['content']},
-                            'confidence': result['scores']['contradiction']
-                        })
+                    nli_result = check_contradiction(e1['content'], e2['content'])
+                    if nli_result['label'] == 'contradiction':
+                        contradictions.append(Contradiction(
+                            entity1=EntityResult(id=str(e1['id']), content=e1['content']),
+                            entity2=EntityResult(id=str(e2['id']), content=e2['content']),
+                            confidence=nli_result['scores']['contradiction']
+                        ))
 
-    return json.dumps(contradictions, indent=2)
+    await ctx.info(f"Found {len(contradictions)} contradictions")
+    return contradictions
+
+
+# =============================================================================
+# Resources - Read-only data endpoints
+# =============================================================================
+
+@mcp.resource("memory://stats")
+async def get_memory_stats(ctx: Context) -> MemoryStats:
+    """Get statistics about the memory store."""
+    entity_count = await query(ctx, "SELECT count() FROM entity GROUP ALL")
+    total_entities = entity_count[0][0]['count'] if entity_count and entity_count[0] else 0
+
+    # Count relations by querying all edge tables
+    # Note: This is approximate as we'd need to know all relation types
+    relation_count = await query(ctx, """
+        SELECT count() FROM (SELECT * FROM ->?) GROUP ALL
+    """)
+    total_relations = relation_count[0][0]['count'] if relation_count and relation_count[0] else 0
+
+    labels_result = await query(ctx, """
+        SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
+    """)
+    all_labels = labels_result[0][0]['labels'] if labels_result and labels_result[0] else []
+
+    # Count entities per label
+    label_counts: dict[str, int] = {}
+    for label in all_labels:
+        count_result = await query(ctx, """
+            SELECT count() FROM entity WHERE labels CONTAINS $label GROUP ALL
+        """, {'label': label})
+        label_counts[label] = count_result[0][0]['count'] if count_result and count_result[0] else 0
+
+    return MemoryStats(
+        total_entities=total_entities,
+        total_relations=total_relations,
+        labels=all_labels,
+        label_counts=label_counts
+    )
+
+
+@mcp.resource("memory://labels")
+async def get_all_labels(ctx: Context) -> list[str]:
+    """Get all labels/categories used in memory."""
+    results = await query(ctx, """
+        SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
+    """)
+    return results[0][0]['labels'] if results and results[0] else []
+
+
+# =============================================================================
+# Prompts - Reusable prompt templates
+# =============================================================================
+
+@mcp.prompt()
+def summarize_memories(topic: str) -> str:
+    """Generate a prompt to summarize what's known about a topic."""
+    return f"""Please search my memory for everything related to "{topic}" and provide a comprehensive summary.
+
+Include:
+- Key facts and information stored about this topic
+- Any related concepts or connections
+- Confidence levels if available
+- When information was last accessed
+
+Use the search tool with the query "{topic}" to find relevant memories, then synthesize the results into a clear summary."""
+
+
+@mcp.prompt()
+def recall_context(task: str) -> str:
+    """Generate a prompt to recall relevant context for a task."""
+    return f"""I need to work on the following task: {task}
+
+Please search my memory for any relevant context that might help with this task. Look for:
+- Previous decisions or preferences related to this
+- Technical details or configurations
+- Past experiences or lessons learned
+- Related projects or concepts
+
+Use the search tool to find relevant memories and present the most useful context for completing this task."""
+
+
+@mcp.prompt()
+def find_connections(concept1: str, concept2: str) -> str:
+    """Generate a prompt to explore connections between two concepts."""
+    return f"""I want to understand how "{concept1}" and "{concept2}" are connected in my memory.
+
+Please:
+1. Search for memories about each concept
+2. Use traverse to explore their connections
+3. Use find_path to see if there's a direct relationship
+4. Summarize how these concepts relate to each other based on stored knowledge"""
+
+
+@mcp.prompt()
+def memory_health_check() -> str:
+    """Generate a prompt to check memory health and suggest cleanup."""
+    return """Please perform a health check on my memory store:
+
+1. Check the memory stats resource to see overall statistics
+2. Use reflect(find_similar=true) to identify potential duplicates
+3. Use check_contradictions_tool to find conflicting information
+4. Provide recommendations for cleanup or consolidation
+
+Do NOT auto-merge or delete anything - just report findings and suggestions."""
 
 
 def main():
