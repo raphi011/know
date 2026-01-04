@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP, Context, ToolError
+from mcp.server.fastmcp.utilities.types import Depends
 from pydantic import BaseModel, Field
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -248,10 +249,10 @@ def check_contradiction(text1: str, text2: str) -> dict:
 @mcp.tool(annotations={"readOnlyHint": True})
 async def search(
     search_query: str,
-    ctx: Context,
     labels: list[str] | None = None,
     limit: int = 10,
-    semantic_weight: float = 0.5
+    semantic_weight: float = 0.5,
+    ctx: Context = Depends()
 ) -> list[EntityResult]:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
     if not search_query or not search_query.strip():
@@ -305,7 +306,7 @@ async def search(
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
+async def get_entity(entity_id: str, ctx: Context = Depends()) -> EntityResult | None:
     """Retrieve a specific memory by its ID. Use when you have an exact entity ID from a previous search or traversal."""
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
@@ -333,7 +334,7 @@ async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
-async def list_labels(ctx: Context) -> list[str]:
+async def list_labels(ctx: Context = Depends()) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
     results = await query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
@@ -344,9 +345,9 @@ async def list_labels(ctx: Context) -> list[str]:
 @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def traverse(
     start: str,
-    ctx: Context,
     depth: int = 2,
-    relation_types: list[str] | None = None
+    relation_types: list[str] | None = None,
+    ctx: Context = Depends()
 ) -> str:
     """Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic."""
     if not start or not start.strip():
@@ -377,8 +378,8 @@ async def traverse(
 async def find_path(
     from_id: str,
     to_id: str,
-    ctx: Context,
-    max_depth: int = 5
+    max_depth: int = 5,
+    ctx: Context = Depends()
 ) -> str:
     """Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts."""
     if not from_id or not from_id.strip():
@@ -399,10 +400,10 @@ async def find_path(
 
 @mcp.tool(annotations={"destructiveHint": False})
 async def remember(
-    ctx: Context,
     entities: list[dict] | None = None,
     relations: list[dict] | None = None,
-    detect_contradictions: bool = False
+    detect_contradictions: bool = False,
+    ctx: Context = Depends()
 ) -> RememberResult:
     """Store important information in persistent memory for future sessions. Use proactively when the user shares preferences, facts about themselves, project context, decisions, or anything they'd want you to recall later. Supports confidence scores and contradiction detection.
 
@@ -478,7 +479,7 @@ async def remember(
 
 
 @mcp.tool(annotations={"destructiveHint": True})
-async def forget(entity_id: str, ctx: Context) -> str:
+async def forget(entity_id: str, ctx: Context = Depends()) -> str:
     """Delete information from persistent memory. Use when the user says 'forget this', 'remove...', 'delete...', or when information is explicitly outdated or wrong."""
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
@@ -496,12 +497,12 @@ async def forget(entity_id: str, ctx: Context) -> str:
 
 @mcp.tool(annotations={"destructiveHint": True})
 async def reflect(
-    ctx: Context,
     apply_decay: bool = True,
     decay_days: int = 30,
     find_similar: bool = True,
     similarity_threshold: float = 0.85,
-    auto_merge: bool = False
+    auto_merge: bool = False,
+    ctx: Context = Depends()
 ) -> ReflectResult:
     """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories.
 
@@ -513,6 +514,10 @@ async def reflect(
         raise ToolError("decay_days must be at least 1")
     if not 0 <= similarity_threshold <= 1:
         raise ToolError("similarity_threshold must be between 0 and 1")
+
+    # Read current stats via resource to log context
+    stats = await ctx.read_resource("memory://stats")
+    await ctx.info(f"Starting reflect on {stats} entities")
 
     result = ReflectResult()
 
@@ -587,9 +592,9 @@ async def reflect(
 
 @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
 async def check_contradictions_tool(
-    ctx: Context,
     entity_id: str | None = None,
-    labels: list[str] | None = None
+    labels: list[str] | None = None,
+    ctx: Context = Depends()
 ) -> list[Contradiction]:
     """Detect conflicting information in memory. Use when the user asks to verify consistency, or proactively before storing facts that might conflict with existing knowledge."""
     labels = labels or []
@@ -645,7 +650,7 @@ async def check_contradictions_tool(
 # =============================================================================
 
 @mcp.resource("memory://stats")
-async def get_memory_stats(ctx: Context) -> MemoryStats:
+async def get_memory_stats(ctx: Context = Depends()) -> MemoryStats:
     """Get statistics about the memory store."""
     entity_count = await query(ctx, "SELECT count() FROM entity GROUP ALL")
     total_entities = entity_count[0][0]['count'] if entity_count and entity_count[0] else 0
@@ -679,7 +684,7 @@ async def get_memory_stats(ctx: Context) -> MemoryStats:
 
 
 @mcp.resource("memory://labels")
-async def get_all_labels(ctx: Context) -> list[str]:
+async def get_all_labels(ctx: Context = Depends()) -> list[str]:
     """Get all labels/categories used in memory."""
     results = await query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
