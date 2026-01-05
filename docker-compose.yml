@@ -1,0 +1,8 @@
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v3.0.0-beta.1
+    container_name: memcp-surrealdb
+    command: start --user root --pass root memory
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
