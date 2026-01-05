@@ -23,8 +23,8 @@ logger.info(f"memcp logging to {LOG_FILE} (level: {LOG_LEVEL})")
 # Early startup indicator
 print("Starting memcp server (loading dependencies, this may take a moment)...", file=sys.stderr, flush=True)
 
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.fastmcp.exceptions import ToolError
+from fastmcp import FastMCP, Context
+from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from sentence_transformers import SentenceTransformer, CrossEncoder
 

@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, cast
 
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
 from surrealdb import AsyncSurreal
 
 logger = logging.getLogger("memcp.db")
