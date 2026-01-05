@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -9,8 +10,11 @@ from typing import Any, cast
 
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP, Context, ToolError
-from mcp.server.fastmcp.utilities.types import Depends
+# Early startup indicator
+print("Starting memcp server (loading dependencies, this may take a moment)...", file=sys.stderr, flush=True)
+
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -23,20 +27,26 @@ QueryResult = list[list[dict[str, Any]]]
 SURREALDB_URL = os.getenv("SURREALDB_URL", "ws://localhost:8000/rpc")
 SURREALDB_NAMESPACE = os.getenv("SURREALDB_NAMESPACE", "knowledge")
 SURREALDB_DATABASE = os.getenv("SURREALDB_DATABASE", "graph")
-SURREALDB_USER = os.getenv("SURREALDB_USER")
-SURREALDB_PASS = os.getenv("SURREALDB_PASS")
+SURREALDB_USER = os.getenv("SURREALDB_USER", "root")
+SURREALDB_PASS = os.getenv("SURREALDB_PASS", "root")
+SURREALDB_AUTH_LEVEL = os.getenv("SURREALDB_AUTH_LEVEL", "root")  # "root" or "database"
 QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
 
 # Embedding model: Transforms text into 384-dimensional vectors where semantically
 # similar texts cluster together in vector space. "all-MiniLM-L6-v2" is a lightweight
 # model trained on 1B+ sentence pairs - good balance of speed vs quality.
+import sys
+print("Loading embedding model (all-MiniLM-L6-v2)...", file=sys.stderr)
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
+print("Embedding model loaded", file=sys.stderr)
 
 # NLI (Natural Language Inference) model: Given two sentences, classifies their
 # relationship as contradiction/entailment/neutral. Uses DeBERTa architecture
 # fine-tuned on SNLI+MNLI datasets. CrossEncoder means both sentences are processed
 # together (vs bi-encoder which encodes separately) - slower but more accurate.
+print("Loading NLI model (cross-encoder/nli-deberta-v3-base)...", file=sys.stderr)
 nli_model = CrossEncoder('cross-encoder/nli-deberta-v3-base')
+print("NLI model loaded", file=sys.stderr)
 
 # NLI output labels
 NLI_LABELS = ['contradiction', 'entailment', 'neutral']
@@ -122,15 +132,34 @@ class AppContext:
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     """Manage database connection lifecycle."""
+    import sys
     db = AsyncSurreal(SURREALDB_URL)
     ctx = AppContext(db=db)
 
     try:
         # Connect to database
+        print(f"Connecting to SurrealDB at {SURREALDB_URL}...", file=sys.stderr)
         async with asyncio.timeout(QUERY_TIMEOUT):
             await db.connect()
+            print("Connected to SurrealDB", file=sys.stderr)
 
-            if SURREALDB_USER and SURREALDB_PASS:
+            # Validate configuration
+            if SURREALDB_AUTH_LEVEL not in ("root", "database"):
+                raise ValueError(
+                    f"Invalid SURREALDB_AUTH_LEVEL: '{SURREALDB_AUTH_LEVEL}'. "
+                    f"Must be 'root' or 'database'"
+                )
+
+            print(f"Authenticating as {SURREALDB_USER} (auth level: {SURREALDB_AUTH_LEVEL})...", file=sys.stderr)
+
+            if SURREALDB_AUTH_LEVEL == "root":
+                # Root-level authentication
+                await db.signin({
+                    "username": SURREALDB_USER,
+                    "password": SURREALDB_PASS
+                })
+            else:
+                # Database-level authentication
                 await db.signin({
                     "namespace": SURREALDB_NAMESPACE,
                     "database": SURREALDB_DATABASE,
@@ -138,9 +167,13 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
                     "password": SURREALDB_PASS
                 })
 
+            print("Authentication successful", file=sys.stderr)
+
+            print(f"Using namespace '{SURREALDB_NAMESPACE}' and database '{SURREALDB_DATABASE}'", file=sys.stderr)
             await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
 
         # Initialize schema
+        print("Initializing database schema...", file=sys.stderr)
         await db.query(cast(Any, """
             DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
             DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
@@ -159,10 +192,38 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
             DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
             DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
         """))
+        print("Schema initialization complete", file=sys.stderr)
 
         ctx.initialized = True
+        print("MCP server ready", file=sys.stderr)
         yield ctx
 
+    except asyncio.TimeoutError:
+        print(f"ERROR: Database operation timed out after {QUERY_TIMEOUT}s", file=sys.stderr)
+        print(f"Check that SurrealDB is running at {SURREALDB_URL}", file=sys.stderr)
+        raise
+    except Exception as e:
+        print(f"ERROR: Failed to initialize MCP server: {e}", file=sys.stderr)
+        if "IAM error" in str(e) or "permissions" in str(e).lower():
+            print("\nAuthentication failed!", file=sys.stderr)
+            print(f"Current auth level: {SURREALDB_AUTH_LEVEL}", file=sys.stderr)
+
+            if SURREALDB_AUTH_LEVEL == "root":
+                print("\nFor root-level authentication:", file=sys.stderr)
+                print("  export SURREALDB_USER=root", file=sys.stderr)
+                print("  export SURREALDB_PASS=root", file=sys.stderr)
+                print("\nStart SurrealDB with:", file=sys.stderr)
+                print("  docker run -p 8000:8000 surrealdb/surrealdb:latest \\", file=sys.stderr)
+                print("    start --user root --pass root file:/data/database.db", file=sys.stderr)
+            else:
+                print("\nFor database-level authentication:", file=sys.stderr)
+                print("  export SURREALDB_NAMESPACE=knowledge", file=sys.stderr)
+                print("  export SURREALDB_DATABASE=graph", file=sys.stderr)
+                print("  export SURREALDB_USER=your_user", file=sys.stderr)
+                print("  export SURREALDB_PASS=your_pass", file=sys.stderr)
+                print("\nOr switch to root-level:", file=sys.stderr)
+                print("  export SURREALDB_AUTH_LEVEL=root", file=sys.stderr)
+        raise
     finally:
         # Cleanup on shutdown
         if ctx.initialized:
@@ -264,7 +325,7 @@ async def search(
     limit: int = 10,
     semantic_weight: float = 0.5,
     summarize: bool = False,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> SearchResult:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
     if not query or not query.strip():
@@ -331,7 +392,7 @@ async def search(
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-async def get_entity(entity_id: str, ctx: Context = Depends()) -> EntityResult | None:
+async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
     """Retrieve a specific memory by its ID. Use when you have an exact entity ID from a previous search or traversal."""
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
@@ -359,7 +420,7 @@ async def get_entity(entity_id: str, ctx: Context = Depends()) -> EntityResult |
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
-async def list_labels(ctx: Context = Depends()) -> list[str]:
+async def list_labels(ctx: Context) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
     results = await run_query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
@@ -372,7 +433,7 @@ async def traverse(
     start: str,
     depth: int = 2,
     relation_types: list[str] | None = None,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> str:
     """Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic."""
     if not start or not start.strip():
@@ -404,7 +465,7 @@ async def find_path(
     from_id: str,
     to_id: str,
     max_depth: int = 5,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> str:
     """Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts."""
     if not from_id or not from_id.strip():
@@ -429,7 +490,7 @@ async def remember(
     relations: list[dict] | None = None,
     detect_contradictions: bool = False,
     auto_tag: bool = False,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> RememberResult:
     """Store important information in persistent memory for future sessions. Use proactively when the user shares preferences, facts about themselves, project context, decisions, or anything they'd want you to recall later. Supports confidence scores and contradiction detection.
 
@@ -544,7 +605,7 @@ async def memorize_file(
     file_path: str,
     source: str | None = None,
     labels: list[str] | None = None,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> MemorizeFileResult:
     """Read a file (PDF, markdown, text) and extract key information to store in memory.
 
@@ -649,7 +710,7 @@ Return ONLY the JSON object, no other text."""
 
 
 @mcp.tool(annotations={"destructiveHint": True})
-async def forget(entity_id: str, ctx: Context = Depends()) -> str:
+async def forget(entity_id: str, ctx: Context) -> str:
     """Delete information from persistent memory. Use when the user says 'forget this', 'remove...', 'delete...', or when information is explicitly outdated or wrong."""
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
@@ -672,7 +733,7 @@ async def reflect(
     find_similar: bool = True,
     similarity_threshold: float = 0.85,
     auto_merge: bool = False,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> ReflectResult:
     """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories.
 
@@ -764,7 +825,7 @@ async def reflect(
 async def check_contradictions_tool(
     entity_id: str | None = None,
     labels: list[str] | None = None,
-    ctx: Context = Depends()
+    ctx: Context = None  # type: ignore[assignment]
 ) -> list[Contradiction]:
     """Detect conflicting information in memory. Use when the user asks to verify consistency, or proactively before storing facts that might conflict with existing knowledge."""
     labels = labels or []
@@ -820,7 +881,7 @@ async def check_contradictions_tool(
 # =============================================================================
 
 @mcp.resource("memory://stats")
-async def get_memory_stats(ctx: Context = Depends()) -> MemoryStats:
+async def get_memory_stats(ctx: Context) -> MemoryStats:
     """Get statistics about the memory store."""
     entity_count = await run_query(ctx, "SELECT count() FROM entity GROUP ALL")
     total_entities = entity_count[0][0]['count'] if entity_count and entity_count[0] else 0
@@ -854,7 +915,7 @@ async def get_memory_stats(ctx: Context = Depends()) -> MemoryStats:
 
 
 @mcp.resource("memory://labels")
-async def get_all_labels(ctx: Context = Depends()) -> list[str]:
+async def get_all_labels(ctx: Context) -> list[str]:
     """Get all labels/categories used in memory."""
     results = await run_query(ctx, """
         SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
@@ -920,7 +981,15 @@ Do NOT auto-merge or delete anything - just report findings and suggestions."""
 
 
 def main():
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    except KeyboardInterrupt:
+        # Let Python handle it silently
+        pass
+    except Exception:
+        # Exceptions during startup are already logged in app_lifespan
+        # Just exit cleanly without printing the full stack trace
+        sys.exit(1)
 
 
 if __name__ == "__main__":
