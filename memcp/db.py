@@ -14,7 +14,7 @@ from surrealdb import AsyncSurreal
 
 # Type alias for query results - SurrealDB returns list[Value] but we know
 # our queries return list of dicts in practice
-QueryResult = list[list[dict[str, Any]]]
+QueryResult = list[dict[str, Any]]
 
 # Configuration from environment
 SURREALDB_URL = os.getenv("SURREALDB_URL", "ws://localhost:8000/rpc")
@@ -42,7 +42,7 @@ SCHEMA_SQL = """
     DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
     DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE;
     DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
-    DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
 """
 
 
@@ -211,13 +211,15 @@ async def query_hybrid_search(
 ) -> QueryResult:
     """Hybrid search: BM25 keyword matching + vector similarity."""
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
+    # v3.0: ORDER BY doesn't support parentheses, compute combined score as alias
     return await run_query(ctx, f"""
         SELECT id, type, labels, content, confidence, source, decay_weight,
                search::score(1) AS bm25_score,
-               vector::similarity::cosine(embedding, $emb) AS vec_score
+               vector::similarity::cosine(embedding, $emb) AS vec_score,
+               vector::similarity::cosine(embedding, $emb) * $sem_weight + search::score(1) * 1 - $sem_weight AS combined_score
         FROM entity
-        WHERE (content @1@ $q OR embedding <|{limit * 2},COSINE|> $emb) {label_filter}
-        ORDER BY (vec_score * $sem_weight + search::score(1) * (1 - $sem_weight)) DESC
+        WHERE content @1@ $q OR embedding <|{limit * 2},COSINE|> $emb {label_filter}
+        ORDER BY combined_score DESC
         LIMIT $limit
     """, {
         'q': query,
@@ -231,7 +233,7 @@ async def query_hybrid_search(
 async def query_update_access(ctx: Context, entity_id: str) -> QueryResult:
     """Update entity access timestamp and count."""
     return await run_query(ctx, """
-        UPDATE type::thing("entity", $id) SET accessed = time::now(), access_count += 1
+        UPDATE type::record("entity", $id) SET accessed = time::now(), access_count += 1
     """, {'id': entity_id})
 
 
@@ -241,7 +243,7 @@ async def query_get_entity(ctx: Context, entity_id: str) -> QueryResult:
     Returns: list[dict] where dict is the single entity, or empty list if not found.
     """
     return await run_query(ctx, """
-        SELECT * FROM type::thing("entity", $id)
+        SELECT * FROM type::record("entity", $id)
     """, {'id': entity_id})
 
 
@@ -251,7 +253,7 @@ async def query_list_labels(ctx: Context) -> QueryResult:
     result = await run_query(ctx, "SELECT labels FROM entity")
 
     if not result or len(result) == 0:
-        return [[{'labels': []}]]
+        return [{'labels': []}]
 
     all_labels = []
 
@@ -264,7 +266,7 @@ async def query_list_labels(ctx: Context) -> QueryResult:
     unique_labels = list(set(all_labels))
 
     # Return in expected format
-    return [[{'labels': unique_labels}]]
+    return [{'labels': unique_labels}]
 
 
 async def query_traverse(ctx: Context, entity_id: str, depth: int, relation_types: list[str] | None) -> QueryResult:
@@ -273,19 +275,19 @@ async def query_traverse(ctx: Context, entity_id: str, depth: int, relation_type
         type_filter = '|'.join(relation_types)
         return await run_query(ctx, f"""
             SELECT *, ->(({type_filter}))..{depth}->entity AS connected
-            FROM type::thing("entity", $id)
+            FROM type::record("entity", $id)
         """, {'id': entity_id})
     else:
         return await run_query(ctx, f"""
             SELECT *, ->?..{depth}->entity AS connected
-            FROM type::thing("entity", $id)
+            FROM type::record("entity", $id)
         """, {'id': entity_id})
 
 
 async def query_find_path(ctx: Context, from_id: str, to_id: str, max_depth: int) -> QueryResult:
     """Find path between two entities."""
     return await run_query(ctx, f"""
-        SELECT * FROM type::thing("entity", $from)..{max_depth}->entity WHERE id = type::thing("entity", $to) LIMIT 1
+        SELECT * FROM type::record("entity", $from)..{max_depth}->entity WHERE id = type::record("entity", $to) LIMIT 1
     """, {'from': from_id, 'to': to_id})
 
 
@@ -305,7 +307,7 @@ async def query_similar_entities(ctx: Context, embedding: list[float], exclude_i
         SELECT id, content,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
-        WHERE id != type::thing("entity", "{entity_only_id}")
+        WHERE id != type::record("entity", "{entity_only_id}")
         ORDER BY sim DESC
         LIMIT $limit
     """, {
@@ -326,7 +328,7 @@ async def query_upsert_entity(
 ) -> QueryResult:
     """Upsert an entity."""
     return await run_query(ctx, """
-        UPSERT type::thing("entity", $id) SET
+        UPSERT type::record("entity", $id) SET
             type = $type,
             labels = $labels,
             content = $content,
@@ -363,16 +365,17 @@ async def query_create_relation(
 async def query_delete_entity(ctx: Context, entity_id: str) -> QueryResult:
     """Delete entity and all its relations."""
     # Delete entity and its relations in separate statements
-    await run_query(ctx, "DELETE type::thing('entity', $id)", {'id': entity_id})
+    await run_query(ctx, "DELETE type::record('entity', $id)", {'id': entity_id})
     # Note: Relations are automatically cleaned up by SurrealDB when the record is deleted
-    return [[]]  # Return empty result to match expected format
+    return []  # Return empty result
 
 
 async def query_apply_decay(ctx: Context, cutoff_datetime: str) -> QueryResult:
     """Apply temporal decay to old entities."""
+    # v3.0: Must cast string parameter to datetime for comparison
     return await run_query(ctx, """
         UPDATE entity SET decay_weight = decay_weight * 0.9
-        WHERE accessed < $cutoff AND decay_weight > 0.1
+        WHERE accessed < <datetime>$cutoff AND decay_weight > 0.1
     """, {'cutoff': cutoff_datetime})
 
 
@@ -397,17 +400,18 @@ async def query_similar_by_embedding(
 
 
 async def query_delete_entity_by_record_id(ctx: Context, entity_id: str) -> QueryResult:
-    """Delete entity by record ID (used in reflect merge)."""
+    """Delete entity by record ID (used in reflect merge).
+
+    Note: SurrealDB automatically cleans up relations when the record is deleted.
+    """
     return await run_query(ctx, """
-        DELETE type::thing("entity", $id);
-        DELETE FROM type::thing("entity", $id)->?;
-        DELETE FROM ?->type::thing("entity", $id);
+        DELETE type::record("entity", $id)
     """, {'id': entity_id})
 
 
 async def query_entity_with_embedding(ctx: Context, entity_id: str) -> QueryResult:
     """Get entity with embedding for contradiction checking."""
-    return await run_query(ctx, 'SELECT * FROM type::thing("entity", $id)', {'id': entity_id})
+    return await run_query(ctx, 'SELECT * FROM type::record("entity", $id)', {'id': entity_id})
 
 
 async def query_similar_for_contradiction(
@@ -430,9 +434,15 @@ async def query_entities_by_labels(ctx: Context, labels: list[str]) -> QueryResu
 
 async def query_vector_similarity(ctx: Context, emb1: list[float], emb2: list[float]) -> QueryResult:
     """Calculate cosine similarity between two embeddings."""
-    return await run_query(ctx, """
-        SELECT vector::similarity::cosine($emb1, $emb2) AS sim
+    # v3.0: SELECT requires FROM, use RETURN for computed values
+    # Wrap in list for consistent QueryResult format
+    result = await run_query(ctx, """
+        RETURN { sim: vector::similarity::cosine($emb1, $emb2) }
     """, {'emb1': emb1, 'emb2': emb2})
+    # RETURN gives dict directly, wrap in list
+    if isinstance(result, dict):
+        return [result]
+    return result
 
 
 async def query_count_entities(ctx: Context) -> QueryResult:
@@ -449,9 +459,15 @@ async def query_count_relations(ctx: Context) -> QueryResult:
 
 async def query_get_all_labels(ctx: Context) -> QueryResult:
     """Get all unique labels."""
-    return await run_query(ctx, """
-        SELECT array::distinct(array::flatten((SELECT labels FROM entity).labels)) AS labels
-    """)
+    # v3.0: Subquery with .field syntax changed, use Python-side processing
+    result = await run_query(ctx, "SELECT labels FROM entity")
+    if not result:
+        return [{'labels': []}]
+    all_labels = []
+    for entity in result:
+        if isinstance(entity, dict) and 'labels' in entity and entity['labels']:
+            all_labels.extend(entity['labels'])
+    return [{'labels': list(set(all_labels))}]
 
 
 async def query_count_by_label(ctx: Context, label: str) -> QueryResult:
