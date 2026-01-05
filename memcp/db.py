@@ -339,12 +339,10 @@ async def query_create_relation(
     weight: float
 ) -> QueryResult:
     """Create a relation between entities."""
-    return await run_query(ctx, """
-        RELATE type::thing("entity", $from)->$type->type::thing("entity", $to) SET weight = $weight
+    # Build record IDs and use string interpolation for relation type
+    return await run_query(ctx, f"""
+        RELATE entity:{from_id}->{rel_type}->entity:{to_id} SET weight = $weight
     """, {
-        'from': from_id,
-        'type': rel_type,
-        'to': to_id,
         'weight': weight
     })
 

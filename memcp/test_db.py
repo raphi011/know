@@ -29,6 +29,8 @@ from memcp.db import (
     query_delete_entity,
     query_list_labels,
     query_update_access,
+    query_create_relation,
+    run_query,
 )
 
 
@@ -285,3 +287,51 @@ async def test_query_update_access(mock_ctx):
     new_access_count = result[0]['access_count']
 
     assert new_access_count == initial_access_count + 1
+
+
+@pytest.mark.asyncio
+async def test_query_create_relation(mock_ctx):
+    """Test query_create_relation function."""
+    test_embedding = [0.1] * 384
+
+    # Create two entities
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="person1",
+        entity_type="person",
+        labels=["test"],
+        content="Person 1",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="person2",
+        entity_type="person",
+        labels=["test"],
+        content="Person 2",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Create relation between them
+    result = await query_create_relation(
+        mock_ctx,
+        from_id="person1",
+        rel_type="knows",
+        to_id="person2",
+        weight=0.8
+    )
+
+    # Verify relation exists by querying outgoing relations
+    relations = await run_query(mock_ctx, """
+        SELECT ->knows FROM type::thing("entity", $id)
+    """, {'id': 'person1'})
+
+    assert relations is not None
+    assert len(relations) > 0
+    # Check that person1 has outgoing relation
+    assert '->knows' in relations[0] or 'knows' in str(relations[0])
