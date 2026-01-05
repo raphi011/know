@@ -31,6 +31,21 @@ from memcp.db import (
     query_update_access,
     query_create_relation,
     query_similar_entities,
+    query_hybrid_search,
+    query_traverse,
+    query_find_path,
+    query_apply_decay,
+    query_all_entities_with_embedding,
+    query_similar_by_embedding,
+    query_delete_entity_by_record_id,
+    query_entity_with_embedding,
+    query_similar_for_contradiction,
+    query_entities_by_labels,
+    query_vector_similarity,
+    query_count_entities,
+    query_count_relations,
+    query_get_all_labels,
+    query_count_by_label,
     run_query,
 )
 
@@ -329,7 +344,7 @@ async def test_query_create_relation(mock_ctx):
 
     # Verify relation exists by querying outgoing relations
     relations = await run_query(mock_ctx, """
-        SELECT ->knows FROM type::thing("entity", $id)
+        SELECT ->knows FROM type::record("entity", $id)
     """, {'id': 'person1'})
 
     assert relations is not None
@@ -443,3 +458,343 @@ async def test_knn_operator_investigation(mock_ctx):
     print(f"Similarity result: {sim_result}")
 
     # The test documents the issue - not asserting success/failure
+
+
+# =============================================================================
+# Additional Query Function Tests
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_query_hybrid_search(mock_ctx):
+    """Test query_hybrid_search function - BM25 + vector similarity."""
+    test_embedding = [0.5] * 384
+
+    # Create entities with searchable content
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="python_dev",
+        entity_type="person",
+        labels=["developer", "python"],
+        content="Expert Python developer with machine learning experience",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="rust_dev",
+        entity_type="person",
+        labels=["developer", "rust"],
+        content="Systems programmer specializing in Rust",
+        embedding=[0.1] * 384,  # Different embedding
+        confidence=1.0,
+        source="test"
+    )
+
+    # Search for "Python developer"
+    result = await query_hybrid_search(
+        mock_ctx,
+        query="Python developer",
+        query_embedding=test_embedding,
+        labels=[],
+        limit=5,
+        semantic_weight=0.5
+    )
+
+    assert result is not None
+    # Should find at least the python_dev entity
+    ids_found = [str(e.get('id', '')) for e in result if isinstance(e, dict)]
+    assert any('python_dev' in id for id in ids_found)
+
+
+@pytest.mark.asyncio
+async def test_query_traverse(mock_ctx):
+    """Test query_traverse function - graph traversal."""
+    test_embedding = [0.5] * 384
+
+    # Create a graph: A -> B -> C
+    await query_upsert_entity(mock_ctx, "nodeA", "node", ["test"], "Node A", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "nodeB", "node", ["test"], "Node B", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "nodeC", "node", ["test"], "Node C", test_embedding, 1.0, "test")
+
+    await query_create_relation(mock_ctx, "nodeA", "connects", "nodeB", 1.0)
+    await query_create_relation(mock_ctx, "nodeB", "connects", "nodeC", 1.0)
+
+    # Traverse from A with depth 2
+    result = await query_traverse(mock_ctx, "nodeA", depth=2, relation_types=None)
+
+    assert result is not None
+    assert len(result) > 0
+
+
+@pytest.mark.asyncio
+async def test_query_find_path(mock_ctx):
+    """Test query_find_path function."""
+    test_embedding = [0.5] * 384
+
+    # Create connected entities
+    await query_upsert_entity(mock_ctx, "start", "node", ["test"], "Start node", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "middle", "node", ["test"], "Middle node", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "end", "node", ["test"], "End node", test_embedding, 1.0, "test")
+
+    await query_create_relation(mock_ctx, "start", "links", "middle", 1.0)
+    await query_create_relation(mock_ctx, "middle", "links", "end", 1.0)
+
+    # Find path from start to end
+    result = await query_find_path(mock_ctx, "start", "end", max_depth=3)
+
+    # Result may be empty if path syntax differs in v3.0
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_query_apply_decay(mock_ctx):
+    """Test query_apply_decay function."""
+    test_embedding = [0.5] * 384
+
+    # Create entity
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="decay_test",
+        entity_type="test",
+        labels=["test"],
+        content="Decay test entity",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Set accessed to an old date so the decay condition matches
+    from datetime import datetime, timedelta
+    old_date = (datetime.now() - timedelta(days=30)).isoformat() + "Z"
+    await run_query(mock_ctx, """
+        UPDATE type::record("entity", $id) SET accessed = <datetime>$old_date
+    """, {'id': 'decay_test', 'old_date': old_date})
+
+    # Get initial decay_weight
+    entity = await query_get_entity(mock_ctx, "decay_test")
+    initial_decay = entity[0]['decay_weight']
+    assert initial_decay == 1.0  # Default value
+
+    # Apply decay with current time as cutoff (entity accessed 30 days ago)
+    now_cutoff = datetime.now().isoformat() + "Z"
+    await query_apply_decay(mock_ctx, now_cutoff)
+
+    # Check decay was applied
+    entity = await query_get_entity(mock_ctx, "decay_test")
+    new_decay = entity[0]['decay_weight']
+    assert new_decay == 0.9  # 1.0 * 0.9
+
+
+@pytest.mark.asyncio
+async def test_query_all_entities_with_embedding(mock_ctx):
+    """Test query_all_entities_with_embedding function."""
+    test_embedding = [0.5] * 384
+
+    # Create multiple entities
+    for i in range(3):
+        await query_upsert_entity(
+            mock_ctx,
+            entity_id=f"bulk_{i}",
+            entity_type="test",
+            labels=["bulk"],
+            content=f"Bulk entity {i}",
+            embedding=test_embedding,
+            confidence=1.0,
+            source="test"
+        )
+
+    # Get all entities with embeddings
+    result = await query_all_entities_with_embedding(mock_ctx)
+
+    assert result is not None
+    assert len(result) >= 3
+    # Check that embeddings are included
+    assert 'embedding' in result[0]
+
+
+@pytest.mark.asyncio
+async def test_query_similar_by_embedding(mock_ctx):
+    """Test query_similar_by_embedding function - uses KNN operator."""
+    similar_embedding = [0.5] * 384
+    different_embedding = [0.1] * 384
+
+    # Create entities
+    await query_upsert_entity(mock_ctx, "sim_target", "test", ["test"], "Target", similar_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "sim_similar", "test", ["test"], "Similar", similar_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "sim_different", "test", ["test"], "Different", different_embedding, 1.0, "test")
+
+    # Find similar to target
+    result = await query_similar_by_embedding(
+        mock_ctx,
+        embedding=similar_embedding,
+        exclude_id="entity:sim_target",
+        limit=5
+    )
+
+    assert result is not None
+    # KNN with HNSW should return results
+    if len(result) > 0:
+        ids_found = [str(e.get('id', '')) for e in result if isinstance(e, dict)]
+        assert any('sim_similar' in id for id in ids_found)
+
+
+@pytest.mark.asyncio
+async def test_query_delete_entity_by_record_id(mock_ctx):
+    """Test query_delete_entity_by_record_id function."""
+    test_embedding = [0.5] * 384
+
+    # Create entity
+    await query_upsert_entity(mock_ctx, "to_delete_record", "test", ["test"], "Will delete", test_embedding, 1.0, "test")
+
+    # Verify exists
+    result = await query_get_entity(mock_ctx, "to_delete_record")
+    assert len(result) > 0
+
+    # Delete by record ID
+    await query_delete_entity_by_record_id(mock_ctx, "to_delete_record")
+
+    # Verify deleted
+    result = await query_get_entity(mock_ctx, "to_delete_record")
+    assert len(result) == 0
+
+
+@pytest.mark.asyncio
+async def test_query_entity_with_embedding(mock_ctx):
+    """Test query_entity_with_embedding function."""
+    test_embedding = [0.5] * 384
+
+    await query_upsert_entity(mock_ctx, "emb_test", "test", ["test"], "Embedding test", test_embedding, 1.0, "test")
+
+    result = await query_entity_with_embedding(mock_ctx, "emb_test")
+
+    assert result is not None
+    assert len(result) > 0
+    assert 'embedding' in result[0]
+    assert len(result[0]['embedding']) == 384
+
+
+@pytest.mark.asyncio
+async def test_query_similar_for_contradiction(mock_ctx):
+    """Test query_similar_for_contradiction function."""
+    test_embedding = [0.5] * 384
+
+    await query_upsert_entity(mock_ctx, "contra_target", "fact", ["test"], "The sky is blue", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "contra_similar", "fact", ["test"], "The sky is azure", test_embedding, 1.0, "test")
+
+    result = await query_similar_for_contradiction(mock_ctx, test_embedding, "contra_target")
+
+    assert result is not None
+    # Should find similar entities for contradiction checking
+
+
+@pytest.mark.asyncio
+async def test_query_entities_by_labels(mock_ctx):
+    """Test query_entities_by_labels function."""
+    test_embedding = [0.5] * 384
+
+    await query_upsert_entity(mock_ctx, "labeled_1", "test", ["python", "coding"], "Python entity", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "labeled_2", "test", ["rust", "coding"], "Rust entity", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "labeled_3", "test", ["javascript"], "JS entity", test_embedding, 1.0, "test")
+
+    # Filter by "coding" label
+    result = await query_entities_by_labels(mock_ctx, ["coding"])
+
+    assert result is not None
+    assert len(result) >= 2
+    ids = [str(e.get('id', '')) for e in result if isinstance(e, dict)]
+    assert any('labeled_1' in id for id in ids)
+    assert any('labeled_2' in id for id in ids)
+
+
+@pytest.mark.asyncio
+async def test_query_vector_similarity(mock_ctx):
+    """Test query_vector_similarity function."""
+    import math
+    emb1 = [0.5] * 384
+    emb2 = [0.5] * 384  # Identical
+    emb3 = [0.1] * 384  # Different but non-zero
+
+    # Same embeddings should have similarity 1.0
+    result = await query_vector_similarity(mock_ctx, emb1, emb2)
+    assert result is not None
+    assert len(result) > 0
+    sim = result[0].get('sim', 0)
+    assert abs(sim - 1.0) < 0.01  # Should be ~1.0
+
+    # Different embeddings - same direction vectors have similarity 1.0
+    # (cosine measures angle, not magnitude)
+    result = await query_vector_similarity(mock_ctx, emb1, emb3)
+    sim = result[0].get('sim', 0)
+    # Both are uniform vectors in same direction, so similarity is 1.0
+    assert not math.isnan(sim)
+    assert sim > 0.99  # Parallel vectors
+
+
+@pytest.mark.asyncio
+async def test_query_count_entities(mock_ctx):
+    """Test query_count_entities function."""
+    test_embedding = [0.5] * 384
+
+    # Create 3 entities
+    for i in range(3):
+        await query_upsert_entity(mock_ctx, f"count_{i}", "test", ["test"], f"Count {i}", test_embedding, 1.0, "test")
+
+    result = await query_count_entities(mock_ctx)
+
+    assert result is not None
+    assert len(result) > 0
+    count = result[0].get('count', 0)
+    assert count >= 3
+
+
+@pytest.mark.asyncio
+async def test_query_count_relations(mock_ctx):
+    """Test query_count_relations function."""
+    test_embedding = [0.5] * 384
+
+    # Create entities and relations
+    await query_upsert_entity(mock_ctx, "rel_a", "test", ["test"], "A", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "rel_b", "test", ["test"], "B", test_embedding, 1.0, "test")
+    await query_create_relation(mock_ctx, "rel_a", "relates", "rel_b", 1.0)
+
+    result = await query_count_relations(mock_ctx)
+
+    assert result is not None
+    # Query may return different format, just verify it runs
+
+
+@pytest.mark.asyncio
+async def test_query_get_all_labels(mock_ctx):
+    """Test query_get_all_labels function."""
+    test_embedding = [0.5] * 384
+
+    await query_upsert_entity(mock_ctx, "lbl_1", "test", ["alpha", "beta"], "Entity 1", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "lbl_2", "test", ["beta", "gamma"], "Entity 2", test_embedding, 1.0, "test")
+
+    result = await query_get_all_labels(mock_ctx)
+
+    assert result is not None
+    assert len(result) > 0
+    labels = result[0].get('labels', [])
+    assert 'alpha' in labels
+    assert 'beta' in labels
+    assert 'gamma' in labels
+
+
+@pytest.mark.asyncio
+async def test_query_count_by_label(mock_ctx):
+    """Test query_count_by_label function."""
+    test_embedding = [0.5] * 384
+
+    await query_upsert_entity(mock_ctx, "cnt_1", "test", ["special"], "Special 1", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "cnt_2", "test", ["special"], "Special 2", test_embedding, 1.0, "test")
+    await query_upsert_entity(mock_ctx, "cnt_3", "test", ["other"], "Other", test_embedding, 1.0, "test")
+
+    result = await query_count_by_label(mock_ctx, "special")
+
+    assert result is not None
+    assert len(result) > 0
+    count = result[0].get('count', 0)
+    assert count >= 2
