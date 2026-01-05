@@ -401,3 +401,45 @@ async def test_query_similar_entities(mock_ctx):
 
     # Verify target itself is not in results
     assert 'entity:target' not in ids_found
+
+
+@pytest.mark.asyncio
+async def test_knn_operator_investigation(mock_ctx):
+    """Investigate why KNN operator doesn't work."""
+    test_embedding = [0.5] * 384
+
+    # Create a few entities
+    for i in range(3):
+        await query_upsert_entity(
+            mock_ctx,
+            entity_id=f"test{i}",
+            entity_type="test",
+            labels=["test"],
+            content=f"Test entity {i}",
+            embedding=test_embedding,
+            confidence=1.0,
+            source="test"
+        )
+
+    # Check if index exists
+    info_result = await run_query(mock_ctx, "INFO FOR TABLE entity")
+    print(f"Table info: {info_result}")
+
+    # Try KNN with literal integers
+    knn_result = await run_query(mock_ctx, """
+        SELECT id, content FROM entity
+        WHERE embedding <|5,100|> $emb
+    """, {'emb': test_embedding})
+    print(f"KNN result: {knn_result}")
+
+    # Compare with vector similarity
+    sim_result = await run_query(mock_ctx, """
+        SELECT id, content,
+               vector::similarity::cosine(embedding, $emb) AS sim
+        FROM entity
+        ORDER BY sim DESC
+        LIMIT 5
+    """, {'emb': test_embedding})
+    print(f"Similarity result: {sim_result}")
+
+    # The test documents the issue - not asserting success/failure

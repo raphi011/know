@@ -40,7 +40,7 @@ SCHEMA_SQL = """
     DEFINE FIELD IF NOT EXISTS access_count ON entity TYPE int DEFAULT 0;
 
     DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
-    DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
+    DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE;
     DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
     DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
 """
@@ -216,7 +216,7 @@ async def query_hybrid_search(
                search::score(1) AS bm25_score,
                vector::similarity::cosine(embedding, $emb) AS vec_score
         FROM entity
-        WHERE (content @1@ $q OR embedding <|{limit * 2},100|> $emb) {label_filter}
+        WHERE (content @1@ $q OR embedding <|{limit * 2},COSINE|> $emb) {label_filter}
         ORDER BY (vec_score * $sem_weight + search::score(1) * (1 - $sem_weight)) DESC
         LIMIT $limit
     """, {
@@ -388,12 +388,12 @@ async def query_similar_by_embedding(
     limit: int = 10
 ) -> QueryResult:
     """Find similar entities by embedding with similarity score."""
-    return await run_query(ctx, """
+    return await run_query(ctx, f"""
         SELECT id, content, access_count, accessed,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
-        WHERE embedding <|$limit,100|> $emb AND id != $id
-    """, {'emb': embedding, 'id': exclude_id, 'limit': limit})
+        WHERE embedding <|{limit},COSINE|> $emb AND id != $exclude_id
+    """, {'emb': embedding, 'exclude_id': exclude_id})
 
 
 async def query_delete_entity_by_record_id(ctx: Context, entity_id: str) -> QueryResult:
@@ -418,7 +418,7 @@ async def query_similar_for_contradiction(
     """Find similar entities for contradiction detection."""
     return await run_query(ctx, """
         SELECT id, content FROM entity
-        WHERE embedding <|10,100|> $emb AND id != $id
+        WHERE embedding <|10,COSINE|> $emb AND id != $id
     """, {'emb': embedding, 'id': f"entity:{entity_id}"})
 
 

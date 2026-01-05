@@ -51,21 +51,42 @@ Reason: SurrealDB doesn't support `type::thing()` inside RELATE statements. Use 
 
 ### KNN Vector Search Operator
 
-**The KNN operator <|...|> has limitations:**
+**IMPORTANT: MTREE Index Deprecated in SurrealDB v3.0**
+
+As of SurrealDB v3.0 (November 2025), the MTREE index type has been completely removed and replaced with HNSW (Hierarchical Navigable Small World).
+
+**Timeline:**
+- Nov 6, 2025: PR #6553 - MTREE removed from SurrealDB
+- Nov 20, 2025: Issue #6598 - Confirmed MTREE no longer works in v3.0
+- Current: Use HNSW for all vector operations
+
+**Migration from MTREE to HNSW:**
 ```surql
-❌ NOT WORKING: WHERE embedding <|$limit,100|> $emb  (parameters not supported)
-❌ NOT RELIABLE: WHERE embedding <|5,100|> $emb     (may return empty even with valid embeddings)
+-- OLD (v2.x - deprecated):
+DEFINE INDEX entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
+
+-- NEW (v3.0+):
+DEFINE INDEX entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE;
 ```
 
-**Use vector::similarity::cosine instead:**
+**KNN Operator Syntax (v3.0+):**
 ```surql
-✅ RECOMMENDED:
+✅ CORRECT: WHERE embedding <|k,COSINE|> $vector
+✅ CORRECT: WHERE embedding <|5,EUCLIDEAN|> $vector
+❌ OLD:     WHERE embedding <|k,ef|> $vector  (v2.x syntax with "ef" parameter)
+```
+
+The second parameter is now the distance metric (COSINE, EUCLIDEAN, etc.), not an "ef" expansion factor.
+
+**Fallback without index:**
+```surql
+✅ WORKS ON ALL VERSIONS:
 SELECT id, content, vector::similarity::cosine(embedding, $emb) AS sim
 FROM entity
 ORDER BY sim DESC
 LIMIT $limit
 ```
-Reason: The KNN operator requires MTREE index which may not work in all environments. The similarity function is more reliable and works without the index.
+The `vector::similarity::cosine()` function works without any index and is reliable across all versions.
 
 ### Parameter Usage
 
