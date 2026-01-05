@@ -1,6 +1,6 @@
 [project]
 name = "memcp"
-version = "0.1.6"
+version = "0.1.7"
 description = "MCP server with SurrealDB knowledge graph for persistent agent memory"
 requires-python = ">=3.11"
 dependencies = [

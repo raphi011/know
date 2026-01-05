@@ -376,9 +376,11 @@ async def search(
     # Track access patterns
     entities = results[0] if results and results[0] else []
     for r in entities:
+        # Extract entity ID from full record ID (e.g., "entity:user123" -> "user123")
+        entity_id = str(r['id']).split(':', 1)[1] if ':' in str(r['id']) else str(r['id'])
         await run_query(ctx, """
-            UPDATE $id SET accessed = time::now(), access_count += 1
-        """, {'id': r['id']})
+            UPDATE type::thing("entity", $id) SET accessed = time::now(), access_count += 1
+        """, {'id': entity_id})
 
     await ctx.info(f"Found {len(entities)} results")
 
@@ -438,7 +440,7 @@ async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
 async def list_labels(ctx: Context) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
     results = await run_query(ctx, """
-        SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
+        SELECT array::distinct(array::flatten(array::group(labels))) AS labels FROM entity GROUP ALL
     """)
     return results[0][0]['labels'] if results and results[0] else []
 
@@ -493,7 +495,7 @@ async def find_path(
     await ctx.info(f"Finding path from {from_id} to {to_id}")
 
     results = await run_query(ctx, f"""
-        SELECT * FROM type::thing("entity", $from).{{..{max_depth}+shortest=type::thing("entity", $to)}}->?->entity
+        SELECT * FROM type::thing("entity", $from)..{max_depth}->entity WHERE id = type::thing("entity", $to) LIMIT 1
     """, {'from': from_id, 'to': to_id})
 
     return json.dumps(results[0] if results else [], indent=2, default=str)
@@ -817,11 +819,13 @@ async def reflect(
                             else:
                                 to_delete = candidate['id']
 
+                            # Extract entity ID from full record ID
+                            delete_id = str(to_delete).split(':', 1)[1] if ':' in str(to_delete) else str(to_delete)
                             await run_query(ctx, """
-                                DELETE $id;
-                                DELETE FROM $id->?;
-                                DELETE FROM ?->$id;
-                            """, {'id': to_delete})
+                                DELETE type::thing("entity", $id);
+                                DELETE FROM type::thing("entity", $id)->?;
+                                DELETE FROM ?->type::thing("entity", $id);
+                            """, {'id': delete_id})
 
                             deleted_ids.add(str(to_delete))
                             result.merged += 1
@@ -856,8 +860,8 @@ async def check_contradictions_tool(
         if entity:
             similar = await run_query(ctx, """
                 SELECT id, content FROM entity
-                WHERE embedding <|10,100|> $emb AND id != type::thing("entity", $id)
-            """, {'emb': entity['embedding'], 'id': entity_id})
+                WHERE embedding <|10,100|> $emb AND id != $id
+            """, {'emb': entity['embedding'], 'id': f"entity:{entity_id}"})
 
             for other in (similar[0] if similar else []):
                 nli_result = check_contradiction(entity['content'], other['content'])
@@ -902,15 +906,14 @@ async def get_memory_stats(ctx: Context) -> MemoryStats:
     entity_count = await run_query(ctx, "SELECT count() FROM entity GROUP ALL")
     total_entities = entity_count[0][0]['count'] if entity_count and entity_count[0] else 0
 
-    # Count relations by querying all edge tables
-    # Note: This is approximate as we'd need to know all relation types
+    # Count relations - count all outgoing edges from all entities
     relation_count = await run_query(ctx, """
-        SELECT count() FROM (SELECT * FROM ->?) GROUP ALL
+        SELECT count() FROM (SELECT ->? FROM entity) GROUP ALL
     """)
     total_relations = relation_count[0][0]['count'] if relation_count and relation_count[0] else 0
 
     labels_result = await run_query(ctx, """
-        SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
+        SELECT array::distinct(array::flatten((SELECT labels FROM entity).labels)) AS labels
     """)
     all_labels = labels_result[0][0]['labels'] if labels_result and labels_result[0] else []
 
@@ -934,7 +937,7 @@ async def get_memory_stats(ctx: Context) -> MemoryStats:
 async def get_all_labels(ctx: Context) -> list[str]:
     """Get all labels/categories used in memory."""
     results = await run_query(ctx, """
-        SELECT array::distinct(array::flatten((SELECT labels FROM entity))) AS labels
+        SELECT array::distinct(array::flatten((SELECT labels FROM entity).labels)) AS labels
     """)
     return results[0][0]['labels'] if results and results[0] else []
 
