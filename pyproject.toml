@@ -8,6 +8,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "surrealdb>=0.3.0",
     "sentence-transformers>=2.2.0",
+    "pypdf>=4.0.0",
 ]
 
 [project.scripts]
