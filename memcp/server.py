@@ -2,36 +2,37 @@ import asyncio
 import json
 import os
 import sys
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
-
 from pathlib import Path
 
 # Early startup indicator
 print("Starting memcp server (loading dependencies, this may take a moment)...", file=sys.stderr, flush=True)
 
 from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.fastmcp.exceptions import ToolError
 from mcp import types
-from pydantic import BaseModel, Field
-from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
-# Type alias for query results - SurrealDB returns list[Value] but we know
-# our queries return list of dicts in practice
-QueryResult = list[list[dict[str, Any]]]
+# Import from memcp modules
+from memcp.models import (
+    EntityResult, SearchResult, SimilarPair, Contradiction,
+    ReflectResult, RememberResult, MemorizeFileResult, MemoryStats
+)
+from memcp.db import (
+    app_lifespan, run_query,
+    validate_entity, validate_relation, QueryResult,
+    # Query functions
+    query_hybrid_search, query_update_access, query_get_entity,
+    query_list_labels, query_traverse, query_find_path,
+    query_similar_entities, query_upsert_entity, query_create_relation,
+    query_delete_entity, query_apply_decay, query_all_entities_with_embedding,
+    query_similar_by_embedding, query_delete_entity_by_record_id,
+    query_entity_with_embedding, query_similar_for_contradiction,
+    query_entities_by_labels, query_vector_similarity,
+    query_count_entities, query_count_relations,
+    query_get_all_labels, query_count_by_label
+)
 
-# Configuration from environment
-SURREALDB_URL = os.getenv("SURREALDB_URL", "ws://localhost:8000/rpc")
-SURREALDB_NAMESPACE = os.getenv("SURREALDB_NAMESPACE", "knowledge")
-SURREALDB_DATABASE = os.getenv("SURREALDB_DATABASE", "graph")
-SURREALDB_USER = os.getenv("SURREALDB_USER", "root")
-SURREALDB_PASS = os.getenv("SURREALDB_PASS", "root")
-SURREALDB_AUTH_LEVEL = os.getenv("SURREALDB_AUTH_LEVEL", "root")  # "root" or "database"
-QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
 
 # Embedding model: Transforms text into 384-dimensional vectors where semantically
 # similar texts cluster together in vector space. "all-MiniLM-L6-v2" is a lightweight
@@ -53,230 +54,10 @@ print("NLI model loaded", file=sys.stderr)
 NLI_LABELS = ['contradiction', 'entailment', 'neutral']
 
 
-# =============================================================================
-# Pydantic Response Models
-# =============================================================================
-
-class EntityResult(BaseModel):
-    """A memory entity returned from search or retrieval."""
-    id: str
-    type: str | None = None
-    labels: list[str] = Field(default_factory=list)
-    content: str
-    confidence: float | None = None
-    source: str | None = None
-    decay_weight: float | None = None
-
-
-class SearchResult(BaseModel):
-    """Result from a memory search."""
-    entities: list[EntityResult] = Field(default_factory=list)
-    count: int = 0
-    summary: str | None = None
-
-
-class SimilarPair(BaseModel):
-    """A pair of similar entities found during reflection."""
-    entity1: EntityResult
-    entity2: EntityResult
-    similarity: float
-
-
-class Contradiction(BaseModel):
-    """A contradiction detected between two entities."""
-    entity1: EntityResult
-    entity2: EntityResult
-    confidence: float
-
-
-class ReflectResult(BaseModel):
-    """Result from the reflect maintenance operation."""
-    decayed: int = 0
-    similar_pairs: list[SimilarPair] = Field(default_factory=list)
-    merged: int = 0
-
-
-class RememberResult(BaseModel):
-    """Result from storing memories."""
-    entities_stored: int = 0
-    relations_stored: int = 0
-    contradictions: list[Contradiction] = Field(default_factory=list)
-
-
-class MemorizeFileResult(BaseModel):
-    """Result from memorizing a file."""
-    file_path: str
-    entities_stored: int = 0
-    relations_stored: int = 0
-    content_length: int = 0
-
-
-class MemoryStats(BaseModel):
-    """Statistics about the memory store."""
-    total_entities: int = 0
-    total_relations: int = 0
-    labels: list[str] = Field(default_factory=list)
-    label_counts: dict[str, int] = Field(default_factory=dict)
-
-
-# =============================================================================
-# Lifespan Context & Database Management
-# =============================================================================
-
-@dataclass
-class AppContext:
-    """Application context available during server lifetime."""
-    db: AsyncSurreal
-    initialized: bool = False
-
-
-@asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
-    """Manage database connection lifecycle."""
-    import sys
-    db = AsyncSurreal(SURREALDB_URL)
-    ctx = AppContext(db=db)
-
-    try:
-        # Connect to database
-        print(f"Connecting to SurrealDB at {SURREALDB_URL}...", file=sys.stderr)
-        async with asyncio.timeout(QUERY_TIMEOUT):
-            await db.connect()
-            print("Connected to SurrealDB", file=sys.stderr)
-
-            # Validate configuration
-            if SURREALDB_AUTH_LEVEL not in ("root", "database"):
-                raise ValueError(
-                    f"Invalid SURREALDB_AUTH_LEVEL: '{SURREALDB_AUTH_LEVEL}'. "
-                    f"Must be 'root' or 'database'"
-                )
-
-            print(f"Authenticating as {SURREALDB_USER} (auth level: {SURREALDB_AUTH_LEVEL})...", file=sys.stderr)
-
-            if SURREALDB_AUTH_LEVEL == "root":
-                # Root-level authentication
-                await db.signin({
-                    "username": SURREALDB_USER,
-                    "password": SURREALDB_PASS
-                })
-            else:
-                # Database-level authentication
-                await db.signin({
-                    "namespace": SURREALDB_NAMESPACE,
-                    "database": SURREALDB_DATABASE,
-                    "username": SURREALDB_USER,
-                    "password": SURREALDB_PASS
-                })
-
-            print("Authentication successful", file=sys.stderr)
-
-            print(f"Using namespace '{SURREALDB_NAMESPACE}' and database '{SURREALDB_DATABASE}'", file=sys.stderr)
-            await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
-
-        # Initialize schema
-        print("Initializing database schema...", file=sys.stderr)
-        await db.query(cast(Any, """
-            DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
-            DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
-            DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string>;
-            DEFINE FIELD IF NOT EXISTS content ON entity TYPE string;
-            DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
-            DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 1.0;
-            DEFINE FIELD IF NOT EXISTS source ON entity TYPE string;
-            DEFINE FIELD IF NOT EXISTS decay_weight ON entity TYPE float DEFAULT 1.0;
-            DEFINE FIELD IF NOT EXISTS created ON entity TYPE datetime DEFAULT time::now();
-            DEFINE FIELD IF NOT EXISTS accessed ON entity TYPE datetime DEFAULT time::now();
-            DEFINE FIELD IF NOT EXISTS access_count ON entity TYPE int DEFAULT 0;
-
-            DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
-            DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
-            DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
-            DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content SEARCH ANALYZER entity_analyzer BM25;
-        """))
-        print("Schema initialization complete", file=sys.stderr)
-
-        ctx.initialized = True
-        print("MCP server ready", file=sys.stderr)
-        yield ctx
-
-    except asyncio.TimeoutError:
-        print(f"ERROR: Database operation timed out after {QUERY_TIMEOUT}s", file=sys.stderr)
-        print(f"Check that SurrealDB is running at {SURREALDB_URL}", file=sys.stderr)
-        raise
-    except Exception as e:
-        print(f"ERROR: Failed to initialize MCP server: {e}", file=sys.stderr)
-        if "IAM error" in str(e) or "permissions" in str(e).lower():
-            print("\nAuthentication failed!", file=sys.stderr)
-            print(f"Current auth level: {SURREALDB_AUTH_LEVEL}", file=sys.stderr)
-
-            if SURREALDB_AUTH_LEVEL == "root":
-                print("\nFor root-level authentication:", file=sys.stderr)
-                print("  export SURREALDB_USER=root", file=sys.stderr)
-                print("  export SURREALDB_PASS=root", file=sys.stderr)
-                print("\nStart SurrealDB with:", file=sys.stderr)
-                print("  docker run -p 8000:8000 surrealdb/surrealdb:latest \\", file=sys.stderr)
-                print("    start --user root --pass root file:/data/database.db", file=sys.stderr)
-            else:
-                print("\nFor database-level authentication:", file=sys.stderr)
-                print("  export SURREALDB_NAMESPACE=knowledge", file=sys.stderr)
-                print("  export SURREALDB_DATABASE=graph", file=sys.stderr)
-                print("  export SURREALDB_USER=your_user", file=sys.stderr)
-                print("  export SURREALDB_PASS=your_pass", file=sys.stderr)
-                print("\nOr switch to root-level:", file=sys.stderr)
-                print("  export SURREALDB_AUTH_LEVEL=root", file=sys.stderr)
-        raise
-    finally:
-        # Cleanup on shutdown
-        if ctx.initialized:
-            try:
-                await db.close()
-            except Exception:
-                pass
 
 
 # Create server with lifespan
 mcp = FastMCP("knowledge-graph", lifespan=app_lifespan)
-
-
-def validate_entity(entity: dict) -> None:
-    """Validate entity structure before storing."""
-    if not isinstance(entity, dict):
-        raise ToolError(f"Entity must be a dict, got {type(entity).__name__}")
-    if "id" not in entity:
-        raise ToolError("Entity missing required field: 'id'")
-    if "content" not in entity:
-        raise ToolError("Entity missing required field: 'content'")
-    if not isinstance(entity["id"], str) or not entity["id"].strip():
-        raise ToolError("Entity 'id' must be a non-empty string")
-    if not isinstance(entity["content"], str) or not entity["content"].strip():
-        raise ToolError("Entity 'content' must be a non-empty string")
-    if "labels" in entity and not isinstance(entity.get("labels"), list):
-        raise ToolError("Entity 'labels' must be a list")
-    if "confidence" in entity:
-        conf = entity["confidence"]
-        if not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
-            raise ToolError("Entity 'confidence' must be a number between 0 and 1")
-
-
-def validate_relation(relation: dict) -> None:
-    """Validate relation structure before storing."""
-    if not isinstance(relation, dict):
-        raise ToolError(f"Relation must be a dict, got {type(relation).__name__}")
-    for field in ("from", "to", "type"):
-        if field not in relation:
-            raise ToolError(f"Relation missing required field: '{field}'")
-        if not isinstance(relation[field], str) or not relation[field].strip():
-            raise ToolError(f"Relation '{field}' must be a non-empty string")
-    if "weight" in relation:
-        weight = relation["weight"]
-        if not isinstance(weight, (int, float)):
-            raise ToolError("Relation 'weight' must be a number")
-
-
-def get_db(ctx: Context) -> AsyncSurreal:
-    """Get database connection from context."""
-    app_ctx: AppContext = ctx.request_context.lifespan_context
-    return app_ctx.db
 
 
 async def sample(ctx: Context, prompt: str, max_tokens: int = 1000) -> str:
@@ -291,23 +72,6 @@ async def sample(ctx: Context, prompt: str, max_tokens: int = 1000) -> str:
         max_tokens=max_tokens
     )
     return result.content.text
-
-
-async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
-    """Execute a database query with timeout and error handling."""
-    db = get_db(ctx)
-    try:
-        async with asyncio.timeout(QUERY_TIMEOUT):
-            result = await db.query(sql, cast(Any, vars))
-            return cast(QueryResult, result)
-    except asyncio.TimeoutError:
-        await ctx.error(f"Query timed out after {QUERY_TIMEOUT}s")
-        raise ToolError(f"Database query timed out after {QUERY_TIMEOUT}s")
-    except ToolError:
-        raise
-    except Exception as e:
-        await ctx.error(f"Database query failed: {e}")
-        raise ToolError(f"Database query failed: {e}")
 
 
 def embed(text: str) -> list[float]:
