@@ -15,6 +15,7 @@ print("Starting memcp server (loading dependencies, this may take a moment)...",
 
 from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp import types
 from pydantic import BaseModel, Field
 from surrealdb import AsyncSurreal
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -278,6 +279,20 @@ def get_db(ctx: Context) -> AsyncSurreal:
     return app_ctx.db
 
 
+async def sample(ctx: Context, prompt: str, max_tokens: int = 1000) -> str:
+    """Helper to call LLM via MCP sampling."""
+    result = await ctx.request_context.session.create_message(
+        messages=[
+            types.SamplingMessage(
+                role="user",
+                content=types.TextContent(type="text", text=prompt)
+            )
+        ],
+        max_tokens=max_tokens
+    )
+    return result.content.text
+
+
 async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
     """Execute a database query with timeout and error handling."""
     db = get_db(ctx)
@@ -382,11 +397,11 @@ async def search(
     if summarize and entity_results:
         await ctx.info("Generating summary of search results")
         contents = "\n---\n".join([f"[{e.id}]: {e.content[:200]}" for e in entity_results[:10]])
-        summary_response = await ctx.sample(
+        summary = await sample(
+            ctx,
             f"Summarize these memory search results for the query '{query}' in 2-3 sentences. "
             f"Focus on the most relevant information.\n\nResults:\n{contents}"
         )
-        summary = summary_response.text
 
     return SearchResult(entities=entity_results, count=len(entity_results), summary=summary)
 
@@ -516,12 +531,13 @@ async def remember(
         # Auto-generate labels using LLM if requested and no labels provided
         if auto_tag and not entity.get('labels'):
             await ctx.info(f"Auto-tagging entity: {entity['id']}")
-            tag_response = await ctx.sample(
+            tag_response = await sample(
+                ctx,
                 f"Generate 3-5 short, lowercase category tags (comma-separated) for this content. "
                 f"Only output the tags, nothing else.\n\nContent: {entity['content'][:500]}"
             )
             # Parse comma-separated tags
-            tags = [t.strip().lower() for t in tag_response.text.split(',') if t.strip()]
+            tags = [t.strip().lower() for t in tag_response.split(',') if t.strip()]
             entity['labels'] = tags[:5]  # Limit to 5 tags
 
         if detect_contradictions:
@@ -662,12 +678,12 @@ Document content:
 
 Return ONLY the JSON object, no other text."""
 
-    response = await ctx.sample(extraction_prompt)
+    response = await sample(ctx, extraction_prompt, max_tokens=2000)
 
     # Parse the JSON response
     try:
         # Try to extract JSON from the response (handle potential markdown code blocks)
-        response_text = response.text.strip()
+        response_text = response.strip()
         if response_text.startswith('```'):
             # Remove markdown code block
             lines = response_text.split('\n')
@@ -675,7 +691,7 @@ Return ONLY the JSON object, no other text."""
         extracted = json.loads(response_text)
     except json.JSONDecodeError as e:
         await ctx.error(f"Failed to parse LLM response as JSON: {e}")
-        raise ToolError(f"LLM did not return valid JSON. Response: {response.text[:200]}...")
+        raise ToolError(f"LLM did not return valid JSON. Response: {response[:200]}...")
 
     # Apply source and additional labels
     file_source = source or Path(file_path).name
