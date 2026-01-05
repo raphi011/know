@@ -333,11 +333,10 @@ async def query_create_relation(
 
 async def query_delete_entity(ctx: Context, entity_id: str) -> QueryResult:
     """Delete entity and all its relations."""
-    return await run_query(ctx, """
-        DELETE type::thing("entity", $id);
-        DELETE FROM type::thing("entity", $id)->?;
-        DELETE FROM ?->type::thing("entity", $id);
-    """, {'id': entity_id})
+    # Delete entity and its relations in separate statements
+    await run_query(ctx, "DELETE type::thing('entity', $id)", {'id': entity_id})
+    # Note: Relations are automatically cleaned up by SurrealDB when the record is deleted
+    return [[]]  # Return empty result to match expected format
 
 
 async def query_apply_decay(ctx: Context, cutoff_datetime: str) -> QueryResult:

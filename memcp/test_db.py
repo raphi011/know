@@ -16,11 +16,18 @@ import asyncio
 import os
 import time
 from typing import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
 from surrealdb import AsyncSurreal
 
-from memcp.db import SCHEMA_SQL
+from memcp.db import (
+    SCHEMA_SQL,
+    query_upsert_entity,
+    query_get_entity,
+    query_delete_entity,
+)
 
 
 # Test configuration
@@ -43,46 +50,34 @@ def test_db_config():
     }
 
 
-@pytest.fixture(scope="session")
-async def db_session(test_db_config):
-    """Session-scoped database connection."""
+@pytest_asyncio.fixture
+async def clean_db(test_db_config):
+    """Function-scoped database connection that cleans between tests."""
     db = AsyncSurreal(test_db_config['url'])
 
-    try:
-        # Connect
-        await asyncio.wait_for(db.connect(), timeout=10)
+    # Connect
+    await asyncio.wait_for(db.connect(), timeout=10)
 
-        # Authenticate
-        await db.signin({
-            "username": test_db_config['user'],
-            "password": test_db_config['pass']
-        })
+    # Authenticate
+    await db.signin({
+        "username": test_db_config['user'],
+        "password": test_db_config['pass']
+    })
 
-        # Use test namespace/database
-        await db.use(test_db_config['namespace'], test_db_config['database'])
+    # Use test namespace/database
+    await db.use(test_db_config['namespace'], test_db_config['database'])
 
-        # Initialize schema
-        await db.query(SCHEMA_SQL)
+    # Initialize schema
+    await db.query(SCHEMA_SQL)
 
-        yield db
+    # Clean before test
+    await db.query("DELETE entity")
 
-    finally:
-        # Cleanup: drop test database
-        try:
-            await db.query(f"REMOVE DATABASE {test_db_config['database']}")
-            await db.close()
-        except Exception:
-            pass
+    yield db
 
-
-@pytest.fixture
-async def clean_db(db_session):
-    """Function-scoped fixture that cleans database before each test."""
-    # Clean all entities before test
-    await db_session.query("DELETE entity")
-    yield db_session
     # Clean after test
-    await db_session.query("DELETE entity")
+    await db.query("DELETE entity")
+    await db.close()
 
 
 # =============================================================================
@@ -106,3 +101,93 @@ async def test_connection(test_db_config):
     assert result is not None
 
     await db.close()
+
+
+# =============================================================================
+# Query Function Tests
+# =============================================================================
+
+@pytest_asyncio.fixture
+async def mock_ctx(clean_db):
+    """Create mock Context for query functions."""
+    ctx = MagicMock()
+    # Mock the context to return our test DB connection
+    ctx.request_context.lifespan_context.db = clean_db
+    # Mock logging methods
+    ctx.info = AsyncMock()
+    ctx.error = AsyncMock()
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_query_upsert_and_get_entity(mock_ctx):
+    """Test query_upsert_entity and query_get_entity functions."""
+    # Create entity using our query function
+    # Create 384-dimensional embedding (required by schema)
+    test_embedding = [0.1] * 384
+
+    result = await query_upsert_entity(
+        mock_ctx,
+        entity_id="test_user",
+        entity_type="person",
+        labels=["test", "user"],
+        content="Test user entity",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Result format from SurrealDB: list[list[dict]] or list[dict]
+    assert result is not None
+    assert len(result) > 0
+
+    # Handle both result formats
+    if isinstance(result[0], list):
+        created = result[0][0]
+    else:
+        created = result[0]
+
+    assert isinstance(created, dict), f"Expected dict, got {type(created)}"
+    assert created['type'] == 'person'
+    assert created['content'] == 'Test user entity'
+
+    # Read entity using our query function
+    result = await query_get_entity(mock_ctx, "test_user")
+
+    assert result is not None
+    assert len(result) > 0
+    # Result[0] is the entity dict
+    entity = result[0]
+    assert str(entity['id']) == 'entity:test_user'
+    assert entity['type'] == 'person'
+    assert entity['content'] == 'Test user entity'
+    assert entity['labels'] == ['test', 'user']
+
+
+@pytest.mark.asyncio
+async def test_query_delete_entity(mock_ctx):
+    """Test query_delete_entity function."""
+    # Create entity first
+    test_embedding = [0.1] * 384
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="to_delete",
+        entity_type="temp",
+        labels=["test"],
+        content="Will be deleted",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Verify it exists
+    result = await query_get_entity(mock_ctx, "to_delete")
+    assert result is not None
+    assert len(result) > 0
+
+    # Delete using our query function
+    result = await query_delete_entity(mock_ctx, "to_delete")
+
+    # Verify deletion
+    result = await query_get_entity(mock_ctx, "to_delete")
+    assert len(result) == 0 or (len(result) > 0 and len(result[0]) == 0)
