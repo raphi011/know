@@ -236,7 +236,10 @@ async def query_update_access(ctx: Context, entity_id: str) -> QueryResult:
 
 
 async def query_get_entity(ctx: Context, entity_id: str) -> QueryResult:
-    """Get entity by ID."""
+    """Get entity by ID.
+
+    Returns: list[dict] where dict is the single entity, or empty list if not found.
+    """
     return await run_query(ctx, """
         SELECT * FROM type::thing("entity", $id)
     """, {'id': entity_id})
@@ -244,9 +247,24 @@ async def query_get_entity(ctx: Context, entity_id: str) -> QueryResult:
 
 async def query_list_labels(ctx: Context) -> QueryResult:
     """List all unique labels from entities."""
-    return await run_query(ctx, """
-        SELECT array::distinct(array::flatten(array::group(labels))) AS labels FROM entity GROUP ALL
-    """)
+    # SELECT FROM entity returns list[dict] - each dict has labels field
+    result = await run_query(ctx, "SELECT labels FROM entity")
+
+    if not result or len(result) == 0:
+        return [[{'labels': []}]]
+
+    all_labels = []
+
+    # Result is list[dict] where each dict is {'labels': [...]}
+    for entity in result:
+        if isinstance(entity, dict) and 'labels' in entity and entity['labels']:
+            all_labels.extend(entity['labels'])
+
+    # Deduplicate
+    unique_labels = list(set(all_labels))
+
+    # Return in expected format
+    return [[{'labels': unique_labels}]]
 
 
 async def query_traverse(ctx: Context, entity_id: str, depth: int, relation_types: list[str] | None) -> QueryResult:

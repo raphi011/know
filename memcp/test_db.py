@@ -27,6 +27,8 @@ from memcp.db import (
     query_upsert_entity,
     query_get_entity,
     query_delete_entity,
+    query_list_labels,
+    query_update_access,
 )
 
 
@@ -191,3 +193,95 @@ async def test_query_delete_entity(mock_ctx):
     # Verify deletion
     result = await query_get_entity(mock_ctx, "to_delete")
     assert len(result) == 0 or (len(result) > 0 and len(result[0]) == 0)
+
+
+@pytest.mark.asyncio
+async def test_query_list_labels(mock_ctx):
+    """Test query_list_labels function."""
+    # Create entities with different labels
+    test_embedding = [0.1] * 384
+
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="entity1",
+        entity_type="person",
+        labels=["python", "developer"],
+        content="Python developer",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="entity2",
+        entity_type="skill",
+        labels=["python", "programming"],
+        content="Python programming skill",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="entity3",
+        entity_type="skill",
+        labels=["rust", "programming"],
+        content="Rust programming skill",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Get all labels
+    result = await query_list_labels(mock_ctx)
+
+    assert result is not None
+    assert len(result) > 0
+
+    # Result format: list[list[dict]], dict has 'labels' key with list of labels
+    labels_data = result[0]
+    if isinstance(labels_data, list) and len(labels_data) > 0:
+        labels = labels_data[0]['labels']
+    else:
+        labels = labels_data['labels']
+
+    # Should have all unique labels (flattened)
+    assert isinstance(labels, list)
+    # The query should have flattened and deduplicated
+    assert 'python' in labels
+    assert 'developer' in labels
+    assert 'programming' in labels
+    assert 'rust' in labels
+
+
+@pytest.mark.asyncio
+async def test_query_update_access(mock_ctx):
+    """Test query_update_access function."""
+    test_embedding = [0.1] * 384
+
+    # Create entity
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="access_test",
+        entity_type="test",
+        labels=["test"],
+        content="Access test entity",
+        embedding=test_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Get initial state
+    result = await query_get_entity(mock_ctx, "access_test")
+    initial_access_count = result[0]['access_count']
+
+    # Update access
+    await query_update_access(mock_ctx, "access_test")
+
+    # Verify access count increased
+    result = await query_get_entity(mock_ctx, "access_test")
+    new_access_count = result[0]['access_count']
+
+    assert new_access_count == initial_access_count + 1
