@@ -20,3 +20,13 @@ This server enables AI agents to store and retrieve knowledge across sessions, p
 - Query and search stored information
 - Manage knowledge lifecycle (create, read, update, delete)
 
+## Development Workflow
+
+**IMPORTANT**: After making any changes to the codebase, always run the build verification test:
+
+```bash
+uv run pytest test_memcp.py -v
+```
+
+This ensures the module compiles correctly and can be imported without errors.
+
