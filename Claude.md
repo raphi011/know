@@ -30,6 +30,37 @@ uv run pytest test_memcp.py -v
 
 This ensures the module compiles correctly and can be imported without errors.
 
+## SurrealDB v3.0 Breaking Changes
+
+This project requires **SurrealDB v3.0.0-beta.1+**. Key v3.0 breaking changes applied:
+
+| v2.x (Old) | v3.0 (New) |
+|------------|------------|
+| `type::thing("table", $id)` | `type::record("table", $id)` |
+| `SEARCH ANALYZER name BM25` | `FULLTEXT ANALYZER name BM25` |
+| `MTREE DIMENSION 384` | `HNSW DIMENSION 384` |
+| `<\|k,ef\|>` (KNN operator) | `<\|k,COSINE\|>` |
+| `rand::guid()` | `rand::id()` |
+
+Other v3.0 changes (not used in this project):
+- `<future>` type replaced with computed fields
+- Angle brackets deprecated for identifier escaping (use backticks)
+- `LIKE` operators removed
+- FoundationDB storage engine removed
+
+## Development Guidelines
+
+**Always know return types** - Never guess what a query/function returns. Test it first:
+```python
+result = await db.query("...")
+print(f"Type: {type(result)}, Value: {result}")
+```
+
+Common patterns:
+- `SELECT` returns `list[dict]`
+- `RETURN { ... }` returns `dict` directly
+- `UPDATE/DELETE` returns `list[dict]` of affected records
+
 ## SurrealDB Syntax Learnings
 
 Key syntax rules and gotchas when working with SurrealDB queries:
@@ -39,13 +70,13 @@ Key syntax rules and gotchas when working with SurrealDB queries:
 **RELATE statements must use direct record ID syntax:**
 ```surql
 ✅ CORRECT: RELATE entity:from_id->rel_type->entity:to_id SET weight = $weight
-❌ WRONG:   RELATE type::thing("entity", $from)->$type->type::thing("entity", $to) SET weight = $weight
+❌ WRONG:   RELATE type::record("entity", $from)->$type->type::record("entity", $to) SET weight = $weight
 ```
-Reason: SurrealDB doesn't support `type::thing()` inside RELATE statements. Use string interpolation for IDs and relation types.
+Reason: SurrealDB doesn't support `type::record()` inside RELATE statements. Use string interpolation for IDs and relation types.
 
-**Record ID comparisons need type::thing():**
+**Record ID comparisons need type::record():**
 ```surql
-✅ CORRECT: WHERE id != type::thing("entity", $id)
+✅ CORRECT: WHERE id != type::record("entity", $id)
 ❌ WRONG:   WHERE id != $id  (won't match record IDs properly)
 ```
 
@@ -105,8 +136,8 @@ The `vector::similarity::cosine()` function works without any index and is relia
 
 **Simple deletes are preferred:**
 ```surql
-✅ CORRECT: DELETE type::thing("entity", $id)
-❌ COMPLEX: DELETE FROM type::thing("entity", $id)->?;  (may cause parse errors)
+✅ CORRECT: DELETE type::record("entity", $id)
+❌ COMPLEX: DELETE FROM type::record("entity", $id)->?;  (may cause parse errors)
 ```
 Reason: SurrealDB automatically cleans up relations when a record is deleted. Extra DELETE statements for relations are usually unnecessary.
 
