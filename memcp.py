@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
+from pathlib import Path
+
 from mcp.server.fastmcp import FastMCP, Context, ToolError
 from mcp.server.fastmcp.utilities.types import Depends
 from pydantic import BaseModel, Field
@@ -88,6 +90,14 @@ class RememberResult(BaseModel):
     entities_stored: int = 0
     relations_stored: int = 0
     contradictions: list[Contradiction] = Field(default_factory=list)
+
+
+class MemorizeFileResult(BaseModel):
+    """Result from memorizing a file."""
+    file_path: str
+    entities_stored: int = 0
+    relations_stored: int = 0
+    content_length: int = 0
 
 
 class MemoryStats(BaseModel):
@@ -504,6 +514,138 @@ async def remember(
     await ctx.info(f"Stored {result.entities_stored} entities, {result.relations_stored} relations")
 
     return result
+
+
+def _read_file_content(file_path: str) -> str:
+    """Read file content based on file type."""
+    path = Path(file_path)
+    if not path.exists():
+        raise ToolError(f"File not found: {file_path}")
+
+    suffix = path.suffix.lower()
+
+    if suffix == '.pdf':
+        from pypdf import PdfReader
+        reader = PdfReader(file_path)
+        pages = [page.extract_text() for page in reader.pages]
+        return "\n\n".join(pages)
+    elif suffix in ('.md', '.markdown', '.txt', '.text', '.rst'):
+        return path.read_text(encoding='utf-8')
+    else:
+        # Try to read as text
+        try:
+            return path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            raise ToolError(f"Cannot read file as text: {file_path}. Supported formats: .pdf, .md, .txt")
+
+
+@mcp.tool()
+async def memorize_file(
+    file_path: str,
+    source: str | None = None,
+    labels: list[str] | None = None,
+    ctx: Context = Depends()
+) -> MemorizeFileResult:
+    """Read a file (PDF, markdown, text) and extract key information to store in memory.
+
+    Uses LLM to intelligently extract the most important facts, concepts, and relationships
+    from the document and stores them as searchable memory entities.
+
+    Args:
+        file_path: Path to the file to memorize
+        source: Optional source identifier (defaults to filename)
+        labels: Optional labels to apply to all extracted entities
+    """
+    await ctx.info(f"Reading file: {file_path}")
+
+    # Read file content
+    content = _read_file_content(file_path)
+    content_length = len(content)
+
+    if not content.strip():
+        raise ToolError("File is empty")
+
+    await ctx.info(f"Read {content_length} characters, extracting knowledge via LLM...")
+
+    # Use LLM to extract structured knowledge
+    extraction_prompt = f"""Analyze this document and extract the key information worth remembering.
+
+Return a JSON object with this exact structure:
+{{
+  "entities": [
+    {{
+      "id": "unique-kebab-case-id",
+      "content": "A clear, self-contained statement of the fact or concept",
+      "type": "fact|concept|procedure|preference|definition",
+      "labels": ["relevant", "category", "tags"]
+    }}
+  ],
+  "relations": [
+    {{
+      "from": "entity-id-1",
+      "to": "entity-id-2",
+      "type": "relates_to|contains|requires|contradicts|supports"
+    }}
+  ]
+}}
+
+Guidelines:
+- Extract 5-20 of the most important, standalone facts or concepts
+- Each entity content should be self-contained and understandable without context
+- Use descriptive, unique IDs based on the content
+- Include relations between entities where meaningful connections exist
+- Focus on information that would be useful to recall later
+
+Document content:
+{content}
+
+Return ONLY the JSON object, no other text."""
+
+    response = await ctx.sample(extraction_prompt)
+
+    # Parse the JSON response
+    try:
+        # Try to extract JSON from the response (handle potential markdown code blocks)
+        response_text = response.text.strip()
+        if response_text.startswith('```'):
+            # Remove markdown code block
+            lines = response_text.split('\n')
+            response_text = '\n'.join(lines[1:-1] if lines[-1] == '```' else lines[1:])
+        extracted = json.loads(response_text)
+    except json.JSONDecodeError as e:
+        await ctx.error(f"Failed to parse LLM response as JSON: {e}")
+        raise ToolError(f"LLM did not return valid JSON. Response: {response.text[:200]}...")
+
+    # Apply source and additional labels
+    file_source = source or Path(file_path).name
+    additional_labels = labels or []
+
+    entities = extracted.get('entities', [])
+    relations = extracted.get('relations', [])
+
+    # Add source and merge labels
+    for entity in entities:
+        entity['source'] = file_source
+        existing_labels = entity.get('labels', [])
+        entity['labels'] = list(set(existing_labels + additional_labels))
+
+    await ctx.info(f"Extracted {len(entities)} entities and {len(relations)} relations")
+
+    # Store using the existing remember infrastructure
+    result = await remember(
+        entities=entities,
+        relations=relations,
+        detect_contradictions=False,
+        auto_tag=False,
+        ctx=ctx
+    )
+
+    return MemorizeFileResult(
+        file_path=file_path,
+        entities_stored=result.entities_stored,
+        relations_stored=result.relations_stored,
+        content_length=content_length
+    )
 
 
 @mcp.tool(annotations={"destructiveHint": True})
