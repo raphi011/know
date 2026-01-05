@@ -798,3 +798,5 @@ async def test_query_count_by_label(mock_ctx):
     assert len(result) > 0
     count = result[0].get('count', 0)
     assert count >= 2
+
+

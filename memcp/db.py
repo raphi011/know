@@ -1,6 +1,7 @@
 """SurrealDB database connection and query management for memcp."""
 
 import asyncio
+import logging
 import os
 import sys
 from collections.abc import AsyncIterator
@@ -11,6 +12,8 @@ from typing import Any, cast
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from surrealdb import AsyncSurreal
+
+logger = logging.getLogger("memcp.db")
 
 # Type alias for query results - SurrealDB returns list[Value] but we know
 # our queries return list of dicts in practice
@@ -33,7 +36,7 @@ SCHEMA_SQL = """
     DEFINE FIELD IF NOT EXISTS content ON entity TYPE string;
     DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
     DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 1.0;
-    DEFINE FIELD IF NOT EXISTS source ON entity TYPE string;
+    DEFINE FIELD IF NOT EXISTS source ON entity TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS decay_weight ON entity TYPE float DEFAULT 1.0;
     DEFINE FIELD IF NOT EXISTS created ON entity TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS accessed ON entity TYPE datetime DEFAULT time::now();
@@ -56,14 +59,17 @@ class AppContext:
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     """Manage database connection lifecycle."""
+    logger.info(f"app_lifespan starting - URL: {SURREALDB_URL}, NS: {SURREALDB_NAMESPACE}, DB: {SURREALDB_DATABASE}")
     db = AsyncSurreal(SURREALDB_URL)
     ctx = AppContext(db=db)
 
     try:
         # Connect to database
+        logger.info(f"Connecting to SurrealDB at {SURREALDB_URL}...")
         print(f"Connecting to SurrealDB at {SURREALDB_URL}...", file=sys.stderr)
         async with asyncio.timeout(QUERY_TIMEOUT):
             await db.connect()
+            logger.info("Connected to SurrealDB")
             print("Connected to SurrealDB", file=sys.stderr)
 
             # Validate configuration
@@ -148,16 +154,22 @@ def get_db(ctx: Context) -> AsyncSurreal:
 async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
     """Execute a database query with timeout and error handling."""
     db = get_db(ctx)
+    # Log query (truncate vars to avoid huge embeddings in logs)
+    vars_summary = {k: f"[{len(v)} items]" if isinstance(v, list) and len(v) > 10 else v for k, v in (vars or {}).items()}
+    logger.debug(f"run_query: {sql[:100]}... vars={vars_summary}")
     try:
         async with asyncio.timeout(QUERY_TIMEOUT):
             result = await db.query(sql, cast(Any, vars))
+            logger.debug(f"Query result type: {type(result)}, len: {len(result) if isinstance(result, list) else 'N/A'}")
             return cast(QueryResult, result)
     except asyncio.TimeoutError:
+        logger.error(f"Query timed out after {QUERY_TIMEOUT}s")
         await ctx.error(f"Query timed out after {QUERY_TIMEOUT}s")
         raise ToolError(f"Database query timed out after {QUERY_TIMEOUT}s")
     except ToolError:
         raise
     except Exception as e:
+        logger.error(f"Query failed: {e}", exc_info=True)
         await ctx.error(f"Database query failed: {e}")
         raise ToolError(f"Database query failed: {e}")
 

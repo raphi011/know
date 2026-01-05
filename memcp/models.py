@@ -49,14 +49,6 @@ class RememberResult(BaseModel):
     contradictions: list[Contradiction] = Field(default_factory=list)
 
 
-class MemorizeFileResult(BaseModel):
-    """Result from memorizing a file."""
-    file_path: str
-    entities_stored: int = 0
-    relations_stored: int = 0
-    content_length: int = 0
-
-
 class MemoryStats(BaseModel):
     """Statistics about the memory store."""
     total_entities: int = 0

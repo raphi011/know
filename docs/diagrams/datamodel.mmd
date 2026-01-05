@@ -1,0 +1,22 @@
+erDiagram
+    ENTITY {
+        string id PK
+        string type
+        array labels
+        string content
+        array embedding
+        float confidence
+        string source
+        float decay_weight
+        datetime created
+        datetime accessed
+        int access_count
+    }
+
+    ENTITY ||--o{ RELATION : "from"
+    ENTITY ||--o{ RELATION : "to"
+
+    RELATION {
+        string type
+        float weight
+    }

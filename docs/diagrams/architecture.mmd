@@ -1,0 +1,30 @@
+flowchart TB
+    subgraph Agent["AI Agent"]
+        A[Claude / GPT / etc.]
+    end
+
+    subgraph MemCP["MemCP Server"]
+        subgraph Interface["MCP Interface"]
+            T[Tools]
+            R[Resources]
+            P[Prompts]
+        end
+
+        subgraph Core["Core Services"]
+            E[Embedder<br/>MiniLM]
+            N[NLI Model<br/>DeBERTa]
+            Q[Query Handler]
+        end
+    end
+
+    subgraph DB["SurrealDB"]
+        ET[entity table]
+        GE[Graph Edges]
+        IX[Indexes<br/>MTREE, BM25]
+    end
+
+    A <-->|MCP Protocol| Interface
+    T --> Core
+    R --> Core
+    Core --> Q
+    Q <--> DB

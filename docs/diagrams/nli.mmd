@@ -1,0 +1,10 @@
+flowchart TB
+    E1["Entity 1<br/>'The sky is blue'"] --> NLI
+    E2["Entity 2<br/>'The sky is green'"] --> NLI
+    NLI[["NLI Model<br/>(DeBERTa)"]] --> R
+    R["Contradiction<br/>confidence: 0.92"]
+
+    style E1 fill:#e3f2fd,stroke:#1976D2
+    style E2 fill:#ffebee,stroke:#c62828
+    style NLI fill:#fff3e0,stroke:#ef6c00
+    style R fill:#ffcdd2,stroke:#c62828

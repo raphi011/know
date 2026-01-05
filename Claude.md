@@ -141,3 +141,24 @@ The `vector::similarity::cosine()` function works without any index and is relia
 ```
 Reason: SurrealDB automatically cleans up relations when a record is deleted. Extra DELETE statements for relations are usually unnecessary.
 
+## TODO
+
+### MCP Sampling Support
+
+Claude Code does not currently support MCP sampling (see [Issue #1785](https://github.com/anthropics/claude-code/issues/1785)). Features removed due to this limitation:
+
+- `memorize_file` tool - was using LLM to extract entities from documents
+- `auto_tag` parameter in `remember` - was using LLM to generate labels
+- `summarize` parameter in `search` - was using LLM to summarize results
+
+**When Claude Code adds sampling support**, re-implement these features. The original implementation used:
+```python
+async def sample(ctx: Context, prompt: str, max_tokens: int = 1000) -> str:
+    result = await ctx.request_context.session.create_message(
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text=prompt))],
+        max_tokens=max_tokens
+    )
+    return result.content.text
+```
+
+**Alternative approach**: Call Anthropic API directly with an API key instead of relying on MCP sampling.
