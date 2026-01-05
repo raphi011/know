@@ -290,13 +290,26 @@ async def query_find_path(ctx: Context, from_id: str, to_id: str, max_depth: int
 
 
 async def query_similar_entities(ctx: Context, embedding: list[float], exclude_id: str, limit: int = 5) -> QueryResult:
-    """Find similar entities by embedding."""
-    return await run_query(ctx, """
-        SELECT id, content FROM entity
-        WHERE embedding <|$limit,100|> $emb AND id != $id
+    """Find similar entities by embedding.
+
+    Note: Uses vector::similarity::cosine instead of KNN operator <|...|>
+    because MTREE index may not be available in all SurrealDB environments.
+
+    Args:
+        exclude_id: Can be either "entity:id" (full record ID) or just "id" (entity ID only)
+    """
+    # Extract just the entity ID part if full record ID is provided
+    entity_only_id = exclude_id.split(':', 1)[1] if ':' in exclude_id else exclude_id
+
+    return await run_query(ctx, f"""
+        SELECT id, content,
+               vector::similarity::cosine(embedding, $emb) AS sim
+        FROM entity
+        WHERE id != type::thing("entity", "{entity_only_id}")
+        ORDER BY sim DESC
+        LIMIT $limit
     """, {
         'emb': embedding,
-        'id': exclude_id,
         'limit': limit
     })
 

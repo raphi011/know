@@ -30,6 +30,7 @@ from memcp.db import (
     query_list_labels,
     query_update_access,
     query_create_relation,
+    query_similar_entities,
     run_query,
 )
 
@@ -335,3 +336,68 @@ async def test_query_create_relation(mock_ctx):
     assert len(relations) > 0
     # Check that person1 has outgoing relation
     assert '->knows' in relations[0] or 'knows' in str(relations[0])
+
+
+@pytest.mark.asyncio
+async def test_query_similar_entities(mock_ctx):
+    """Test query_similar_entities function."""
+    # Create entities with similar and different embeddings
+    # Similar embeddings: mostly 0.5
+    similar_embedding = [0.5] * 384
+    # Different embedding: mostly 0.1
+    different_embedding = [0.1] * 384
+
+    # Target entity
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="target",
+        entity_type="concept",
+        labels=["test"],
+        content="Target concept",
+        embedding=similar_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Similar entity (should be found)
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="similar1",
+        entity_type="concept",
+        labels=["test"],
+        content="Similar concept",
+        embedding=similar_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Different entity (should not be in top results)
+    await query_upsert_entity(
+        mock_ctx,
+        entity_id="different1",
+        entity_type="concept",
+        labels=["test"],
+        content="Different concept",
+        embedding=different_embedding,
+        confidence=1.0,
+        source="test"
+    )
+
+    # Find similar entities to target, excluding target itself
+    result = await query_similar_entities(
+        mock_ctx,
+        embedding=similar_embedding,
+        exclude_id="entity:target",
+        limit=5
+    )
+
+    assert result is not None
+    assert len(result) > 0
+
+    # Result is list[dict] format (multiple records)
+    # Check that similar1 is in results
+    ids_found = [str(entity['id']) for entity in result]
+    assert 'entity:similar1' in ids_found
+
+    # Verify target itself is not in results
+    assert 'entity:target' not in ids_found
