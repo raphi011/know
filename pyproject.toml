@@ -1,14 +1,20 @@
 [project]
 name = "memcp"
-version = "0.1.0"
+version = "0.1.5"
 description = "MCP server with SurrealDB knowledge graph for persistent agent memory"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0.0",
     "pydantic>=2.0.0",
     "surrealdb>=0.3.0",
     "sentence-transformers>=2.2.0",
     "pypdf>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
 ]
 
 [project.scripts]
