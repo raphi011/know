@@ -20,7 +20,6 @@ async def search(
     query: str,
     labels: list[str] | None = None,
     limit: int = 10,
-    semantic_weight: float = 0.5,
     ctx: Context = None  # type: ignore[assignment]
 ) -> SearchResult:
     """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
@@ -30,17 +29,15 @@ async def search(
         raise ToolError("Query cannot be empty")
     if limit < 1 or limit > 100:
         raise ToolError("Limit must be between 1 and 100")
-    if not 0 <= semantic_weight <= 1:
-        raise ToolError("semantic_weight must be between 0 and 1")
 
     await ctx.info(f"Searching for: {query[:50]}...")
 
     query_embedding = embed(query)
     filter_labels = labels or []
 
-    # Hybrid search: BM25 keyword matching + vector similarity
+    # Hybrid search: BM25 keyword matching + vector similarity (RRF fusion)
     entities = await query_hybrid_search(
-        ctx, query, query_embedding, filter_labels, limit, semantic_weight
+        ctx, query, query_embedding, filter_labels, limit
     )
 
     # Track access patterns
@@ -61,7 +58,7 @@ async def search(
         decay_weight=e.get('decay_weight')
     ) for e in entities]
 
-    log_op('search', start, query=query[:30], limit=limit, weight=semantic_weight, results=len(entity_results))
+    log_op('search', start, query=query[:30], limit=limit, results=len(entity_results))
     return SearchResult(entities=entity_results, count=len(entity_results), summary=None)
 
 

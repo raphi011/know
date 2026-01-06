@@ -40,7 +40,7 @@ interface Relation {
 
 | Operation | Description |
 |-----------|-------------|
-| `search(query, labels?, semantic_weight?)` | Hybrid semantic + keyword search |
+| `search(query, labels?, limit?)` | Hybrid semantic + keyword search (RRF) |
 | `get_entity(id)` | Fetch single entity by ID |
 | `list_labels()` | Get all tags in the system |
 | `traverse(start, depth, relation_types?)` | Graph traversal from entity |

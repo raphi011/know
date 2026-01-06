@@ -61,8 +61,6 @@ Search memories using hybrid semantic + keyword matching.
 | `query` | string | required | Search query |
 | `labels` | string[] | null | Filter by labels |
 | `limit` | int | 10 | Max results (1-100) |
-| `semantic_weight` | float | 0.5 | Balance semantic vs keyword (0-1) |
-| `summarize` | bool | false | Generate LLM summary of results |
 
 **Returns:** `SearchResult` with entities, count, and optional summary.
 
@@ -308,22 +306,15 @@ MemCP uses hybrid search combining:
 ![Hybrid Search](diagrams/search.png)
 
 1. **BM25** - Traditional keyword matching with TF-IDF weighting
-2. **Vector similarity** - Cosine similarity on semantic embeddings
+2. **Vector similarity** - Cosine similarity on semantic embeddings (HNSW index)
+
+Results are combined using **Reciprocal Rank Fusion (RRF)**:
 
 ```
-final_score = (vector_score * semantic_weight) +
-              (bm25_score * (1 - semantic_weight))
+score = 1/(rank + k)  where k=60
 ```
 
-**When to adjust `semantic_weight`:**
-
-| Value | Best for |
-|-------|----------|
-| 0.0 | Exact keyword matches only |
-| 0.3 | Keyword-focused with some semantic |
-| 0.5 | Balanced (default) |
-| 0.7 | Semantic-focused with keyword boost |
-| 1.0 | Pure semantic similarity |
+RRF combines rankings from both BM25 and vector search without needing to normalize incompatible score scales. This provides balanced hybrid search that leverages both exact keyword matches and semantic similarity.
 
 ## Best Practices
 

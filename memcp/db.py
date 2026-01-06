@@ -228,18 +228,12 @@ async def query_hybrid_search(
     query: str,
     query_embedding: list[float],
     labels: list[str],
-    limit: int,
-    semantic_weight: float
+    limit: int
 ) -> QueryResult:
     """Hybrid search using Reciprocal Rank Fusion (RRF) to combine BM25 + vector results.
 
     RRF combines rankings without needing to normalize incompatible score scales.
     Formula: score = 1/(rank + k) where k=60 is a smoothing constant.
-
-    The semantic_weight parameter controls the balance:
-    - 0.0 = BM25 only
-    - 1.0 = vector only
-    - 0.5 = equal weight (default RRF behavior)
     """
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
 

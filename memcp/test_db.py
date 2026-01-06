@@ -502,8 +502,7 @@ async def test_query_hybrid_search(mock_ctx):
         query="Python developer",
         query_embedding=test_embedding,
         labels=[],
-        limit=5,
-        semantic_weight=0.5
+        limit=5
     )
 
     assert result is not None
@@ -965,8 +964,7 @@ async def test_hybrid_search_rrf(mock_ctx):
         query="Python",
         query_embedding=embedding1,
         labels=[],
-        limit=5,
-        semantic_weight=0.5
+        limit=5
     )
 
     # RRF returns results combined from BM25 and vector search
