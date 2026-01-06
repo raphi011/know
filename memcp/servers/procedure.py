@@ -211,6 +211,10 @@ async def search_procedures(
         ctx, query, query_embedding, context, labels or [], limit
     )
 
+    # Handle None result from RRF search
+    if procedures is None:
+        procedures = []
+
     # Track access for each found procedure
     for proc in procedures:
         try:

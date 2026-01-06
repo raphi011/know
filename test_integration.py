@@ -10,6 +10,7 @@ To skip these tests when no database is available, use:
 import asyncio
 import os
 import pytest
+import pytest_asyncio
 from datetime import datetime, timedelta
 
 # Skip all tests if SURREALDB_URL is not set or SurrealDB is not available
@@ -19,15 +20,7 @@ pytestmark = pytest.mark.integration
 SURREALDB_URL = os.getenv("SURREALDB_URL", "ws://localhost:8000/rpc")
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    """Create event loop for async tests."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture
 async def db_connection():
     """Set up database connection for tests."""
     from surrealdb import AsyncSurreal
@@ -41,19 +34,21 @@ async def db_connection():
         await db.connect()
         await db.signin({"username": SURREALDB_USER, "password": SURREALDB_PASS})
         await db.use(SURREALDB_NAMESPACE, SURREALDB_DATABASE)
+        # Drop and recreate tables to ensure schema is up to date
+        # This is needed because IF NOT EXISTS won't update existing definitions
+        await db.query("REMOVE TABLE IF EXISTS episode; REMOVE TABLE IF EXISTS procedure; REMOVE TABLE IF EXISTS extracted_from;")
         # Initialize schema
         await db.query(SCHEMA_SQL)
         yield db
     except Exception as e:
         pytest.skip(f"SurrealDB not available: {e}")
     finally:
-        try:
-            await db.close()
-        except Exception:
-            pass
+        # Don't await db.close() - it hangs due to SDK race condition
+        # Connection will be cleaned up when process exits
+        pass
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def mock_ctx(db_connection):
     """Create a mock context for query functions."""
     from dataclasses import dataclass
@@ -90,7 +85,7 @@ async def mock_ctx(db_connection):
     return MockContext(db_connection)
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def cleanup_test_data(db_connection):
     """Clean up test data before and after each test."""
     # Clean up before test
@@ -139,8 +134,8 @@ class TestContextDetection:
 # Entity Query Tests with Context and Importance
 # =============================================================================
 
+@pytest.mark.embedding
 class TestEntityQueries:
-    @pytest.mark.asyncio
     async def test_upsert_entity_with_context(self, mock_ctx):
         """Test entity creation with context."""
         from memcp.db import query_upsert_entity, query_get_entity
@@ -163,7 +158,6 @@ class TestEntityQueries:
         assert len(result) == 1
         assert result[0].get('context') == "test-project"
 
-    @pytest.mark.asyncio
     async def test_upsert_entity_with_importance(self, mock_ctx):
         """Test entity creation with user importance."""
         from memcp.db import query_upsert_entity, query_get_entity
@@ -187,7 +181,6 @@ class TestEntityQueries:
         assert len(result) == 1
         assert result[0].get('user_importance') == 0.9
 
-    @pytest.mark.asyncio
     async def test_hybrid_search_with_context(self, mock_ctx):
         """Test hybrid search filters by context."""
         from memcp.db import query_upsert_entity, query_hybrid_search
@@ -221,8 +214,8 @@ class TestEntityQueries:
 # Episode Query Tests
 # =============================================================================
 
+@pytest.mark.embedding
 class TestEpisodeQueries:
-    @pytest.mark.asyncio
     async def test_create_episode(self, mock_ctx):
         """Test episode creation."""
         from memcp.db import query_create_episode, query_get_episode
@@ -249,7 +242,6 @@ class TestEpisodeQueries:
         assert result[0].get('context') == "test-project"
         assert result[0].get('summary') == "Test episode"
 
-    @pytest.mark.asyncio
     async def test_search_episodes(self, mock_ctx):
         """Test episode search."""
         from memcp.db import query_create_episode, query_search_episodes
@@ -278,7 +270,6 @@ class TestEpisodeQueries:
 
         assert len(results) >= 3
 
-    @pytest.mark.asyncio
     async def test_search_episodes_with_time_filter(self, mock_ctx):
         """Test episode search with time range filter."""
         from memcp.db import query_create_episode, query_search_episodes
@@ -313,7 +304,6 @@ class TestEpisodeQueries:
         episode_ids = [str(r.get('id', '')) for r in results]
         assert any('test_new_ep' in eid for eid in episode_ids)
 
-    @pytest.mark.asyncio
     async def test_link_entity_to_episode(self, mock_ctx):
         """Test linking entities to episodes."""
         from memcp.db import (
@@ -350,8 +340,8 @@ class TestEpisodeQueries:
 # Importance Scoring Tests
 # =============================================================================
 
+@pytest.mark.embedding
 class TestImportanceScoring:
-    @pytest.mark.asyncio
     async def test_recalculate_importance(self, mock_ctx):
         """Test importance recalculation."""
         from memcp.db import query_upsert_entity, query_recalculate_importance, query_get_entity
@@ -375,7 +365,6 @@ class TestImportanceScoring:
         result = await query_get_entity(mock_ctx, "test_imp_entity")
         assert result[0].get('importance') is not None
 
-    @pytest.mark.asyncio
     async def test_importance_with_relations(self, mock_ctx):
         """Test importance increases with more relations."""
         from memcp.db import (
@@ -416,8 +405,8 @@ class TestImportanceScoring:
 # Context Management Tests
 # =============================================================================
 
+@pytest.mark.embedding
 class TestContextManagement:
-    @pytest.mark.asyncio
     async def test_list_contexts(self, mock_ctx):
         """Test listing all contexts."""
         from memcp.db import query_upsert_entity, query_list_contexts
@@ -440,7 +429,6 @@ class TestContextManagement:
         for ctx_name in contexts:
             assert ctx_name in found_contexts
 
-    @pytest.mark.asyncio
     async def test_get_context_stats(self, mock_ctx):
         """Test getting context statistics."""
         from memcp.db import (
@@ -543,6 +531,7 @@ class TestModels:
 # Entity Type Ontology Tests
 # =============================================================================
 
+@pytest.mark.embedding
 class TestEntityTypeOntology:
     def test_entity_types_defined(self):
         """Test that entity types dictionary is populated."""
@@ -571,7 +560,6 @@ class TestEntityTypeOntology:
         if ALLOW_CUSTOM_TYPES:
             assert validate_entity_type("my_custom_type") == "my_custom_type"
 
-    @pytest.mark.asyncio
     async def test_query_entities_by_type(self, mock_ctx):
         """Test querying entities by type."""
         from memcp.db import query_upsert_entity, query_entities_by_type
@@ -594,7 +582,6 @@ class TestEntityTypeOntology:
         assert any("test_pref_1" in str(p['id']) for p in prefs)
         assert any("test_fact_1" in str(f['id']) for f in facts)
 
-    @pytest.mark.asyncio
     async def test_query_list_types(self, mock_ctx):
         """Test listing entity types with counts."""
         from memcp.db import query_upsert_entity, query_list_types
@@ -621,8 +608,8 @@ class TestEntityTypeOntology:
 # Procedure Query Tests
 # =============================================================================
 
+@pytest.mark.embedding
 class TestProcedureQueries:
-    @pytest.mark.asyncio
     async def test_create_procedure(self, mock_ctx):
         """Test procedure creation."""
         from memcp.db import query_create_procedure, query_get_procedure
@@ -653,7 +640,6 @@ class TestProcedureQueries:
         assert len(proc['steps']) == 3
         assert proc['context'] == "test-project"
 
-    @pytest.mark.asyncio
     async def test_search_procedures(self, mock_ctx):
         """Test procedure search."""
         from memcp.db import query_create_procedure, query_search_procedures
@@ -682,7 +668,6 @@ class TestProcedureQueries:
 
         assert len(results) >= 3
 
-    @pytest.mark.asyncio
     async def test_list_procedures(self, mock_ctx):
         """Test listing procedures."""
         from memcp.db import query_create_procedure, query_list_procedures
@@ -708,7 +693,6 @@ class TestProcedureQueries:
         results = await query_list_procedures(mock_ctx, ctx_name, 100)
         assert len(results) >= 2
 
-    @pytest.mark.asyncio
     async def test_delete_procedure(self, mock_ctx):
         """Test procedure deletion."""
         from memcp.db import query_create_procedure, query_get_procedure, query_delete_procedure
@@ -803,8 +787,8 @@ class TestProcedureModels:
 # Tool Integration Tests - Search Server
 # =============================================================================
 
+@pytest.mark.embedding
 class TestSearchTools:
-    @pytest.mark.asyncio
     async def test_search_tool(self, mock_ctx):
         """Test search tool returns results."""
         from memcp.servers.search import search
@@ -818,12 +802,11 @@ class TestSearchTools:
             1.0, "test"
         )
 
-        result = await search("programming language", ctx=mock_ctx)
+        result = await search.fn("programming language", ctx=mock_ctx)
 
         assert result.count >= 1
         assert any("Python" in e.content for e in result.entities)
 
-    @pytest.mark.asyncio
     async def test_search_tool_with_labels(self, mock_ctx):
         """Test search tool filters by labels."""
         from memcp.servers.search import search
@@ -839,12 +822,11 @@ class TestSearchTools:
             "Python language", embed("Python language"), 1.0, "test"
         )
 
-        result = await search("database OR language", labels=["database"], ctx=mock_ctx)
+        result = await search.fn("database OR language", labels=["database"], ctx=mock_ctx)
 
         # Should only find database-labeled entity
         assert all("database" in e.labels for e in result.entities if "test_labeled" in e.id)
 
-    @pytest.mark.asyncio
     async def test_search_tool_with_context(self, mock_ctx):
         """Test search tool filters by context."""
         from memcp.servers.search import search
@@ -862,11 +844,10 @@ class TestSearchTools:
             context="project-b"
         )
 
-        result = await search("project", context="project-a", ctx=mock_ctx)
+        result = await search.fn("project", context="project-a", ctx=mock_ctx)
 
         assert all(e.context == "project-a" for e in result.entities if e.context)
 
-    @pytest.mark.asyncio
     async def test_get_entity_tool(self, mock_ctx):
         """Test get_entity retrieves by ID."""
         from memcp.servers.search import get_entity
@@ -878,22 +859,20 @@ class TestSearchTools:
             "This is a test fact", embed("This is a test fact"), 0.9, "test"
         )
 
-        result = await get_entity("test_get_entity", mock_ctx)
+        result = await get_entity.fn("test_get_entity", mock_ctx)
 
         assert result is not None
         assert "test fact" in result.content
         assert result.confidence == 0.9
 
-    @pytest.mark.asyncio
     async def test_get_entity_not_found(self, mock_ctx):
         """Test get_entity returns None for missing entity."""
         from memcp.servers.search import get_entity
 
-        result = await get_entity("nonexistent_entity", mock_ctx)
+        result = await get_entity.fn("nonexistent_entity", mock_ctx)
 
         assert result is None
 
-    @pytest.mark.asyncio
     async def test_list_labels_tool(self, mock_ctx):
         """Test list_labels returns all labels."""
         from memcp.servers.search import list_labels
@@ -905,12 +884,11 @@ class TestSearchTools:
             "Entity with labels", embed("Entity with labels"), 1.0, "test"
         )
 
-        result = await list_labels(mock_ctx)
+        result = await list_labels.fn(mock_ctx)
 
         assert "alpha" in result
         assert "beta" in result
 
-    @pytest.mark.asyncio
     async def test_list_contexts_tool(self, mock_ctx):
         """Test list_contexts returns all contexts."""
         from memcp.servers.search import list_contexts
@@ -923,11 +901,10 @@ class TestSearchTools:
             context="my-test-context"
         )
 
-        result = await list_contexts(mock_ctx)
+        result = await list_contexts.fn(mock_ctx)
 
         assert "my-test-context" in result.contexts
 
-    @pytest.mark.asyncio
     async def test_get_context_stats_tool(self, mock_ctx):
         """Test get_context_stats returns correct counts."""
         from memcp.servers.search import get_context_stats
@@ -948,25 +925,23 @@ class TestSearchTools:
             datetime.now().isoformat(), None, {}, ctx_name
         )
 
-        result = await get_context_stats(ctx_name, mock_ctx)
+        result = await get_context_stats.fn(ctx_name, mock_ctx)
 
         assert result.context == ctx_name
         assert result.entities >= 3
         assert result.episodes >= 1
 
-    @pytest.mark.asyncio
     async def test_list_entity_types_tool(self, mock_ctx):
         """Test list_entity_types returns predefined types."""
         from memcp.servers.search import list_entity_types
 
-        result = await list_entity_types(ctx=mock_ctx)
+        result = await list_entity_types.fn(ctx=mock_ctx)
 
         type_names = [t.type for t in result.types]
         assert "preference" in type_names
         assert "requirement" in type_names
         assert "decision" in type_names
 
-    @pytest.mark.asyncio
     async def test_search_by_type_tool(self, mock_ctx):
         """Test search_by_type filters by entity type."""
         from memcp.servers.search import search_by_type
@@ -982,7 +957,7 @@ class TestSearchTools:
             "The sky is blue", embed("The sky is blue"), 1.0, "test"
         )
 
-        result = await search_by_type("preference", ctx=mock_ctx)
+        result = await search_by_type.fn("preference", ctx=mock_ctx)
 
         assert all(e.type == "preference" for e in result.entities)
 
@@ -991,14 +966,14 @@ class TestSearchTools:
 # Tool Integration Tests - Persist Server
 # =============================================================================
 
+@pytest.mark.embedding
 class TestPersistTools:
-    @pytest.mark.asyncio
     async def test_remember_entities(self, mock_ctx):
         """Test remember stores entities."""
         from memcp.servers.persist import remember
         from memcp.db import query_get_entity
 
-        result = await remember(
+        result = await remember.fn(
             entities=[
                 {"id": "test_remember_1", "content": "Test content 1", "type": "fact"},
                 {"id": "test_remember_2", "content": "Test content 2", "labels": ["test"]}
@@ -1014,12 +989,11 @@ class TestPersistTools:
         assert len(e1) == 1
         assert len(e2) == 1
 
-    @pytest.mark.asyncio
     async def test_remember_with_relations(self, mock_ctx):
         """Test remember stores relations."""
         from memcp.servers.persist import remember
 
-        result = await remember(
+        result = await remember.fn(
             entities=[
                 {"id": "test_rel_from", "content": "From entity"},
                 {"id": "test_rel_to", "content": "To entity"}
@@ -1033,13 +1007,12 @@ class TestPersistTools:
         assert result.entities_stored == 2
         assert result.relations_stored == 1
 
-    @pytest.mark.asyncio
     async def test_remember_with_context(self, mock_ctx):
         """Test remember applies context to entities."""
         from memcp.servers.persist import remember
         from memcp.db import query_get_entity
 
-        await remember(
+        await remember.fn(
             entities=[{"id": "test_ctx_entity", "content": "Contextual entity"}],
             context="my-project",
             ctx=mock_ctx
@@ -1048,13 +1021,12 @@ class TestPersistTools:
         result = await query_get_entity(mock_ctx, "test_ctx_entity")
         assert result[0].get('context') == "my-project"
 
-    @pytest.mark.asyncio
     async def test_remember_with_importance(self, mock_ctx):
         """Test remember stores user importance."""
         from memcp.servers.persist import remember
         from memcp.db import query_get_entity
 
-        await remember(
+        await remember.fn(
             entities=[{"id": "test_imp_entity", "content": "Important entity", "importance": 0.9}],
             ctx=mock_ctx
         )
@@ -1062,13 +1034,12 @@ class TestPersistTools:
         result = await query_get_entity(mock_ctx, "test_imp_entity")
         assert result[0].get('user_importance') == 0.9
 
-    @pytest.mark.asyncio
     async def test_forget_entity(self, mock_ctx):
         """Test forget removes entity."""
         from memcp.servers.persist import remember, forget
         from memcp.db import query_get_entity
 
-        await remember(
+        await remember.fn(
             entities=[{"id": "test_forget", "content": "To be forgotten"}],
             ctx=mock_ctx
         )
@@ -1077,7 +1048,7 @@ class TestPersistTools:
         assert len(await query_get_entity(mock_ctx, "test_forget")) == 1
 
         # Forget it
-        result = await forget("test_forget", mock_ctx)
+        result = await forget.fn("test_forget", mock_ctx)
         assert "test_forget" in result
 
         # Verify deleted
@@ -1088,8 +1059,8 @@ class TestPersistTools:
 # Tool Integration Tests - Graph Server
 # =============================================================================
 
+@pytest.mark.embedding
 class TestGraphTools:
-    @pytest.mark.asyncio
     async def test_traverse_tool(self, mock_ctx):
         """Test traverse explores graph connections."""
         from memcp.servers.graph import traverse
@@ -1109,12 +1080,12 @@ class TestGraphTools:
             mock_ctx, "test_trav_root", "connects_to", "test_trav_child", 1.0
         )
 
-        result = await traverse("test_trav_root", depth=2, ctx=mock_ctx)
+        result = await traverse.fn("test_trav_root", depth=2, ctx=mock_ctx)
 
         assert result is not None
-        assert "test_trav_root" in str(result.id)
+        # traverse returns JSON string
+        assert "test_trav_root" in result
 
-    @pytest.mark.asyncio
     async def test_find_path_tool(self, mock_ctx):
         """Test find_path finds connection between entities."""
         from memcp.servers.graph import find_path
@@ -1130,7 +1101,7 @@ class TestGraphTools:
         await query_create_relation(mock_ctx, "test_path_a", "links", "test_path_b", 1.0)
         await query_create_relation(mock_ctx, "test_path_b", "links", "test_path_c", 1.0)
 
-        result = await find_path("test_path_a", "test_path_c", max_depth=3, ctx=mock_ctx)
+        result = await find_path.fn("test_path_a", "test_path_c", max_depth=3, ctx=mock_ctx)
 
         # Should find path (result structure varies)
         assert result is not None
@@ -1140,13 +1111,13 @@ class TestGraphTools:
 # Tool Integration Tests - Episode Server
 # =============================================================================
 
+@pytest.mark.embedding
 class TestEpisodeTools:
-    @pytest.mark.asyncio
     async def test_add_episode_tool(self, mock_ctx):
         """Test add_episode stores episode."""
         from memcp.servers.episode import add_episode
 
-        result = await add_episode(
+        result = await add_episode.fn(
             content="This is a test conversation about Python programming.",
             summary="Python discussion",
             context="test-project",
@@ -1158,7 +1129,6 @@ class TestEpisodeTools:
         assert result.context == "test-project"
         assert result.summary == "Python discussion"
 
-    @pytest.mark.asyncio
     async def test_add_episode_with_entity_links(self, mock_ctx):
         """Test add_episode links entities."""
         from memcp.servers.episode import add_episode
@@ -1171,7 +1141,7 @@ class TestEpisodeTools:
             "Related concept", embed("Related concept"), 1.0, "test"
         )
 
-        result = await add_episode(
+        result = await add_episode.fn(
             content="Discussion about the related concept.",
             entity_ids=["test_ep_entity"],
             ctx=mock_ctx
@@ -1179,27 +1149,25 @@ class TestEpisodeTools:
 
         assert result.linked_entities >= 1
 
-    @pytest.mark.asyncio
     async def test_search_episodes_tool(self, mock_ctx):
         """Test search_episodes finds episodes."""
         from memcp.servers.episode import add_episode, search_episodes
 
         # Create episodes
-        await add_episode(content="Machine learning discussion", ctx=mock_ctx)
-        await add_episode(content="Deep learning neural networks", ctx=mock_ctx)
+        await add_episode.fn(content="Machine learning discussion", ctx=mock_ctx)
+        await add_episode.fn(content="Deep learning neural networks", ctx=mock_ctx)
 
-        result = await search_episodes("machine learning", ctx=mock_ctx)
+        result = await search_episodes.fn("machine learning", ctx=mock_ctx)
 
         assert result.count >= 1
 
-    @pytest.mark.asyncio
     async def test_search_episodes_with_time_filter(self, mock_ctx):
         """Test search_episodes filters by time."""
         from memcp.servers.episode import add_episode, search_episodes
 
         # Create episode with specific timestamp
         now = datetime.now()
-        await add_episode(
+        await add_episode.fn(
             content="Recent test episode",
             timestamp=now.isoformat(),
             ctx=mock_ctx
@@ -1207,36 +1175,34 @@ class TestEpisodeTools:
 
         # Search with time filter
         time_start = (now - timedelta(hours=1)).isoformat()
-        result = await search_episodes("test episode", time_start=time_start, ctx=mock_ctx)
+        result = await search_episodes.fn("test episode", time_start=time_start, ctx=mock_ctx)
 
         assert result.count >= 1
 
-    @pytest.mark.asyncio
     async def test_get_episode_tool(self, mock_ctx):
         """Test get_episode retrieves episode."""
         from memcp.servers.episode import add_episode, get_episode
 
-        added = await add_episode(content="Episode to retrieve", ctx=mock_ctx)
+        added = await add_episode.fn(content="Episode to retrieve", ctx=mock_ctx)
         episode_id = added.id.replace("episode:", "")
 
-        result = await get_episode(episode_id, ctx=mock_ctx)
+        result = await get_episode.fn(episode_id, ctx=mock_ctx)
 
         assert result is not None
         assert "Episode to retrieve" in result.content
 
-    @pytest.mark.asyncio
     async def test_delete_episode_tool(self, mock_ctx):
         """Test delete_episode removes episode."""
         from memcp.servers.episode import add_episode, get_episode, delete_episode
 
-        added = await add_episode(content="Episode to delete", ctx=mock_ctx)
+        added = await add_episode.fn(content="Episode to delete", ctx=mock_ctx)
         episode_id = added.id.replace("episode:", "")
 
         # Delete
-        await delete_episode(episode_id, mock_ctx)
+        await delete_episode.fn(episode_id, mock_ctx)
 
         # Verify deleted
-        result = await get_episode(episode_id, ctx=mock_ctx)
+        result = await get_episode.fn(episode_id, ctx=mock_ctx)
         assert result is None
 
 
@@ -1244,13 +1210,13 @@ class TestEpisodeTools:
 # Tool Integration Tests - Procedure Server
 # =============================================================================
 
+@pytest.mark.embedding
 class TestProcedureTools:
-    @pytest.mark.asyncio
     async def test_add_procedure_tool(self, mock_ctx):
         """Test add_procedure stores procedure."""
         from memcp.servers.procedure import add_procedure
 
-        result = await add_procedure(
+        result = await add_procedure.fn(
             name="Test Deploy Process",
             description="Steps to deploy the test app",
             steps=[
@@ -1267,12 +1233,11 @@ class TestProcedureTools:
         assert len(result.steps) == 3
         assert result.steps[2].optional is True
 
-    @pytest.mark.asyncio
     async def test_get_procedure_tool(self, mock_ctx):
         """Test get_procedure retrieves procedure."""
         from memcp.servers.procedure import add_procedure, get_procedure
 
-        added = await add_procedure(
+        added = await add_procedure.fn(
             name="Test Retrieve Proc",
             description="Procedure to retrieve",
             steps=[{"content": "Step 1"}],
@@ -1280,17 +1245,16 @@ class TestProcedureTools:
         )
 
         proc_id = added.id.replace("procedure:", "")
-        result = await get_procedure(proc_id, ctx=mock_ctx)
+        result = await get_procedure.fn(proc_id, ctx=mock_ctx)
 
         assert result is not None
         assert result.name == "Test Retrieve Proc"
 
-    @pytest.mark.asyncio
     async def test_search_procedures_tool(self, mock_ctx):
         """Test search_procedures finds procedures."""
         from memcp.servers.procedure import add_procedure, search_procedures
 
-        await add_procedure(
+        await add_procedure.fn(
             name="Database Migration",
             description="Steps to migrate database",
             steps=[{"content": "Backup data"}, {"content": "Run migrations"}],
@@ -1298,23 +1262,22 @@ class TestProcedureTools:
             ctx=mock_ctx
         )
 
-        result = await search_procedures("database migration", ctx=mock_ctx)
+        result = await search_procedures.fn("database migration", ctx=mock_ctx)
 
         assert result.count >= 1
 
-    @pytest.mark.asyncio
     async def test_list_procedures_tool(self, mock_ctx):
         """Test list_procedures returns all procedures."""
         from memcp.servers.procedure import add_procedure, list_procedures
 
-        await add_procedure(
+        await add_procedure.fn(
             name="Test List Proc 1",
             description="First procedure",
             steps=[{"content": "Step"}],
             context="test-list-ctx",
             ctx=mock_ctx
         )
-        await add_procedure(
+        await add_procedure.fn(
             name="Test List Proc 2",
             description="Second procedure",
             steps=[{"content": "Step"}],
@@ -1322,16 +1285,15 @@ class TestProcedureTools:
             ctx=mock_ctx
         )
 
-        result = await list_procedures(context="test-list-ctx", ctx=mock_ctx)
+        result = await list_procedures.fn(context="test-list-ctx", ctx=mock_ctx)
 
         assert result.count >= 2
 
-    @pytest.mark.asyncio
     async def test_delete_procedure_tool(self, mock_ctx):
         """Test delete_procedure removes procedure."""
         from memcp.servers.procedure import add_procedure, get_procedure, delete_procedure
 
-        added = await add_procedure(
+        added = await add_procedure.fn(
             name="Test Delete Proc",
             description="To be deleted",
             steps=[{"content": "Step"}],
@@ -1341,10 +1303,10 @@ class TestProcedureTools:
         proc_id = added.id.replace("procedure:", "")
 
         # Delete
-        await delete_procedure(proc_id, ctx=mock_ctx)
+        await delete_procedure.fn(proc_id, ctx=mock_ctx)
 
         # Verify deleted
-        result = await get_procedure(proc_id, ctx=mock_ctx)
+        result = await get_procedure.fn(proc_id, ctx=mock_ctx)
         assert result is None
 
 
@@ -1352,8 +1314,8 @@ class TestProcedureTools:
 # Tool Integration Tests - Maintenance Server
 # =============================================================================
 
+@pytest.mark.embedding
 class TestMaintenanceTools:
-    @pytest.mark.asyncio
     async def test_reflect_decay(self, mock_ctx):
         """Test reflect applies decay to old entities."""
         from memcp.servers.maintenance import reflect
@@ -1370,11 +1332,10 @@ class TestMaintenanceTools:
             UPDATE type::record("entity", $id) SET accessed = <datetime>"2020-01-01T00:00:00Z"
         """, {'id': "test_decay_entity"})
 
-        result = await reflect(apply_decay=True, decay_days=1, find_similar=False, recalculate_importance=False, ctx=mock_ctx)
+        result = await reflect.fn(apply_decay=True, decay_days=1, find_similar=False, recalculate_importance=False, ctx=mock_ctx)
 
         assert result.decayed >= 1
 
-    @pytest.mark.asyncio
     async def test_reflect_find_similar(self, mock_ctx):
         """Test reflect finds similar entities."""
         from memcp.servers.maintenance import reflect
@@ -1391,12 +1352,11 @@ class TestMaintenanceTools:
             "Python programming language features", embed("Python programming language features"), 1.0, "test"
         )
 
-        result = await reflect(apply_decay=False, find_similar=True, similarity_threshold=0.9, recalculate_importance=False, ctx=mock_ctx)
+        result = await reflect.fn(apply_decay=False, find_similar=True, similarity_threshold=0.9, recalculate_importance=False, ctx=mock_ctx)
 
         # Should find the similar pair
         assert len(result.similar_pairs) >= 1 or result.merged >= 1
 
-    @pytest.mark.asyncio
     async def test_reflect_recalculate_importance(self, mock_ctx):
         """Test reflect recalculates importance."""
         from memcp.servers.maintenance import reflect
@@ -1408,11 +1368,10 @@ class TestMaintenanceTools:
             "Entity for importance", embed("Entity for importance"), 1.0, "test"
         )
 
-        result = await reflect(apply_decay=False, find_similar=False, recalculate_importance=True, ctx=mock_ctx)
+        result = await reflect.fn(apply_decay=False, find_similar=False, recalculate_importance=True, ctx=mock_ctx)
 
         assert result.importance_recalculated >= 1
 
-    @pytest.mark.asyncio
     async def test_check_contradictions_tool(self, mock_ctx):
         """Test check_contradictions detects conflicts."""
         from memcp.servers.maintenance import check_contradictions_tool
@@ -1429,7 +1388,7 @@ class TestMaintenanceTools:
             "The capital of France is not Paris", embed("The capital of France is not Paris"), 1.0, "test"
         )
 
-        result = await check_contradictions_tool(labels=["test"], ctx=mock_ctx)
+        result = await check_contradictions_tool.fn(labels=["test"], ctx=mock_ctx)
 
         # May or may not find contradiction depending on NLI model sensitivity
         assert isinstance(result, list)

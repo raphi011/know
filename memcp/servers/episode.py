@@ -138,6 +138,10 @@ async def search_episodes(
         ctx, query, query_embedding, time_start, time_end, context, limit
     )
 
+    # Handle None result from RRF search
+    if episodes is None:
+        episodes = []
+
     # Track access for each found episode
     for ep in episodes:
         try:

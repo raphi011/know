@@ -53,6 +53,10 @@ async def search(
         ctx, query, query_embedding, filter_labels, limit, effective_context
     )
 
+    # Handle None result from RRF search
+    if entities is None:
+        entities = []
+
     # Track access patterns
     for r in entities:
         await query_update_access(ctx, extract_record_id(r['id']))
