@@ -6,7 +6,7 @@ from fastmcp import FastMCP, Context
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from memcp.db import query_traverse, query_find_path
+from memcp.db import get_db, query_traverse, query_find_path
 
 server = FastMCP("graph")
 
@@ -25,8 +25,9 @@ async def traverse(
         raise ToolError("depth must be between 1 and 10")
 
     await ctx.info(f"Traversing from {start} with depth {depth}")
+    db = get_db(ctx)
 
-    results = await query_traverse(ctx, start, depth, relation_types or None)
+    results = await query_traverse(db, start, depth, relation_types or None)
     return json.dumps(results[0] if results else [], indent=2, default=str)
 
 
@@ -46,6 +47,7 @@ async def find_path(
         raise ToolError("max_depth must be between 1 and 20")
 
     await ctx.info(f"Finding path from {from_id} to {to_id}")
+    db = get_db(ctx)
 
-    results = await query_find_path(ctx, from_id, to_id, max_depth)
+    results = await query_find_path(db, from_id, to_id, max_depth)
     return json.dumps(results[0] if results else [], indent=2, default=str)

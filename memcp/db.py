@@ -13,6 +13,9 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from surrealdb import AsyncSurreal, RecordID
 
+# Type alias for database connection - allows both direct db and MCP context usage
+DBConnection = AsyncSurreal
+
 logger = logging.getLogger("memcp.db")
 
 # Type alias for query results - SurrealDB returns list[Value] but we know
@@ -314,9 +317,17 @@ def get_db(ctx: Context) -> AsyncSurreal:
     return app_ctx.db
 
 
-async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
-    """Execute a database query with error handling."""
-    db = get_db(ctx)
+async def run_query(db: AsyncSurreal, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
+    """Execute a database query with error handling.
+
+    Args:
+        db: AsyncSurreal database connection
+        sql: SQL query string
+        vars: Optional query variables
+
+    Returns:
+        Query results as list of dicts
+    """
     # Log query (truncate vars to avoid huge embeddings in logs)
     vars_summary = {k: f"[{len(v)} items]" if isinstance(v, list) and len(v) > 10 else v for k, v in (vars or {}).items()}
     logger.debug(f"run_query: {sql[:100]}... vars={vars_summary}")
@@ -344,7 +355,6 @@ async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) 
         )
     except Exception as e:
         logger.error(f"Query failed: {e}", exc_info=True)
-        await ctx.error(f"Database query failed: {e}")
         raise ToolError(f"Database query failed: {e}")
 
 
@@ -394,7 +404,7 @@ def validate_relation(relation: dict) -> None:
 # =============================================================================
 
 async def query_hybrid_search(
-    ctx: Context,
+    db: AsyncSurreal,
     query: str,
     query_embedding: list[float],
     labels: list[str],
@@ -411,7 +421,7 @@ async def query_hybrid_search(
 
     # Use search::rrf() to combine BM25 and vector search results
     # Using inline subqueries (LET variables don't work with search::rrf)
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT * FROM search::rrf([
             (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
              FROM entity
@@ -429,27 +439,27 @@ async def query_hybrid_search(
     })
 
 
-async def query_update_access(ctx: Context, entity_id: str) -> QueryResult:
+async def query_update_access(db: AsyncSurreal, entity_id: str) -> QueryResult:
     """Update entity access timestamp, count, and reset decay weight."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         UPDATE type::record("entity", $id) SET accessed = time::now(), access_count += 1, decay_weight = 1.0
     """, {'id': entity_id})
 
 
-async def query_get_entity(ctx: Context, entity_id: str) -> QueryResult:
+async def query_get_entity(db: AsyncSurreal, entity_id: str) -> QueryResult:
     """Get entity by ID.
 
     Returns: list[dict] where dict is the single entity, or empty list if not found.
     """
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT * FROM type::record("entity", $id)
     """, {'id': entity_id})
 
 
-async def query_list_labels(ctx: Context) -> QueryResult:
+async def query_list_labels(db: AsyncSurreal) -> QueryResult:
     """List all unique labels from entities."""
     # SELECT FROM entity returns list[dict] - each dict has labels field
-    result = await run_query(ctx, "SELECT labels FROM entity")
+    result = await run_query(db, "SELECT labels FROM entity")
 
     if not result or len(result) == 0:
         return [{'labels': []}]
@@ -468,32 +478,32 @@ async def query_list_labels(ctx: Context) -> QueryResult:
     return [{'labels': unique_labels}]
 
 
-async def query_traverse(ctx: Context, entity_id: str, depth: int, relation_types: list[str] | None) -> QueryResult:
+async def query_traverse(db: AsyncSurreal, entity_id: str, depth: int, relation_types: list[str] | None) -> QueryResult:
     """Traverse graph from entity with optional relation type filter.
 
     Uses single 'relates' table with rel_type field for filtering.
     """
     if relation_types:
         # Filter by rel_type field within the relates table
-        return await run_query(ctx, f"""
+        return await run_query(db, f"""
             SELECT *, ->(SELECT * FROM relates WHERE rel_type IN $types)..{depth}->entity AS connected
             FROM type::record("entity", $id)
         """, {'id': entity_id, 'types': relation_types})
     else:
-        return await run_query(ctx, f"""
+        return await run_query(db, f"""
             SELECT *, ->relates..{depth}->entity AS connected
             FROM type::record("entity", $id)
         """, {'id': entity_id})
 
 
-async def query_find_path(ctx: Context, from_id: str, to_id: str, max_depth: int) -> QueryResult:
+async def query_find_path(db: AsyncSurreal, from_id: str, to_id: str, max_depth: int) -> QueryResult:
     """Find path between two entities via relates table."""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT * FROM type::record("entity", $from)->relates..{max_depth}->entity WHERE id = type::record("entity", $to) LIMIT 1
     """, {'from': from_id, 'to': to_id})
 
 
-async def query_similar_entities(ctx: Context, embedding: list[float], exclude_id: str, limit: int = 5) -> QueryResult:
+async def query_similar_entities(db: AsyncSurreal, embedding: list[float], exclude_id: str, limit: int = 5) -> QueryResult:
     """Find similar entities by embedding.
 
     Note: Uses vector::similarity::cosine instead of KNN operator <|...|>
@@ -502,7 +512,7 @@ async def query_similar_entities(ctx: Context, embedding: list[float], exclude_i
     Args:
         exclude_id: Can be either "entity:id" (full record ID) or just "id" (entity ID only)
     """
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT id, content,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
@@ -517,7 +527,7 @@ async def query_similar_entities(ctx: Context, embedding: list[float], exclude_i
 
 
 async def query_upsert_entity(
-    ctx: Context,
+    db: AsyncSurreal,
     entity_id: str,
     entity_type: str,
     labels: list[str],
@@ -544,7 +554,7 @@ async def query_upsert_entity(
     if user_importance is not None:
         set_clause += ", user_importance = $user_importance"
 
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         UPSERT type::record("entity", $id) SET {set_clause}
     """, {
         'id': entity_id,
@@ -560,7 +570,7 @@ async def query_upsert_entity(
 
 
 async def query_create_relation(
-    ctx: Context,
+    db: AsyncSurreal,
     from_id: str,
     rel_type: str,
     to_id: str,
@@ -573,7 +583,7 @@ async def query_create_relation(
     """
     # Use RecordID for proper escaping of IDs with special characters (hyphens, etc.)
     # UPSERT-like behavior: if relation exists, update weight; otherwise create
-    return await run_query(ctx, """
+    return await run_query(db, """
         RELATE $from_rec->relates->$to_rec SET rel_type = $rel_type, weight = $weight
     """, {
         'from_rec': RecordID('entity', from_id),
@@ -583,36 +593,36 @@ async def query_create_relation(
     })
 
 
-async def query_delete_entity(ctx: Context, entity_id: str) -> QueryResult:
+async def query_delete_entity(db: AsyncSurreal, entity_id: str) -> QueryResult:
     """Delete entity and all its relations."""
     # Delete entity and its relations in separate statements
-    await run_query(ctx, "DELETE type::record('entity', $id)", {'id': entity_id})
+    await run_query(db, "DELETE type::record('entity', $id)", {'id': entity_id})
     # Note: Relations are automatically cleaned up by SurrealDB when the record is deleted
     return []  # Return empty result
 
 
-async def query_apply_decay(ctx: Context, cutoff_datetime: str) -> QueryResult:
+async def query_apply_decay(db: AsyncSurreal, cutoff_datetime: str) -> QueryResult:
     """Apply temporal decay to old entities."""
     # v3.0: Must cast string parameter to datetime for comparison
-    return await run_query(ctx, """
+    return await run_query(db, """
         UPDATE entity SET decay_weight = decay_weight * 0.9
         WHERE accessed < <datetime>$cutoff AND decay_weight > 0.1
     """, {'cutoff': cutoff_datetime})
 
 
-async def query_all_entities_with_embedding(ctx: Context) -> QueryResult:
+async def query_all_entities_with_embedding(db: AsyncSurreal) -> QueryResult:
     """Get all entities with their embeddings for similarity comparison."""
-    return await run_query(ctx, "SELECT id, content, embedding, access_count, accessed FROM entity")
+    return await run_query(db, "SELECT id, content, embedding, access_count, accessed FROM entity")
 
 
 async def query_similar_by_embedding(
-    ctx: Context,
+    db: AsyncSurreal,
     embedding: list[float],
     exclude_id: str,
     limit: int = 10
 ) -> QueryResult:
     """Find similar entities by embedding with similarity score."""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT id, content, access_count, accessed,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
@@ -620,44 +630,44 @@ async def query_similar_by_embedding(
     """, {'emb': embedding, 'exclude_rec': RecordID('entity', _extract_id(exclude_id))})
 
 
-async def query_delete_entity_by_record_id(ctx: Context, entity_id: str) -> QueryResult:
+async def query_delete_entity_by_record_id(db: AsyncSurreal, entity_id: str) -> QueryResult:
     """Delete entity by record ID (used in reflect merge).
 
     Note: SurrealDB automatically cleans up relations when the record is deleted.
     """
-    return await run_query(ctx, """
+    return await run_query(db, """
         DELETE type::record("entity", $id)
     """, {'id': entity_id})
 
 
-async def query_entity_with_embedding(ctx: Context, entity_id: str) -> QueryResult:
+async def query_entity_with_embedding(db: AsyncSurreal, entity_id: str) -> QueryResult:
     """Get entity with embedding for contradiction checking."""
-    return await run_query(ctx, 'SELECT * FROM type::record("entity", $id)', {'id': entity_id})
+    return await run_query(db, 'SELECT * FROM type::record("entity", $id)', {'id': entity_id})
 
 
 async def query_similar_for_contradiction(
-    ctx: Context,
+    db: AsyncSurreal,
     embedding: list[float],
     entity_id: str
 ) -> QueryResult:
     """Find similar entities for contradiction detection."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT id, content FROM entity
         WHERE embedding <|10,40|> $emb AND id != $exclude_rec
     """, {'emb': embedding, 'exclude_rec': RecordID('entity', entity_id)})
 
 
-async def query_entities_by_labels(ctx: Context, labels: list[str]) -> QueryResult:
+async def query_entities_by_labels(db: AsyncSurreal, labels: list[str]) -> QueryResult:
     """Get entities filtered by labels."""
     label_filter = "WHERE labels CONTAINSANY $labels" if labels else ""
-    return await run_query(ctx, f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
+    return await run_query(db, f"SELECT id, content, embedding FROM entity {label_filter}", {'labels': labels})
 
 
-async def query_vector_similarity(ctx: Context, emb1: list[float], emb2: list[float]) -> QueryResult:
+async def query_vector_similarity(db: AsyncSurreal, emb1: list[float], emb2: list[float]) -> QueryResult:
     """Calculate cosine similarity between two embeddings."""
     # v3.0: SELECT requires FROM, use RETURN for computed values
     # Wrap in list for consistent QueryResult format
-    result = await run_query(ctx, """
+    result = await run_query(db, """
         RETURN { sim: vector::similarity::cosine($emb1, $emb2) }
     """, {'emb1': emb1, 'emb2': emb2})
     # RETURN gives dict directly, wrap in list
@@ -666,22 +676,22 @@ async def query_vector_similarity(ctx: Context, emb1: list[float], emb2: list[fl
     return result
 
 
-async def query_count_entities(ctx: Context) -> QueryResult:
+async def query_count_entities(db: AsyncSurreal) -> QueryResult:
     """Count total entities."""
-    return await run_query(ctx, "SELECT count() FROM entity GROUP ALL")
+    return await run_query(db, "SELECT count() FROM entity GROUP ALL")
 
 
-async def query_count_relations(ctx: Context) -> QueryResult:
+async def query_count_relations(db: AsyncSurreal) -> QueryResult:
     """Count total relations."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT count() FROM relates GROUP ALL
     """)
 
 
-async def query_get_all_labels(ctx: Context) -> QueryResult:
+async def query_get_all_labels(db: AsyncSurreal) -> QueryResult:
     """Get all unique labels."""
     # v3.0: Subquery with .field syntax changed, use Python-side processing
-    result = await run_query(ctx, "SELECT labels FROM entity")
+    result = await run_query(db, "SELECT labels FROM entity")
     if not result:
         return [{'labels': []}]
     all_labels = []
@@ -691,9 +701,9 @@ async def query_get_all_labels(ctx: Context) -> QueryResult:
     return [{'labels': list(set(all_labels))}]
 
 
-async def query_count_by_label(ctx: Context, label: str) -> QueryResult:
+async def query_count_by_label(db: AsyncSurreal, label: str) -> QueryResult:
     """Count entities with a specific label."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT count() FROM entity WHERE labels CONTAINS $label GROUP ALL
     """, {'label': label})
 
@@ -703,7 +713,7 @@ async def query_count_by_label(ctx: Context, label: str) -> QueryResult:
 # =============================================================================
 
 async def query_create_episode(
-    ctx: Context,
+    db: AsyncSurreal,
     episode_id: str,
     content: str,
     embedding: list[float],
@@ -719,7 +729,7 @@ async def query_create_episode(
     if timestamp and not (timestamp.endswith('Z') or '+' in timestamp or timestamp.endswith('00:00')):
         ts_with_tz = timestamp + 'Z'
 
-    return await run_query(ctx, """
+    return await run_query(db, """
         UPSERT type::record("episode", $id) SET
             content = $content,
             embedding = $embedding,
@@ -739,7 +749,7 @@ async def query_create_episode(
 
 
 async def query_search_episodes(
-    ctx: Context,
+    db: AsyncSurreal,
     query: str,
     query_embedding: list[float],
     time_start: str | None,
@@ -766,7 +776,7 @@ async def query_search_episodes(
 
     # Use search::rrf() to combine BM25 and vector search results
     # Using inline subqueries (LET variables don't work with search::rrf)
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT * FROM search::rrf([
             (SELECT id, content, summary, timestamp, metadata, context
              FROM episode
@@ -785,29 +795,29 @@ async def query_search_episodes(
     })
 
 
-async def query_get_episode(ctx: Context, episode_id: str) -> QueryResult:
+async def query_get_episode(db: AsyncSurreal, episode_id: str) -> QueryResult:
     """Get episode by ID."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT * FROM type::record("episode", $id)
     """, {'id': episode_id})
 
 
-async def query_update_episode_access(ctx: Context, episode_id: str) -> QueryResult:
+async def query_update_episode_access(db: AsyncSurreal, episode_id: str) -> QueryResult:
     """Update episode access timestamp and count."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         UPDATE type::record("episode", $id) SET accessed = time::now(), access_count += 1
     """, {'id': episode_id})
 
 
 async def query_link_entity_to_episode(
-    ctx: Context,
+    db: AsyncSurreal,
     entity_id: str,
     episode_id: str,
     position: int | None,
     confidence: float
 ) -> QueryResult:
     """Link an entity to its source episode."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         RELATE $entity_rec->extracted_from->$episode_rec
         SET position = $position, confidence = $confidence
     """, {
@@ -818,24 +828,24 @@ async def query_link_entity_to_episode(
     })
 
 
-async def query_get_episode_entities(ctx: Context, episode_id: str) -> QueryResult:
+async def query_get_episode_entities(db: AsyncSurreal, episode_id: str) -> QueryResult:
     """Get all entities extracted from an episode."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT <-extracted_from<-entity.* AS entities FROM type::record("episode", $id)
     """, {'id': episode_id})
 
 
-async def query_delete_episode(ctx: Context, episode_id: str) -> QueryResult:
+async def query_delete_episode(db: AsyncSurreal, episode_id: str) -> QueryResult:
     """Delete episode and its entity links."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         DELETE type::record("episode", $id)
     """, {'id': episode_id})
 
 
-async def query_count_episodes(ctx: Context, context: str | None = None) -> QueryResult:
+async def query_count_episodes(db: AsyncSurreal, context: str | None = None) -> QueryResult:
     """Count episodes, optionally filtered by context."""
     context_filter = "WHERE context = $context" if context else ""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT count() FROM episode {context_filter} GROUP ALL
     """, {'context': context})
 
@@ -844,9 +854,9 @@ async def query_count_episodes(ctx: Context, context: str | None = None) -> Quer
 # Importance Scoring Functions
 # =============================================================================
 
-async def query_get_entity_connectivity(ctx: Context, entity_id: str) -> int:
+async def query_get_entity_connectivity(db: AsyncSurreal, entity_id: str) -> int:
     """Count total relations (in + out) for an entity."""
-    result = await run_query(ctx, """
+    result = await run_query(db, """
         LET $out_count = (SELECT count() FROM relates WHERE in = $rec GROUP ALL);
         LET $in_count = (SELECT count() FROM relates WHERE out = $rec GROUP ALL);
         RETURN {
@@ -864,7 +874,7 @@ async def query_get_entity_connectivity(ctx: Context, entity_id: str) -> int:
     return 0
 
 
-async def query_recalculate_importance(ctx: Context, entity_id: str) -> float:
+async def query_recalculate_importance(db: AsyncSurreal, entity_id: str) -> float:
     """Recalculate importance score for an entity.
 
     Formula: importance = 0.3*connectivity_score + 0.3*access_score + 0.4*user_importance
@@ -876,7 +886,7 @@ async def query_recalculate_importance(ctx: Context, entity_id: str) -> float:
     """
     import math
 
-    entity_result = await query_get_entity(ctx, entity_id)
+    entity_result = await query_get_entity(db, entity_id)
     if not entity_result:
         return 0.5
 
@@ -885,7 +895,7 @@ async def query_recalculate_importance(ctx: Context, entity_id: str) -> float:
     user_imp = e.get('user_importance')
 
     # Get connectivity
-    connectivity = await query_get_entity_connectivity(ctx, entity_id)
+    connectivity = await query_get_entity_connectivity(db, entity_id)
 
     # Calculate scores
     connectivity_score = min(1.0, connectivity / 10.0)
@@ -896,28 +906,28 @@ async def query_recalculate_importance(ctx: Context, entity_id: str) -> float:
     importance = 0.3 * connectivity_score + 0.3 * access_score + 0.4 * user_score
 
     # Update entity
-    await run_query(ctx, """
+    await run_query(db, """
         UPDATE type::record("entity", $id) SET importance = $importance
     """, {'id': entity_id, 'importance': importance})
 
     return importance
 
 
-async def query_batch_recalculate_importance(ctx: Context, context: str | None = None) -> int:
+async def query_batch_recalculate_importance(db: AsyncSurreal, context: str | None = None) -> int:
     """Recalculate importance for all entities (optionally filtered by context)."""
     context_filter = "WHERE context = $ctx" if context else ""
-    entities = await run_query(ctx, f"SELECT id FROM entity {context_filter}", {'ctx': context})
+    entities = await run_query(db, f"SELECT id FROM entity {context_filter}", {'ctx': context})
 
     count = 0
     for e in entities:
-        await query_recalculate_importance(ctx, _extract_id(e['id']))
+        await query_recalculate_importance(db, _extract_id(e['id']))
         count += 1
 
     return count
 
 
 async def query_weighted_search(
-    ctx: Context,
+    db: AsyncSurreal,
     query: str,
     query_embedding: list[float],
     labels: list[str],
@@ -939,7 +949,7 @@ async def query_weighted_search(
     # First do RRF search, then re-rank with importance/recency
     # Note: SurrealDB v3.0 doesn't support arithmetic in ORDER BY easily,
     # so we fetch more results and let Python re-rank if needed
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         LET $ft = SELECT id, type, labels, content, confidence, source, decay_weight,
                          context, importance, accessed
                   FROM entity
@@ -964,13 +974,13 @@ async def query_weighted_search(
 # Context Management Functions
 # =============================================================================
 
-async def query_list_contexts(ctx: Context) -> QueryResult:
+async def query_list_contexts(db: AsyncSurreal) -> QueryResult:
     """List all unique contexts from entities and episodes."""
     # Get contexts from both entities and episodes using GROUP BY (DISTINCT deprecated in v3.0)
-    entity_contexts = await run_query(ctx, """
+    entity_contexts = await run_query(db, """
         SELECT context FROM entity WHERE context != NONE GROUP BY context
     """)
-    episode_contexts = await run_query(ctx, """
+    episode_contexts = await run_query(db, """
         SELECT context FROM episode WHERE context != NONE GROUP BY context
     """)
 
@@ -986,17 +996,17 @@ async def query_list_contexts(ctx: Context) -> QueryResult:
     return [{'contexts': list(all_contexts)}]
 
 
-async def query_get_context_stats(ctx: Context, context: str) -> QueryResult:
+async def query_get_context_stats(db: AsyncSurreal, context: str) -> QueryResult:
     """Get statistics for a specific context."""
-    entity_count = await run_query(ctx, """
+    entity_count = await run_query(db, """
         SELECT count() FROM entity WHERE context = $ctx GROUP ALL
     """, {'ctx': context})
 
-    episode_count = await run_query(ctx, """
+    episode_count = await run_query(db, """
         SELECT count() FROM episode WHERE context = $ctx GROUP ALL
     """, {'ctx': context})
 
-    relation_count = await run_query(ctx, """
+    relation_count = await run_query(db, """
         SELECT count() FROM relates
         WHERE in.context = $ctx OR out.context = $ctx
         GROUP ALL
@@ -1015,30 +1025,30 @@ async def query_get_context_stats(ctx: Context, context: str) -> QueryResult:
 # =============================================================================
 
 async def query_entities_by_type(
-    ctx: Context,
+    db: AsyncSurreal,
     entity_type: str,
     context: str | None = None,
     limit: int = 100
 ) -> QueryResult:
     """Get all entities of a specific type."""
     context_filter = "AND context = $context" if context else ""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT * FROM entity WHERE type = $type {context_filter} LIMIT $limit
     """, {'type': entity_type, 'context': context, 'limit': limit})
 
 
-async def query_count_by_type(ctx: Context, entity_type: str, context: str | None = None) -> QueryResult:
+async def query_count_by_type(db: AsyncSurreal, entity_type: str, context: str | None = None) -> QueryResult:
     """Count entities of a specific type."""
     context_filter = "AND context = $context" if context else ""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT count() FROM entity WHERE type = $type {context_filter} GROUP ALL
     """, {'type': entity_type, 'context': context})
 
 
-async def query_list_types(ctx: Context, context: str | None = None) -> QueryResult:
+async def query_list_types(db: AsyncSurreal, context: str | None = None) -> QueryResult:
     """List all entity types in use with counts."""
     context_filter = "WHERE context = $context" if context else ""
-    result = await run_query(ctx, f"""
+    result = await run_query(db, f"""
         SELECT type, count() AS count FROM entity {context_filter} GROUP BY type
     """, {'context': context})
     return result
@@ -1049,7 +1059,7 @@ async def query_list_types(ctx: Context, context: str | None = None) -> QueryRes
 # =============================================================================
 
 async def query_create_procedure(
-    ctx: Context,
+    db: AsyncSurreal,
     procedure_id: str,
     name: str,
     description: str,
@@ -1060,7 +1070,7 @@ async def query_create_procedure(
 ) -> QueryResult:
     """Create or update a procedure."""
     # TODO: Use <set<string>>$labels when Python SDK supports CBOR tag 56
-    return await run_query(ctx, """
+    return await run_query(db, """
         UPSERT type::record("procedure", $id) SET
             name = $name,
             description = $description,
@@ -1079,15 +1089,15 @@ async def query_create_procedure(
     })
 
 
-async def query_get_procedure(ctx: Context, procedure_id: str) -> QueryResult:
+async def query_get_procedure(db: AsyncSurreal, procedure_id: str) -> QueryResult:
     """Get procedure by ID."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         SELECT * FROM type::record("procedure", $id)
     """, {'id': procedure_id})
 
 
 async def query_search_procedures(
-    ctx: Context,
+    db: AsyncSurreal,
     query: str,
     query_embedding: list[float],
     context: str | None,
@@ -1100,7 +1110,7 @@ async def query_search_procedures(
 
     # Use search::rrf() to combine BM25 and vector search results
     # Using inline subqueries (LET variables don't work with search::rrf)
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT * FROM search::rrf([
             (SELECT id, name, description, steps, context, labels
              FROM procedure
@@ -1118,24 +1128,24 @@ async def query_search_procedures(
     })
 
 
-async def query_update_procedure_access(ctx: Context, procedure_id: str) -> QueryResult:
+async def query_update_procedure_access(db: AsyncSurreal, procedure_id: str) -> QueryResult:
     """Update procedure access timestamp and count."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         UPDATE type::record("procedure", $id) SET accessed = time::now(), access_count += 1
     """, {'id': procedure_id})
 
 
-async def query_delete_procedure(ctx: Context, procedure_id: str) -> QueryResult:
+async def query_delete_procedure(db: AsyncSurreal, procedure_id: str) -> QueryResult:
     """Delete a procedure."""
-    return await run_query(ctx, """
+    return await run_query(db, """
         DELETE type::record("procedure", $id)
     """, {'id': procedure_id})
 
 
-async def query_list_procedures(ctx: Context, context: str | None = None, limit: int = 100) -> QueryResult:
+async def query_list_procedures(db: AsyncSurreal, context: str | None = None, limit: int = 100) -> QueryResult:
     """List all procedures, optionally filtered by context."""
     context_filter = "WHERE context = $context" if context else ""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT id, name, description, array::len(steps) AS step_count, context, labels, accessed
         FROM procedure {context_filter}
         ORDER BY accessed DESC
@@ -1143,10 +1153,10 @@ async def query_list_procedures(ctx: Context, context: str | None = None, limit:
     """, {'context': context, 'limit': limit})
 
 
-async def query_count_procedures(ctx: Context, context: str | None = None) -> QueryResult:
+async def query_count_procedures(db: AsyncSurreal, context: str | None = None) -> QueryResult:
     """Count procedures, optionally filtered by context."""
     context_filter = "WHERE context = $context" if context else ""
-    return await run_query(ctx, f"""
+    return await run_query(db, f"""
         SELECT count() FROM procedure {context_filter} GROUP ALL
     """, {'context': context})
 
@@ -1156,6 +1166,7 @@ __all__ = [
     'app_lifespan',
     'get_db',
     'run_query',
+    'DBConnection',
     'validate_entity',
     'validate_relation',
     'QueryResult',

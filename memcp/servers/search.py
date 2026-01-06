@@ -9,7 +9,7 @@ from mcp.types import ToolAnnotations
 from memcp.models import EntityResult, SearchResult, ContextStats, ContextListResult, EntityTypeInfo, EntityTypeListResult
 from memcp.utils import embed, log_op, extract_record_id
 from memcp.db import (
-    detect_context,
+    detect_context, get_db,
     query_hybrid_search, query_update_access, query_get_entity, query_list_labels,
     query_list_contexts, query_get_context_stats,
     query_list_types, query_entities_by_type,
@@ -43,6 +43,7 @@ async def search(
         raise ToolError("Limit must be between 1 and 100")
 
     await ctx.info(f"Searching for: {query[:50]}...")
+    db = get_db(ctx)
 
     query_embedding = embed(query)
     filter_labels = labels or []
@@ -50,7 +51,7 @@ async def search(
 
     # Hybrid search: BM25 keyword matching + vector similarity (RRF fusion)
     entities = await query_hybrid_search(
-        ctx, query, query_embedding, filter_labels, limit, effective_context
+        db, query, query_embedding, filter_labels, limit, effective_context
     )
 
     # Handle None result from RRF search
@@ -59,7 +60,7 @@ async def search(
 
     # Track access patterns
     for r in entities:
-        await query_update_access(ctx, extract_record_id(r['id']))
+        await query_update_access(db, extract_record_id(r['id']))
 
     await ctx.info(f"Found {len(entities)} results")
 
@@ -85,11 +86,12 @@ async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
 
-    results = await query_get_entity(ctx, entity_id)
+    db = get_db(ctx)
+    results = await query_get_entity(db, entity_id)
     entity = results[0] if results else None
 
     if entity:
-        await query_update_access(ctx, entity_id)
+        await query_update_access(db, entity_id)
 
         return EntityResult(
             id=str(entity['id']),
@@ -108,14 +110,16 @@ async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 async def list_labels(ctx: Context) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
-    results = await query_list_labels(ctx)
+    db = get_db(ctx)
+    results = await query_list_labels(db)
     return results[0]['labels'] if results else []
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 async def list_contexts(ctx: Context) -> ContextListResult:
     """List all project contexts/namespaces in memory. Use to see what projects have stored memories."""
-    results = await query_list_contexts(ctx)
+    db = get_db(ctx)
+    results = await query_list_contexts(db)
     contexts = results[0].get('contexts', []) if results else []
     return ContextListResult(contexts=contexts, count=len(contexts))
 
@@ -130,7 +134,8 @@ async def get_context_stats(context: str, ctx: Context) -> ContextStats:
     if not context or not context.strip():
         raise ToolError("Context cannot be empty")
 
-    results = await query_get_context_stats(ctx, context)
+    db = get_db(ctx)
+    results = await query_get_context_stats(db, context)
     stats = results[0] if results else {}
 
     return ContextStats(
@@ -158,8 +163,9 @@ async def list_entity_types(
     # Get predefined types with descriptions
     predefined = get_entity_types()
 
+    db = get_db(ctx)
     # Get types actually in use with counts
-    used_types = await query_list_types(ctx, context)
+    used_types = await query_list_types(db, context)
     type_counts = {t['type']: t.get('count', 0) for t in used_types if t.get('type')}
 
     # Build result: predefined types + any custom types found
@@ -210,8 +216,9 @@ async def search_by_type(
         raise ToolError("Limit must be between 1 and 100")
 
     effective_context = detect_context(context)
+    db = get_db(ctx)
 
-    entities = await query_entities_by_type(ctx, entity_type.lower(), effective_context, limit)
+    entities = await query_entities_by_type(db, entity_type.lower(), effective_context, limit)
 
     entity_results = [EntityResult(
         id=str(e['id']),

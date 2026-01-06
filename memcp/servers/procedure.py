@@ -13,7 +13,7 @@ from mcp.types import ToolAnnotations
 from memcp.models import ProcedureResult, ProcedureStep, ProcedureSearchResult
 from memcp.utils import embed, log_op, extract_record_id
 from memcp.db import (
-    detect_context,
+    detect_context, get_db,
     query_create_procedure,
     query_get_procedure,
     query_search_procedures,
@@ -107,6 +107,7 @@ async def add_procedure(
     effective_context = detect_context(context)
 
     await ctx.info(f"Storing procedure: {name}")
+    db = get_db(ctx)
 
     # Parse and validate steps
     parsed_steps = parse_steps(steps)
@@ -117,7 +118,7 @@ async def add_procedure(
     embedding = embed(embed_text[:8000])
 
     await query_create_procedure(
-        ctx,
+        db,
         procedure_id=procedure_id,
         name=name,
         description=description,
@@ -154,14 +155,15 @@ async def get_procedure(
 
     # Strip "procedure:" prefix if present
     clean_id = procedure_id.replace("procedure:", "")
+    db = get_db(ctx)
 
-    results = await query_get_procedure(ctx, clean_id)
+    results = await query_get_procedure(db, clean_id)
     proc = results[0] if results else None
 
     if proc:
         # Track access
         try:
-            await query_update_procedure_access(ctx, clean_id)
+            await query_update_procedure_access(db, clean_id)
         except Exception as e:
             logger.debug(f"Failed to update procedure access for {clean_id}: {e}")
 
@@ -204,11 +206,12 @@ async def search_procedures(
         raise ToolError("Limit must be between 1 and 50")
 
     await ctx.info(f"Searching procedures: {query[:50]}...")
+    db = get_db(ctx)
 
     query_embedding = embed(query)
 
     procedures = await query_search_procedures(
-        ctx, query, query_embedding, context, labels or [], limit
+        db, query, query_embedding, context, labels or [], limit
     )
 
     # Handle None result from RRF search
@@ -218,7 +221,7 @@ async def search_procedures(
     # Track access for each found procedure
     for proc in procedures:
         try:
-            await query_update_procedure_access(ctx, extract_record_id(proc['id']))
+            await query_update_procedure_access(db, extract_record_id(proc['id']))
         except Exception as e:
             logger.debug(f"Failed to update procedure access: {e}")
 
@@ -249,8 +252,9 @@ async def list_procedures(
     """
     if limit < 1 or limit > 100:
         raise ToolError("Limit must be between 1 and 100")
+    db = get_db(ctx)
 
-    procedures = await query_list_procedures(ctx, context, limit)
+    procedures = await query_list_procedures(db, context, limit)
 
     results = [ProcedureResult(
         id=str(p['id']),
@@ -282,6 +286,7 @@ async def delete_procedure(
     clean_id = procedure_id.replace("procedure:", "")
 
     await ctx.info(f"Deleting procedure: {clean_id}")
-    await query_delete_procedure(ctx, clean_id)
+    db = get_db(ctx)
+    await query_delete_procedure(db, clean_id)
     log_op('delete_procedure', start, procedure_id=clean_id)
     return f"Removed procedure:{clean_id}"

@@ -13,7 +13,7 @@ from mcp.types import ToolAnnotations
 from memcp.models import EntityResult, EpisodeResult, EpisodeSearchResult
 from memcp.utils import embed, log_op, extract_record_id
 from memcp.db import (
-    detect_context,
+    detect_context, get_db,
     query_create_episode,
     query_search_episodes,
     query_get_episode,
@@ -62,12 +62,13 @@ async def add_episode(
     effective_context = detect_context(context)
 
     await ctx.info(f"Storing episode: {episode_id}")
+    db = get_db(ctx)
 
     # Generate embedding (truncate for embedding model if needed)
     embedding = embed(content[:8000])
 
     await query_create_episode(
-        ctx,
+        db,
         episode_id=episode_id,
         content=content,
         embedding=embedding,
@@ -83,7 +84,7 @@ async def add_episode(
         for i, entity_id in enumerate(entity_ids):
             try:
                 await query_link_entity_to_episode(
-                    ctx, entity_id, episode_id, position=i, confidence=1.0
+                    db, entity_id, episode_id, position=i, confidence=1.0
                 )
                 linked_count += 1
             except Exception as e:
@@ -131,11 +132,12 @@ async def search_episodes(
         raise ToolError("Limit must be between 1 and 50")
 
     await ctx.info(f"Searching episodes: {query[:50]}...")
+    db = get_db(ctx)
 
     query_embedding = embed(query)
 
     episodes = await query_search_episodes(
-        ctx, query, query_embedding, time_start, time_end, context, limit
+        db, query, query_embedding, time_start, time_end, context, limit
     )
 
     # Handle None result from RRF search
@@ -145,7 +147,7 @@ async def search_episodes(
     # Track access for each found episode
     for ep in episodes:
         try:
-            await query_update_episode_access(ctx, extract_record_id(ep['id']))
+            await query_update_episode_access(db, extract_record_id(ep['id']))
         except Exception as e:
             logger.debug(f"Failed to update episode access: {e}")
 
@@ -179,14 +181,15 @@ async def get_episode(
 
     # Strip "episode:" prefix if present
     clean_id = episode_id.replace("episode:", "")
+    db = get_db(ctx)
 
-    results = await query_get_episode(ctx, clean_id)
+    results = await query_get_episode(db, clean_id)
     episode = results[0] if results else None
 
     if episode:
         # Track access
         try:
-            await query_update_episode_access(ctx, clean_id)
+            await query_update_episode_access(db, clean_id)
         except Exception as e:
             logger.debug(f"Failed to update episode access for {clean_id}: {e}")
 
@@ -194,7 +197,7 @@ async def get_episode(
         linked_count = 0
 
         if include_entities:
-            entity_results = await query_get_episode_entities(ctx, clean_id)
+            entity_results = await query_get_episode_entities(db, clean_id)
             if entity_results and entity_results[0].get('entities'):
                 entities_list = entity_results[0]['entities']
                 linked_count = len(entities_list)
@@ -237,6 +240,7 @@ async def delete_episode(episode_id: str, ctx: Context) -> str:
     clean_id = episode_id.replace("episode:", "")
 
     await ctx.info(f"Deleting episode: {clean_id}")
-    await query_delete_episode(ctx, clean_id)
+    db = get_db(ctx)
+    await query_delete_episode(db, clean_id)
     log_op('delete_episode', start, episode_id=clean_id)
     return f"Removed episode:{clean_id}"

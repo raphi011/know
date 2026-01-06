@@ -10,7 +10,7 @@ from mcp.types import ToolAnnotations
 from memcp.models import EntityResult, RememberResult, Contradiction
 from memcp.utils import embed, check_contradiction, log_op
 from memcp.db import (
-    detect_context,
+    detect_context, get_db,
     validate_entity, validate_relation,
     query_upsert_entity, query_create_relation, query_delete_entity,
     query_similar_for_contradiction, query_recalculate_importance
@@ -52,6 +52,7 @@ async def remember(
 
     logger.info(f"remember() called with {len(entities)} entities, {len(relations)} relations")
     await ctx.info(f"Storing {len(entities)} entities and {len(relations)} relations")
+    db = get_db(ctx)
 
     # Track entities that need importance recalculation
     entities_to_recalc: set[str] = set()
@@ -59,7 +60,7 @@ async def remember(
     for entity in entities:
         if detect_contradictions:
             entity_embedding = embed(entity['content'])
-            similar = await query_similar_for_contradiction(ctx, entity_embedding, entity['id'])
+            similar = await query_similar_for_contradiction(db, entity_embedding, entity['id'])
 
             for existing in similar:
                 nli_result = check_contradiction(entity['content'], existing['content'])
@@ -81,7 +82,7 @@ async def remember(
             user_importance = entity.get('importance')
 
             upsert_result = await query_upsert_entity(
-                ctx,
+                db,
                 entity_id=entity['id'],
                 entity_type=entity.get('type', 'concept'),
                 labels=entity.get('labels', []),
@@ -102,7 +103,7 @@ async def remember(
 
     for rel in relations:
         await query_create_relation(
-            ctx,
+            db,
             from_id=rel['from'],
             rel_type=rel['type'],
             to_id=rel['to'],
@@ -116,7 +117,7 @@ async def remember(
     # Batch recalculate importance for all affected entities (once per entity)
     for entity_id in entities_to_recalc:
         try:
-            await query_recalculate_importance(ctx, entity_id)
+            await query_recalculate_importance(db, entity_id)
         except Exception as e:
             logger.debug(f"Failed to recalculate importance for {entity_id}: {e}")
 
@@ -134,7 +135,8 @@ async def forget(entity_id: str, ctx: Context) -> str:
     if not entity_id or not entity_id.strip():
         raise ToolError("ID cannot be empty")
 
+    db = get_db(ctx)
     await ctx.info(f"Deleting entity: {entity_id}")
-    await query_delete_entity(ctx, entity_id)
+    await query_delete_entity(db, entity_id)
     log_op('forget', start, entity_id=entity_id)
     return f"Removed {entity_id}"

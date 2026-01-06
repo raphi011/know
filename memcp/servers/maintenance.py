@@ -12,6 +12,7 @@ from memcp.models import (
 )
 from memcp.utils import check_contradiction, log_op
 from memcp.db import (
+    get_db,
     query_apply_decay, query_all_entities_with_embedding, query_similar_by_embedding,
     query_delete_entity_by_record_id, query_entity_with_embedding,
     query_similar_for_contradiction, query_entities_by_labels, query_vector_similarity,
@@ -56,18 +57,19 @@ async def reflect(
     # Read current stats via resource to log context
     stats = await ctx.read_resource("memory://stats")
     await ctx.info(f"Starting reflect on {stats} entities")
+    db = get_db(ctx)
 
     result = ReflectResult()
 
     if apply_decay:
         await ctx.info("Applying temporal decay to old memories")
         cutoff = datetime.now() - timedelta(days=decay_days)
-        decay_result = await query_apply_decay(ctx, cutoff.isoformat() + "Z")
+        decay_result = await query_apply_decay(db, cutoff.isoformat() + "Z")
         result.decayed = len(decay_result) if decay_result else 0
 
     if find_similar:
         await ctx.info("Finding similar entities")
-        entities = await query_all_entities_with_embedding(ctx)
+        entities = await query_all_entities_with_embedding(db)
 
         seen_pairs: set[tuple[str, str]] = set()
         deleted_ids: set[str] = set()
@@ -77,7 +79,7 @@ async def reflect(
                 continue
 
             similar = await query_similar_by_embedding(
-                ctx, entity['embedding'], str(entity['id']), limit=10
+                db, entity['embedding'], str(entity['id']), limit=10
             )
 
             for candidate in similar:
@@ -103,7 +105,7 @@ async def reflect(
 
                             # Extract entity ID from full record ID
                             delete_id = str(to_delete).split(':', 1)[1] if ':' in str(to_delete) else str(to_delete)
-                            await query_delete_entity_by_record_id(ctx, delete_id)
+                            await query_delete_entity_by_record_id(db, delete_id)
 
                             deleted_ids.add(str(to_delete))
                             result.merged += 1
@@ -117,7 +119,7 @@ async def reflect(
 
     if recalculate_importance:
         await ctx.info("Recalculating importance scores")
-        recalc_count = await query_batch_recalculate_importance(ctx, context)
+        recalc_count = await query_batch_recalculate_importance(db, context)
         result.importance_recalculated = recalc_count
 
     await ctx.info(f"Reflect complete: {result.decayed} decayed, {len(result.similar_pairs)} similar, {result.merged} merged, {result.importance_recalculated} importance recalculated")
@@ -137,13 +139,14 @@ async def check_contradictions_tool(
     contradictions: list[Contradiction] = []
 
     await ctx.info("Checking for contradictions")
+    db = get_db(ctx)
 
     if entity_id:
-        entity_result = await query_entity_with_embedding(ctx, entity_id)
+        entity_result = await query_entity_with_embedding(db, entity_id)
         entity = entity_result[0] if entity_result else None
 
         if entity:
-            similar = await query_similar_for_contradiction(ctx, entity['embedding'], entity_id)
+            similar = await query_similar_for_contradiction(db, entity['embedding'], entity_id)
 
             for other in similar:
                 nli_result = check_contradiction(entity['content'], other['content'])
@@ -154,11 +157,11 @@ async def check_contradictions_tool(
                         confidence=nli_result['scores']['contradiction']
                     ))
     else:
-        entities = await query_entities_by_labels(ctx, labels)
+        entities = await query_entities_by_labels(db, labels)
 
         for i, e1 in enumerate(entities):
             for e2 in entities[i+1:]:
-                sim_result = await query_vector_similarity(ctx, e1['embedding'], e2['embedding'])
+                sim_result = await query_vector_similarity(db, e1['embedding'], e2['embedding'])
                 sim = sim_result[0]['sim'] if sim_result else 0
 
                 if sim > 0.5:
