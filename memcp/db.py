@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from surrealdb import AsyncSurreal
+from surrealdb import AsyncSurreal, RecordID
 
 logger = logging.getLogger("memcp.db")
 
@@ -32,7 +32,7 @@ QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
 SCHEMA_SQL = """
     DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
     DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
-    DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string>;
+    DEFINE FIELD IF NOT EXISTS labels ON entity TYPE set<string>;  -- set auto-deduplicates
     DEFINE FIELD IF NOT EXISTS content ON entity TYPE string;
     DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
     DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 1.0;
@@ -43,9 +43,19 @@ SCHEMA_SQL = """
     DEFINE FIELD IF NOT EXISTS access_count ON entity TYPE int DEFAULT 0;
 
     DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
-    DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE;
+    DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
     DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
     DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
+
+    -- Relation table with unique constraint to prevent duplicate edges
+    -- Uses single table with rel_type field instead of dynamic table names
+    DEFINE TABLE IF NOT EXISTS relates TYPE RELATION IN entity OUT entity SCHEMAFULL;
+    DEFINE FIELD IF NOT EXISTS rel_type ON relates TYPE string;
+    DEFINE FIELD IF NOT EXISTS weight ON relates TYPE float DEFAULT 1.0;
+    DEFINE FIELD IF NOT EXISTS created ON relates TYPE datetime DEFAULT time::now();
+    -- Unique constraint: sorted [in, out, rel_type] prevents duplicate relations
+    DEFINE FIELD IF NOT EXISTS unique_key ON relates VALUE <string>string::concat(array::sort([<string>in, <string>out]), rel_type);
+    DEFINE INDEX IF NOT EXISTS unique_relation ON relates FIELDS unique_key UNIQUE;
 """
 
 
@@ -221,24 +231,35 @@ async def query_hybrid_search(
     limit: int,
     semantic_weight: float
 ) -> QueryResult:
-    """Hybrid search: BM25 keyword matching + vector similarity."""
+    """Hybrid search using Reciprocal Rank Fusion (RRF) to combine BM25 + vector results.
+
+    RRF combines rankings without needing to normalize incompatible score scales.
+    Formula: score = 1/(rank + k) where k=60 is a smoothing constant.
+
+    The semantic_weight parameter controls the balance:
+    - 0.0 = BM25 only
+    - 1.0 = vector only
+    - 0.5 = equal weight (default RRF behavior)
+    """
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
-    # v3.0: ORDER BY doesn't support parentheses, compute combined score as alias
+
+    # Use search::rrf() to properly combine BM25 and vector search results
+    # Each subquery must return id field for RRF to stitch results together
     return await run_query(ctx, f"""
-        SELECT id, type, labels, content, confidence, source, decay_weight,
-               search::score(1) AS bm25_score,
-               vector::similarity::cosine(embedding, $emb) AS vec_score,
-               vector::similarity::cosine(embedding, $emb) * $sem_weight + search::score(1) * 1 - $sem_weight AS combined_score
-        FROM entity
-        WHERE content @1@ $q OR embedding <|{limit * 2},COSINE|> $emb {label_filter}
-        ORDER BY combined_score DESC
-        LIMIT $limit
+        LET $ft = SELECT id, type, labels, content, confidence, source, decay_weight
+                  FROM entity
+                  WHERE content @@ $q {label_filter};
+
+        LET $vs = SELECT id, type, labels, content, confidence, source, decay_weight
+                  FROM entity
+                  WHERE embedding <|{limit * 2},40|> $emb {label_filter};
+
+        RETURN search::rrf([$vs, $ft], $limit, 60);
     """, {
         'q': query,
         'emb': query_embedding,
         'labels': labels,
-        'limit': limit,
-        'sem_weight': semantic_weight
+        'limit': limit
     })
 
 
@@ -282,24 +303,27 @@ async def query_list_labels(ctx: Context) -> QueryResult:
 
 
 async def query_traverse(ctx: Context, entity_id: str, depth: int, relation_types: list[str] | None) -> QueryResult:
-    """Traverse graph from entity with optional relation type filter."""
+    """Traverse graph from entity with optional relation type filter.
+
+    Uses single 'relates' table with rel_type field for filtering.
+    """
     if relation_types:
-        type_filter = '|'.join(relation_types)
+        # Filter by rel_type field within the relates table
         return await run_query(ctx, f"""
-            SELECT *, ->(({type_filter}))..{depth}->entity AS connected
+            SELECT *, ->(SELECT * FROM relates WHERE rel_type IN $types)..{depth}->entity AS connected
             FROM type::record("entity", $id)
-        """, {'id': entity_id})
+        """, {'id': entity_id, 'types': relation_types})
     else:
         return await run_query(ctx, f"""
-            SELECT *, ->?..{depth}->entity AS connected
+            SELECT *, ->relates..{depth}->entity AS connected
             FROM type::record("entity", $id)
         """, {'id': entity_id})
 
 
 async def query_find_path(ctx: Context, from_id: str, to_id: str, max_depth: int) -> QueryResult:
-    """Find path between two entities."""
+    """Find path between two entities via relates table."""
     return await run_query(ctx, f"""
-        SELECT * FROM type::record("entity", $from)..{max_depth}->entity WHERE id = type::record("entity", $to) LIMIT 1
+        SELECT * FROM type::record("entity", $from)->relates..{max_depth}->entity WHERE id = type::record("entity", $to) LIMIT 1
     """, {'from': from_id, 'to': to_id})
 
 
@@ -319,11 +343,12 @@ async def query_similar_entities(ctx: Context, embedding: list[float], exclude_i
         SELECT id, content,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
-        WHERE id != type::record("entity", "{entity_only_id}")
+        WHERE id != $exclude_rec
         ORDER BY sim DESC
         LIMIT $limit
     """, {
         'emb': embedding,
+        'exclude_rec': RecordID('entity', entity_only_id),
         'limit': limit
     })
 
@@ -365,11 +390,19 @@ async def query_create_relation(
     to_id: str,
     weight: float
 ) -> QueryResult:
-    """Create a relation between entities."""
-    # Build record IDs and use string interpolation for relation type
-    return await run_query(ctx, f"""
-        RELATE entity:{from_id}->{rel_type}->entity:{to_id} SET weight = $weight
+    """Create a relation between entities.
+
+    Uses single 'relates' table with rel_type field for unique constraint.
+    Duplicate relations (same from, to, type) are silently ignored.
+    """
+    # Use RecordID for proper escaping of IDs with special characters (hyphens, etc.)
+    # UPSERT-like behavior: if relation exists, update weight; otherwise create
+    return await run_query(ctx, """
+        RELATE $from_rec->relates->$to_rec SET rel_type = $rel_type, weight = $weight
     """, {
+        'from_rec': RecordID('entity', from_id),
+        'to_rec': RecordID('entity', to_id),
+        'rel_type': rel_type,
         'weight': weight
     })
 
@@ -403,12 +436,14 @@ async def query_similar_by_embedding(
     limit: int = 10
 ) -> QueryResult:
     """Find similar entities by embedding with similarity score."""
+    # Extract just the entity ID part if full record ID is provided
+    entity_only_id = exclude_id.split(':', 1)[1] if ':' in exclude_id else exclude_id
     return await run_query(ctx, f"""
         SELECT id, content, access_count, accessed,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
-        WHERE embedding <|{limit},COSINE|> $emb AND id != $exclude_id
-    """, {'emb': embedding, 'exclude_id': exclude_id})
+        WHERE embedding <|{limit},40|> $emb AND id != $exclude_rec
+    """, {'emb': embedding, 'exclude_rec': RecordID('entity', entity_only_id)})
 
 
 async def query_delete_entity_by_record_id(ctx: Context, entity_id: str) -> QueryResult:
@@ -434,8 +469,8 @@ async def query_similar_for_contradiction(
     """Find similar entities for contradiction detection."""
     return await run_query(ctx, """
         SELECT id, content FROM entity
-        WHERE embedding <|10,COSINE|> $emb AND id != $id
-    """, {'emb': embedding, 'id': f"entity:{entity_id}"})
+        WHERE embedding <|10,40|> $emb AND id != $exclude_rec
+    """, {'emb': embedding, 'exclude_rec': RecordID('entity', entity_id)})
 
 
 async def query_entities_by_labels(ctx: Context, labels: list[str]) -> QueryResult:
@@ -465,7 +500,7 @@ async def query_count_entities(ctx: Context) -> QueryResult:
 async def query_count_relations(ctx: Context) -> QueryResult:
     """Count total relations."""
     return await run_query(ctx, """
-        SELECT count() FROM (SELECT ->? FROM entity) GROUP ALL
+        SELECT count() FROM relates GROUP ALL
     """)
 
 

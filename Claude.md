@@ -67,57 +67,97 @@ Key syntax rules and gotchas when working with SurrealDB queries:
 
 ### Record ID Formatting
 
-**RELATE statements must use direct record ID syntax:**
-```surql
-✅ CORRECT: RELATE entity:from_id->rel_type->entity:to_id SET weight = $weight
-❌ WRONG:   RELATE type::record("entity", $from)->$type->type::record("entity", $to) SET weight = $weight
-```
-Reason: SurrealDB doesn't support `type::record()` inside RELATE statements. Use string interpolation for IDs and relation types.
+**Use Python SDK RecordID for IDs with special characters:**
 
-**Record ID comparisons need type::record():**
-```surql
-✅ CORRECT: WHERE id != type::record("entity", $id)
-❌ WRONG:   WHERE id != $id  (won't match record IDs properly)
+When entity IDs contain hyphens, dots, or other special characters, string interpolation breaks RELATE statements. Use the SDK's `RecordID` type instead:
+
+```python
+from surrealdb import RecordID
+
+# ✅ CORRECT - handles special characters properly
+await db.query("""
+    RELATE $from_rec->relates_to->$to_rec SET weight = $weight
+""", {
+    'from_rec': RecordID('entity', 'my-hyphenated-id'),
+    'to_rec': RecordID('entity', 'another.dotted.id'),
+    'weight': 1.0
+})
+
+# ❌ WRONG - breaks on hyphens
+await db.query(f"RELATE entity:{from_id}->relates_to->entity:{to_id}")
+```
+
+**RecordID also works for comparisons:**
+```python
+# ✅ CORRECT
+await db.query("SELECT * FROM entity WHERE id != $exclude", {
+    'exclude': RecordID('entity', 'some-id')
+})
+
+# ✅ ALSO WORKS - type::record() in SQL
+await db.query("WHERE id != type::record('entity', $id)", {'id': 'some-id'})
 ```
 
 ### KNN Vector Search Operator
 
-**IMPORTANT: MTREE Index Deprecated in SurrealDB v3.0**
+**IMPORTANT: Brute Force vs HNSW Index**
 
-As of SurrealDB v3.0 (November 2025), the MTREE index type has been completely removed and replaced with HNSW (Hierarchical Navigable Small World).
+The KNN operator `<|k,param|>` behaves differently based on the second parameter:
 
-**Timeline:**
-- Nov 6, 2025: PR #6553 - MTREE removed from SurrealDB
-- Nov 20, 2025: Issue #6598 - Confirmed MTREE no longer works in v3.0
-- Current: Use HNSW for all vector operations
-
-**Migration from MTREE to HNSW:**
 ```surql
--- OLD (v2.x - deprecated):
-DEFINE INDEX entity_embedding ON entity FIELDS embedding MTREE DIMENSION 384 DIST COSINE;
+-- BRUTE FORCE (exact, slower on large datasets):
+WHERE embedding <|5,COSINE|> $vector     -- Uses cosine distance
+WHERE embedding <|5,EUCLIDEAN|> $vector  -- Uses euclidean distance
 
--- NEW (v3.0+):
-DEFINE INDEX entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE;
+-- HNSW INDEX (approximate, faster):
+WHERE embedding <|5,40|> $vector         -- Uses HNSW with ef=40
+WHERE embedding <|5,100|> $vector        -- Higher ef = more accurate, slower
 ```
 
-**KNN Operator Syntax (v3.0+):**
+The numeric second parameter (e.g., 40) is the "ef" (exploration factor) for HNSW search. Higher values improve recall at cost of speed. Typical range: 40-200.
+
+**HNSW Index Definition:**
 ```surql
-✅ CORRECT: WHERE embedding <|k,COSINE|> $vector
-✅ CORRECT: WHERE embedding <|5,EUCLIDEAN|> $vector
-❌ OLD:     WHERE embedding <|k,ef|> $vector  (v2.x syntax with "ef" parameter)
+-- Recommended production setup:
+DEFINE INDEX entity_embedding ON entity FIELDS embedding
+    HNSW DIMENSION 384
+    DIST COSINE
+    TYPE F32      -- F32 saves memory vs default F64
+    EFC 150       -- Construction effort (default 150)
+    M 12;         -- Max connections per node (default 12)
 ```
 
-The second parameter is now the distance metric (COSINE, EUCLIDEAN, etc.), not an "ef" expansion factor.
+**When to use which:**
+- **Brute force** (`<|k,COSINE|>`): Small datasets (<10k), need exact results
+- **HNSW index** (`<|k,40|>`): Large datasets, approximate results acceptable
 
 **Fallback without index:**
 ```surql
-✅ WORKS ON ALL VERSIONS:
+-- Always works, no index needed:
 SELECT id, content, vector::similarity::cosine(embedding, $emb) AS sim
 FROM entity
 ORDER BY sim DESC
 LIMIT $limit
 ```
-The `vector::similarity::cosine()` function works without any index and is reliable across all versions.
+
+### Hybrid Search with RRF
+
+For combining BM25 full-text and vector search, use `search::rrf()` (Reciprocal Rank Fusion):
+
+```surql
+-- Get text matches
+LET $text_results = SELECT id FROM entity WHERE content @@ $query;
+
+-- Get vector matches
+LET $vector_results = SELECT id FROM entity WHERE embedding <|10,40|> $emb;
+
+-- Combine with RRF
+SELECT *, search::rrf() AS score FROM entity
+WHERE id IN $text_results OR id IN $vector_results
+ORDER BY score DESC;
+```
+
+RRF combines rankings without needing to normalize incompatible score scales.
 
 ### Parameter Usage
 
@@ -132,6 +172,17 @@ The `vector::similarity::cosine()` function works without any index and is relia
 ✅ CORRECT: LIMIT $limit  (parameters work here)
 ```
 
+### Labels as Sets
+
+Use `set<string>` instead of `array<string>` for fields that should auto-deduplicate:
+```surql
+-- Better: set auto-deduplicates
+DEFINE FIELD labels ON entity TYPE set<string>;
+
+-- Worse: requires manual deduplication
+DEFINE FIELD labels ON entity TYPE array<string>;
+```
+
 ### DELETE Operations
 
 **Simple deletes are preferred:**
@@ -140,6 +191,141 @@ The `vector::similarity::cosine()` function works without any index and is relia
 ❌ COMPLEX: DELETE FROM type::record("entity", $id)->?;  (may cause parse errors)
 ```
 Reason: SurrealDB automatically cleans up relations when a record is deleted. Extra DELETE statements for relations are usually unnecessary.
+
+### Graph Traversal Idioms
+
+**Arrow syntax for relations:**
+```surql
+-- Outgoing relations
+SELECT ->owns->project FROM person:alice
+
+-- Incoming relations (who owns this?)
+SELECT <-owns<-person FROM project:memcp
+
+-- Bidirectional (friends)
+SELECT <->friends_with<->person FROM person:alice
+
+-- Wildcard (any relation type)
+SELECT ->? AS all_relations FROM person:alice
+```
+
+**Recursive depth traversal:**
+```surql
+-- Exactly 3 levels deep
+SELECT @.{3}->relates_to->entity FROM entity:start
+
+-- Range: 1-4 levels
+SELECT @.{1..4}->relates_to->entity FROM entity:start
+
+-- Unlimited depth (use with caution + TIMEOUT)
+SELECT @.{..}->relates_to->entity FROM entity:start TIMEOUT 5s
+```
+
+**Special operators:**
+- `@` - Current record in recursion
+- `.?` - Optional/safe access (won't error on missing)
+- `{..+shortest=id}` - Find shortest path to target ID
+- `{..+collect}` - Collect all unique nodes traversed
+
+**Enforce unique relations:**
+```surql
+-- Prevent duplicate relations
+DEFINE FIELD key ON TABLE relates_to VALUE <string>array::sort([in, out]);
+DEFINE INDEX unique_relation ON relates_to FIELDS key UNIQUE;
+```
+
+### Computed & Calculated Fields
+
+**VALUE** - Calculated on CREATE/UPDATE, stored in DB:
+```surql
+-- Always lowercase email
+DEFINE FIELD email ON user TYPE string VALUE string::lowercase($value);
+
+-- Auto-update timestamp
+DEFINE FIELD updated_at ON entity TYPE datetime VALUE time::now();
+```
+
+**DEFAULT** - Only on CREATE, static after:
+```surql
+DEFINE FIELD created_at ON entity TYPE datetime DEFAULT time::now();
+```
+
+**COMPUTED** (v3.0+) - Calculated on every SELECT, not stored:
+```surql
+-- Dynamic age check
+DEFINE FIELD can_vote ON person COMPUTED time::now() > birthday + 18y;
+
+-- Always current
+DEFINE FIELD accessed_at ON entity COMPUTED time::now();
+```
+
+**Field order matters**: DEFINE FIELD statements process alphabetically!
+
+### Events (Triggers)
+
+```surql
+-- Audit log on entity changes
+DEFINE EVENT entity_audit ON entity WHEN $event IN ["CREATE", "UPDATE", "DELETE"] THEN {
+    CREATE audit_log SET
+        table = "entity",
+        event = $event,
+        record_id = $value.id,
+        before = $before,
+        after = $after,
+        timestamp = time::now()
+};
+
+-- Cascade updates
+DEFINE EVENT update_relations ON entity WHEN $event = "UPDATE" THEN {
+    UPDATE relates SET updated = time::now() WHERE in = $value.id OR out = $value.id
+};
+```
+
+Event parameters: `$event` (CREATE/UPDATE/DELETE), `$before`, `$after`, `$value`
+
+### Change Feeds (CDC)
+
+```surql
+-- Enable change tracking with 7-day retention
+DEFINE TABLE entity CHANGEFEED 7d INCLUDE ORIGINAL;
+
+-- Replay changes since timestamp
+SHOW CHANGES FOR TABLE entity SINCE d"2025-01-01T00:00:00Z" LIMIT 100;
+```
+
+### Live Queries (Real-time)
+
+```surql
+-- Subscribe to changes (returns UUID)
+LIVE SELECT * FROM entity WHERE labels CONTAINS "important";
+
+-- With DIFF mode (only changes, not full records)
+LIVE SELECT DIFF FROM entity;
+
+-- Kill subscription
+KILL $live_query_uuid;
+```
+
+Note: Live queries only work in single-node deployments currently.
+
+### Transactions
+
+```surql
+BEGIN TRANSACTION;
+    UPDATE account:from SET balance -= $amount;
+    UPDATE account:to SET balance += $amount;
+
+    -- Validate
+    IF account:from.balance < 0 {
+        THROW "Insufficient funds"
+    };
+COMMIT TRANSACTION;
+
+-- Or rollback
+CANCEL TRANSACTION;
+```
+
+Each statement runs in its own transaction by default. Use BEGIN/COMMIT for atomicity.
 
 ## TODO
 
