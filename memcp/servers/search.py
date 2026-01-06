@@ -7,7 +7,7 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from memcp.models import EntityResult, SearchResult, ContextStats, ContextListResult, EntityTypeInfo, EntityTypeListResult
-from memcp.utils import embed, log_op
+from memcp.utils import embed, log_op, extract_record_id
 from memcp.db import (
     detect_context,
     query_hybrid_search, query_update_access, query_get_entity, query_list_labels,
@@ -55,9 +55,7 @@ async def search(
 
     # Track access patterns
     for r in entities:
-        # Extract entity ID from full record ID (e.g., "entity:user123" -> "user123")
-        entity_id = str(r['id']).split(':', 1)[1] if ':' in str(r['id']) else str(r['id'])
-        await query_update_access(ctx, entity_id)
+        await query_update_access(ctx, extract_record_id(r['id']))
 
     await ctx.info(f"Found {len(entities)} results")
 

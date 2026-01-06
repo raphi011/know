@@ -1,14 +1,17 @@
 """Episode tools: add_episode, search_episodes, get_episode, delete_episode."""
 
+import logging
 import time
 from datetime import datetime
 
 from fastmcp import FastMCP, Context
+
+logger = logging.getLogger("memcp.episode")
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from memcp.models import EntityResult, EpisodeResult, EpisodeSearchResult
-from memcp.utils import embed, log_op
+from memcp.utils import embed, log_op, extract_record_id
 from memcp.db import (
     detect_context,
     query_create_episode,
@@ -83,9 +86,8 @@ async def add_episode(
                     ctx, entity_id, episode_id, position=i, confidence=1.0
                 )
                 linked_count += 1
-            except Exception:
-                # Entity might not exist, skip silently
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to link entity {entity_id} to episode: {e}")
 
     log_op('add_episode', start, episode_id=episode_id, content_len=len(content))
 
@@ -138,11 +140,10 @@ async def search_episodes(
 
     # Track access for each found episode
     for ep in episodes:
-        ep_id = str(ep['id']).split(':', 1)[1] if ':' in str(ep['id']) else str(ep['id'])
         try:
-            await query_update_episode_access(ctx, ep_id)
-        except Exception:
-            pass
+            await query_update_episode_access(ctx, extract_record_id(ep['id']))
+        except Exception as e:
+            logger.debug(f"Failed to update episode access: {e}")
 
     results = [EpisodeResult(
         id=str(e['id']),
@@ -182,8 +183,8 @@ async def get_episode(
         # Track access
         try:
             await query_update_episode_access(ctx, clean_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to update episode access for {clean_id}: {e}")
 
         entities_data: list[EntityResult] | None = None
         linked_count = 0

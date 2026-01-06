@@ -352,6 +352,12 @@ def validate_entity(entity: dict) -> None:
             raise ToolError("Entity 'confidence' must be a number between 0 and 1")
 
 
+def _extract_id(record_id: str | Any) -> str:
+    """Extract entity ID from full record ID (internal helper)."""
+    record_str = str(record_id)
+    return record_str.split(':', 1)[1] if ':' in record_str else record_str
+
+
 def validate_relation(relation: dict) -> None:
     """Validate relation structure before storing."""
     if not isinstance(relation, dict):
@@ -409,9 +415,9 @@ async def query_hybrid_search(
 
 
 async def query_update_access(ctx: Context, entity_id: str) -> QueryResult:
-    """Update entity access timestamp and count."""
+    """Update entity access timestamp, count, and reset decay weight."""
     return await run_query(ctx, """
-        UPDATE type::record("entity", $id) SET accessed = time::now(), access_count += 1
+        UPDATE type::record("entity", $id) SET accessed = time::now(), access_count += 1, decay_weight = 1.0
     """, {'id': entity_id})
 
 
@@ -481,9 +487,6 @@ async def query_similar_entities(ctx: Context, embedding: list[float], exclude_i
     Args:
         exclude_id: Can be either "entity:id" (full record ID) or just "id" (entity ID only)
     """
-    # Extract just the entity ID part if full record ID is provided
-    entity_only_id = exclude_id.split(':', 1)[1] if ':' in exclude_id else exclude_id
-
     return await run_query(ctx, f"""
         SELECT id, content,
                vector::similarity::cosine(embedding, $emb) AS sim
@@ -493,7 +496,7 @@ async def query_similar_entities(ctx: Context, embedding: list[float], exclude_i
         LIMIT $limit
     """, {
         'emb': embedding,
-        'exclude_rec': RecordID('entity', entity_only_id),
+        'exclude_rec': RecordID('entity', _extract_id(exclude_id)),
         'limit': limit
     })
 
@@ -593,14 +596,12 @@ async def query_similar_by_embedding(
     limit: int = 10
 ) -> QueryResult:
     """Find similar entities by embedding with similarity score."""
-    # Extract just the entity ID part if full record ID is provided
-    entity_only_id = exclude_id.split(':', 1)[1] if ':' in exclude_id else exclude_id
     return await run_query(ctx, f"""
         SELECT id, content, access_count, accessed,
                vector::similarity::cosine(embedding, $emb) AS sim
         FROM entity
         WHERE embedding <|{limit},40|> $emb AND id != $exclude_rec
-    """, {'emb': embedding, 'exclude_rec': RecordID('entity', entity_only_id)})
+    """, {'emb': embedding, 'exclude_rec': RecordID('entity', _extract_id(exclude_id))})
 
 
 async def query_delete_entity_by_record_id(ctx: Context, entity_id: str) -> QueryResult:
@@ -877,8 +878,7 @@ async def query_batch_recalculate_importance(ctx: Context, context: str | None =
 
     count = 0
     for e in entities:
-        entity_id = str(e['id']).split(':', 1)[1] if ':' in str(e['id']) else str(e['id'])
-        await query_recalculate_importance(ctx, entity_id)
+        await query_recalculate_importance(ctx, _extract_id(e['id']))
         count += 1
 
     return count

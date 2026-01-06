@@ -53,6 +53,9 @@ async def remember(
     logger.info(f"remember() called with {len(entities)} entities, {len(relations)} relations")
     await ctx.info(f"Storing {len(entities)} entities and {len(relations)} relations")
 
+    # Track entities that need importance recalculation
+    entities_to_recalc: set[str] = set()
+
     for entity in entities:
         if detect_contradictions:
             entity_embedding = embed(entity['content'])
@@ -91,9 +94,7 @@ async def remember(
             )
             logger.info(f"Upsert result for {entity['id']}: {upsert_result}")
             result.entities_stored += 1
-
-            # Recalculate importance after storing (includes user_importance in formula)
-            await query_recalculate_importance(ctx, entity['id'])
+            entities_to_recalc.add(entity['id'])
 
         except Exception as e:
             logger.error(f"Failed to upsert entity {entity['id']}: {e}", exc_info=True)
@@ -108,15 +109,16 @@ async def remember(
             weight=rel.get('weight', 1.0)
         )
         result.relations_stored += 1
+        # Track relation endpoints for importance recalc
+        entities_to_recalc.add(rel['from'])
+        entities_to_recalc.add(rel['to'])
 
-    # Recalculate importance for entities involved in new relations
-    if relations:
-        for rel in relations:
-            try:
-                await query_recalculate_importance(ctx, rel['from'])
-                await query_recalculate_importance(ctx, rel['to'])
-            except Exception:
-                pass  # Entity might not exist
+    # Batch recalculate importance for all affected entities (once per entity)
+    for entity_id in entities_to_recalc:
+        try:
+            await query_recalculate_importance(ctx, entity_id)
+        except Exception as e:
+            logger.debug(f"Failed to recalculate importance for {entity_id}: {e}")
 
     await ctx.info(f"Stored {result.entities_stored} entities, {result.relations_stored} relations")
 

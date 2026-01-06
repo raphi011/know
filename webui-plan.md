@@ -1,246 +1,159 @@
-# Webui Plan for memcp
+# memcp Web Dashboard Implementation Plan
 
-Goal: Create a web-based user interface for **memcp** - a persistent memory system for AI agents.
+## Summary
+Build a Python-based SPA dashboard using **NiceGUI** that matches the React mock exactly. Reuses existing `db.py` functions via a lightweight context adapter.
 
----
+## Framework: NiceGUI
+- Pure Python, Vue-based reactivity
+- Built-in Tailwind CSS support (matches dark theme design)
+- Direct db.py function reuse (no REST layer needed)
+- Single Docker container deployment
+- Plotly for charts, Cytoscape.js embedded for graph
 
-## What is memcp?
-
-memcp is a knowledge graph backend that gives AI agents persistent memory across sessions. It stores information as **entities** connected by **relations**, enabling semantic search, graph traversal, and contradiction detection.
-
-### Data Model
-
-#### Entity (Memory Unit)
-```typescript
-interface Entity {
-  id: string;           // e.g. "user_pref_dark_mode", "project_memcp"
-  content: string;      // The actual fact/memory text
-  type: string;         // Category: "concept", "preference", "fact", "decision"
-  labels: string[];     // Tags: ["project", "python", "ai"]
-  confidence: number;   // 0.0 to 1.0 reliability score
-  source: string;       // Origin/provenance
-  created: datetime;
-  accessed: datetime;
-  access_count: number;
-  decay_weight: number; // Temporal relevance (decreases with age)
-}
+## Project Structure
+```
+memcp/webui/
+├── __init__.py
+├── main.py              # NiceGUI app entry point
+├── theme.py             # Dark theme CSS/Tailwind config
+├── pages/
+│   ├── dashboard.py     # Screen 1: Stats, charts, activity
+│   ├── search.py        # Screen 2: Hybrid search
+│   ├── graph.py         # Screen 3: Interactive graph (Cytoscape.js)
+│   ├── entity.py        # Screen 4: Entity detail view
+│   ├── add.py           # Screen 5: Add memory form
+│   ├── upload.py        # Screen 6: File upload
+│   └── maintenance.py   # Screen 7: Reflect/cleanup
+└── components/
+    ├── navbar.py        # Sidebar navigation
+    ├── stat_card.py     # Metric cards
+    ├── entity_card.py   # Search result cards
+    └── graph_view.py    # Cytoscape.js wrapper
 ```
 
-#### Relation (Graph Edge)
-```typescript
-interface Relation {
-  from: string;    // Source entity ID
-  to: string;      // Target entity ID
-  type: string;    // e.g. "prefers", "uses", "relates_to", "fixed_by"
-  weight?: number; // Relationship strength
-}
+## Key Implementation Details
+
+### 1. Refactor `db.py` to be Context-Independent
+
+Current signature: `async def query_*(ctx: Context, ...) -> QueryResult`
+New signature: `async def query_*(db: AsyncSurreal, ...) -> QueryResult`
+
+**Changes to `db.py`:**
+```python
+# Before
+async def run_query(ctx: Context, sql: str, vars: dict | None = None) -> QueryResult:
+    db = get_db(ctx)
+    ...
+    await ctx.error(f"Query failed: {e}")
+
+# After
+async def run_query(db: AsyncSurreal, sql: str, vars: dict | None = None) -> QueryResult:
+    ...
+    logger.error(f"Query failed: {e}")  # Use logger instead of ctx.error
 ```
 
-### Available API Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `search(query, labels?, limit?)` | Hybrid semantic + keyword search (RRF) |
-| `get_entity(id)` | Fetch single entity by ID |
-| `list_labels()` | Get all tags in the system |
-| `traverse(start, depth, relation_types?)` | Graph traversal from entity |
-| `find_path(from, to)` | Shortest path between entities |
-| `remember(entities, relations)` | Store new memories |
-| `forget(id)` | Delete entity and its relations |
-| `reflect()` | Maintenance: decay old memories, find duplicates |
-| `check_contradictions()` | Detect conflicting information |
-
-### Stats Resource
-```typescript
-interface MemoryStats {
-  total_entities: number;
-  total_relations: number;
-  labels: string[];
-  label_counts: Record<string, number>;
-}
+**MCP server wrapper** (keeps existing tool signatures working):
+```python
+# memcp/server.py - thin wrapper for MCP tools
+async def query_hybrid_search_mcp(ctx: Context, query: str, ...) -> QueryResult:
+    db = get_db(ctx)
+    return await query_hybrid_search(db, query, ...)
 ```
 
----
-
-## UI Features
-
-### 1. Dashboard / Stats Overview
-**Purpose:** Landing page showing memory health at a glance.
-
-**Display:**
-- Total entities count
-- Total relations count
-- Label distribution (pie/bar chart)
-- Recent activity (last accessed entities)
-- Memory health indicators (stale memories, potential duplicates)
-
----
-
-### 2. Search Page
-**Purpose:** Find memories using hybrid semantic + keyword search.
-
-**Components:**
-- Search input with query text
-- Filter chips for labels (multi-select from `list_labels()`)
-- Semantic weight slider (0.0 keyword-only ↔ 1.0 pure semantic)
-- Results list showing:
-  - Entity content (highlight matching terms)
-  - Labels as colored chips
-  - Confidence badge
-  - Last accessed date
-  - Access count
-- Click result → navigate to Detail View
-
----
-
-### 3. Graph View
-**Purpose:** Visualize the knowledge graph and entity relationships.
-
-**Components:**
-- Interactive node-link diagram (force-directed or hierarchical)
-- Nodes = entities, colored by type or label
-- Edges = relations, labeled with relationship type
-- Node size = access_count or confidence
-- Zoom/pan controls
-- Click node → show mini-card with entity preview
-- Double-click → navigate to Detail View
-- Filter controls: by label, by relation type, by depth
-- Traversal mode: select start node, adjust depth slider
-
----
-
-### 4. Entity Detail View
-**Purpose:** Full view of a single memory with related entities.
-
-**Components:**
-- Header: entity ID, type badge
-- Content: full text (markdown rendered)
-- Metadata panel:
-  - Labels (editable chips)
-  - Confidence score (progress bar)
-  - Source
-  - Created / Last accessed dates
-  - Access count
-  - Decay weight indicator
-- Related entities section:
-  - Grouped by relation type (e.g., "uses →", "← used by")
-  - Each shows: entity ID, content preview, relation weight
-  - Click → navigate to that entity
-- Actions:
-  - Edit entity
-  - Delete (with confirmation)
-  - Check for contradictions
-  - Find path to another entity
-
----
-
-### 5. Add Memory Form
-**Purpose:** Manually add new entities and relations.
-
-**Components:**
-- Entity form:
-  - ID (auto-generated slug from content, or manual)
-  - Content (textarea, required)
-  - Type dropdown
-  - Labels (tag input, autocomplete from existing)
-  - Confidence slider
-  - Source text field
-- Relations form:
-  - From entity (autocomplete search)
-  - To entity (autocomplete search)
-  - Relation type
-  - Weight slider
-- "Check contradictions before saving" toggle
-- "Auto-tag with AI" toggle
-
----
-
-### 6. File Upload / Ingestion
-**Purpose:** Bulk import knowledge from documents.
-
-**Components:**
-- Drag-and-drop zone
-- Supported formats: PDF, TXT, MD
-- Processing status indicator
-- Preview extracted entities before saving
-- Auto-tagging option
-- Assign default labels to batch
-
----
-
-### 7. Maintenance / Reflect Panel
-**Purpose:** Memory hygiene and optimization.
-
-**Components:**
-- "Run Reflect" button with options:
-  - Apply decay (checkbox, days threshold input)
-  - Find similar (checkbox, similarity threshold slider)
-  - Auto-merge duplicates (checkbox)
-- Results display:
-  - Decayed memories count
-  - Similar pairs found (list with merge/ignore actions)
-  - Merged count
-- Contradiction check results:
-  - List of conflicting entity pairs
-  - Confidence score for each contradiction
-  - Actions: keep one, keep both, merge, delete
-
----
-
-## Visual Design Guidelines
-
-- **Color scheme:** Dark mode friendly (knowledge bases are often used during long sessions)
-- **Typography:** Monospace for IDs, readable sans-serif for content
-- **Graph colors:** Distinct colors per entity type or label category
-- **Confidence indicators:** Green (high) → Yellow → Red (low)
-- **Decay visualization:** Opacity or grayscale for stale memories
-- **Responsive:** Works on desktop, tablet for graph exploration
-
----
-
-## Sample Data for Development
-
-```json
-{
-  "entities": [
-    {
-      "id": "user_pref_dark_mode",
-      "content": "User prefers dark mode for all applications",
-      "type": "preference",
-      "labels": ["user", "ui", "preference"],
-      "confidence": 0.95,
-      "access_count": 12
-    },
-    {
-      "id": "project_memcp",
-      "content": "memcp is an MCP server providing persistent memory for AI agents using SurrealDB",
-      "type": "project",
-      "labels": ["project", "python", "mcp", "ai"],
-      "confidence": 1.0,
-      "access_count": 45
-    },
-    {
-      "id": "tech_surrealdb",
-      "content": "SurrealDB is a multi-model database supporting graphs, documents, and vectors",
-      "type": "technology",
-      "labels": ["database", "technology"],
-      "confidence": 0.9,
-      "access_count": 8
-    }
-  ],
-  "relations": [
-    {"from": "project_memcp", "to": "tech_surrealdb", "type": "uses", "weight": 1.0},
-    {"from": "user_pref_dark_mode", "to": "project_memcp", "type": "applies_to", "weight": 0.8}
-  ]
-}
+**Web UI usage** (direct, no adapter needed):
+```python
+# memcp/webui/main.py
+async with get_db_connection() as db:
+    results = await query_hybrid_search(db, "python", embedding, [], 10)
 ```
 
----
+This makes all `query_*` functions reusable from both MCP and web UI without any adapter.
 
-## Tech Stack Suggestion
+### 2. New DB Queries to Add
+Add to `memcp/db.py`:
+- `query_recent_activity(limit)` - entities sorted by `accessed DESC`
+- `query_full_graph(limit)` - all entities + relations for viz
+- `query_health_stats(stale_days)` - total/stale/low_confidence counts
+- `query_all_relations()` - for graph visualization
 
-- **Framework:** React/Next.js or Vue
-- **Graph library:** D3.js, Cytoscape.js, or React Flow
-- **UI components:** shadcn/ui, Radix, or similar
-- **State:** React Query for API caching
-- **API:** REST or GraphQL wrapper around MCP tools
+### 3. Graph Visualization
+Embed Cytoscape.js via `ui.html()` with JSON data from `query_full_graph()`:
+- Force-directed layout (`cose`)
+- Node colors by entity type
+- Click events → Python callbacks via JavaScript interop
+
+### 4. Styling (match mock exactly)
+Dark theme with cyan accents:
+- Background: `#111827` (gray-900)
+- Cards: `#1f2937` (gray-800) with `border-cyan-500/30`
+- Primary: `#06b6d4` (cyan-500)
+- Text: `#f9fafb` (gray-50)
+
+### 5. Docker Configuration
+```dockerfile
+FROM python:3.13-slim
+COPY memcp/ ./memcp/
+RUN pip install nicegui plotly
+CMD ["python", "-m", "memcp.webui.main"]
+EXPOSE 8080
+```
+
+docker-compose.yml adds `webui` service alongside existing `surrealdb`.
+
+## Implementation Order
+
+### Phase 0: DB Refactor
+1. Refactor `run_query()` to accept `db: AsyncSurreal` instead of `ctx: Context`
+2. Update all `query_*` functions to pass `db` to `run_query()`
+3. Update MCP servers (`servers/*.py`) to extract db and pass it
+4. Run tests to verify no regressions
+
+### Phase 1: Foundation
+5. Create `memcp/webui/` package
+6. Create `main.py` with NiceGUI app skeleton + db connection management
+7. Add dark theme styling in `theme.py`
+8. Implement sidebar navigation component
+
+### Phase 2: Core Views
+9. Dashboard page (stat cards, Plotly charts)
+10. Search page (hybrid search, filters, result cards)
+11. Entity detail page (content, metadata, relations)
+
+### Phase 3: Graph View
+12. Cytoscape.js integration
+13. Add `query_full_graph()` to db.py
+14. Filter sidebar + node click interactions
+
+### Phase 4: Write Operations
+15. Add Memory form with validation
+16. Relation builder component
+17. File Upload (text extraction via PyMuPDF)
+
+### Phase 5: Maintenance
+18. Reflect configuration panel
+19. Conflict resolution cards
+20. Health donut chart (Plotly)
+
+### Phase 6: Polish & Deploy
+21. Loading states, error handling
+22. Docker multi-stage build
+23. Update README with usage docs
+
+## Files to Modify
+- `memcp/db.py` - Refactor to accept `db: AsyncSurreal` instead of `ctx: Context`; add 4 new query functions
+- `memcp/servers/*.py` - Update to pass `db` from context to query functions
+- `pyproject.toml` - Add dependencies: `nicegui`, `plotly`, `pymupdf`
+
+## Files to Create
+- `memcp/webui/__init__.py`
+- `memcp/webui/main.py`
+- `memcp/webui/theme.py`
+- `memcp/webui/pages/*.py` (7 files)
+- `memcp/webui/components/*.py` (4 files)
+- `Dockerfile.webui`
+- Update `docker-compose.yml`
+
+## Notes
+- **No auth initially** - Can add later if needed
+- **Semantic weight slider** - Search page; maps to RRF weight adjustment in `query_hybrid_search`
+- **Auto-tagging** - Omitted for now; can add LLM integration later if needed

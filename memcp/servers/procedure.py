@@ -1,14 +1,17 @@
 """Procedure tools: add_procedure, get_procedure, search_procedures, list_procedures, delete_procedure."""
 
+import logging
 import time
 from typing import Any
 
 from fastmcp import FastMCP, Context
+
+logger = logging.getLogger("memcp.procedure")
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from memcp.models import ProcedureResult, ProcedureStep, ProcedureSearchResult
-from memcp.utils import embed, log_op
+from memcp.utils import embed, log_op, extract_record_id
 from memcp.db import (
     detect_context,
     query_create_procedure,
@@ -159,8 +162,8 @@ async def get_procedure(
         # Track access
         try:
             await query_update_procedure_access(ctx, clean_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to update procedure access for {clean_id}: {e}")
 
         steps = parse_steps(proc.get('steps', []))
 
@@ -210,11 +213,10 @@ async def search_procedures(
 
     # Track access for each found procedure
     for proc in procedures:
-        proc_id = str(proc['id']).split(':', 1)[1] if ':' in str(proc['id']) else str(proc['id'])
         try:
-            await query_update_procedure_access(ctx, proc_id)
-        except Exception:
-            pass
+            await query_update_procedure_access(ctx, extract_record_id(proc['id']))
+        except Exception as e:
+            logger.debug(f"Failed to update procedure access: {e}")
 
     results = [ProcedureResult(
         id=str(p['id']),
