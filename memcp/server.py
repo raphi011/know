@@ -35,15 +35,9 @@ from memcp.db import (
 )
 from memcp.models import MemoryStats, ContextListResult
 
-# Load embedding models (imported for side-effect: model loading)
-print("Loading embedding model (all-MiniLM-L6-v2)...", file=sys.stderr)
-from memcp.utils.embedding import embedder  # noqa: F401
-print("Embedding model loaded", file=sys.stderr)
-
-print("Loading NLI model (cross-encoder/nli-deberta-v3-base)...", file=sys.stderr)
-from memcp.utils.embedding import nli_model  # noqa: F401
-print("NLI model loaded", file=sys.stderr)
-
+# Start loading models in background (non-blocking)
+from memcp.utils.embedding import preload_models
+preload_models()
 
 # Create main server with lifespan
 mcp = FastMCP("memcp", lifespan=app_lifespan)

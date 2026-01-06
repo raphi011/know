@@ -2,6 +2,11 @@
 
 __version__ = "0.1.6"
 
-from memcp.server import main
+
+def main():
+    """Entry point - lazy import to avoid loading models on package import."""
+    from memcp.server import main as _main
+    return _main()
+
 
 __all__ = ['main']
