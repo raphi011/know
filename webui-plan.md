@@ -3,6 +3,23 @@
 ## Summary
 Build a Python-based SPA dashboard using **NiceGUI** that matches the React mock exactly. Reuses existing `db.py` functions via a lightweight context adapter.
 
+## Reference Mock
+**Location:** `~/Downloads/memcp-control-plane/`
+
+Full React/TypeScript implementation with all screens:
+- `screens/Overview.tsx` - Dashboard
+- `screens/Search.tsx` - Memory search
+- `screens/GraphView.tsx` - Entity graph (Cytoscape.js)
+- `screens/EntityDetail.tsx` - Entity detail view
+- `screens/AddMemory.tsx` - Add memory form
+- `screens/Ingest.tsx` - File upload
+- `screens/Maintenance.tsx` - Reflect/cleanup
+- `screens/Episodes.tsx` + `EpisodeDetail.tsx` - Episodic memory
+- `screens/Procedures.tsx` + `ProcedureEditor.tsx` - Procedural memory
+
+Data models: `types.ts`
+Mock backend: `backend.ts`
+
 ## Framework: NiceGUI
 - Pure Python, Vue-based reactivity
 - Built-in Tailwind CSS support (matches dark theme design)
@@ -17,15 +34,17 @@ memcp/webui/
 ├── main.py              # NiceGUI app entry point
 ├── theme.py             # Dark theme CSS/Tailwind config
 ├── pages/
-│   ├── dashboard.py     # Screen 1: Stats, charts, activity
-│   ├── search.py        # Screen 2: Hybrid search
-│   ├── graph.py         # Screen 3: Interactive graph (Cytoscape.js)
-│   ├── entity.py        # Screen 4: Entity detail view
-│   ├── add.py           # Screen 5: Add memory form
-│   ├── upload.py        # Screen 6: File upload
-│   └── maintenance.py   # Screen 7: Reflect/cleanup
+│   ├── dashboard.py     # Overview - stats, charts, activity
+│   ├── search.py        # Memory search
+│   ├── graph.py         # Entity graph (Cytoscape.js)
+│   ├── entity.py        # Entity detail view
+│   ├── add.py           # Add memory form
+│   ├── upload.py        # File upload/ingest
+│   ├── maintenance.py   # Reflect/cleanup
+│   ├── episodes.py      # Episodes list + detail
+│   └── procedures.py    # Procedures list + editor
 └── components/
-    ├── navbar.py        # Sidebar navigation
+    ├── sidebar.py       # Sidebar with context selector
     ├── stat_card.py     # Metric cards
     ├── entity_card.py   # Search result cards
     └── graph_view.py    # Cytoscape.js wrapper
