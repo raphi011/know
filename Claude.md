@@ -36,9 +36,8 @@ The unit test ensures the module compiles correctly. Integration tests verify th
 
 ## SurrealDB Reference
 
-For SurrealDB-specific syntax, v3.0 breaking changes, and query patterns, see:
-- **Documentation**: `.claude/docs/surrealdb.md`
-- **Subagent**: Use the `surrealdb` subagent for complex query work
+For SurrealDB-specific syntax, v3.0 breaking changes, and query patterns:
+- **Subagent**: Use the `surrealdb` subagent for complex query work (has built-in reference guide)
 
 ## TODO
 
