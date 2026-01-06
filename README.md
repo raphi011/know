@@ -44,6 +44,8 @@ Entities store content with vector embeddings for semantic search. Relations cre
 | `list_labels` | List all categories/tags in memory |
 | `list_contexts` | List all project namespaces |
 | `get_context_stats` | Get entity/episode counts for a context |
+| `list_entity_types` | List all available entity types with descriptions |
+| `search_by_type` | Search entities by type (e.g., "preference", "decision") |
 
 ### Episodic Memory
 | Tool | Description |
@@ -64,6 +66,15 @@ Entities store content with vector embeddings for semantic search. Relations cre
 |------|-------------|
 | `remember` | Store entities and relations with context/importance |
 | `forget` | Delete entity and its relations |
+
+### Procedural Memory
+| Tool | Description |
+|------|-------------|
+| `add_procedure` | Store a step-by-step workflow or process |
+| `get_procedure` | Retrieve a procedure by ID |
+| `search_procedures` | Search procedures by name, description, or steps |
+| `list_procedures` | List all stored procedures |
+| `delete_procedure` | Delete a procedure |
 
 ### Maintenance
 | Tool | Description |
@@ -171,4 +182,44 @@ Environment variables:
 
 "Recalculate importance scores for all memories"
 → reflect(recalculate_importance: true)
+```
+
+### Entity Types
+```
+"What types of knowledge do you store?"
+→ list_entity_types()
+
+"Show all my preferences"
+→ search_by_type(entity_type: "preference")
+
+"List all decisions I've made for this project"
+→ search_by_type(entity_type: "decision", context: "myproject")
+
+"Remember this as a requirement"
+→ remember(entities=[{id: "req-auth", type: "requirement", content: "API must use OAuth2"}])
+```
+
+### Procedural Memory
+```
+"How do I deploy the app?"
+→ search_procedures(query: "deploy")
+
+"Remember these deployment steps"
+→ add_procedure(
+    name: "Deploy to production",
+    description: "Steps to deploy the application",
+    steps: [
+      {content: "Run tests with pytest"},
+      {content: "Build Docker image"},
+      {content: "Push to registry"},
+      {content: "Update Kubernetes deployment"}
+    ],
+    labels: ["deployment", "devops"]
+  )
+
+"What procedures do we have for this project?"
+→ list_procedures(context: "myproject")
+
+"Show me the testing workflow"
+→ get_procedure(procedure_id: "testing-workflow")
 ```

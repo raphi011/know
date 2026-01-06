@@ -98,3 +98,47 @@ class ContextListResult(BaseModel):
     """List of all available contexts."""
     contexts: list[str] = Field(default_factory=list)
     count: int = 0
+
+
+# =============================================================================
+# Procedure Models (Procedural Memory)
+# =============================================================================
+
+class ProcedureStep(BaseModel):
+    """A single step within a procedure."""
+    order: int
+    content: str
+    optional: bool = False
+
+
+class ProcedureResult(BaseModel):
+    """A procedure/workflow returned from search or retrieval."""
+    id: str
+    name: str
+    description: str
+    steps: list[ProcedureStep] = Field(default_factory=list)
+    context: str | None = None
+    labels: list[str] = Field(default_factory=list)
+
+
+class ProcedureSearchResult(BaseModel):
+    """Result from procedure search."""
+    procedures: list[ProcedureResult] = Field(default_factory=list)
+    count: int = 0
+
+
+# =============================================================================
+# Entity Type Models
+# =============================================================================
+
+class EntityTypeInfo(BaseModel):
+    """Information about an entity type."""
+    type: str
+    description: str
+    count: int = 0  # Number of entities with this type
+
+
+class EntityTypeListResult(BaseModel):
+    """List of available entity types."""
+    types: list[EntityTypeInfo] = Field(default_factory=list)
+    custom_types_allowed: bool = True

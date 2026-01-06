@@ -89,10 +89,12 @@ async def cleanup_test_data(db_connection):
     # Clean up before test
     await db_connection.query("DELETE entity WHERE id CONTAINS 'test_'")
     await db_connection.query("DELETE episode WHERE id CONTAINS 'test_'")
+    await db_connection.query("DELETE procedure WHERE id CONTAINS 'test_'")
     yield
     # Clean up after test
     await db_connection.query("DELETE entity WHERE id CONTAINS 'test_'")
     await db_connection.query("DELETE episode WHERE id CONTAINS 'test_'")
+    await db_connection.query("DELETE procedure WHERE id CONTAINS 'test_'")
 
 
 # =============================================================================
@@ -528,3 +530,263 @@ class TestModels:
         )
 
         assert result.importance_recalculated == 100
+
+
+# =============================================================================
+# Entity Type Ontology Tests
+# =============================================================================
+
+class TestEntityTypeOntology:
+    def test_entity_types_defined(self):
+        """Test that entity types dictionary is populated."""
+        from memcp.db import ENTITY_TYPES, get_entity_types
+
+        assert len(ENTITY_TYPES) > 0
+        assert "preference" in ENTITY_TYPES
+        assert "requirement" in ENTITY_TYPES
+        assert "procedure" in ENTITY_TYPES
+
+        types = get_entity_types()
+        assert types == ENTITY_TYPES
+
+    def test_validate_entity_type_predefined(self):
+        """Test validation of predefined types."""
+        from memcp.db import validate_entity_type
+
+        assert validate_entity_type("preference") == "preference"
+        assert validate_entity_type("PREFERENCE") == "preference"  # case insensitive
+        assert validate_entity_type("  requirement  ") == "requirement"  # trimmed
+
+    def test_validate_entity_type_custom(self):
+        """Test validation of custom types when allowed."""
+        from memcp.db import validate_entity_type, ALLOW_CUSTOM_TYPES
+
+        if ALLOW_CUSTOM_TYPES:
+            assert validate_entity_type("my_custom_type") == "my_custom_type"
+
+    @pytest.mark.asyncio
+    async def test_query_entities_by_type(self, mock_ctx):
+        """Test querying entities by type."""
+        from memcp.db import query_upsert_entity, query_entities_by_type
+        from memcp.utils import embed
+
+        # Create entities with different types
+        await query_upsert_entity(
+            mock_ctx, "test_pref_1", "preference", ["test"],
+            "I prefer dark mode", embed("I prefer dark mode"), 1.0, "test"
+        )
+        await query_upsert_entity(
+            mock_ctx, "test_fact_1", "fact", ["test"],
+            "The sky is blue", embed("The sky is blue"), 1.0, "test"
+        )
+
+        # Query by type
+        prefs = await query_entities_by_type(mock_ctx, "preference", None, 100)
+        facts = await query_entities_by_type(mock_ctx, "fact", None, 100)
+
+        assert any("test_pref_1" in str(p['id']) for p in prefs)
+        assert any("test_fact_1" in str(f['id']) for f in facts)
+
+    @pytest.mark.asyncio
+    async def test_query_list_types(self, mock_ctx):
+        """Test listing entity types with counts."""
+        from memcp.db import query_upsert_entity, query_list_types
+        from memcp.utils import embed
+
+        # Create entities with types
+        await query_upsert_entity(
+            mock_ctx, "test_type_a", "decision", [],
+            "Decision A", embed("Decision A"), 1.0, "test"
+        )
+        await query_upsert_entity(
+            mock_ctx, "test_type_b", "decision", [],
+            "Decision B", embed("Decision B"), 1.0, "test"
+        )
+
+        # List types
+        types = await query_list_types(mock_ctx, None)
+        type_dict = {t['type']: t.get('count', 0) for t in types}
+
+        assert "decision" in type_dict
+
+
+# =============================================================================
+# Procedure Query Tests
+# =============================================================================
+
+class TestProcedureQueries:
+    @pytest.mark.asyncio
+    async def test_create_procedure(self, mock_ctx):
+        """Test procedure creation."""
+        from memcp.db import query_create_procedure, query_get_procedure
+        from memcp.utils import embed
+
+        steps = [
+            {"order": 1, "content": "Step 1: Prepare", "optional": False},
+            {"order": 2, "content": "Step 2: Execute", "optional": False},
+            {"order": 3, "content": "Step 3: Verify", "optional": True},
+        ]
+        embed_text = "Deploy app. Deploy application to production. " + " ".join(s['content'] for s in steps)
+
+        await query_create_procedure(
+            mock_ctx,
+            procedure_id="test_deploy_proc",
+            name="Deploy app",
+            description="Deploy application to production",
+            steps=steps,
+            embedding=embed(embed_text),
+            context="test-project",
+            labels=["deployment", "devops"]
+        )
+
+        result = await query_get_procedure(mock_ctx, "test_deploy_proc")
+        assert len(result) == 1
+        proc = result[0]
+        assert proc['name'] == "Deploy app"
+        assert len(proc['steps']) == 3
+        assert proc['context'] == "test-project"
+
+    @pytest.mark.asyncio
+    async def test_search_procedures(self, mock_ctx):
+        """Test procedure search."""
+        from memcp.db import query_create_procedure, query_search_procedures
+        from memcp.utils import embed
+
+        # Create test procedures
+        for i in range(3):
+            steps = [{"order": 1, "content": f"Step for proc {i}"}]
+            embed_text = f"Test procedure {i}. Test procedure about databases. Step for proc {i}"
+            await query_create_procedure(
+                mock_ctx,
+                procedure_id=f"test_search_proc_{i}",
+                name=f"Test procedure {i}",
+                description="Test procedure about databases",
+                steps=steps,
+                embedding=embed(embed_text),
+                context=None,
+                labels=["database"]
+            )
+
+        # Search procedures
+        query_emb = embed("database procedure")
+        results = await query_search_procedures(
+            mock_ctx, "database", query_emb, None, [], 10
+        )
+
+        assert len(results) >= 3
+
+    @pytest.mark.asyncio
+    async def test_list_procedures(self, mock_ctx):
+        """Test listing procedures."""
+        from memcp.db import query_create_procedure, query_list_procedures
+        from memcp.utils import embed
+
+        # Create procedures in a specific context
+        ctx_name = "test-list-ctx"
+        for i in range(2):
+            steps = [{"order": 1, "content": f"Step {i}"}]
+            embed_text = f"List proc {i}. Testing list. Step {i}"
+            await query_create_procedure(
+                mock_ctx,
+                procedure_id=f"test_list_proc_{i}",
+                name=f"List proc {i}",
+                description="Testing list",
+                steps=steps,
+                embedding=embed(embed_text),
+                context=ctx_name,
+                labels=[]
+            )
+
+        # List with context filter
+        results = await query_list_procedures(mock_ctx, ctx_name, 100)
+        assert len(results) >= 2
+
+    @pytest.mark.asyncio
+    async def test_delete_procedure(self, mock_ctx):
+        """Test procedure deletion."""
+        from memcp.db import query_create_procedure, query_get_procedure, query_delete_procedure
+        from memcp.utils import embed
+
+        steps = [{"order": 1, "content": "To delete"}]
+        await query_create_procedure(
+            mock_ctx,
+            procedure_id="test_del_proc",
+            name="Delete me",
+            description="Will be deleted",
+            steps=steps,
+            embedding=embed("Delete me. Will be deleted. To delete"),
+            context=None,
+            labels=[]
+        )
+
+        # Verify exists
+        result = await query_get_procedure(mock_ctx, "test_del_proc")
+        assert len(result) == 1
+
+        # Delete
+        await query_delete_procedure(mock_ctx, "test_del_proc")
+
+        # Verify deleted
+        result = await query_get_procedure(mock_ctx, "test_del_proc")
+        assert len(result) == 0
+
+
+# =============================================================================
+# Procedure Model Tests
+# =============================================================================
+
+class TestProcedureModels:
+    def test_procedure_step_model(self):
+        """Test ProcedureStep model."""
+        from memcp.models import ProcedureStep
+
+        step = ProcedureStep(order=1, content="Do something", optional=True)
+        assert step.order == 1
+        assert step.content == "Do something"
+        assert step.optional is True
+
+    def test_procedure_result_model(self):
+        """Test ProcedureResult model."""
+        from memcp.models import ProcedureResult, ProcedureStep
+
+        steps = [
+            ProcedureStep(order=1, content="Step 1"),
+            ProcedureStep(order=2, content="Step 2")
+        ]
+        proc = ProcedureResult(
+            id="procedure:deploy",
+            name="Deploy",
+            description="Deploy process",
+            steps=steps,
+            context="myproject",
+            labels=["deployment"]
+        )
+
+        assert proc.id == "procedure:deploy"
+        assert len(proc.steps) == 2
+        assert proc.labels == ["deployment"]
+
+    def test_entity_type_info_model(self):
+        """Test EntityTypeInfo model."""
+        from memcp.models import EntityTypeInfo
+
+        info = EntityTypeInfo(
+            type="preference",
+            description="User preference",
+            count=5
+        )
+        assert info.type == "preference"
+        assert info.count == 5
+
+    def test_entity_type_list_result_model(self):
+        """Test EntityTypeListResult model."""
+        from memcp.models import EntityTypeListResult, EntityTypeInfo
+
+        types = [
+            EntityTypeInfo(type="preference", description="User pref", count=3),
+            EntityTypeInfo(type="fact", description="A fact", count=10)
+        ]
+        result = EntityTypeListResult(types=types, custom_types_allowed=True)
+
+        assert len(result.types) == 2
+        assert result.custom_types_allowed is True

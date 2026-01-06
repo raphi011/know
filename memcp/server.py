@@ -24,7 +24,7 @@ print("Starting memcp server (loading dependencies, this may take a moment)...",
 from fastmcp import FastMCP, Context
 
 # Import sub-servers
-from memcp.servers import search_server, graph_server, persist_server, maintenance_server, episode_server
+from memcp.servers import search_server, graph_server, persist_server, maintenance_server, episode_server, procedure_server
 
 # Import db module for lifespan and query functions
 from memcp.db import (
@@ -54,6 +54,7 @@ mcp.mount(graph_server, prefix="")
 mcp.mount(persist_server, prefix="")
 mcp.mount(maintenance_server, prefix="")
 mcp.mount(episode_server, prefix="")
+mcp.mount(procedure_server, prefix="")
 
 
 # =============================================================================

@@ -32,6 +32,63 @@ QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
 MEMCP_DEFAULT_CONTEXT = os.getenv("MEMCP_DEFAULT_CONTEXT", None)
 MEMCP_CONTEXT_FROM_CWD = os.getenv("MEMCP_CONTEXT_FROM_CWD", "false").lower() == "true"
 
+# =============================================================================
+# Entity Type Ontology
+# =============================================================================
+# Predefined entity types for structured knowledge extraction
+# Based on Graphiti's built-in types + custom additions
+
+ENTITY_TYPES = {
+    # Core types
+    "concept": "General knowledge or idea",
+    "fact": "Verified piece of information",
+    "preference": "User preference or choice",
+    "requirement": "Requirement or constraint",
+    "decision": "Decision that was made",
+
+    # People & Organizations
+    "person": "A person",
+    "organization": "Company, team, or group",
+
+    # Location & Time
+    "location": "Physical or virtual location",
+    "event": "Something that happened at a specific time",
+
+    # Technical
+    "tool": "Software tool or technology",
+    "project": "A project or initiative",
+    "code": "Code snippet or technical implementation",
+
+    # Procedural (for procedural memory)
+    "procedure": "Step-by-step workflow or process",
+    "step": "Single step within a procedure",
+}
+
+# Allow custom types beyond the predefined ones
+ALLOW_CUSTOM_TYPES = os.getenv("MEMCP_ALLOW_CUSTOM_TYPES", "true").lower() == "true"
+
+
+def validate_entity_type(entity_type: str) -> str:
+    """Validate and normalize entity type.
+
+    Returns the normalized type if valid, raises ToolError if invalid.
+    """
+    normalized = entity_type.lower().strip()
+
+    if normalized in ENTITY_TYPES:
+        return normalized
+
+    if ALLOW_CUSTOM_TYPES:
+        return normalized
+
+    valid_types = ", ".join(sorted(ENTITY_TYPES.keys()))
+    raise ToolError(f"Invalid entity type '{entity_type}'. Valid types: {valid_types}")
+
+
+def get_entity_types() -> dict[str, str]:
+    """Get all predefined entity types with descriptions."""
+    return ENTITY_TYPES.copy()
+
 
 def detect_context(explicit_context: str | None = None) -> str | None:
     """Detect project context from explicit value, env, or cwd.
@@ -120,6 +177,33 @@ SCHEMA_SQL = """
     DEFINE FIELD IF NOT EXISTS position ON extracted_from TYPE option<int>;
     DEFINE FIELD IF NOT EXISTS confidence ON extracted_from TYPE float DEFAULT 1.0;
     DEFINE FIELD IF NOT EXISTS created ON extracted_from TYPE datetime DEFAULT time::now();
+
+    -- ==========================================================================
+    -- PROCEDURE TABLE (Procedural Memory)
+    -- ==========================================================================
+    -- Stores step-by-step workflows/processes with ordered steps
+    DEFINE TABLE IF NOT EXISTS procedure SCHEMAFULL;
+    DEFINE FIELD IF NOT EXISTS name ON procedure TYPE string;
+    DEFINE FIELD IF NOT EXISTS description ON procedure TYPE string;
+    DEFINE FIELD IF NOT EXISTS steps ON procedure TYPE array<object>;  -- [{order, content, optional}]
+    DEFINE FIELD IF NOT EXISTS embedding ON procedure TYPE array<float>;
+    DEFINE FIELD IF NOT EXISTS context ON procedure TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS labels ON procedure TYPE set<string>;
+    DEFINE FIELD IF NOT EXISTS created ON procedure TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS accessed ON procedure TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS access_count ON procedure TYPE int DEFAULT 0;
+
+    DEFINE INDEX IF NOT EXISTS procedure_context ON procedure FIELDS context;
+    DEFINE INDEX IF NOT EXISTS procedure_labels ON procedure FIELDS labels;
+    DEFINE INDEX IF NOT EXISTS procedure_embedding ON procedure FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
+    DEFINE ANALYZER IF NOT EXISTS procedure_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
+    DEFINE INDEX IF NOT EXISTS procedure_name_ft ON procedure FIELDS name FULLTEXT ANALYZER procedure_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS procedure_desc_ft ON procedure FIELDS description FULLTEXT ANALYZER procedure_analyzer BM25;
+
+    -- ==========================================================================
+    -- TYPE INDEX (for entity type ontology queries)
+    -- ==========================================================================
+    DEFINE INDEX IF NOT EXISTS entity_type ON entity FIELDS type;
 """
 
 
@@ -894,6 +978,145 @@ async def query_get_context_stats(ctx: Context, context: str) -> QueryResult:
     }]
 
 
+# =============================================================================
+# Entity Type Query Functions
+# =============================================================================
+
+async def query_entities_by_type(
+    ctx: Context,
+    entity_type: str,
+    context: str | None = None,
+    limit: int = 100
+) -> QueryResult:
+    """Get all entities of a specific type."""
+    context_filter = "AND context = $context" if context else ""
+    return await run_query(ctx, f"""
+        SELECT * FROM entity WHERE type = $type {context_filter} LIMIT $limit
+    """, {'type': entity_type, 'context': context, 'limit': limit})
+
+
+async def query_count_by_type(ctx: Context, entity_type: str, context: str | None = None) -> QueryResult:
+    """Count entities of a specific type."""
+    context_filter = "AND context = $context" if context else ""
+    return await run_query(ctx, f"""
+        SELECT count() FROM entity WHERE type = $type {context_filter} GROUP ALL
+    """, {'type': entity_type, 'context': context})
+
+
+async def query_list_types(ctx: Context, context: str | None = None) -> QueryResult:
+    """List all entity types in use with counts."""
+    context_filter = "WHERE context = $context" if context else ""
+    result = await run_query(ctx, f"""
+        SELECT type, count() AS count FROM entity {context_filter} GROUP BY type
+    """, {'context': context})
+    return result
+
+
+# =============================================================================
+# Procedure Query Functions (Procedural Memory)
+# =============================================================================
+
+async def query_create_procedure(
+    ctx: Context,
+    procedure_id: str,
+    name: str,
+    description: str,
+    steps: list[dict[str, Any]],
+    embedding: list[float],
+    context: str | None,
+    labels: list[str]
+) -> QueryResult:
+    """Create or update a procedure."""
+    return await run_query(ctx, """
+        UPSERT type::record("procedure", $id) SET
+            name = $name,
+            description = $description,
+            steps = $steps,
+            embedding = $embedding,
+            context = $context,
+            labels = $labels
+    """, {
+        'id': procedure_id,
+        'name': name,
+        'description': description,
+        'steps': steps,
+        'embedding': embedding,
+        'context': context,
+        'labels': labels
+    })
+
+
+async def query_get_procedure(ctx: Context, procedure_id: str) -> QueryResult:
+    """Get procedure by ID."""
+    return await run_query(ctx, """
+        SELECT * FROM type::record("procedure", $id)
+    """, {'id': procedure_id})
+
+
+async def query_search_procedures(
+    ctx: Context,
+    query: str,
+    query_embedding: list[float],
+    context: str | None,
+    labels: list[str],
+    limit: int
+) -> QueryResult:
+    """Hybrid search for procedures."""
+    context_filter = "AND context = $context" if context else ""
+    label_filter = "AND labels CONTAINSANY $labels" if labels else ""
+
+    return await run_query(ctx, f"""
+        LET $ft = SELECT id, name, description, steps, context, labels
+                  FROM procedure
+                  WHERE (name @@ $q OR description @@ $q) {context_filter} {label_filter};
+
+        LET $vs = SELECT id, name, description, steps, context, labels
+                  FROM procedure
+                  WHERE embedding <|{limit * 2},40|> $emb {context_filter} {label_filter};
+
+        RETURN search::rrf([$vs, $ft], $limit, 60);
+    """, {
+        'q': query,
+        'emb': query_embedding,
+        'context': context,
+        'labels': labels,
+        'limit': limit
+    })
+
+
+async def query_update_procedure_access(ctx: Context, procedure_id: str) -> QueryResult:
+    """Update procedure access timestamp and count."""
+    return await run_query(ctx, """
+        UPDATE type::record("procedure", $id) SET accessed = time::now(), access_count += 1
+    """, {'id': procedure_id})
+
+
+async def query_delete_procedure(ctx: Context, procedure_id: str) -> QueryResult:
+    """Delete a procedure."""
+    return await run_query(ctx, """
+        DELETE type::record("procedure", $id)
+    """, {'id': procedure_id})
+
+
+async def query_list_procedures(ctx: Context, context: str | None = None, limit: int = 100) -> QueryResult:
+    """List all procedures, optionally filtered by context."""
+    context_filter = "WHERE context = $context" if context else ""
+    return await run_query(ctx, f"""
+        SELECT id, name, description, array::len(steps) AS step_count, context, labels
+        FROM procedure {context_filter}
+        ORDER BY accessed DESC
+        LIMIT $limit
+    """, {'context': context, 'limit': limit})
+
+
+async def query_count_procedures(ctx: Context, context: str | None = None) -> QueryResult:
+    """Count procedures, optionally filtered by context."""
+    context_filter = "WHERE context = $context" if context else ""
+    return await run_query(ctx, f"""
+        SELECT count() FROM procedure {context_filter} GROUP ALL
+    """, {'context': context})
+
+
 __all__ = [
     'AppContext',
     'app_lifespan',
@@ -910,6 +1133,11 @@ __all__ = [
     'detect_context',
     'MEMCP_DEFAULT_CONTEXT',
     'MEMCP_CONTEXT_FROM_CWD',
+    # Entity type ontology
+    'ENTITY_TYPES',
+    'ALLOW_CUSTOM_TYPES',
+    'validate_entity_type',
+    'get_entity_types',
     # Entity query functions
     'query_hybrid_search',
     'query_update_access',
@@ -933,6 +1161,10 @@ __all__ = [
     'query_count_relations',
     'query_get_all_labels',
     'query_count_by_label',
+    # Entity type query functions
+    'query_entities_by_type',
+    'query_count_by_type',
+    'query_list_types',
     # Episode query functions
     'query_create_episode',
     'query_search_episodes',
@@ -950,4 +1182,12 @@ __all__ = [
     # Context management functions
     'query_list_contexts',
     'query_get_context_stats',
+    # Procedure query functions
+    'query_create_procedure',
+    'query_get_procedure',
+    'query_search_procedures',
+    'query_update_procedure_access',
+    'query_delete_procedure',
+    'query_list_procedures',
+    'query_count_procedures',
 ]

@@ -6,12 +6,14 @@ from fastmcp import FastMCP, Context
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from memcp.models import EntityResult, SearchResult, ContextStats, ContextListResult
+from memcp.models import EntityResult, SearchResult, ContextStats, ContextListResult, EntityTypeInfo, EntityTypeListResult
 from memcp.utils import embed, log_op
 from memcp.db import (
     detect_context,
     query_hybrid_search, query_update_access, query_get_entity, query_list_labels,
-    query_list_contexts, query_get_context_stats
+    query_list_contexts, query_get_context_stats,
+    query_list_types, query_entities_by_type,
+    get_entity_types, ALLOW_CUSTOM_TYPES
 )
 
 server = FastMCP("search")
@@ -135,3 +137,90 @@ async def get_context_stats(context: str, ctx: Context) -> ContextStats:
         episodes=stats.get('episodes', 0),
         relations=stats.get('relations', 0)
     )
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+async def list_entity_types(
+    context: str | None = None,
+    ctx: Context = None  # type: ignore[assignment]
+) -> EntityTypeListResult:
+    """List all available entity types with their descriptions and counts.
+
+    Returns both predefined types (preference, requirement, procedure, etc.)
+    and any custom types in use. Use to understand what kinds of entities
+    are stored or when categorizing new knowledge.
+
+    Args:
+        context: Optional context to filter type counts by
+    """
+    # Get predefined types with descriptions
+    predefined = get_entity_types()
+
+    # Get types actually in use with counts
+    used_types = await query_list_types(ctx, context)
+    type_counts = {t['type']: t.get('count', 0) for t in used_types if t.get('type')}
+
+    # Build result: predefined types + any custom types found
+    result_types = []
+
+    # Add predefined types (even if count is 0)
+    for type_name, description in sorted(predefined.items()):
+        result_types.append(EntityTypeInfo(
+            type=type_name,
+            description=description,
+            count=type_counts.get(type_name, 0)
+        ))
+
+    # Add any custom types not in predefined list
+    for type_name, count in sorted(type_counts.items()):
+        if type_name not in predefined:
+            result_types.append(EntityTypeInfo(
+                type=type_name,
+                description="(custom type)",
+                count=count
+            ))
+
+    return EntityTypeListResult(
+        types=result_types,
+        custom_types_allowed=ALLOW_CUSTOM_TYPES
+    )
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_by_type(
+    entity_type: str,
+    context: str | None = None,
+    limit: int = 50,
+    ctx: Context = None  # type: ignore[assignment]
+) -> SearchResult:
+    """Search entities by type (e.g., 'preference', 'requirement', 'procedure').
+
+    Use for queries like "show all my preferences" or "list all decisions".
+
+    Args:
+        entity_type: Entity type to filter by
+        context: Optional project namespace to filter by
+        limit: Max results (1-100)
+    """
+    if not entity_type or not entity_type.strip():
+        raise ToolError("Entity type cannot be empty")
+    if limit < 1 or limit > 100:
+        raise ToolError("Limit must be between 1 and 100")
+
+    effective_context = detect_context(context)
+
+    entities = await query_entities_by_type(ctx, entity_type.lower(), effective_context, limit)
+
+    entity_results = [EntityResult(
+        id=str(e['id']),
+        type=e.get('type'),
+        labels=e.get('labels', []),
+        content=e['content'],
+        confidence=e.get('confidence'),
+        source=e.get('source'),
+        decay_weight=e.get('decay_weight'),
+        context=e.get('context'),
+        importance=e.get('importance')
+    ) for e in entities]
+
+    return SearchResult(entities=entity_results, count=len(entity_results), summary=None)
