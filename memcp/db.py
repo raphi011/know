@@ -116,7 +116,8 @@ SCHEMA_SQL = """
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
     DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
-    DEFINE FIELD IF NOT EXISTS labels ON entity TYPE set<string>;  -- set auto-deduplicates
+    -- TODO: Use set<string> when Python SDK supports CBOR tag 56 (v3.0 set type)
+    DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string>;
     DEFINE FIELD IF NOT EXISTS content ON entity TYPE string;
     DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
     DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 1.0;
@@ -157,7 +158,7 @@ SCHEMA_SQL = """
     DEFINE FIELD IF NOT EXISTS content ON episode TYPE string;
     DEFINE FIELD IF NOT EXISTS summary ON episode TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS embedding ON episode TYPE array<float>;
-    DEFINE FIELD IF NOT EXISTS metadata ON episode TYPE option<object>;
+    DEFINE FIELD IF NOT EXISTS metadata ON episode TYPE option<object> FLEXIBLE;
     DEFINE FIELD IF NOT EXISTS timestamp ON episode TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS context ON episode TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS created ON episode TYPE datetime DEFAULT time::now();
@@ -185,10 +186,14 @@ SCHEMA_SQL = """
     DEFINE TABLE IF NOT EXISTS procedure SCHEMAFULL;
     DEFINE FIELD IF NOT EXISTS name ON procedure TYPE string;
     DEFINE FIELD IF NOT EXISTS description ON procedure TYPE string;
-    DEFINE FIELD IF NOT EXISTS steps ON procedure TYPE array<object>;  -- [{order, content, optional}]
+    DEFINE FIELD IF NOT EXISTS steps ON procedure TYPE array<object> FLEXIBLE;  -- [{order, content, optional}]
+    -- Note: Must REMOVE then DEFINE to ensure FLEXIBLE is set (IF NOT EXISTS won't update existing field)
+    REMOVE FIELD IF EXISTS steps.* ON procedure;
+    DEFINE FIELD steps.* ON procedure TYPE object FLEXIBLE;  -- Allow nested object properties
     DEFINE FIELD IF NOT EXISTS embedding ON procedure TYPE array<float>;
     DEFINE FIELD IF NOT EXISTS context ON procedure TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS labels ON procedure TYPE set<string>;
+    -- TODO: Use set<string> when Python SDK supports CBOR tag 56 (v3.0 set type)
+    DEFINE FIELD IF NOT EXISTS labels ON procedure TYPE array<string>;
     DEFINE FIELD IF NOT EXISTS created ON procedure TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS accessed ON procedure TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS access_count ON procedure TYPE int DEFAULT 0;
@@ -310,22 +315,33 @@ def get_db(ctx: Context) -> AsyncSurreal:
 
 
 async def run_query(ctx: Context, sql: str, vars: dict[str, Any] | None = None) -> QueryResult:
-    """Execute a database query with timeout and error handling."""
+    """Execute a database query with error handling."""
     db = get_db(ctx)
     # Log query (truncate vars to avoid huge embeddings in logs)
     vars_summary = {k: f"[{len(v)} items]" if isinstance(v, list) and len(v) > 10 else v for k, v in (vars or {}).items()}
     logger.debug(f"run_query: {sql[:100]}... vars={vars_summary}")
     try:
-        async with asyncio.timeout(QUERY_TIMEOUT):
-            result = await db.query(sql, cast(Any, vars))
-            logger.debug(f"Query result type: {type(result)}, len: {len(result) if isinstance(result, list) else 'N/A'}")
-            return cast(QueryResult, result)
-    except asyncio.TimeoutError:
-        logger.error(f"Query timed out after {QUERY_TIMEOUT}s")
-        await ctx.error(f"Query timed out after {QUERY_TIMEOUT}s")
-        raise ToolError(f"Database query timed out after {QUERY_TIMEOUT}s")
+        result = await db.query(sql, cast(Any, vars))
+        logger.debug(f"Query result type: {type(result)}, len: {len(result) if isinstance(result, list) else 'N/A'}")
+        return cast(QueryResult, result)
     except ToolError:
         raise
+    except asyncio.CancelledError:
+        # SDK bug: CancelledError usually means CBOR decode failed (e.g., unsupported tag 56 for sets)
+        # See: https://github.com/surrealdb/surrealdb.py/issues (CBOR tag 56 not supported)
+        logger.error("Query cancelled - likely SDK CBOR decode error (unsupported type in response)")
+        raise ToolError(
+            "Database query failed: SDK connection error. "
+            "This may be caused by SurrealDB returning a 'set' type which the Python SDK doesn't support. "
+            "Ensure schema uses array<T> instead of set<T>."
+        )
+    except KeyError as e:
+        # SDK bug: KeyError on query ID means _recv_task crashed during decode
+        logger.error(f"Query failed with KeyError: {e} - likely SDK CBOR decode error")
+        raise ToolError(
+            f"Database query failed: SDK internal error ({e}). "
+            "This may be caused by SurrealDB returning a 'set' type which the Python SDK doesn't support."
+        )
     except Exception as e:
         logger.error(f"Query failed: {e}", exc_info=True)
         await ctx.error(f"Database query failed: {e}")
@@ -393,18 +409,17 @@ async def query_hybrid_search(
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
     context_filter = "AND context = $context" if context else ""
 
-    # Use search::rrf() to properly combine BM25 and vector search results
-    # Each subquery must return id field for RRF to stitch results together
+    # Use search::rrf() to combine BM25 and vector search results
+    # Using inline subqueries (LET variables don't work with search::rrf)
     return await run_query(ctx, f"""
-        LET $ft = SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
-                  FROM entity
-                  WHERE content @@ $q {label_filter} {context_filter};
-
-        LET $vs = SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
-                  FROM entity
-                  WHERE embedding <|{limit * 2},40|> $emb {label_filter} {context_filter};
-
-        RETURN search::rrf([$vs, $ft], $limit, 60);
+        SELECT * FROM search::rrf([
+            (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
+             FROM entity
+             WHERE embedding <|{limit * 2},40|> $emb {label_filter} {context_filter}),
+            (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
+             FROM entity
+             WHERE content @0@ $q {label_filter} {context_filter})
+        ], $limit, 60)
     """, {
         'q': query,
         'emb': query_embedding,
@@ -515,9 +530,10 @@ async def query_upsert_entity(
 ) -> QueryResult:
     """Upsert an entity with optional context and importance."""
     # Build SET clause dynamically based on provided values
+    # TODO: Use <set<string>>$labels when Python SDK supports CBOR tag 56
     set_clause = """
             type = $type,
-            labels = $labels,
+            labels = array::distinct($labels),
             content = $content,
             embedding = $embedding,
             confidence = $confidence,
@@ -697,11 +713,17 @@ async def query_create_episode(
     context: str | None
 ) -> QueryResult:
     """Create or update an episode."""
+    # Handle timestamp: append Z if missing timezone for SurrealDB datetime cast
+    # SurrealDB requires ISO8601 with timezone (e.g., 2026-01-06T12:00:00Z)
+    ts_with_tz = timestamp
+    if timestamp and not (timestamp.endswith('Z') or '+' in timestamp or timestamp.endswith('00:00')):
+        ts_with_tz = timestamp + 'Z'
+
     return await run_query(ctx, """
         UPSERT type::record("episode", $id) SET
             content = $content,
             embedding = $embedding,
-            timestamp = <datetime>$timestamp,
+            timestamp = IF $timestamp THEN <datetime>$timestamp ELSE time::now() END,
             summary = $summary,
             metadata = $metadata,
             context = $context
@@ -709,7 +731,7 @@ async def query_create_episode(
         'id': episode_id,
         'content': content,
         'embedding': embedding,
-        'timestamp': timestamp,
+        'timestamp': ts_with_tz,
         'summary': summary,
         'metadata': metadata or {},
         'context': context
@@ -726,28 +748,38 @@ async def query_search_episodes(
     limit: int
 ) -> QueryResult:
     """Hybrid search for episodes with temporal filtering."""
+    # Handle timestamp format: append Z if missing timezone for SurrealDB
+    def fix_timestamp(ts: str | None) -> str | None:
+        if ts and not (ts.endswith('Z') or '+' in ts or ts.endswith('00:00')):
+            return ts + 'Z'
+        return ts
+
+    time_start_fixed = fix_timestamp(time_start)
+    time_end_fixed = fix_timestamp(time_end)
+
     time_filter = ""
-    if time_start:
+    if time_start_fixed:
         time_filter += " AND timestamp >= <datetime>$time_start"
-    if time_end:
+    if time_end_fixed:
         time_filter += " AND timestamp <= <datetime>$time_end"
     context_filter = " AND context = $context" if context else ""
 
+    # Use search::rrf() to combine BM25 and vector search results
+    # Using inline subqueries (LET variables don't work with search::rrf)
     return await run_query(ctx, f"""
-        LET $ft = SELECT id, content, summary, timestamp, metadata, context
-                  FROM episode
-                  WHERE content @@ $q {time_filter} {context_filter};
-
-        LET $vs = SELECT id, content, summary, timestamp, metadata, context
-                  FROM episode
-                  WHERE embedding <|{limit * 2},40|> $emb {time_filter} {context_filter};
-
-        RETURN search::rrf([$vs, $ft], $limit, 60);
+        SELECT * FROM search::rrf([
+            (SELECT id, content, summary, timestamp, metadata, context
+             FROM episode
+             WHERE embedding <|{limit * 2},40|> $emb {time_filter} {context_filter}),
+            (SELECT id, content, summary, timestamp, metadata, context
+             FROM episode
+             WHERE content @0@ $q {time_filter} {context_filter})
+        ], $limit, 60)
     """, {
         'q': query,
         'emb': query_embedding,
-        'time_start': time_start,
-        'time_end': time_end,
+        'time_start': time_start_fixed,
+        'time_end': time_end_fixed,
         'context': context,
         'limit': limit
     })
@@ -934,12 +966,12 @@ async def query_weighted_search(
 
 async def query_list_contexts(ctx: Context) -> QueryResult:
     """List all unique contexts from entities and episodes."""
-    # Get contexts from both entities and episodes
+    # Get contexts from both entities and episodes using GROUP BY (DISTINCT deprecated in v3.0)
     entity_contexts = await run_query(ctx, """
-        SELECT DISTINCT context FROM entity WHERE context != NONE
+        SELECT context FROM entity WHERE context != NONE GROUP BY context
     """)
     episode_contexts = await run_query(ctx, """
-        SELECT DISTINCT context FROM episode WHERE context != NONE
+        SELECT context FROM episode WHERE context != NONE GROUP BY context
     """)
 
     # Combine and deduplicate
@@ -1027,6 +1059,7 @@ async def query_create_procedure(
     labels: list[str]
 ) -> QueryResult:
     """Create or update a procedure."""
+    # TODO: Use <set<string>>$labels when Python SDK supports CBOR tag 56
     return await run_query(ctx, """
         UPSERT type::record("procedure", $id) SET
             name = $name,
@@ -1034,7 +1067,7 @@ async def query_create_procedure(
             steps = $steps,
             embedding = $embedding,
             context = $context,
-            labels = $labels
+            labels = array::distinct($labels)
     """, {
         'id': procedure_id,
         'name': name,
@@ -1065,16 +1098,17 @@ async def query_search_procedures(
     context_filter = "AND context = $context" if context else ""
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
 
+    # Use search::rrf() to combine BM25 and vector search results
+    # Using inline subqueries (LET variables don't work with search::rrf)
     return await run_query(ctx, f"""
-        LET $ft = SELECT id, name, description, steps, context, labels
-                  FROM procedure
-                  WHERE (name @@ $q OR description @@ $q) {context_filter} {label_filter};
-
-        LET $vs = SELECT id, name, description, steps, context, labels
-                  FROM procedure
-                  WHERE embedding <|{limit * 2},40|> $emb {context_filter} {label_filter};
-
-        RETURN search::rrf([$vs, $ft], $limit, 60);
+        SELECT * FROM search::rrf([
+            (SELECT id, name, description, steps, context, labels
+             FROM procedure
+             WHERE embedding <|{limit * 2},40|> $emb {context_filter} {label_filter}),
+            (SELECT id, name, description, steps, context, labels
+             FROM procedure
+             WHERE name @0@ $q OR description @1@ $q {context_filter} {label_filter})
+        ], $limit, 60)
     """, {
         'q': query,
         'emb': query_embedding,
@@ -1102,7 +1136,7 @@ async def query_list_procedures(ctx: Context, context: str | None = None, limit:
     """List all procedures, optionally filtered by context."""
     context_filter = "WHERE context = $context" if context else ""
     return await run_query(ctx, f"""
-        SELECT id, name, description, array::len(steps) AS step_count, context, labels
+        SELECT id, name, description, array::len(steps) AS step_count, context, labels, accessed
         FROM procedure {context_filter}
         ORDER BY accessed DESC
         LIMIT $limit
