@@ -24,15 +24,16 @@ print("Starting memcp server (loading dependencies, this may take a moment)...",
 from fastmcp import FastMCP, Context
 
 # Import sub-servers
-from memcp.servers import search_server, graph_server, persist_server, maintenance_server
+from memcp.servers import search_server, graph_server, persist_server, maintenance_server, episode_server
 
 # Import db module for lifespan and query functions
 from memcp.db import (
     app_lifespan,
     query_count_entities, query_count_relations,
-    query_get_all_labels, query_count_by_label
+    query_get_all_labels, query_count_by_label,
+    query_list_contexts, query_count_episodes
 )
-from memcp.models import MemoryStats
+from memcp.models import MemoryStats, ContextListResult
 
 # Load embedding models (imported for side-effect: model loading)
 print("Loading embedding model (all-MiniLM-L6-v2)...", file=sys.stderr)
@@ -52,6 +53,7 @@ mcp.mount(search_server, prefix="")
 mcp.mount(graph_server, prefix="")
 mcp.mount(persist_server, prefix="")
 mcp.mount(maintenance_server, prefix="")
+mcp.mount(episode_server, prefix="")
 
 
 # =============================================================================
@@ -89,6 +91,21 @@ async def get_all_labels_resource(ctx: Context) -> list[str]:
     """Get all labels/categories used in memory."""
     results = await query_get_all_labels(ctx)
     return results[0]['labels'] if results else []
+
+
+@mcp.resource("memory://contexts")
+async def get_all_contexts_resource(ctx: Context) -> ContextListResult:
+    """Get all project contexts/namespaces in memory."""
+    results = await query_list_contexts(ctx)
+    contexts = results[0].get('contexts', []) if results else []
+    return ContextListResult(contexts=contexts, count=len(contexts))
+
+
+@mcp.resource("memory://episodes/count")
+async def get_episode_count_resource(ctx: Context) -> int:
+    """Get total episode count."""
+    results = await query_count_episodes(ctx)
+    return results[0].get('count', 0) if results else 0
 
 
 # =============================================================================
@@ -146,6 +163,31 @@ def memory_health_check() -> str:
 4. Provide recommendations for cleanup or consolidation
 
 Do NOT auto-merge or delete anything - just report findings and suggestions."""
+
+
+@mcp.prompt()
+def recall_session(time_description: str) -> str:
+    """Generate a prompt to recall what happened in a past session."""
+    return f"""Please search my episodic memory for sessions {time_description}.
+
+Use search_episodes to find relevant sessions and summarize:
+- What topics were discussed
+- What decisions were made
+- Any important outcomes or action items
+
+Provide a chronological summary of the sessions found."""
+
+
+@mcp.prompt()
+def project_context(project_name: str) -> str:
+    """Generate a prompt to get all context about a specific project."""
+    return f"""Please gather all stored knowledge about the project "{project_name}".
+
+1. Search entities with context="{project_name}"
+2. Search episodes with context="{project_name}"
+3. Look for any related memories that might be connected
+
+Provide a comprehensive overview of what's known about this project."""
 
 
 def main():

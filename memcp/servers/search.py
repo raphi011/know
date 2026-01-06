@@ -6,10 +6,12 @@ from fastmcp import FastMCP, Context
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from memcp.models import EntityResult, SearchResult
+from memcp.models import EntityResult, SearchResult, ContextStats, ContextListResult
 from memcp.utils import embed, log_op
 from memcp.db import (
-    query_hybrid_search, query_update_access, query_get_entity, query_list_labels
+    detect_context,
+    query_hybrid_search, query_update_access, query_get_entity, query_list_labels,
+    query_list_contexts, query_get_context_stats
 )
 
 server = FastMCP("search")
@@ -20,9 +22,17 @@ async def search(
     query: str,
     labels: list[str] | None = None,
     limit: int = 10,
+    context: str | None = None,
     ctx: Context = None  # type: ignore[assignment]
 ) -> SearchResult:
-    """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching."""
+    """Search your persistent memory for previously stored knowledge. Use when the user asks 'do you remember...', 'what do you know about...', 'recall...', or needs context from past conversations. Combines semantic similarity and keyword matching.
+
+    Args:
+        query: The search query
+        labels: Optional list of labels to filter by
+        limit: Max results (1-100)
+        context: Optional project namespace to filter by
+    """
     start = time.time()
 
     if not query or not query.strip():
@@ -34,10 +44,11 @@ async def search(
 
     query_embedding = embed(query)
     filter_labels = labels or []
+    effective_context = detect_context(context)
 
     # Hybrid search: BM25 keyword matching + vector similarity (RRF fusion)
     entities = await query_hybrid_search(
-        ctx, query, query_embedding, filter_labels, limit
+        ctx, query, query_embedding, filter_labels, limit, effective_context
     )
 
     # Track access patterns
@@ -55,7 +66,9 @@ async def search(
         content=e['content'],
         confidence=e.get('confidence'),
         source=e.get('source'),
-        decay_weight=e.get('decay_weight')
+        decay_weight=e.get('decay_weight'),
+        context=e.get('context'),
+        importance=e.get('importance')
     ) for e in entities]
 
     log_op('search', start, query=query[:30], limit=limit, results=len(entity_results))
@@ -81,7 +94,9 @@ async def get_entity(entity_id: str, ctx: Context) -> EntityResult | None:
             content=entity['content'],
             confidence=entity.get('confidence'),
             source=entity.get('source'),
-            decay_weight=entity.get('decay_weight')
+            decay_weight=entity.get('decay_weight'),
+            context=entity.get('context'),
+            importance=entity.get('importance')
         )
     return None
 
@@ -91,3 +106,32 @@ async def list_labels(ctx: Context) -> list[str]:
     """List all categories/tags used to organize memories. Use to understand what topics are stored or when the user asks 'what do you remember about' without a specific topic."""
     results = await query_list_labels(ctx)
     return results[0]['labels'] if results else []
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+async def list_contexts(ctx: Context) -> ContextListResult:
+    """List all project contexts/namespaces in memory. Use to see what projects have stored memories."""
+    results = await query_list_contexts(ctx)
+    contexts = results[0].get('contexts', []) if results else []
+    return ContextListResult(contexts=contexts, count=len(contexts))
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_context_stats(context: str, ctx: Context) -> ContextStats:
+    """Get statistics for a specific project context/namespace.
+
+    Args:
+        context: The context name to get stats for
+    """
+    if not context or not context.strip():
+        raise ToolError("Context cannot be empty")
+
+    results = await query_get_context_stats(ctx, context)
+    stats = results[0] if results else {}
+
+    return ContextStats(
+        context=context,
+        entities=stats.get('entities', 0),
+        episodes=stats.get('episodes', 0),
+        relations=stats.get('relations', 0)
+    )

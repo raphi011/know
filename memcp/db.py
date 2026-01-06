@@ -28,8 +28,35 @@ SURREALDB_PASS = os.getenv("SURREALDB_PASS", "root")
 SURREALDB_AUTH_LEVEL = os.getenv("SURREALDB_AUTH_LEVEL", "root")  # "root" or "database"
 QUERY_TIMEOUT = float(os.getenv("MEMCP_QUERY_TIMEOUT", "30"))
 
+# Context detection configuration
+MEMCP_DEFAULT_CONTEXT = os.getenv("MEMCP_DEFAULT_CONTEXT", None)
+MEMCP_CONTEXT_FROM_CWD = os.getenv("MEMCP_CONTEXT_FROM_CWD", "false").lower() == "true"
+
+
+def detect_context(explicit_context: str | None = None) -> str | None:
+    """Detect project context from explicit value, env, or cwd.
+
+    Priority:
+    1. Explicit context parameter (if provided)
+    2. MEMCP_DEFAULT_CONTEXT env var (if set)
+    3. Current working directory basename (if MEMCP_CONTEXT_FROM_CWD=true)
+    4. None (no context filtering)
+    """
+    if explicit_context:
+        return explicit_context
+    if MEMCP_DEFAULT_CONTEXT:
+        return MEMCP_DEFAULT_CONTEXT
+    if MEMCP_CONTEXT_FROM_CWD:
+        cwd = os.getcwd()
+        return os.path.basename(cwd) if cwd else None
+    return None
+
+
 # Schema initialization SQL
 SCHEMA_SQL = """
+    -- ==========================================================================
+    -- ENTITY TABLE
+    -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
     DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
     DEFINE FIELD IF NOT EXISTS labels ON entity TYPE set<string>;  -- set auto-deduplicates
@@ -41,12 +68,21 @@ SCHEMA_SQL = """
     DEFINE FIELD IF NOT EXISTS created ON entity TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS accessed ON entity TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS access_count ON entity TYPE int DEFAULT 0;
+    -- Project namespacing: isolate memories by context
+    DEFINE FIELD IF NOT EXISTS context ON entity TYPE option<string>;
+    -- Importance scoring: heuristic-based salience
+    DEFINE FIELD IF NOT EXISTS importance ON entity TYPE float DEFAULT 0.5;
+    DEFINE FIELD IF NOT EXISTS user_importance ON entity TYPE option<float>;
 
     DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
+    DEFINE INDEX IF NOT EXISTS entity_context ON entity FIELDS context;
     DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
     DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
     DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
 
+    -- ==========================================================================
+    -- RELATIONS TABLE
+    -- ==========================================================================
     -- Relation table with unique constraint to prevent duplicate edges
     -- Uses single table with rel_type field instead of dynamic table names
     DEFINE TABLE IF NOT EXISTS relates TYPE RELATION IN entity OUT entity SCHEMAFULL;
@@ -56,6 +92,34 @@ SCHEMA_SQL = """
     -- Unique constraint: sorted [in, out, rel_type] prevents duplicate relations
     DEFINE FIELD IF NOT EXISTS unique_key ON relates VALUE <string>string::concat(array::sort([<string>in, <string>out]), rel_type);
     DEFINE INDEX IF NOT EXISTS unique_relation ON relates FIELDS unique_key UNIQUE;
+
+    -- ==========================================================================
+    -- EPISODE TABLE (Episodic Memory)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS episode SCHEMAFULL;
+    DEFINE FIELD IF NOT EXISTS content ON episode TYPE string;
+    DEFINE FIELD IF NOT EXISTS summary ON episode TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS embedding ON episode TYPE array<float>;
+    DEFINE FIELD IF NOT EXISTS metadata ON episode TYPE option<object>;
+    DEFINE FIELD IF NOT EXISTS timestamp ON episode TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS context ON episode TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS created ON episode TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS accessed ON episode TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS access_count ON episode TYPE int DEFAULT 0;
+
+    DEFINE INDEX IF NOT EXISTS episode_timestamp ON episode FIELDS timestamp;
+    DEFINE INDEX IF NOT EXISTS episode_context ON episode FIELDS context;
+    DEFINE INDEX IF NOT EXISTS episode_embedding ON episode FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
+    DEFINE ANALYZER IF NOT EXISTS episode_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
+    DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content FULLTEXT ANALYZER episode_analyzer BM25;
+
+    -- ==========================================================================
+    -- EXTRACTED_FROM RELATION (links entities to source episodes)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS extracted_from TYPE RELATION IN entity OUT episode SCHEMAFULL;
+    DEFINE FIELD IF NOT EXISTS position ON extracted_from TYPE option<int>;
+    DEFINE FIELD IF NOT EXISTS confidence ON extracted_from TYPE float DEFAULT 1.0;
+    DEFINE FIELD IF NOT EXISTS created ON extracted_from TYPE datetime DEFAULT time::now();
 """
 
 
@@ -228,7 +292,8 @@ async def query_hybrid_search(
     query: str,
     query_embedding: list[float],
     labels: list[str],
-    limit: int
+    limit: int,
+    context: str | None = None
 ) -> QueryResult:
     """Hybrid search using Reciprocal Rank Fusion (RRF) to combine BM25 + vector results.
 
@@ -236,23 +301,25 @@ async def query_hybrid_search(
     Formula: score = 1/(rank + k) where k=60 is a smoothing constant.
     """
     label_filter = "AND labels CONTAINSANY $labels" if labels else ""
+    context_filter = "AND context = $context" if context else ""
 
     # Use search::rrf() to properly combine BM25 and vector search results
     # Each subquery must return id field for RRF to stitch results together
     return await run_query(ctx, f"""
-        LET $ft = SELECT id, type, labels, content, confidence, source, decay_weight
+        LET $ft = SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
                   FROM entity
-                  WHERE content @@ $q {label_filter};
+                  WHERE content @@ $q {label_filter} {context_filter};
 
-        LET $vs = SELECT id, type, labels, content, confidence, source, decay_weight
+        LET $vs = SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
                   FROM entity
-                  WHERE embedding <|{limit * 2},40|> $emb {label_filter};
+                  WHERE embedding <|{limit * 2},40|> $emb {label_filter} {context_filter};
 
         RETURN search::rrf([$vs, $ft], $limit, 60);
     """, {
         'q': query,
         'emb': query_embedding,
         'labels': labels,
+        'context': context,
         'limit': limit
     })
 
@@ -355,17 +422,27 @@ async def query_upsert_entity(
     content: str,
     embedding: list[float],
     confidence: float,
-    source: str | None
+    source: str | None,
+    context: str | None = None,
+    user_importance: float | None = None
 ) -> QueryResult:
-    """Upsert an entity."""
-    return await run_query(ctx, """
-        UPSERT type::record("entity", $id) SET
+    """Upsert an entity with optional context and importance."""
+    # Build SET clause dynamically based on provided values
+    set_clause = """
             type = $type,
             labels = $labels,
             content = $content,
             embedding = $embedding,
             confidence = $confidence,
-            source = $source
+            source = $source,
+            context = $context
+    """
+    # Only set user_importance if explicitly provided (not None)
+    if user_importance is not None:
+        set_clause += ", user_importance = $user_importance"
+
+    return await run_query(ctx, f"""
+        UPSERT type::record("entity", $id) SET {set_clause}
     """, {
         'id': entity_id,
         'type': entity_type,
@@ -373,7 +450,9 @@ async def query_upsert_entity(
         'content': content,
         'embedding': embedding,
         'confidence': confidence,
-        'source': source
+        'source': source,
+        'context': context,
+        'user_importance': user_importance
     })
 
 
@@ -518,6 +597,303 @@ async def query_count_by_label(ctx: Context, label: str) -> QueryResult:
     """, {'label': label})
 
 
+# =============================================================================
+# Episode Query Functions (Episodic Memory)
+# =============================================================================
+
+async def query_create_episode(
+    ctx: Context,
+    episode_id: str,
+    content: str,
+    embedding: list[float],
+    timestamp: str,
+    summary: str | None,
+    metadata: dict[str, Any] | None,
+    context: str | None
+) -> QueryResult:
+    """Create or update an episode."""
+    return await run_query(ctx, """
+        UPSERT type::record("episode", $id) SET
+            content = $content,
+            embedding = $embedding,
+            timestamp = <datetime>$timestamp,
+            summary = $summary,
+            metadata = $metadata,
+            context = $context
+    """, {
+        'id': episode_id,
+        'content': content,
+        'embedding': embedding,
+        'timestamp': timestamp,
+        'summary': summary,
+        'metadata': metadata or {},
+        'context': context
+    })
+
+
+async def query_search_episodes(
+    ctx: Context,
+    query: str,
+    query_embedding: list[float],
+    time_start: str | None,
+    time_end: str | None,
+    context: str | None,
+    limit: int
+) -> QueryResult:
+    """Hybrid search for episodes with temporal filtering."""
+    time_filter = ""
+    if time_start:
+        time_filter += " AND timestamp >= <datetime>$time_start"
+    if time_end:
+        time_filter += " AND timestamp <= <datetime>$time_end"
+    context_filter = " AND context = $context" if context else ""
+
+    return await run_query(ctx, f"""
+        LET $ft = SELECT id, content, summary, timestamp, metadata, context
+                  FROM episode
+                  WHERE content @@ $q {time_filter} {context_filter};
+
+        LET $vs = SELECT id, content, summary, timestamp, metadata, context
+                  FROM episode
+                  WHERE embedding <|{limit * 2},40|> $emb {time_filter} {context_filter};
+
+        RETURN search::rrf([$vs, $ft], $limit, 60);
+    """, {
+        'q': query,
+        'emb': query_embedding,
+        'time_start': time_start,
+        'time_end': time_end,
+        'context': context,
+        'limit': limit
+    })
+
+
+async def query_get_episode(ctx: Context, episode_id: str) -> QueryResult:
+    """Get episode by ID."""
+    return await run_query(ctx, """
+        SELECT * FROM type::record("episode", $id)
+    """, {'id': episode_id})
+
+
+async def query_update_episode_access(ctx: Context, episode_id: str) -> QueryResult:
+    """Update episode access timestamp and count."""
+    return await run_query(ctx, """
+        UPDATE type::record("episode", $id) SET accessed = time::now(), access_count += 1
+    """, {'id': episode_id})
+
+
+async def query_link_entity_to_episode(
+    ctx: Context,
+    entity_id: str,
+    episode_id: str,
+    position: int | None,
+    confidence: float
+) -> QueryResult:
+    """Link an entity to its source episode."""
+    return await run_query(ctx, """
+        RELATE $entity_rec->extracted_from->$episode_rec
+        SET position = $position, confidence = $confidence
+    """, {
+        'entity_rec': RecordID('entity', entity_id),
+        'episode_rec': RecordID('episode', episode_id),
+        'position': position,
+        'confidence': confidence
+    })
+
+
+async def query_get_episode_entities(ctx: Context, episode_id: str) -> QueryResult:
+    """Get all entities extracted from an episode."""
+    return await run_query(ctx, """
+        SELECT <-extracted_from<-entity.* AS entities FROM type::record("episode", $id)
+    """, {'id': episode_id})
+
+
+async def query_delete_episode(ctx: Context, episode_id: str) -> QueryResult:
+    """Delete episode and its entity links."""
+    return await run_query(ctx, """
+        DELETE type::record("episode", $id)
+    """, {'id': episode_id})
+
+
+async def query_count_episodes(ctx: Context, context: str | None = None) -> QueryResult:
+    """Count episodes, optionally filtered by context."""
+    context_filter = "WHERE context = $context" if context else ""
+    return await run_query(ctx, f"""
+        SELECT count() FROM episode {context_filter} GROUP ALL
+    """, {'context': context})
+
+
+# =============================================================================
+# Importance Scoring Functions
+# =============================================================================
+
+async def query_get_entity_connectivity(ctx: Context, entity_id: str) -> int:
+    """Count total relations (in + out) for an entity."""
+    result = await run_query(ctx, """
+        LET $out_count = (SELECT count() FROM relates WHERE in = $rec GROUP ALL);
+        LET $in_count = (SELECT count() FROM relates WHERE out = $rec GROUP ALL);
+        RETURN {
+            outgoing: $out_count[0].count ?? 0,
+            incoming: $in_count[0].count ?? 0
+        };
+    """, {'rec': RecordID('entity', entity_id)})
+
+    if result and isinstance(result, dict):
+        return result.get('outgoing', 0) + result.get('incoming', 0)
+    if result and isinstance(result, list) and len(result) > 0:
+        r = result[0]
+        if isinstance(r, dict):
+            return r.get('outgoing', 0) + r.get('incoming', 0)
+    return 0
+
+
+async def query_recalculate_importance(ctx: Context, entity_id: str) -> float:
+    """Recalculate importance score for an entity.
+
+    Formula: importance = 0.3*connectivity_score + 0.3*access_score + 0.4*user_importance
+
+    Where:
+    - connectivity_score = min(1.0, relation_count / 10)
+    - access_score = min(1.0, log10(access_count + 1) / 3)
+    - user_importance = user-set value or 0.5 default
+    """
+    import math
+
+    entity_result = await query_get_entity(ctx, entity_id)
+    if not entity_result:
+        return 0.5
+
+    e = entity_result[0]
+    access_count = e.get('access_count', 0)
+    user_imp = e.get('user_importance')
+
+    # Get connectivity
+    connectivity = await query_get_entity_connectivity(ctx, entity_id)
+
+    # Calculate scores
+    connectivity_score = min(1.0, connectivity / 10.0)
+    access_score = min(1.0, math.log10(access_count + 1) / 3.0)
+    user_score = user_imp if user_imp is not None else 0.5
+
+    # Weighted combination
+    importance = 0.3 * connectivity_score + 0.3 * access_score + 0.4 * user_score
+
+    # Update entity
+    await run_query(ctx, """
+        UPDATE type::record("entity", $id) SET importance = $importance
+    """, {'id': entity_id, 'importance': importance})
+
+    return importance
+
+
+async def query_batch_recalculate_importance(ctx: Context, context: str | None = None) -> int:
+    """Recalculate importance for all entities (optionally filtered by context)."""
+    context_filter = "WHERE context = $ctx" if context else ""
+    entities = await run_query(ctx, f"SELECT id FROM entity {context_filter}", {'ctx': context})
+
+    count = 0
+    for e in entities:
+        entity_id = str(e['id']).split(':', 1)[1] if ':' in str(e['id']) else str(e['id'])
+        await query_recalculate_importance(ctx, entity_id)
+        count += 1
+
+    return count
+
+
+async def query_weighted_search(
+    ctx: Context,
+    query: str,
+    query_embedding: list[float],
+    labels: list[str],
+    limit: int,
+    context: str | None = None,
+    importance_weight: float = 0.2,
+    recency_weight: float = 0.1
+) -> QueryResult:
+    """Hybrid search weighted by importance and recency.
+
+    Final ranking considers:
+    - RRF score from hybrid search (70%)
+    - Entity importance (20%)
+    - Recency of access (10%)
+    """
+    label_filter = "AND labels CONTAINSANY $labels" if labels else ""
+    context_filter = "AND context = $context" if context else ""
+
+    # First do RRF search, then re-rank with importance/recency
+    # Note: SurrealDB v3.0 doesn't support arithmetic in ORDER BY easily,
+    # so we fetch more results and let Python re-rank if needed
+    return await run_query(ctx, f"""
+        LET $ft = SELECT id, type, labels, content, confidence, source, decay_weight,
+                         context, importance, accessed
+                  FROM entity
+                  WHERE content @@ $q {label_filter} {context_filter};
+
+        LET $vs = SELECT id, type, labels, content, confidence, source, decay_weight,
+                         context, importance, accessed
+                  FROM entity
+                  WHERE embedding <|{limit * 3},40|> $emb {label_filter} {context_filter};
+
+        RETURN search::rrf([$vs, $ft], $limit, 60);
+    """, {
+        'q': query,
+        'emb': query_embedding,
+        'labels': labels,
+        'context': context,
+        'limit': limit
+    })
+
+
+# =============================================================================
+# Context Management Functions
+# =============================================================================
+
+async def query_list_contexts(ctx: Context) -> QueryResult:
+    """List all unique contexts from entities and episodes."""
+    # Get contexts from both entities and episodes
+    entity_contexts = await run_query(ctx, """
+        SELECT DISTINCT context FROM entity WHERE context != NONE
+    """)
+    episode_contexts = await run_query(ctx, """
+        SELECT DISTINCT context FROM episode WHERE context != NONE
+    """)
+
+    # Combine and deduplicate
+    all_contexts = set()
+    for r in entity_contexts:
+        if isinstance(r, dict) and r.get('context'):
+            all_contexts.add(r['context'])
+    for r in episode_contexts:
+        if isinstance(r, dict) and r.get('context'):
+            all_contexts.add(r['context'])
+
+    return [{'contexts': list(all_contexts)}]
+
+
+async def query_get_context_stats(ctx: Context, context: str) -> QueryResult:
+    """Get statistics for a specific context."""
+    entity_count = await run_query(ctx, """
+        SELECT count() FROM entity WHERE context = $ctx GROUP ALL
+    """, {'ctx': context})
+
+    episode_count = await run_query(ctx, """
+        SELECT count() FROM episode WHERE context = $ctx GROUP ALL
+    """, {'ctx': context})
+
+    relation_count = await run_query(ctx, """
+        SELECT count() FROM relates
+        WHERE in.context = $ctx OR out.context = $ctx
+        GROUP ALL
+    """, {'ctx': context})
+
+    return [{
+        'context': context,
+        'entities': entity_count[0].get('count', 0) if entity_count else 0,
+        'episodes': episode_count[0].get('count', 0) if episode_count else 0,
+        'relations': relation_count[0].get('count', 0) if relation_count else 0
+    }]
+
+
 __all__ = [
     'AppContext',
     'app_lifespan',
@@ -530,7 +906,11 @@ __all__ = [
     'SURREALDB_NAMESPACE',
     'SURREALDB_DATABASE',
     'SCHEMA_SQL',
-    # Query functions
+    # Context detection
+    'detect_context',
+    'MEMCP_DEFAULT_CONTEXT',
+    'MEMCP_CONTEXT_FROM_CWD',
+    # Entity query functions
     'query_hybrid_search',
     'query_update_access',
     'query_get_entity',
@@ -553,4 +933,21 @@ __all__ = [
     'query_count_relations',
     'query_get_all_labels',
     'query_count_by_label',
+    # Episode query functions
+    'query_create_episode',
+    'query_search_episodes',
+    'query_get_episode',
+    'query_update_episode_access',
+    'query_link_entity_to_episode',
+    'query_get_episode_entities',
+    'query_delete_episode',
+    'query_count_episodes',
+    # Importance scoring functions
+    'query_get_entity_connectivity',
+    'query_recalculate_importance',
+    'query_batch_recalculate_importance',
+    'query_weighted_search',
+    # Context management functions
+    'query_list_contexts',
+    'query_get_context_stats',
 ]

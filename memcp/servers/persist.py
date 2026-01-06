@@ -10,9 +10,10 @@ from mcp.types import ToolAnnotations
 from memcp.models import EntityResult, RememberResult, Contradiction
 from memcp.utils import embed, check_contradiction, log_op
 from memcp.db import (
+    detect_context,
     validate_entity, validate_relation,
     query_upsert_entity, query_create_relation, query_delete_entity,
-    query_similar_for_contradiction
+    query_similar_for_contradiction, query_recalculate_importance
 )
 
 logger = logging.getLogger("memcp")
@@ -24,12 +25,14 @@ async def remember(
     entities: list[dict] | None = None,
     relations: list[dict] | None = None,
     detect_contradictions: bool = False,
+    context: str | None = None,
     ctx: Context = None  # type: ignore[assignment]
 ) -> RememberResult:
     """Store important information in persistent memory for future sessions. Use proactively when the user shares preferences, facts about themselves, project context, decisions, or anything they'd want you to recall later. Supports confidence scores and contradiction detection.
 
-    entities: list of {id, content, type?, labels?, confidence?, source?}
+    entities: list of {id, content, type?, labels?, confidence?, source?, context?, importance?}
     relations: list of {from, to, type, weight?}
+    context: Default context for all entities (can be overridden per entity)
     """
     start = time.time()
     entities = entities or []
@@ -43,6 +46,9 @@ async def remember(
         validate_relation(relation)
 
     result = RememberResult()
+
+    # Get default context
+    default_context = detect_context(context)
 
     logger.info(f"remember() called with {len(entities)} entities, {len(relations)} relations")
     await ctx.info(f"Storing {len(entities)} entities and {len(relations)} relations")
@@ -65,6 +71,12 @@ async def remember(
         try:
             embedding = embed(entity['content'])
             logger.debug(f"Generated embedding of length {len(embedding)}")
+
+            # Use entity-level context if provided, else use default context
+            entity_context = entity.get('context', default_context)
+            # Get user-provided importance (optional)
+            user_importance = entity.get('importance')
+
             upsert_result = await query_upsert_entity(
                 ctx,
                 entity_id=entity['id'],
@@ -73,10 +85,16 @@ async def remember(
                 content=entity['content'],
                 embedding=embedding,
                 confidence=entity.get('confidence', 1.0),
-                source=entity.get('source')
+                source=entity.get('source'),
+                context=entity_context,
+                user_importance=user_importance
             )
             logger.info(f"Upsert result for {entity['id']}: {upsert_result}")
             result.entities_stored += 1
+
+            # Recalculate importance after storing (includes user_importance in formula)
+            await query_recalculate_importance(ctx, entity['id'])
+
         except Exception as e:
             logger.error(f"Failed to upsert entity {entity['id']}: {e}", exc_info=True)
             raise
@@ -90,6 +108,15 @@ async def remember(
             weight=rel.get('weight', 1.0)
         )
         result.relations_stored += 1
+
+    # Recalculate importance for entities involved in new relations
+    if relations:
+        for rel in relations:
+            try:
+                await query_recalculate_importance(ctx, rel['from'])
+                await query_recalculate_importance(ctx, rel['to'])
+            except Exception:
+                pass  # Entity might not exist
 
     await ctx.info(f"Stored {result.entities_stored} entities, {result.relations_stored} relations")
 

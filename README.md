@@ -36,16 +36,39 @@ Entities store content with vector embeddings for semantic search. Relations cre
 
 ## Tools
 
+### Search & Retrieval
 | Tool | Description |
 |------|-------------|
-| `search` | Hybrid semantic + keyword search with configurable weighting |
+| `search` | Hybrid semantic + keyword search with context filtering |
 | `get_entity` | Retrieve entity by ID |
 | `list_labels` | List all categories/tags in memory |
+| `list_contexts` | List all project namespaces |
+| `get_context_stats` | Get entity/episode counts for a context |
+
+### Episodic Memory
+| Tool | Description |
+|------|-------------|
+| `add_episode` | Store a complete conversation session |
+| `search_episodes` | Search episodes by content and time range |
+| `get_episode` | Retrieve episode with linked entities |
+| `delete_episode` | Delete an episode |
+
+### Graph Traversal
+| Tool | Description |
+|------|-------------|
 | `traverse` | Explore graph connections from a starting entity |
 | `find_path` | Find shortest path between two entities |
-| `remember` | Store entities and relations with optional contradiction check |
+
+### Persistence
+| Tool | Description |
+|------|-------------|
+| `remember` | Store entities and relations with context/importance |
 | `forget` | Delete entity and its relations |
-| `reflect` | Maintenance: decay old memories, find duplicates |
+
+### Maintenance
+| Tool | Description |
+|------|-------------|
+| `reflect` | Decay old memories, find duplicates, recalculate importance |
 | `check_contradictions` | Detect conflicting information using NLI |
 
 ## Installation
@@ -67,8 +90,10 @@ Environment variables:
 | `SURREALDB_URL` | `ws://localhost:8000/rpc` | SurrealDB connection URL |
 | `SURREALDB_NAMESPACE` | `knowledge` | Database namespace |
 | `SURREALDB_DATABASE` | `graph` | Database name |
-| `SURREALDB_USER` | - | Username (optional) |
-| `SURREALDB_PASS` | - | Password (optional) |
+| `SURREALDB_USER` | `root` | Username |
+| `SURREALDB_PASS` | `root` | Password |
+| `MEMCP_DEFAULT_CONTEXT` | - | Default project context for all operations |
+| `MEMCP_CONTEXT_FROM_CWD` | `false` | Auto-detect context from working directory |
 
 ## Claude Desktop Config
 
@@ -90,3 +115,60 @@ Environment variables:
 
 - **Embeddings**: `all-MiniLM-L6-v2` - 384-dim vectors for semantic similarity
 - **NLI**: `cross-encoder/nli-deberta-v3-base` - contradiction detection between statements
+
+## Example Prompts
+
+### Storing Knowledge
+```
+"Remember that I prefer TypeScript over JavaScript for new projects"
+→ remember(entities=[{id: "pref-typescript", content: "User prefers TypeScript over JavaScript", labels: ["preference"]}])
+
+"Store this conversation for later reference"
+→ add_episode(content: "...", context: "project-x")
+```
+
+### Searching Memory
+```
+"What do you know about my coding preferences?"
+→ search(query: "coding preferences", labels: ["preference"])
+
+"What did we discuss last week about the API design?"
+→ search_episodes(query: "API design", time_start: "2024-01-01")
+```
+
+### Project Namespacing
+```
+"Remember this for the memcp project"
+→ remember(entities=[...], context: "memcp")
+
+"What do I know about project X?"
+→ search(query: "*", context: "project-x")
+→ get_context_stats(context: "project-x")
+```
+
+### Knowledge Graph
+```
+"How are authentication and user-service connected?"
+→ find_path(from_id: "authentication", to_id: "user-service")
+
+"What's related to the payment system?"
+→ traverse(start: "payment-system", depth: 2)
+```
+
+### Maintenance
+```
+"Clean up my memory and find duplicates"
+→ reflect(find_similar: true, apply_decay: true)
+
+"Check for contradictions in my preferences"
+→ check_contradictions(labels: ["preference"])
+```
+
+### Importance Scoring
+```
+"This is very important to remember"
+→ remember(entities=[{id: "...", content: "...", importance: 0.9}])
+
+"Recalculate importance scores for all memories"
+→ reflect(recalculate_importance: true)
+```

@@ -14,7 +14,8 @@ from memcp.utils import check_contradiction, log_op
 from memcp.db import (
     query_apply_decay, query_all_entities_with_embedding, query_similar_by_embedding,
     query_delete_entity_by_record_id, query_entity_with_embedding,
-    query_similar_for_contradiction, query_entities_by_labels, query_vector_similarity
+    query_similar_for_contradiction, query_entities_by_labels, query_vector_similarity,
+    query_batch_recalculate_importance
 )
 
 server = FastMCP("maintenance")
@@ -27,6 +28,8 @@ async def reflect(
     find_similar: bool = True,
     similarity_threshold: float = 0.85,
     auto_merge: bool = False,
+    recalculate_importance: bool = True,
+    context: str | None = None,
     ctx: Context = None  # type: ignore[assignment]
 ) -> ReflectResult:
     """Maintenance tool to clean up memory: decay old unused knowledge, find duplicates, identify clusters. Use periodically or when the user asks to 'clean up', 'organize', or 'consolidate' memories.
@@ -34,6 +37,15 @@ async def reflect(
     When auto_merge is True, duplicate entities (similarity >= threshold) are automatically
     merged: the entity with higher access_count is kept, the other is deleted. If access
     counts are equal, the more recently accessed entity is kept.
+
+    Args:
+        apply_decay: Apply temporal decay to old memories
+        decay_days: Days of inactivity before decay applies
+        find_similar: Find similar/duplicate entities
+        similarity_threshold: Threshold for similarity detection (0-1)
+        auto_merge: Automatically merge duplicates
+        recalculate_importance: Recalculate importance scores for all entities
+        context: Optional context to scope the operation
     """
     start = time.time()
     if decay_days < 1:
@@ -103,8 +115,13 @@ async def reflect(
                                 similarity=candidate['sim']
                             ))
 
-    await ctx.info(f"Reflect complete: {result.decayed} decayed, {len(result.similar_pairs)} similar, {result.merged} merged")
-    log_op('reflect', start, decayed=result.decayed, similar=len(result.similar_pairs), merged=result.merged)
+    if recalculate_importance:
+        await ctx.info("Recalculating importance scores")
+        recalc_count = await query_batch_recalculate_importance(ctx, context)
+        result.importance_recalculated = recalc_count
+
+    await ctx.info(f"Reflect complete: {result.decayed} decayed, {len(result.similar_pairs)} similar, {result.merged} merged, {result.importance_recalculated} importance recalculated")
+    log_op('reflect', start, decayed=result.decayed, similar=len(result.similar_pairs), merged=result.merged, importance_recalc=result.importance_recalculated)
     return result
 
 
