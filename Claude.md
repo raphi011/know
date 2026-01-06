@@ -22,13 +22,17 @@ This server enables AI agents to store and retrieve knowledge across sessions, p
 
 ## Development Workflow
 
-**IMPORTANT**: After making any changes to the codebase, always run the build verification test:
+**IMPORTANT**: Before committing any changes, always run all tests:
 
 ```bash
+# Unit test (fast, ensures module compiles)
 uv run pytest test_memcp.py -v
+
+# Integration tests (requires SurrealDB running)
+uv run pytest test_integration.py -v
 ```
 
-This ensures the module compiles correctly and can be imported without errors.
+The unit test ensures the module compiles correctly. Integration tests verify the MCP tools and database queries work properly. Both must pass before committing.
 
 ## SurrealDB Reference
 
