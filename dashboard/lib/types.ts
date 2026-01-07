@@ -74,5 +74,7 @@ export interface SearchResult {
   content: string;
   labels: string[];
   score: number;
-  context?: string;
+  time: string;
+  access: string;
+  importance: number;
 }

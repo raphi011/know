@@ -6,7 +6,7 @@ import { graphql, QUERIES } from '@/lib/graphql';
 import { useApp } from '@/components/AppProvider';
 import { EntityType, SearchResult } from '@/lib/types';
 
-function SearchResultCard({ id, content, score, labels, type }: SearchResult) {
+function SearchResultCard({ id, content, labels, type, time, access, importance }: Omit<SearchResult, 'score'>) {
   return (
     <Link href={`/entity/${encodeURIComponent(id)}`} className="group bg-surface-dark rounded-xl p-6 border border-transparent hover:border-primary/40 transition-all shadow-xl block relative">
       <div className="flex items-start justify-between mb-4">
@@ -19,10 +19,14 @@ function SearchResultCard({ id, content, score, labels, type }: SearchResult) {
             <span className="text-[9px] font-black text-primary/60 uppercase tracking-widest mt-1 block">{type}</span>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest bg-primary/10 text-primary border border-primary/20 shadow-inner">
-            {Math.round(score * 100)}% Similarity
-          </span>
+        <div className="flex flex-col items-end gap-1 min-w-[160px]">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-black text-text-secondary uppercase tracking-widest">Importance Rank</span>
+            <span className="text-sm font-black text-primary">{Math.round(importance * 100)}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-[#101d22] rounded-full overflow-hidden border border-white/5">
+            <div className="h-full bg-primary shadow-[0_0_8px_rgba(19,182,236,0.5)]" style={{ width: `${importance * 100}%` }}></div>
+          </div>
         </div>
       </div>
       <div className="mb-6">
@@ -34,6 +38,16 @@ function SearchResultCard({ id, content, score, labels, type }: SearchResult) {
           {labels.map((l: string) => (
             <span key={l} className="text-[10px] font-black uppercase tracking-widest text-slate-300 bg-black/30 px-2 py-1 rounded-md border border-white/5">{l}</span>
           ))}
+        </div>
+        <div className="flex items-center gap-4 ml-auto">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-text-secondary uppercase">
+            <span className="material-symbols-outlined text-[14px]">history</span>
+            <span>{time}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-text-secondary uppercase">
+            <span className="material-symbols-outlined text-[14px]">bar_chart</span>
+            <span>{access} accesses</span>
+          </div>
         </div>
       </div>
     </Link>
@@ -61,9 +75,6 @@ export default function Search() {
     }
   };
 
-  useEffect(() => {
-    handleSearch();
-  }, [currentContext, filterType]);
 
   return (
     <div className="flex flex-col h-full bg-background-dark items-center animate-page-in overflow-y-auto">
@@ -76,8 +87,8 @@ export default function Search() {
 
       <div className="w-full max-w-[1100px] flex flex-col gap-8 py-10 px-6">
         <div className="bg-surface-dark rounded-2xl border border-[#233f48] p-4 flex flex-col gap-4 shadow-2xl">
-          <div className="relative w-full">
-            <label className="flex items-center w-full h-16 bg-[#1a323a] rounded-xl px-5 border border-[#233f48] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 transition-all">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center flex-1 h-16 bg-[#1a323a] rounded-xl px-5 border border-[#233f48] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 transition-all">
               <span className="material-symbols-outlined text-text-secondary text-[28px]">search</span>
               <input
                 className="w-full bg-transparent border-none focus:ring-0 text-white placeholder:text-text-secondary text-lg px-4 font-medium outline-none"
@@ -90,31 +101,19 @@ export default function Search() {
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </label>
+            <button onClick={handleSearch} className="h-16 px-10 bg-primary hover:bg-primary-dark text-[#101d22] rounded-xl text-sm font-black uppercase tracking-widest transition-all shadow-lg shadow-primary/20 flex items-center justify-center active:scale-95 shrink-0">Execute</button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-4 bg-black/10 rounded-xl border border-white/5">
-            <div className="flex flex-col gap-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-text-secondary">Filter by Ontology</label>
-              <select
-                className="bg-[#101d22] border border-[#233f48] rounded-lg text-xs font-bold text-white px-3 py-2 outline-none cursor-pointer"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-              >
-                <option value="all">ALL ENTITIES</option>
-                {Object.values(EntityType).map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-text-secondary">Sort Heuristic</label>
-              <select className="bg-[#101d22] border border-[#233f48] rounded-lg text-xs font-bold text-white px-3 py-2 outline-none cursor-pointer">
-                <option>IMPORTANCE (DESC)</option>
-                <option>RECENCY</option>
-                <option>SIMILARITY</option>
-              </select>
-            </div>
-            <div className="flex items-end">
-              <button onClick={handleSearch} className="w-full h-10 bg-primary hover:bg-primary-dark text-[#101d22] rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-primary/20">Execute Query</button>
-            </div>
+          <div className="flex items-center gap-4 px-2">
+            <label className="text-[10px] font-black text-text-secondary uppercase tracking-widest shrink-0">Ontology:</label>
+            <select
+              className="bg-[#101d22] border border-[#233f48] rounded-lg text-[10px] font-bold text-white px-3 py-1.5 outline-none cursor-pointer focus:border-primary transition-colors min-w-[160px] uppercase tracking-widest"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+            >
+              <option value="all">ALL ENTITIES</option>
+              {Object.values(EntityType).map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
+            </select>
           </div>
         </div>
 

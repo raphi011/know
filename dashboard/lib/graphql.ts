@@ -82,7 +82,7 @@ export const QUERIES = {
   searchMemories: `
     query Search($query: String!, $type: String, $context: String, $limit: Int) {
       searchMemories(query: $query, type: $type, context: $context, limit: $limit) {
-        id type content labels score
+        id type content labels score time access importance
       }
     }
   `,
