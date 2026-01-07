@@ -136,14 +136,14 @@ class TestContextDetection:
 
 @pytest.mark.embedding
 class TestEntityQueries:
-    async def test_upsert_entity_with_context(self, mock_ctx):
+    async def test_upsert_entity_with_context(self, db_connection):
         """Test entity creation with context."""
         from memcp.db import query_upsert_entity, query_get_entity
         from memcp.utils import embed
 
         embedding = embed("test content for context")
         await query_upsert_entity(
-            mock_ctx,
+            db_connection,
             entity_id="test_context_entity",
             entity_type="test",
             labels=["test"],
@@ -154,18 +154,18 @@ class TestEntityQueries:
             context="test-project"
         )
 
-        result = await query_get_entity(mock_ctx, "test_context_entity")
+        result = await query_get_entity(db_connection, "test_context_entity")
         assert len(result) == 1
         assert result[0].get('context') == "test-project"
 
-    async def test_upsert_entity_with_importance(self, mock_ctx):
+    async def test_upsert_entity_with_importance(self, db_connection):
         """Test entity creation with user importance."""
         from memcp.db import query_upsert_entity, query_get_entity
         from memcp.utils import embed
 
         embedding = embed("important test content")
         await query_upsert_entity(
-            mock_ctx,
+            db_connection,
             entity_id="test_importance_entity",
             entity_type="test",
             labels=["test"],
@@ -177,11 +177,11 @@ class TestEntityQueries:
             user_importance=0.9
         )
 
-        result = await query_get_entity(mock_ctx, "test_importance_entity")
+        result = await query_get_entity(db_connection, "test_importance_entity")
         assert len(result) == 1
         assert result[0].get('user_importance') == 0.9
 
-    async def test_hybrid_search_with_context(self, mock_ctx):
+    async def test_hybrid_search_with_context(self, db_connection):
         """Test hybrid search filters by context."""
         from memcp.db import query_upsert_entity, query_hybrid_search
         from memcp.utils import embed
@@ -189,20 +189,20 @@ class TestEntityQueries:
         # Create entities in different contexts
         embedding1 = embed("python programming language")
         await query_upsert_entity(
-            mock_ctx, "test_py_proj1", "concept", ["programming"],
+            db_connection, "test_py_proj1", "concept", ["programming"],
             "python programming language", embedding1, 1.0, "test", "project-a"
         )
 
         embedding2 = embed("python snake species")
         await query_upsert_entity(
-            mock_ctx, "test_py_proj2", "concept", ["animals"],
+            db_connection, "test_py_proj2", "concept", ["animals"],
             "python snake species", embedding2, 1.0, "test", "project-b"
         )
 
         # Search with context filter
         query_emb = embed("python")
         results = await query_hybrid_search(
-            mock_ctx, "python", query_emb, [], 10, context="project-a"
+            db_connection, "python", query_emb, [], 10, context="project-a"
         )
 
         # Should only find the programming entity
@@ -216,7 +216,7 @@ class TestEntityQueries:
 
 @pytest.mark.embedding
 class TestEpisodeQueries:
-    async def test_create_episode(self, mock_ctx):
+    async def test_create_episode(self, db_connection):
         """Test episode creation."""
         from memcp.db import query_create_episode, query_get_episode
         from memcp.utils import embed
@@ -226,7 +226,7 @@ class TestEpisodeQueries:
         timestamp = datetime.now().isoformat()
 
         await query_create_episode(
-            mock_ctx,
+            db_connection,
             episode_id="test_episode_1",
             content=content,
             embedding=embedding,
@@ -236,13 +236,13 @@ class TestEpisodeQueries:
             context="test-project"
         )
 
-        result = await query_get_episode(mock_ctx, "test_episode_1")
+        result = await query_get_episode(db_connection, "test_episode_1")
         assert len(result) == 1
         assert result[0].get('content') == content
         assert result[0].get('context') == "test-project"
         assert result[0].get('summary') == "Test episode"
 
-    async def test_search_episodes(self, mock_ctx):
+    async def test_search_episodes(self, db_connection):
         """Test episode search."""
         from memcp.db import query_create_episode, query_search_episodes
         from memcp.utils import embed
@@ -252,7 +252,7 @@ class TestEpisodeQueries:
             content = f"Test conversation {i} about machine learning"
             embedding = embed(content)
             await query_create_episode(
-                mock_ctx,
+                db_connection,
                 episode_id=f"test_search_ep_{i}",
                 content=content,
                 embedding=embedding,
@@ -265,12 +265,12 @@ class TestEpisodeQueries:
         # Search episodes
         query_emb = embed("machine learning")
         results = await query_search_episodes(
-            mock_ctx, "machine learning", query_emb, None, None, None, 10
+            db_connection, "machine learning", query_emb, None, None, None, 10
         )
 
         assert len(results) >= 3
 
-    async def test_search_episodes_with_time_filter(self, mock_ctx):
+    async def test_search_episodes_with_time_filter(self, db_connection):
         """Test episode search with time range filter."""
         from memcp.db import query_create_episode, query_search_episodes
         from memcp.utils import embed
@@ -282,14 +282,14 @@ class TestEpisodeQueries:
         # Create old episode
         old_content = "Old discussion about testing"
         await query_create_episode(
-            mock_ctx, "test_old_ep", old_content, embed(old_content),
+            db_connection, "test_old_ep", old_content, embed(old_content),
             old_time, None, {}, None
         )
 
         # Create new episode
         new_content = "New discussion about testing"
         await query_create_episode(
-            mock_ctx, "test_new_ep", new_content, embed(new_content),
+            db_connection, "test_new_ep", new_content, embed(new_content),
             new_time, None, {}, None
         )
 
@@ -297,14 +297,14 @@ class TestEpisodeQueries:
         time_start = (now - timedelta(days=7)).isoformat()
         query_emb = embed("testing")
         results = await query_search_episodes(
-            mock_ctx, "testing", query_emb, time_start, None, None, 10
+            db_connection, "testing", query_emb, time_start, None, None, 10
         )
 
         # Should only find the new episode
         episode_ids = [str(r.get('id', '')) for r in results]
         assert any('test_new_ep' in eid for eid in episode_ids)
 
-    async def test_link_entity_to_episode(self, mock_ctx):
+    async def test_link_entity_to_episode(self, db_connection):
         """Test linking entities to episodes."""
         from memcp.db import (
             query_create_episode, query_upsert_entity,
@@ -315,24 +315,24 @@ class TestEpisodeQueries:
         # Create episode
         ep_content = "Discussion about Python programming"
         await query_create_episode(
-            mock_ctx, "test_link_ep", ep_content, embed(ep_content),
+            db_connection, "test_link_ep", ep_content, embed(ep_content),
             datetime.now().isoformat(), None, {}, None
         )
 
         # Create entity
         ent_content = "Python is a programming language"
         await query_upsert_entity(
-            mock_ctx, "test_link_ent", "concept", ["python"],
+            db_connection, "test_link_ent", "concept", ["python"],
             ent_content, embed(ent_content), 1.0, "test"
         )
 
         # Link entity to episode
         await query_link_entity_to_episode(
-            mock_ctx, "test_link_ent", "test_link_ep", position=0, confidence=1.0
+            db_connection, "test_link_ent", "test_link_ep", position=0, confidence=1.0
         )
 
         # Get episode entities
-        result = await query_get_episode_entities(mock_ctx, "test_link_ep")
+        result = await query_get_episode_entities(db_connection, "test_link_ep")
         assert len(result) > 0
 
 
@@ -342,7 +342,7 @@ class TestEpisodeQueries:
 
 @pytest.mark.embedding
 class TestImportanceScoring:
-    async def test_recalculate_importance(self, mock_ctx):
+    async def test_recalculate_importance(self, db_connection):
         """Test importance recalculation."""
         from memcp.db import query_upsert_entity, query_recalculate_importance, query_get_entity
         from memcp.utils import embed
@@ -350,22 +350,22 @@ class TestImportanceScoring:
         # Create entity
         content = "Test entity for importance calculation"
         await query_upsert_entity(
-            mock_ctx, "test_imp_entity", "test", ["test"],
+            db_connection, "test_imp_entity", "test", ["test"],
             content, embed(content), 1.0, "test",
             user_importance=0.8
         )
 
         # Recalculate importance
-        importance = await query_recalculate_importance(mock_ctx, "test_imp_entity")
+        importance = await query_recalculate_importance(db_connection, "test_imp_entity")
 
         # Importance should be calculated
         assert 0 <= importance <= 1
 
         # Check entity was updated
-        result = await query_get_entity(mock_ctx, "test_imp_entity")
+        result = await query_get_entity(db_connection, "test_imp_entity")
         assert result[0].get('importance') is not None
 
-    async def test_importance_with_relations(self, mock_ctx):
+    async def test_importance_with_relations(self, db_connection):
         """Test importance increases with more relations."""
         from memcp.db import (
             query_upsert_entity, query_create_relation,
@@ -376,26 +376,26 @@ class TestImportanceScoring:
         # Create main entity
         main_content = "Main entity with relations"
         await query_upsert_entity(
-            mock_ctx, "test_main_ent", "test", [],
+            db_connection, "test_main_ent", "test", [],
             main_content, embed(main_content), 1.0, "test"
         )
 
         # Get importance before relations
-        importance_before = await query_recalculate_importance(mock_ctx, "test_main_ent")
+        importance_before = await query_recalculate_importance(db_connection, "test_main_ent")
 
         # Create related entities and relations
         for i in range(5):
             rel_content = f"Related entity {i}"
             await query_upsert_entity(
-                mock_ctx, f"test_rel_ent_{i}", "test", [],
+                db_connection, f"test_rel_ent_{i}", "test", [],
                 rel_content, embed(rel_content), 1.0, "test"
             )
             await query_create_relation(
-                mock_ctx, "test_main_ent", "related_to", f"test_rel_ent_{i}", 1.0
+                db_connection, "test_main_ent", "related_to", f"test_rel_ent_{i}", 1.0
             )
 
         # Recalculate importance after relations
-        importance_after = await query_recalculate_importance(mock_ctx, "test_main_ent")
+        importance_after = await query_recalculate_importance(db_connection, "test_main_ent")
 
         # Importance should be higher with more connections
         assert importance_after >= importance_before
@@ -407,7 +407,7 @@ class TestImportanceScoring:
 
 @pytest.mark.embedding
 class TestContextManagement:
-    async def test_list_contexts(self, mock_ctx):
+    async def test_list_contexts(self, db_connection):
         """Test listing all contexts."""
         from memcp.db import query_upsert_entity, query_list_contexts
         from memcp.utils import embed
@@ -417,19 +417,19 @@ class TestContextManagement:
         for ctx_name in contexts:
             content = f"Entity in {ctx_name}"
             await query_upsert_entity(
-                mock_ctx, f"test_ctx_{ctx_name}", "test", [],
+                db_connection, f"test_ctx_{ctx_name}", "test", [],
                 content, embed(content), 1.0, "test", context=ctx_name
             )
 
         # List contexts
-        result = await query_list_contexts(mock_ctx)
+        result = await query_list_contexts(db_connection)
         found_contexts = result[0].get('contexts', [])
 
         # All test contexts should be found
         for ctx_name in contexts:
             assert ctx_name in found_contexts
 
-    async def test_get_context_stats(self, mock_ctx):
+    async def test_get_context_stats(self, db_connection):
         """Test getting context statistics."""
         from memcp.db import (
             query_upsert_entity, query_create_episode,
@@ -443,7 +443,7 @@ class TestContextManagement:
         for i in range(3):
             content = f"Entity {i} in stats project"
             await query_upsert_entity(
-                mock_ctx, f"test_stats_ent_{i}", "test", [],
+                db_connection, f"test_stats_ent_{i}", "test", [],
                 content, embed(content), 1.0, "test", context=ctx_name
             )
 
@@ -451,12 +451,12 @@ class TestContextManagement:
         for i in range(2):
             content = f"Episode {i} in stats project"
             await query_create_episode(
-                mock_ctx, f"test_stats_ep_{i}", content, embed(content),
+                db_connection, f"test_stats_ep_{i}", content, embed(content),
                 datetime.now().isoformat(), None, {}, ctx_name
             )
 
         # Get stats
-        result = await query_get_context_stats(mock_ctx, ctx_name)
+        result = await query_get_context_stats(db_connection, ctx_name)
         stats = result[0] if result else {}
 
         assert stats.get('context') == ctx_name
@@ -560,45 +560,45 @@ class TestEntityTypeOntology:
         if ALLOW_CUSTOM_TYPES:
             assert validate_entity_type("my_custom_type") == "my_custom_type"
 
-    async def test_query_entities_by_type(self, mock_ctx):
+    async def test_query_entities_by_type(self, db_connection):
         """Test querying entities by type."""
         from memcp.db import query_upsert_entity, query_entities_by_type
         from memcp.utils import embed
 
         # Create entities with different types
         await query_upsert_entity(
-            mock_ctx, "test_pref_1", "preference", ["test"],
+            db_connection, "test_pref_1", "preference", ["test"],
             "I prefer dark mode", embed("I prefer dark mode"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_fact_1", "fact", ["test"],
+            db_connection, "test_fact_1", "fact", ["test"],
             "The sky is blue", embed("The sky is blue"), 1.0, "test"
         )
 
         # Query by type
-        prefs = await query_entities_by_type(mock_ctx, "preference", None, 100)
-        facts = await query_entities_by_type(mock_ctx, "fact", None, 100)
+        prefs = await query_entities_by_type(db_connection, "preference", None, 100)
+        facts = await query_entities_by_type(db_connection, "fact", None, 100)
 
         assert any("test_pref_1" in str(p['id']) for p in prefs)
         assert any("test_fact_1" in str(f['id']) for f in facts)
 
-    async def test_query_list_types(self, mock_ctx):
+    async def test_query_list_types(self, db_connection):
         """Test listing entity types with counts."""
         from memcp.db import query_upsert_entity, query_list_types
         from memcp.utils import embed
 
         # Create entities with types
         await query_upsert_entity(
-            mock_ctx, "test_type_a", "decision", [],
+            db_connection, "test_type_a", "decision", [],
             "Decision A", embed("Decision A"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_type_b", "decision", [],
+            db_connection, "test_type_b", "decision", [],
             "Decision B", embed("Decision B"), 1.0, "test"
         )
 
         # List types
-        types = await query_list_types(mock_ctx, None)
+        types = await query_list_types(db_connection, None)
         type_dict = {t['type']: t.get('count', 0) for t in types}
 
         assert "decision" in type_dict
@@ -610,7 +610,7 @@ class TestEntityTypeOntology:
 
 @pytest.mark.embedding
 class TestProcedureQueries:
-    async def test_create_procedure(self, mock_ctx):
+    async def test_create_procedure(self, db_connection):
         """Test procedure creation."""
         from memcp.db import query_create_procedure, query_get_procedure
         from memcp.utils import embed
@@ -623,7 +623,7 @@ class TestProcedureQueries:
         embed_text = "Deploy app. Deploy application to production. " + " ".join(s['content'] for s in steps)
 
         await query_create_procedure(
-            mock_ctx,
+            db_connection,
             procedure_id="test_deploy_proc",
             name="Deploy app",
             description="Deploy application to production",
@@ -633,14 +633,14 @@ class TestProcedureQueries:
             labels=["deployment", "devops"]
         )
 
-        result = await query_get_procedure(mock_ctx, "test_deploy_proc")
+        result = await query_get_procedure(db_connection, "test_deploy_proc")
         assert len(result) == 1
         proc = result[0]
         assert proc['name'] == "Deploy app"
         assert len(proc['steps']) == 3
         assert proc['context'] == "test-project"
 
-    async def test_search_procedures(self, mock_ctx):
+    async def test_search_procedures(self, db_connection):
         """Test procedure search."""
         from memcp.db import query_create_procedure, query_search_procedures
         from memcp.utils import embed
@@ -650,7 +650,7 @@ class TestProcedureQueries:
             steps = [{"order": 1, "content": f"Step for proc {i}"}]
             embed_text = f"Test procedure {i}. Test procedure about databases. Step for proc {i}"
             await query_create_procedure(
-                mock_ctx,
+                db_connection,
                 procedure_id=f"test_search_proc_{i}",
                 name=f"Test procedure {i}",
                 description="Test procedure about databases",
@@ -663,12 +663,12 @@ class TestProcedureQueries:
         # Search procedures
         query_emb = embed("database procedure")
         results = await query_search_procedures(
-            mock_ctx, "database", query_emb, None, [], 10
+            db_connection, "database", query_emb, None, [], 10
         )
 
         assert len(results) >= 3
 
-    async def test_list_procedures(self, mock_ctx):
+    async def test_list_procedures(self, db_connection):
         """Test listing procedures."""
         from memcp.db import query_create_procedure, query_list_procedures
         from memcp.utils import embed
@@ -679,7 +679,7 @@ class TestProcedureQueries:
             steps = [{"order": 1, "content": f"Step {i}"}]
             embed_text = f"List proc {i}. Testing list. Step {i}"
             await query_create_procedure(
-                mock_ctx,
+                db_connection,
                 procedure_id=f"test_list_proc_{i}",
                 name=f"List proc {i}",
                 description="Testing list",
@@ -690,17 +690,17 @@ class TestProcedureQueries:
             )
 
         # List with context filter
-        results = await query_list_procedures(mock_ctx, ctx_name, 100)
+        results = await query_list_procedures(db_connection, ctx_name, 100)
         assert len(results) >= 2
 
-    async def test_delete_procedure(self, mock_ctx):
+    async def test_delete_procedure(self, db_connection):
         """Test procedure deletion."""
         from memcp.db import query_create_procedure, query_get_procedure, query_delete_procedure
         from memcp.utils import embed
 
         steps = [{"order": 1, "content": "To delete"}]
         await query_create_procedure(
-            mock_ctx,
+            db_connection,
             procedure_id="test_del_proc",
             name="Delete me",
             description="Will be deleted",
@@ -711,14 +711,14 @@ class TestProcedureQueries:
         )
 
         # Verify exists
-        result = await query_get_procedure(mock_ctx, "test_del_proc")
+        result = await query_get_procedure(db_connection, "test_del_proc")
         assert len(result) == 1
 
         # Delete
-        await query_delete_procedure(mock_ctx, "test_del_proc")
+        await query_delete_procedure(db_connection, "test_del_proc")
 
         # Verify deleted
-        result = await query_get_procedure(mock_ctx, "test_del_proc")
+        result = await query_get_procedure(db_connection, "test_del_proc")
         assert len(result) == 0
 
 
@@ -789,7 +789,7 @@ class TestProcedureModels:
 
 @pytest.mark.embedding
 class TestSearchTools:
-    async def test_search_tool(self, mock_ctx):
+    async def test_search_tool(self, mock_ctx, db_connection):
         """Test search tool returns results."""
         from memcp.servers.search import search
         from memcp.db import query_upsert_entity
@@ -797,7 +797,7 @@ class TestSearchTools:
 
         # Create test entity
         await query_upsert_entity(
-            mock_ctx, "test_search_tool_1", "concept", ["python"],
+            db_connection, "test_search_tool_1", "concept", ["python"],
             "Python is a programming language", embed("Python is a programming language"),
             1.0, "test"
         )
@@ -807,18 +807,18 @@ class TestSearchTools:
         assert result.count >= 1
         assert any("Python" in e.content for e in result.entities)
 
-    async def test_search_tool_with_labels(self, mock_ctx):
+    async def test_search_tool_with_labels(self, mock_ctx, db_connection):
         """Test search tool filters by labels."""
         from memcp.servers.search import search
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_labeled_1", "concept", ["database"],
+            db_connection, "test_labeled_1", "concept", ["database"],
             "PostgreSQL database", embed("PostgreSQL database"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_labeled_2", "concept", ["language"],
+            db_connection, "test_labeled_2", "concept", ["language"],
             "Python language", embed("Python language"), 1.0, "test"
         )
 
@@ -827,19 +827,19 @@ class TestSearchTools:
         # Should only find database-labeled entity
         assert all("database" in e.labels for e in result.entities if "test_labeled" in e.id)
 
-    async def test_search_tool_with_context(self, mock_ctx):
+    async def test_search_tool_with_context(self, mock_ctx, db_connection):
         """Test search tool filters by context."""
         from memcp.servers.search import search
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_ctx_a", "concept", [],
+            db_connection, "test_ctx_a", "concept", [],
             "Entity in project A", embed("Entity in project A"), 1.0, "test",
             context="project-a"
         )
         await query_upsert_entity(
-            mock_ctx, "test_ctx_b", "concept", [],
+            db_connection, "test_ctx_b", "concept", [],
             "Entity in project B", embed("Entity in project B"), 1.0, "test",
             context="project-b"
         )
@@ -848,14 +848,14 @@ class TestSearchTools:
 
         assert all(e.context == "project-a" for e in result.entities if e.context)
 
-    async def test_get_entity_tool(self, mock_ctx):
+    async def test_get_entity_tool(self, mock_ctx, db_connection):
         """Test get_entity retrieves by ID."""
         from memcp.servers.search import get_entity
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_get_entity", "fact", ["test"],
+            db_connection, "test_get_entity", "fact", ["test"],
             "This is a test fact", embed("This is a test fact"), 0.9, "test"
         )
 
@@ -873,14 +873,14 @@ class TestSearchTools:
 
         assert result is None
 
-    async def test_list_labels_tool(self, mock_ctx):
+    async def test_list_labels_tool(self, mock_ctx, db_connection):
         """Test list_labels returns all labels."""
         from memcp.servers.search import list_labels
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_labels_1", "concept", ["alpha", "beta"],
+            db_connection, "test_labels_1", "concept", ["alpha", "beta"],
             "Entity with labels", embed("Entity with labels"), 1.0, "test"
         )
 
@@ -889,14 +889,14 @@ class TestSearchTools:
         assert "alpha" in result
         assert "beta" in result
 
-    async def test_list_contexts_tool(self, mock_ctx):
+    async def test_list_contexts_tool(self, mock_ctx, db_connection):
         """Test list_contexts returns all contexts."""
         from memcp.servers.search import list_contexts
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_ctx_list", "concept", [],
+            db_connection, "test_ctx_list", "concept", [],
             "Entity with context", embed("Entity with context"), 1.0, "test",
             context="my-test-context"
         )
@@ -905,7 +905,7 @@ class TestSearchTools:
 
         assert "my-test-context" in result.contexts
 
-    async def test_get_context_stats_tool(self, mock_ctx):
+    async def test_get_context_stats_tool(self, mock_ctx, db_connection):
         """Test get_context_stats returns correct counts."""
         from memcp.servers.search import get_context_stats
         from memcp.db import query_upsert_entity, query_create_episode
@@ -916,12 +916,12 @@ class TestSearchTools:
         # Create entities and episode in context
         for i in range(3):
             await query_upsert_entity(
-                mock_ctx, f"test_stats_{i}", "concept", [],
+                db_connection, f"test_stats_{i}", "concept", [],
                 f"Entity {i}", embed(f"Entity {i}"), 1.0, "test", context=ctx_name
             )
 
         await query_create_episode(
-            mock_ctx, "test_stats_ep", "Episode content", embed("Episode content"),
+            db_connection, "test_stats_ep", "Episode content", embed("Episode content"),
             datetime.now().isoformat(), None, {}, ctx_name
         )
 
@@ -942,18 +942,18 @@ class TestSearchTools:
         assert "requirement" in type_names
         assert "decision" in type_names
 
-    async def test_search_by_type_tool(self, mock_ctx):
+    async def test_search_by_type_tool(self, mock_ctx, db_connection):
         """Test search_by_type filters by entity type."""
         from memcp.servers.search import search_by_type
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_type_pref", "preference", [],
+            db_connection, "test_type_pref", "preference", [],
             "I prefer dark mode", embed("I prefer dark mode"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_type_fact", "fact", [],
+            db_connection, "test_type_fact", "fact", [],
             "The sky is blue", embed("The sky is blue"), 1.0, "test"
         )
 
@@ -968,7 +968,7 @@ class TestSearchTools:
 
 @pytest.mark.embedding
 class TestPersistTools:
-    async def test_remember_entities(self, mock_ctx):
+    async def test_remember_entities(self, mock_ctx, db_connection):
         """Test remember stores entities."""
         from memcp.servers.persist import remember
         from memcp.db import query_get_entity
@@ -984,8 +984,8 @@ class TestPersistTools:
         assert result.entities_stored == 2
 
         # Verify entities exist
-        e1 = await query_get_entity(mock_ctx, "test_remember_1")
-        e2 = await query_get_entity(mock_ctx, "test_remember_2")
+        e1 = await query_get_entity(db_connection, "test_remember_1")
+        e2 = await query_get_entity(db_connection, "test_remember_2")
         assert len(e1) == 1
         assert len(e2) == 1
 
@@ -1007,7 +1007,7 @@ class TestPersistTools:
         assert result.entities_stored == 2
         assert result.relations_stored == 1
 
-    async def test_remember_with_context(self, mock_ctx):
+    async def test_remember_with_context(self, mock_ctx, db_connection):
         """Test remember applies context to entities."""
         from memcp.servers.persist import remember
         from memcp.db import query_get_entity
@@ -1018,10 +1018,10 @@ class TestPersistTools:
             ctx=mock_ctx
         )
 
-        result = await query_get_entity(mock_ctx, "test_ctx_entity")
+        result = await query_get_entity(db_connection, "test_ctx_entity")
         assert result[0].get('context') == "my-project"
 
-    async def test_remember_with_importance(self, mock_ctx):
+    async def test_remember_with_importance(self, mock_ctx, db_connection):
         """Test remember stores user importance."""
         from memcp.servers.persist import remember
         from memcp.db import query_get_entity
@@ -1031,10 +1031,10 @@ class TestPersistTools:
             ctx=mock_ctx
         )
 
-        result = await query_get_entity(mock_ctx, "test_imp_entity")
+        result = await query_get_entity(db_connection, "test_imp_entity")
         assert result[0].get('user_importance') == 0.9
 
-    async def test_forget_entity(self, mock_ctx):
+    async def test_forget_entity(self, mock_ctx, db_connection):
         """Test forget removes entity."""
         from memcp.servers.persist import remember, forget
         from memcp.db import query_get_entity
@@ -1045,14 +1045,14 @@ class TestPersistTools:
         )
 
         # Verify exists
-        assert len(await query_get_entity(mock_ctx, "test_forget")) == 1
+        assert len(await query_get_entity(db_connection, "test_forget")) == 1
 
         # Forget it
         result = await forget.fn("test_forget", mock_ctx)
         assert "test_forget" in result
 
         # Verify deleted
-        assert len(await query_get_entity(mock_ctx, "test_forget")) == 0
+        assert len(await query_get_entity(db_connection, "test_forget")) == 0
 
 
 # =============================================================================
@@ -1061,7 +1061,7 @@ class TestPersistTools:
 
 @pytest.mark.embedding
 class TestGraphTools:
-    async def test_traverse_tool(self, mock_ctx):
+    async def test_traverse_tool(self, mock_ctx, db_connection):
         """Test traverse explores graph connections."""
         from memcp.servers.graph import traverse
         from memcp.db import query_upsert_entity, query_create_relation
@@ -1069,15 +1069,15 @@ class TestGraphTools:
 
         # Create entities and relations
         await query_upsert_entity(
-            mock_ctx, "test_trav_root", "concept", [],
+            db_connection, "test_trav_root", "concept", [],
             "Root entity", embed("Root entity"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_trav_child", "concept", [],
+            db_connection, "test_trav_child", "concept", [],
             "Child entity", embed("Child entity"), 1.0, "test"
         )
         await query_create_relation(
-            mock_ctx, "test_trav_root", "connects_to", "test_trav_child", 1.0
+            db_connection, "test_trav_root", "connects_to", "test_trav_child", 1.0
         )
 
         result = await traverse.fn("test_trav_root", depth=2, ctx=mock_ctx)
@@ -1086,7 +1086,7 @@ class TestGraphTools:
         # traverse returns JSON string
         assert "test_trav_root" in result
 
-    async def test_find_path_tool(self, mock_ctx):
+    async def test_find_path_tool(self, mock_ctx, db_connection):
         """Test find_path finds connection between entities."""
         from memcp.servers.graph import find_path
         from memcp.db import query_upsert_entity, query_create_relation
@@ -1095,11 +1095,11 @@ class TestGraphTools:
         # Create chain: A -> B -> C
         for name in ["test_path_a", "test_path_b", "test_path_c"]:
             await query_upsert_entity(
-                mock_ctx, name, "concept", [],
+                db_connection, name, "concept", [],
                 f"Entity {name}", embed(f"Entity {name}"), 1.0, "test"
             )
-        await query_create_relation(mock_ctx, "test_path_a", "links", "test_path_b", 1.0)
-        await query_create_relation(mock_ctx, "test_path_b", "links", "test_path_c", 1.0)
+        await query_create_relation(db_connection, "test_path_a", "links", "test_path_b", 1.0)
+        await query_create_relation(db_connection, "test_path_b", "links", "test_path_c", 1.0)
 
         result = await find_path.fn("test_path_a", "test_path_c", max_depth=3, ctx=mock_ctx)
 
@@ -1129,7 +1129,7 @@ class TestEpisodeTools:
         assert result.context == "test-project"
         assert result.summary == "Python discussion"
 
-    async def test_add_episode_with_entity_links(self, mock_ctx):
+    async def test_add_episode_with_entity_links(self, mock_ctx, db_connection):
         """Test add_episode links entities."""
         from memcp.servers.episode import add_episode
         from memcp.db import query_upsert_entity
@@ -1137,7 +1137,7 @@ class TestEpisodeTools:
 
         # Create entity to link
         await query_upsert_entity(
-            mock_ctx, "test_ep_entity", "concept", [],
+            db_connection, "test_ep_entity", "concept", [],
             "Related concept", embed("Related concept"), 1.0, "test"
         )
 
@@ -1316,7 +1316,7 @@ class TestProcedureTools:
 
 @pytest.mark.embedding
 class TestMaintenanceTools:
-    async def test_reflect_decay(self, mock_ctx):
+    async def test_reflect_decay(self, mock_ctx, db_connection):
         """Test reflect applies decay to old entities."""
         from memcp.servers.maintenance import reflect
         from memcp.db import query_upsert_entity, run_query
@@ -1324,11 +1324,11 @@ class TestMaintenanceTools:
 
         # Create entity with old access time
         await query_upsert_entity(
-            mock_ctx, "test_decay_entity", "concept", [],
+            db_connection, "test_decay_entity", "concept", [],
             "Old entity", embed("Old entity"), 1.0, "test"
         )
         # Manually set old accessed time
-        await run_query(mock_ctx, """
+        await run_query(db_connection, """
             UPDATE type::record("entity", $id) SET accessed = <datetime>"2020-01-01T00:00:00Z"
         """, {'id': "test_decay_entity"})
 
@@ -1336,7 +1336,7 @@ class TestMaintenanceTools:
 
         assert result.decayed >= 1
 
-    async def test_reflect_find_similar(self, mock_ctx):
+    async def test_reflect_find_similar(self, mock_ctx, db_connection):
         """Test reflect finds similar entities."""
         from memcp.servers.maintenance import reflect
         from memcp.db import query_upsert_entity
@@ -1344,11 +1344,11 @@ class TestMaintenanceTools:
 
         # Create very similar entities
         await query_upsert_entity(
-            mock_ctx, "test_sim_1", "concept", [],
+            db_connection, "test_sim_1", "concept", [],
             "Python programming language features", embed("Python programming language features"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_sim_2", "concept", [],
+            db_connection, "test_sim_2", "concept", [],
             "Python programming language features", embed("Python programming language features"), 1.0, "test"
         )
 
@@ -1357,14 +1357,14 @@ class TestMaintenanceTools:
         # Should find the similar pair
         assert len(result.similar_pairs) >= 1 or result.merged >= 1
 
-    async def test_reflect_recalculate_importance(self, mock_ctx):
+    async def test_reflect_recalculate_importance(self, mock_ctx, db_connection):
         """Test reflect recalculates importance."""
         from memcp.servers.maintenance import reflect
         from memcp.db import query_upsert_entity
         from memcp.utils import embed
 
         await query_upsert_entity(
-            mock_ctx, "test_imp_recalc", "concept", [],
+            db_connection, "test_imp_recalc", "concept", [],
             "Entity for importance", embed("Entity for importance"), 1.0, "test"
         )
 
@@ -1372,7 +1372,7 @@ class TestMaintenanceTools:
 
         assert result.importance_recalculated >= 1
 
-    async def test_check_contradictions_tool(self, mock_ctx):
+    async def test_check_contradictions_tool(self, mock_ctx, db_connection):
         """Test check_contradictions detects conflicts."""
         from memcp.servers.maintenance import check_contradictions_tool
         from memcp.db import query_upsert_entity
@@ -1380,11 +1380,11 @@ class TestMaintenanceTools:
 
         # Create contradictory entities
         await query_upsert_entity(
-            mock_ctx, "test_contra_1", "fact", ["test"],
+            db_connection, "test_contra_1", "fact", ["test"],
             "The capital of France is Paris", embed("The capital of France is Paris"), 1.0, "test"
         )
         await query_upsert_entity(
-            mock_ctx, "test_contra_2", "fact", ["test"],
+            db_connection, "test_contra_2", "fact", ["test"],
             "The capital of France is not Paris", embed("The capital of France is not Paris"), 1.0, "test"
         )
 
