@@ -46,7 +46,7 @@ async def reflect(
         similarity_threshold: Threshold for similarity detection (0-1)
         auto_merge: Automatically merge duplicates
         recalculate_importance: Recalculate importance scores for all entities
-        context: Optional context to scope the operation
+        context: Optional context to scope the operation. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
     """
     start = time.time()
     if decay_days < 1:

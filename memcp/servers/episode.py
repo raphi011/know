@@ -46,7 +46,7 @@ async def add_episode(
         timestamp: When episode occurred (ISO format, defaults to now)
         summary: Optional brief summary
         metadata: Flexible metadata dict (session_id, source, participants, etc.)
-        context: Project namespace (uses default if not provided)
+        context: Project namespace. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
         entity_ids: Entity IDs to link as extracted from this episode
     """
     start = time.time()
@@ -121,7 +121,7 @@ async def search_episodes(
         query: Semantic search query
         time_start: Filter episodes after this time (ISO format)
         time_end: Filter episodes before this time (ISO format)
-        context: Filter by project namespace
+        context: Filter by project namespace. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
         limit: Max results (1-50)
     """
     start = time.time()

@@ -33,7 +33,7 @@ async def search(
         query: The search query
         labels: Optional list of labels to filter by
         limit: Max results (1-100)
-        context: Optional project namespace to filter by
+        context: Optional project namespace to filter by. Auto-detected from git remote origin (owner/repo) or folder name if not provided. Override to search a different project's memories.
     """
     start = time.time()
 
@@ -158,7 +158,7 @@ async def list_entity_types(
     are stored or when categorizing new knowledge.
 
     Args:
-        context: Optional context to filter type counts by
+        context: Optional context to filter type counts by. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
     """
     # Get predefined types with descriptions
     predefined = get_entity_types()
@@ -207,7 +207,7 @@ async def search_by_type(
 
     Args:
         entity_type: Entity type to filter by
-        context: Optional project namespace to filter by
+        context: Optional project namespace to filter by. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
         limit: Max results (1-100)
     """
     if not entity_type or not entity_type.strip():

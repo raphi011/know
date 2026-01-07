@@ -32,7 +32,7 @@ async def remember(
 
     entities: list of {id, content, type?, labels?, confidence?, source?, context?, importance?}
     relations: list of {from, to, type, weight?}
-    context: Default context for all entities (can be overridden per entity)
+    context: Default context for all entities (can be overridden per entity). Auto-detected from git remote origin (owner/repo) or folder name if not provided.
     """
     start = time.time()
     entities = entities or []

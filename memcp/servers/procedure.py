@@ -73,7 +73,7 @@ async def add_procedure(
                - order: step number (auto-assigned if not provided)
                - content: step description
                - optional: whether step can be skipped (default: false)
-        context: Project namespace (uses default if not provided)
+        context: Project namespace. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
         labels: Tags for categorization (e.g., ["deployment", "devops"])
 
     Example:
@@ -194,7 +194,7 @@ async def search_procedures(
 
     Args:
         query: Semantic search query
-        context: Filter by project namespace
+        context: Filter by project namespace. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
         labels: Filter by tags
         limit: Max results (1-50)
     """
@@ -247,7 +247,7 @@ async def list_procedures(
     """List all stored procedures, optionally filtered by context.
 
     Args:
-        context: Filter by project namespace
+        context: Filter by project namespace. Auto-detected from git remote origin (owner/repo) or folder name if not provided.
         limit: Max results (1-100)
     """
     if limit < 1 or limit > 100:

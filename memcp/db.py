@@ -93,20 +93,65 @@ def get_entity_types() -> dict[str, str]:
     return ENTITY_TYPES.copy()
 
 
+def _get_git_origin_name() -> str | None:
+    """Extract project name from git remote origin URL.
+
+    Handles various URL formats:
+    - git@github.com:owner/repo.git -> owner/repo
+    - https://github.com/owner/repo.git -> owner/repo
+    - https://github.com/owner/repo -> owner/repo
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['git', 'config', '--get', 'remote.origin.url'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        url = result.stdout.strip()
+
+        # Handle SSH format: git@github.com:owner/repo.git
+        if url.startswith('git@'):
+            # git@github.com:owner/repo.git -> owner/repo.git
+            path = url.split(':', 1)[-1]
+        # Handle HTTPS format: https://github.com/owner/repo.git
+        elif '://' in url:
+            # https://github.com/owner/repo.git -> owner/repo.git
+            path = url.split('://', 1)[-1].split('/', 1)[-1]
+        else:
+            return None
+
+        # Remove .git suffix and return
+        if path.endswith('.git'):
+            path = path[:-4]
+
+        return path if path else None
+    except Exception:
+        return None
+
+
 def detect_context(explicit_context: str | None = None) -> str | None:
-    """Detect project context from explicit value, env, or cwd.
+    """Detect project context from explicit value, env, git origin, or cwd.
 
     Priority:
     1. Explicit context parameter (if provided)
     2. MEMCP_DEFAULT_CONTEXT env var (if set)
-    3. Current working directory basename (if MEMCP_CONTEXT_FROM_CWD=true)
-    4. None (no context filtering)
+    3. Git remote origin name (if MEMCP_CONTEXT_FROM_CWD=true and in a git repo)
+    4. Current working directory basename (if MEMCP_CONTEXT_FROM_CWD=true)
+    5. None (no context filtering)
     """
     if explicit_context:
         return explicit_context
     if MEMCP_DEFAULT_CONTEXT:
         return MEMCP_DEFAULT_CONTEXT
     if MEMCP_CONTEXT_FROM_CWD:
+        # Try git origin first (handles worktrees correctly)
+        git_origin = _get_git_origin_name()
+        if git_origin:
+            return git_origin
+        # Fall back to cwd basename
         cwd = os.getcwd()
         return os.path.basename(cwd) if cwd else None
     return None
@@ -423,10 +468,10 @@ async def query_hybrid_search(
     # Using inline subqueries (LET variables don't work with search::rrf)
     return await run_query(db, f"""
         SELECT * FROM search::rrf([
-            (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
+            (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance, accessed, access_count
              FROM entity
              WHERE embedding <|{limit * 2},40|> $emb {label_filter} {context_filter}),
-            (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance
+            (SELECT id, type, labels, content, confidence, source, decay_weight, context, importance, accessed, access_count
              FROM entity
              WHERE content @0@ $q {label_filter} {context_filter})
         ], $limit, 60)
