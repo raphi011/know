@@ -360,7 +360,7 @@ class Query:
                     SearchResult(
                         id=entity_id,
                         content=item.get("content", ""),
-                        score=item.get("score", 0.0) if "score" in item else 0.8,
+                        score=item.get("rrf_score", 0.0),
                         labels=item.get("labels", []),
                         time=format_time_ago(item.get("accessed")),
                         access=str(item.get("access_count", 0)),
