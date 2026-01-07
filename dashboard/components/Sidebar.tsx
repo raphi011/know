@@ -73,7 +73,7 @@ export function Sidebar() {
 
         <nav className="flex flex-col gap-1">
           <SidebarLink href="/" icon="dashboard" label="Dashboard" />
-          <SidebarLink href="/search" icon="search" label="Memory Search" />
+          <SidebarLink href="/search" icon="search" label="Search" />
           <SidebarLink href="/graph" icon="hub" label="Entity Explorer" />
           <hr className="border-[#233f48] my-1 mx-2" />
           <SidebarLink href="/episodes" icon="history" label="Episodes (Logs)" />

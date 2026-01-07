@@ -94,12 +94,6 @@ export default function Overview() {
           <h2 className="text-white text-xl font-black leading-none uppercase tracking-tight">Overview</h2>
           <p className="text-text-secondary text-xs mt-1 font-medium">System Status: Optimal</p>
         </div>
-        <div className="flex items-center gap-4">
-          <Link href="/search" className="hidden md:flex items-center relative w-64 lg:w-80">
-            <span className="material-symbols-outlined absolute left-3 text-text-secondary text-[20px]">search</span>
-            <input className="w-full h-10 bg-surface-dark border border-[#233f48] rounded-lg pl-10 pr-4 text-sm text-white placeholder-text-secondary focus:ring-1 focus:ring-primary focus:border-primary transition-all cursor-pointer" placeholder="Quick search..." type="text" readOnly />
-          </Link>
-        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 md:p-8">
