@@ -676,16 +676,19 @@ async def query_vector_similarity(db: AsyncSurreal, emb1: list[float], emb2: lis
     return result
 
 
-async def query_count_entities(db: AsyncSurreal) -> QueryResult:
-    """Count total entities."""
-    return await run_query(db, "SELECT count() FROM entity GROUP ALL")
+async def query_count_entities(db: AsyncSurreal, context: str | None = None) -> QueryResult:
+    """Count entities, optionally filtered by context."""
+    context_filter = "WHERE context = $context" if context else ""
+    return await run_query(db, f"SELECT count() FROM entity {context_filter} GROUP ALL", {'context': context})
 
 
-async def query_count_relations(db: AsyncSurreal) -> QueryResult:
-    """Count total relations."""
-    return await run_query(db, """
-        SELECT count() FROM relates GROUP ALL
-    """)
+async def query_count_relations(db: AsyncSurreal, context: str | None = None) -> QueryResult:
+    """Count relations, optionally filtered by context (via source entity)."""
+    if context:
+        return await run_query(db, """
+            SELECT count() FROM relates WHERE in.context = $context GROUP ALL
+        """, {'context': context})
+    return await run_query(db, "SELECT count() FROM relates GROUP ALL")
 
 
 async def query_get_all_labels(db: AsyncSurreal) -> QueryResult:
