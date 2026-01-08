@@ -61,6 +61,14 @@ async def sample(ctx: Context, prompt: str, max_tokens: int = 1000) -> str:
 
 **Alternative approach**: Call Anthropic API directly with an API key instead of relying on MCP sampling.
 
+### Docling Integration
+
+Add [docling](https://github.com/docling-project/docling) for document parsing. Would enable `memorize_file` to handle PDFs, DOCX, PPTX, images, scanned docs, etc.
+
+- Pure Python library, no deployment needed
+- Converts documents → markdown/text → extract entities → store in SurrealDB
+- Install: `uv add docling`
+
 ## Documentation
 
 **IMPORTANT**: When adding or modifying features, always update `README.md` with example prompts showcasing what the feature can do. This helps users understand how to use each tool effectively.
