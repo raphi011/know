@@ -62,6 +62,7 @@ from memcp.api.schema import (
     ProcedureInput,
     format_time_ago,
     format_datetime,
+    extract_record_id,
 )
 
 logger = logging.getLogger("memcp.webui")
@@ -197,12 +198,12 @@ class Query:
         memories = []
         for item in result or []:
             if isinstance(item, dict):
-                entity_id = str(item.get("id", "")).split(":")[-1]
+                entity_id = extract_record_id(item.get("id"))
                 memories.append(
                     RecentMemory(
                         id=entity_id,
                         type=item.get("type", "concept"),
-                        content=item.get("content", "")[:100],
+                        content=(item.get("content") or "")[:100],
                         time=format_time_ago(item.get("accessed")),
                         icon="memory",
                         importance=item.get("importance") or 0.5,
@@ -230,7 +231,7 @@ class Query:
         episodes = []
         for item in result or []:
             if isinstance(item, dict):
-                episode_id = str(item.get("id", "")).split(":")[-1]
+                episode_id = extract_record_id(item.get("id"))
                 episodes.append(
                     Episode(
                         id=episode_id,
@@ -280,7 +281,7 @@ class Query:
         procedures = []
         for item in result or []:
             if isinstance(item, dict):
-                proc_id = str(item.get("id", "")).split(":")[-1]
+                proc_id = extract_record_id(item.get("id"))
                 steps = [
                     ProcedureStep(
                         content=s.get("content", ""),
@@ -356,7 +357,7 @@ class Query:
         results = []
         for item in result or []:
             if isinstance(item, dict):
-                entity_id = str(item.get("id", "")).split(":")[-1]
+                entity_id = extract_record_id(item.get("id"))
                 entity_type = item.get("type", "concept")
 
                 # Filter by type if specified
@@ -406,12 +407,12 @@ class Query:
         neighbors = []
         for n in neighbor_result or []:
             if isinstance(n, dict):
-                n_id = str(n.get("id", "")).split(":")[-1]
+                n_id = extract_record_id(n.get("id"))
                 neighbors.append(
                     Neighbor(
                         id=n_id,
                         type=n.get("type", "concept"),
-                        content=n.get("content", "")[:100],
+                        content=(n.get("content") or "")[:100],
                         score=n.get("score", 1.0),
                     )
                 )

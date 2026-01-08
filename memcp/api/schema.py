@@ -219,6 +219,20 @@ def format_time_ago(dt: datetime | str | None) -> str:
         return f"{days}d ago"
 
 
+def extract_record_id(record_id: str | None) -> str:
+    """Extract clean ID from SurrealDB record ID.
+
+    SurrealDB wraps IDs with special chars in ⟨⟩ brackets.
+    This extracts the ID and removes the brackets.
+    """
+    if not record_id:
+        return ""
+    id_part = str(record_id).split(":")[-1]
+    if id_part.startswith("⟨") and id_part.endswith("⟩"):
+        id_part = id_part[1:-1]
+    return id_part
+
+
 def format_datetime(dt: datetime | str | None) -> str:
     """Format datetime to ISO string."""
     if dt is None:
