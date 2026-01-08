@@ -202,7 +202,7 @@ class Query:
                 memories.append(
                     RecentMemory(
                         id=entity_id,
-                        type=item.get("type", "concept"),
+                        type=item.get("type") or "concept",
                         content=(item.get("content") or "")[:100],
                         time=format_time_ago(item.get("accessed")),
                         icon="memory",
@@ -235,12 +235,12 @@ class Query:
                 episodes.append(
                     Episode(
                         id=episode_id,
-                        content=item.get("content", ""),
+                        content=item.get("content") or "",
                         summary=item.get("summary"),
                         timestamp=format_datetime(item.get("timestamp")),
                         created=format_datetime(item.get("created")),
                         accessed=format_datetime(item.get("accessed")),
-                        access_count=item.get("access_count", 0),
+                        access_count=item.get("access_count") or 0,
                         context=item.get("context"),
                         metadata=item.get("metadata"),
                     )
@@ -261,12 +261,12 @@ class Query:
 
         return Episode(
             id=id,
-            content=item.get("content", ""),
+            content=item.get("content") or "",
             summary=item.get("summary"),
             timestamp=format_datetime(item.get("timestamp")),
             created=format_datetime(item.get("created")),
             accessed=format_datetime(item.get("accessed")),
-            access_count=item.get("access_count", 0),
+            access_count=item.get("access_count") or 0,
             context=item.get("context"),
             metadata=item.get("metadata"),
         )
@@ -284,23 +284,23 @@ class Query:
                 proc_id = extract_record_id(item.get("id"))
                 steps = [
                     ProcedureStep(
-                        content=s.get("content", ""),
-                        optional=s.get("optional", False),
+                        content=s.get("content") or "",
+                        optional=s.get("optional") or False,
                     )
-                    for s in item.get("steps", [])
+                    for s in item.get("steps") or []
                     if isinstance(s, dict)
                 ]
                 procedures.append(
                     Procedure(
                         id=proc_id,
-                        name=item.get("name", ""),
-                        description=item.get("description", ""),
+                        name=item.get("name") or "",
+                        description=item.get("description") or "",
                         steps=steps,
-                        labels=item.get("labels", []),
+                        labels=item.get("labels") or [],
                         context=item.get("context"),
                         created=format_datetime(item.get("created")),
                         accessed=format_datetime(item.get("accessed")),
-                        access_count=item.get("access_count", 0),
+                        access_count=item.get("access_count") or 0,
                     )
                 )
         return procedures
@@ -319,23 +319,23 @@ class Query:
 
         steps = [
             ProcedureStep(
-                content=s.get("content", ""),
-                optional=s.get("optional", False),
+                content=s.get("content") or "",
+                optional=s.get("optional") or False,
             )
-            for s in item.get("steps", [])
+            for s in item.get("steps") or []
             if isinstance(s, dict)
         ]
 
         return Procedure(
             id=id,
-            name=item.get("name", ""),
-            description=item.get("description", ""),
+            name=item.get("name") or "",
+            description=item.get("description") or "",
             steps=steps,
-            labels=item.get("labels", []),
+            labels=item.get("labels") or [],
             context=item.get("context"),
             created=format_datetime(item.get("created")),
             accessed=format_datetime(item.get("accessed")),
-            access_count=item.get("access_count", 0),
+            access_count=item.get("access_count") or 0,
         )
 
     @strawberry.field
@@ -358,7 +358,7 @@ class Query:
         for item in result or []:
             if isinstance(item, dict):
                 entity_id = extract_record_id(item.get("id"))
-                entity_type = item.get("type", "concept")
+                entity_type = item.get("type") or "concept"
 
                 # Filter by type if specified
                 if type and entity_type.lower() != type.lower():
@@ -367,11 +367,11 @@ class Query:
                 results.append(
                     SearchResult(
                         id=entity_id,
-                        content=item.get("content", ""),
-                        score=item.get("rrf_score", 0.0),
-                        labels=item.get("labels", []),
+                        content=item.get("content") or "",
+                        score=item.get("rrf_score") or 0.0,
+                        labels=item.get("labels") or [],
                         time=format_time_ago(item.get("accessed")),
-                        access=str(item.get("access_count", 0)),
+                        access=str(item.get("access_count") or 0),
                         importance=item.get("importance") or 0.5,
                         type=entity_type,
                     )
@@ -411,20 +411,20 @@ class Query:
                 neighbors.append(
                     Neighbor(
                         id=n_id,
-                        type=n.get("type", "concept"),
+                        type=n.get("type") or "concept",
                         content=(n.get("content") or "")[:100],
-                        score=n.get("score", 1.0),
+                        score=n.get("score") or 1.0,
                     )
                 )
 
         return Entity(
             id=id,
-            content=item.get("content", ""),
-            type=item.get("type", "concept"),
-            confidence=item.get("confidence", 1.0),
+            content=item.get("content") or "",
+            type=item.get("type") or "concept",
+            confidence=item.get("confidence") or 1.0,
             last_accessed=format_time_ago(item.get("accessed")),
-            access_count=item.get("access_count", 0),
-            labels=item.get("labels", []),
+            access_count=item.get("access_count") or 0,
+            labels=item.get("labels") or [],
             importance=item.get("importance") or 0.5,
             user_importance=item.get("user_importance"),
             context=item.get("context"),
@@ -506,7 +506,7 @@ class Mutation:
             context=procedure.context,
             created=format_datetime(item.get("created")) if item else "",
             accessed=format_datetime(item.get("accessed")) if item else "",
-            access_count=item.get("access_count", 0) if item else 0,
+            access_count=(item.get("access_count") or 0) if item else 0,
         )
 
 
