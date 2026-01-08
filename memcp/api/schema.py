@@ -23,10 +23,10 @@ class StatCard:
 
 
 @strawberry.type
-class VelocityPoint:
-    """Data point for velocity chart."""
-    name: str
-    val: int
+class GrowthPoint:
+    """Data point for growth chart (date + cumulative count)."""
+    name: str  # Date string (e.g., "2026-01-07")
+    val: int   # Cumulative entity count
 
 
 @strawberry.type
@@ -41,7 +41,7 @@ class DistributionItem:
 class Overview:
     """Dashboard overview data."""
     stats: list[StatCard]
-    velocity_data: list[VelocityPoint]
+    growth_data: list[GrowthPoint]
     distribution: list[DistributionItem]
 
 

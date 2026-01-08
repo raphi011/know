@@ -463,6 +463,36 @@ class TestContextManagement:
         assert stats.get('entities', 0) >= 3
         assert stats.get('episodes', 0) >= 2
 
+    async def test_entity_growth(self, db_connection):
+        """Test entity growth query for dashboard chart."""
+        from memcp.db import query_upsert_entity, query_entity_growth
+        from memcp.utils import embed
+
+        ctx_name = "test-growth-project"
+
+        # Create a few entities
+        for i in range(3):
+            content = f"Growth test entity {i}"
+            await query_upsert_entity(
+                db_connection, f"test_growth_ent_{i}", "test", [],
+                content, embed(content), 1.0, "test", context=ctx_name
+            )
+
+        # Query growth data (no context filter)
+        result = await query_entity_growth(db_connection, days=30)
+        assert isinstance(result, list)
+        # Should have at least one date entry
+        if result:
+            # Check structure: each item should have date and count
+            for item in result:
+                assert 'date' in item
+                assert 'count' in item
+                assert isinstance(item['count'], int)
+
+        # Query with context filter
+        result_ctx = await query_entity_growth(db_connection, context=ctx_name, days=30)
+        assert isinstance(result_ctx, list)
+
 
 # =============================================================================
 # Model Tests

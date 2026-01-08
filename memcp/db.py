@@ -1209,6 +1209,32 @@ async def query_count_procedures(db: AsyncSurreal, context: str | None = None) -
     """, {'context': context})
 
 
+# =============================================================================
+# Dashboard Analytics Query Functions
+# =============================================================================
+
+async def query_entity_growth(
+    db: AsyncSurreal,
+    context: str | None = None,
+    days: int = 30
+) -> QueryResult:
+    """Get entity creation counts by date for growth curve visualization.
+
+    Returns list of {date: 'YYYY-MM-DD', count: N} ordered by date ascending.
+    """
+    context_filter = "AND context = $context" if context else ""
+
+    return await run_query(db, f"""
+        SELECT
+            time::format(created, '%Y-%m-%d') AS date,
+            count() AS count
+        FROM entity
+        WHERE created >= time::now() - {days}d {context_filter}
+        GROUP BY date
+        ORDER BY date ASC
+    """, {'context': context})
+
+
 __all__ = [
     'AppContext',
     'app_lifespan',
@@ -1283,4 +1309,6 @@ __all__ = [
     'query_delete_procedure',
     'query_list_procedures',
     'query_count_procedures',
+    # Dashboard analytics functions
+    'query_entity_growth',
 ]

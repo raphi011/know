@@ -45,7 +45,7 @@ from memcp.db import (
 )
 from memcp.api.schema import (
     StatCard,
-    VelocityPoint,
+    GrowthPoint,
     DistributionItem,
     Overview,
     RecentMemory,
@@ -161,14 +161,21 @@ class Query:
                     )
                 )
 
-        # Mock velocity data for now (would need time-series query)
-        import random
-        velocity_data = [
-            VelocityPoint(name=f"{i*3}:00", val=random.randint(100, 500))
-            for i in range(9)
-        ]
+        # Get entity growth data (cumulative entities by date)
+        from memcp.db import query_entity_growth
+        growth_raw = await query_entity_growth(db, context, days=30)
 
-        return Overview(stats=stats, velocity_data=velocity_data, distribution=distribution)
+        # Accumulate for cumulative growth curve
+        cumulative = 0
+        growth_data = []
+        for item in growth_raw or []:
+            if isinstance(item, dict):
+                cumulative += item.get('count', 0)
+                # Format date for display (e.g., "Jan 7")
+                date_str = item.get('date', '')
+                growth_data.append(GrowthPoint(name=date_str, val=cumulative))
+
+        return Overview(stats=stats, growth_data=growth_data, distribution=distribution)
 
     @strawberry.field
     async def recent_memories(self, limit: int = 5) -> list[RecentMemory]:

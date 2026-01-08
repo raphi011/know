@@ -33,7 +33,7 @@ export const QUERIES = {
     query Overview($context: String) {
       overview(context: $context) {
         stats { title value icon trend }
-        velocityData { name val }
+        growthData { name val }
         distribution { label val }
       }
     }

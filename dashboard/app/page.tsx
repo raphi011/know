@@ -15,7 +15,7 @@ interface StatCardData {
 
 interface OverviewData {
   stats: StatCardData[];
-  velocityData: { name: string; val: number }[];
+  growthData: { name: string; val: number }[];
   distribution: { label: string; val: number }[];
 }
 
@@ -51,6 +51,23 @@ function StatCard({ title, value, trend, icon }: StatCardData) {
 }
 
 const distributionColors = ['bg-primary', 'bg-purple-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500'];
+
+function padGrowthData(data: { name: string; val: number }[]): { name: string; val: number }[] {
+  const dateMap = new Map(data.map(d => [d.name, d.val]));
+  const result: { name: string; val: number }[] = [];
+  const today = new Date();
+  let cumulative = 0;
+
+  for (let i = 30; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    const displayDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    cumulative += dateMap.get(dateStr) || 0;
+    result.push({ name: displayDate, val: cumulative });
+  }
+  return result;
+}
 
 export default function Overview() {
   const { currentContext } = useApp();
@@ -108,20 +125,24 @@ export default function Overview() {
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
             {/* Chart */}
+            {(() => {
+              const chartData = padGrowthData(data.growthData);
+              const totalEntities = chartData.length > 0 ? chartData[chartData.length - 1].val : 0;
+              return (
             <div className="xl:col-span-2 bg-surface-dark rounded-xl border border-[#233f48] p-6 flex flex-col shadow-sm">
               <div className="flex items-start justify-between mb-8">
                 <div>
-                  <h3 className="text-white text-lg font-bold">Memory Velocity</h3>
-                  <p className="text-text-secondary text-sm">Read/Write operations over last 24h</p>
+                  <h3 className="text-white text-lg font-bold">Memory Growth</h3>
+                  <p className="text-text-secondary text-sm">Cumulative entities over last 30 days</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-3xl font-black text-white tracking-tighter">3,402</p>
-                  <p className="text-[10px] text-primary font-bold uppercase tracking-widest">Ops / Sec</p>
+                  <p className="text-3xl font-black text-white tracking-tighter">{totalEntities.toLocaleString()}</p>
+                  <p className="text-[10px] text-primary font-bold uppercase tracking-widest">Total Entities</p>
                 </div>
               </div>
               <div className="flex-1 w-full min-h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data.velocityData}>
+                  <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#13b6ec" stopOpacity={0.3} />
@@ -139,6 +160,8 @@ export default function Overview() {
                 </ResponsiveContainer>
               </div>
             </div>
+              );
+            })()}
 
             {/* Distribution */}
             <div className="xl:col-span-1 bg-surface-dark rounded-xl border border-[#233f48] p-6 flex flex-col shadow-sm min-h-[400px]">
