@@ -6,3 +6,18 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+
+  memcp:
+    build: .
+    container_name: memcp-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - SURREALDB_URL=ws://surrealdb:8000/rpc
+      - SURREALDB_NAMESPACE=knowledge
+      - SURREALDB_DATABASE=graph
+      - SURREALDB_USER=root
+      - SURREALDB_PASS=root
+    depends_on:
+      - surrealdb
+    restart: unless-stopped

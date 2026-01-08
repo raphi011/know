@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "memcp.fullname" . }}
+  labels:
+    {{- include "memcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "memcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "memcp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "memcp.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: SURREALDB_URL
+              value: {{ .Values.surrealdb.url | quote }}
+            - name: SURREALDB_NAMESPACE
+              value: {{ .Values.surrealdb.namespace | quote }}
+            - name: SURREALDB_DATABASE
+              value: {{ .Values.surrealdb.database | quote }}
+            - name: SURREALDB_AUTH_LEVEL
+              value: {{ .Values.surrealdb.authLevel | quote }}
+            {{- if .Values.surrealdb.existingSecret }}
+            - name: SURREALDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.surrealdb.existingSecret }}
+                  key: {{ .Values.surrealdb.existingSecretUserKey | default "user" }}
+            - name: SURREALDB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.surrealdb.existingSecret }}
+                  key: {{ .Values.surrealdb.existingSecretPasswordKey | default "password" }}
+            {{- else }}
+            - name: SURREALDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "memcp.fullname" . }}-surrealdb
+                  key: user
+            - name: SURREALDB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "memcp.fullname" . }}-surrealdb
+                  key: password
+            {{- end }}
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3000"
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
