@@ -205,7 +205,7 @@ class Query:
                         content=item.get("content", "")[:100],
                         time=format_time_ago(item.get("accessed")),
                         icon="memory",
-                        importance=item.get("importance", 0.5),
+                        importance=item.get("importance") or 0.5,
                     )
                 )
         return memories
@@ -371,7 +371,7 @@ class Query:
                         labels=item.get("labels", []),
                         time=format_time_ago(item.get("accessed")),
                         access=str(item.get("access_count", 0)),
-                        importance=item.get("importance", 0.5),
+                        importance=item.get("importance") or 0.5,
                         type=entity_type,
                     )
                 )
@@ -424,7 +424,7 @@ class Query:
             last_accessed=format_time_ago(item.get("accessed")),
             access_count=item.get("access_count", 0),
             labels=item.get("labels", []),
-            importance=item.get("importance", 0.5),
+            importance=item.get("importance") or 0.5,
             user_importance=item.get("user_importance"),
             context=item.get("context"),
             neighbors=neighbors,
