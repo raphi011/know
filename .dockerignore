@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+dist
+build
+.venv
+venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+
+# Node (dashboard has its own node_modules copied during build)
+dashboard/node_modules
+dashboard/.next
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.log
+.env
+.envrc
+
+# Documentation
+*.md
+!README.md
+
+# Tests (not needed in production image)
+test_*.py
+tests/
+
+# Claude Code
+.claude/
