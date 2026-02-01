@@ -64,11 +64,11 @@ Plans:
   2. User can retrieve entity by ID with full details
   3. User can list all labels with entity counts
   4. User can list entity types with descriptions
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: search tool (hybrid BM25 + vector with RRF fusion)
-- [ ] 03-02: get_entity, list_labels, list_types tools
+- [ ] 03-01-PLAN.md — Search tool with hybrid BM25 + vector RRF fusion, query layer
+- [ ] 03-02-PLAN.md — get_entity, list_labels, list_types tools
 
 ### Phase 4: Persistence Tools
 **Goal**: Users can store and delete entities and relations
@@ -153,7 +153,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | ✓ Complete | 2026-02-01 |
 | 2. MCP Server | 2/2 | ✓ Complete | 2026-02-01 |
-| 3. Search Tools | 0/2 | Not started | - |
+| 3. Search Tools | 0/2 | Ready | - |
 | 4. Persistence Tools | 0/2 | Not started | - |
 | 5. Graph Tools | 0/2 | Not started | - |
 | 6. Episode Tools | 0/2 | Not started | - |
