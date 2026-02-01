@@ -8,7 +8,7 @@ import (
 
 // PingInput defines the input schema for the ping tool.
 type PingInput struct {
-	Echo string `json:"echo,omitempty" jsonschema:"description=Text to echo back"`
+	Echo string `json:"echo,omitempty" jsonschema:"Text to echo back"`
 }
 
 // NewPingHandler creates a ping tool handler with injected dependencies.

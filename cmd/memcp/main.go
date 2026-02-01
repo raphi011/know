@@ -11,6 +11,7 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/embedding"
 	"github.com/raphaelgruber/memcp-go/internal/server"
+	"github.com/raphaelgruber/memcp-go/internal/tools"
 )
 
 const version = "0.1.0"
@@ -80,6 +81,15 @@ func main() {
 	// Create and setup server
 	srv := server.New(version, logger)
 	srv.Setup()
+
+	// Register tools
+	deps := &tools.Dependencies{
+		DB:       dbClient,
+		Embedder: embedder,
+		Logger:   logger,
+	}
+	tools.RegisterAll(srv.MCPServer(), deps)
+	logger.Info("tools registered", "count", 1)
 
 	// Log ready state
 	logger.Info("server ready, awaiting connections")
