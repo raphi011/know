@@ -1,0 +1,169 @@
+// Package db provides SurrealDB query functions for entity operations.
+package db
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/surrealdb/surrealdb.go"
+)
+
+// LabelCount represents a label with its entity count.
+type LabelCount struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+// TypeCount represents an entity type with its count.
+type TypeCount struct {
+	Type  string `json:"type"`
+	Count int    `json:"count"`
+}
+
+// QueryHybridSearch performs RRF fusion of BM25 + vector search results.
+// Returns entities ranked by combined relevance score.
+func (c *Client) QueryHybridSearch(
+	ctx context.Context,
+	query string,
+	embedding []float32,
+	labels []string,
+	limit int,
+	contextFilter *string,
+) ([]models.Entity, error) {
+	// Build dynamic filter clauses
+	labelClause := ""
+	if len(labels) > 0 {
+		labelClause = "AND labels CONTAINSANY $labels"
+	}
+	contextClause := ""
+	if contextFilter != nil {
+		contextClause = "AND context = $context"
+	}
+
+	// RRF fusion query - combines vector (2x limit for variety) with BM25
+	// Vector: HNSW with ef=40 for better recall
+	// BM25: full-text search analyzer 0
+	// RRF k=60 (standard constant for rank fusion)
+	sql := fmt.Sprintf(`
+		SELECT * FROM search::rrf([
+			(SELECT id, type, labels, content, confidence, source, decay_weight,
+					context, importance, accessed, access_count
+			 FROM entity
+			 WHERE embedding <|%d,40|> $emb %s %s),
+			(SELECT id, type, labels, content, confidence, source, decay_weight,
+					context, importance, accessed, access_count
+			 FROM entity
+			 WHERE content @0@ $q %s %s)
+		], $limit, 60)
+	`, limit*2, labelClause, contextClause, labelClause, contextClause)
+
+	vars := map[string]any{
+		"q":      query,
+		"emb":    embedding,
+		"labels": labels,
+		"limit":  limit,
+	}
+	if contextFilter != nil {
+		vars["context"] = *contextFilter
+	}
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid search: %w", err)
+	}
+
+	// Extract from query result wrapper
+	if results != nil && len(*results) > 0 {
+		return (*results)[0].Result, nil
+	}
+	return []models.Entity{}, nil
+}
+
+// QueryGetEntity retrieves an entity by ID.
+// Returns nil if not found.
+func (c *Client) QueryGetEntity(ctx context.Context, id string) (*models.Entity, error) {
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
+		SELECT * FROM type::record("entity", $id)
+	`, map[string]any{"id": id})
+
+	if err != nil {
+		return nil, fmt.Errorf("get entity: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// QueryUpdateAccess updates access tracking for an entity.
+// Resets decay_weight to 1.0 to mark as recently accessed.
+func (c *Client) QueryUpdateAccess(ctx context.Context, id string) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("entity", $id) SET
+			accessed = time::now(),
+			access_count += 1,
+			decay_weight = 1.0
+	`, map[string]any{"id": id})
+	if err != nil {
+		return fmt.Errorf("update access: %w", err)
+	}
+	return nil
+}
+
+// QueryListLabels returns unique labels with entity counts.
+// If contextFilter is non-nil, only counts entities in that context.
+func (c *Client) QueryListLabels(ctx context.Context, contextFilter *string) ([]LabelCount, error) {
+	// Build context filter
+	contextClause := ""
+	vars := map[string]any{}
+	if contextFilter != nil {
+		contextClause = "WHERE context = $context"
+		vars["context"] = *contextFilter
+	}
+
+	// Get all labels from entities, then group
+	// Use array::flatten to combine all label arrays, then group by value
+	sql := fmt.Sprintf(`
+		SELECT label, count() AS count FROM (
+			SELECT array::flatten(labels) AS label FROM entity %s
+		) SPLIT label GROUP BY label ORDER BY count DESC
+	`, contextClause)
+
+	results, err := surrealdb.Query[[]LabelCount](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list labels: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []LabelCount{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// QueryListTypes returns entity types with counts.
+// If contextFilter is non-nil, only counts entities in that context.
+func (c *Client) QueryListTypes(ctx context.Context, contextFilter *string) ([]TypeCount, error) {
+	// Build context filter
+	contextClause := ""
+	vars := map[string]any{}
+	if contextFilter != nil {
+		contextClause = "WHERE context = $context"
+		vars["context"] = *contextFilter
+	}
+
+	sql := fmt.Sprintf(`
+		SELECT type, count() AS count FROM entity %s GROUP BY type ORDER BY count DESC
+	`, contextClause)
+
+	results, err := surrealdb.Query[[]TypeCount](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list types: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []TypeCount{}, nil
+	}
+	return (*results)[0].Result, nil
+}
