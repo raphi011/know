@@ -70,7 +70,7 @@ func TestPingTool(t *testing.T) {
 	t.Run("tools/list returns ping", func(t *testing.T) {
 		result, err := session.ListTools(ctx, nil)
 		require.NoError(t, err)
-		require.Len(t, result.Tools, 2) // ping + search
+		require.Len(t, result.Tools, 5) // ping + search + get_entity + list_labels + list_types
 
 		// Find ping tool
 		var pingTool *mcp.Tool

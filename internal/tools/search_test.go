@@ -1,5 +1,7 @@
 //go:build integration
 
+// Package tools_test contains tests for MCP tools.
+// Integration tests requiring SurrealDB/Ollama are in test_integration.go
 package tools_test
 
 import (
@@ -15,8 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// Integration tests with real DB in test_integration.go
 
 func TestSearchToolRegistered(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -63,18 +63,21 @@ func TestSearchToolRegistered(t *testing.T) {
 	require.NoError(t, err, "client should connect successfully")
 	defer session.Close()
 
-	// Test: List tools - verify "search" is registered
-	t.Run("tools/list returns search", func(t *testing.T) {
+	// Test: List tools - verify all search tools are registered
+	t.Run("tools/list returns all search tools", func(t *testing.T) {
 		result, err := session.ListTools(ctx, nil)
 		require.NoError(t, err)
-		require.Len(t, result.Tools, 2) // ping + search
+		require.Len(t, result.Tools, 5) // ping + search + get_entity + list_labels + list_types
 
 		toolNames := make([]string, len(result.Tools))
 		for i, tool := range result.Tools {
 			toolNames[i] = tool.Name
 		}
-		assert.Contains(t, toolNames, "search")
 		assert.Contains(t, toolNames, "ping")
+		assert.Contains(t, toolNames, "search")
+		assert.Contains(t, toolNames, "get_entity")
+		assert.Contains(t, toolNames, "list_labels")
+		assert.Contains(t, toolNames, "list_types")
 	})
 
 	// Test: Verify search tool description
@@ -179,6 +182,21 @@ func TestSearchToolValidation(t *testing.T) {
 		textContent, ok := result.Content[0].(*mcp.TextContent)
 		require.True(t, ok)
 		assert.Contains(t, textContent.Text, "Limit must be 1-100")
+	})
+
+	// Test: get_entity empty ID returns error
+	t.Run("get_entity empty ID returns error", func(t *testing.T) {
+		params := &mcp.CallToolParams{
+			Name:      "get_entity",
+			Arguments: map[string]any{"id": ""},
+		}
+		result, err := session.CallTool(ctx, params)
+		require.NoError(t, err)
+		assert.True(t, result.IsError, "empty ID should return error")
+
+		textContent, ok := result.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, textContent.Text, "ID cannot be empty")
 	})
 
 	// Cleanup
