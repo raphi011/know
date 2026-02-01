@@ -9,18 +9,18 @@ Requirements for Go migration. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: Go module initialized with all dependencies (mcp-go-sdk, surrealdb.go, ollama)
-- [ ] **INFRA-02**: SurrealDB connection with WebSocket and auto-reconnect (rews package)
-- [ ] **INFRA-03**: Ollama embedding client generating 384-dimensional vectors
-- [ ] **INFRA-04**: Shared data models as Go structs with JSON tags
-- [ ] **INFRA-05**: Structured logging with slog (file + stderr)
-- [ ] **INFRA-06**: Environment variable configuration matching Python version
+- [x] **INFRA-01**: Go module initialized with all dependencies (mcp-go-sdk, surrealdb.go, ollama)
+- [x] **INFRA-02**: SurrealDB connection with WebSocket and auto-reconnect (rews package)
+- [x] **INFRA-03**: Ollama embedding client generating 384-dimensional vectors
+- [x] **INFRA-04**: Shared data models as Go structs with JSON tags
+- [x] **INFRA-05**: Structured logging with slog (file + stderr)
+- [x] **INFRA-06**: Environment variable configuration matching Python version
 
 ### MCP Server
 
-- [ ] **MCP-01**: MCP server using official modelcontextprotocol/go-sdk
-- [ ] **MCP-02**: Stdio transport for Claude Code integration
-- [ ] **MCP-03**: Tool registration framework with handler pattern
+- [x] **MCP-01**: MCP server using official modelcontextprotocol/go-sdk
+- [x] **MCP-02**: Stdio transport for Claude Code integration
+- [x] **MCP-03**: Tool registration framework with handler pattern
 
 ### Search Tools
 
@@ -63,9 +63,9 @@ Requirements for Go migration. Each maps to roadmap phases.
 ### Testing
 
 - [ ] **TEST-01**: Unit tests for all query functions
-- [ ] **TEST-02**: Integration tests with SurrealDB (requires running instance)
-- [ ] **TEST-03**: Integration tests with Ollama (requires running instance)
-- [ ] **TEST-04**: MCP tool tests using in-memory transport
+- [x] **TEST-02**: Integration tests with SurrealDB (requires running instance)
+- [x] **TEST-03**: Integration tests with Ollama (requires running instance)
+- [x] **TEST-04**: MCP tool tests using in-memory transport
 
 ## v2 Requirements
 
@@ -106,15 +106,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
-| INFRA-05 | Phase 1 | Pending |
-| INFRA-06 | Phase 1 | Pending |
-| MCP-01 | Phase 2 | Pending |
-| MCP-02 | Phase 2 | Pending |
-| MCP-03 | Phase 2 | Pending |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
+| INFRA-03 | Phase 1 | Complete |
+| INFRA-04 | Phase 1 | Complete |
+| INFRA-05 | Phase 1 | Complete |
+| INFRA-06 | Phase 1 | Complete |
+| MCP-01 | Phase 2 | Complete |
+| MCP-02 | Phase 2 | Complete |
+| MCP-03 | Phase 2 | Complete |
 | SRCH-01 | Phase 3 | Pending |
 | SRCH-02 | Phase 3 | Pending |
 | SRCH-03 | Phase 3 | Pending |
@@ -136,9 +136,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MAINT-01 | Phase 8 | Pending |
 | MAINT-02 | Phase 8 | Pending |
 | TEST-01 | Phase 8 | Pending |
-| TEST-02 | Phase 1 | Pending |
-| TEST-03 | Phase 1 | Pending |
-| TEST-04 | Phase 2 | Pending |
+| TEST-02 | Phase 1 | Complete |
+| TEST-03 | Phase 1 | Complete |
+| TEST-04 | Phase 2 | Complete |
 
 **Coverage:**
 - v1 requirements: 31 total

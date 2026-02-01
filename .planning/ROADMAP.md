@@ -13,7 +13,7 @@ This roadmap delivers a complete Go rewrite of the Python MCP server for AI agen
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - SurrealDB, Ollama embeddings, models, logging ✓
-- [ ] **Phase 2: MCP Server** - Server setup, stdio transport, tool framework
+- [x] **Phase 2: MCP Server** - Server setup, stdio transport, tool framework ✓
 - [ ] **Phase 3: Search Tools** - Hybrid search, get_entity, list_labels, list_types
 - [ ] **Phase 4: Persistence Tools** - remember, forget with entity/relation handling
 - [ ] **Phase 5: Graph Tools** - traverse, find_path for relationship navigation
@@ -52,8 +52,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — MCP server wrapper, middleware, main entry point
-- [ ] 02-02-PLAN.md — Tool framework with Dependencies, error helpers, ping tool
+- [x] 02-01-PLAN.md — MCP server wrapper, middleware, main entry point
+- [x] 02-02-PLAN.md — Tool framework with Dependencies, error helpers, ping tool
 
 ### Phase 3: Search Tools
 **Goal**: Users can search and retrieve entities from memory
@@ -152,7 +152,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | ✓ Complete | 2026-02-01 |
-| 2. MCP Server | 0/2 | Planned | - |
+| 2. MCP Server | 2/2 | ✓ Complete | 2026-02-01 |
 | 3. Search Tools | 0/2 | Not started | - |
 | 4. Persistence Tools | 0/2 | Not started | - |
 | 5. Graph Tools | 0/2 | Not started | - |
@@ -162,6 +162,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 ---
 *Roadmap created: 2026-02-01*
-*Phase 2 planned: 2026-02-01*
+*Phase 2 complete: 2026-02-01*
 *Total plans: 17 (estimated)*
 *Total requirements: 31*
