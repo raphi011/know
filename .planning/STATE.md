@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 3 of 8 (Search Tools)
-Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-02-01 — Phase 2 verified complete
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-02-01 — Completed 03-01-PLAN.md
 
-Progress: [███░░░░░░░] 25%
+Progress: [████░░░░░░] 31%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: ~7 min per plan
-- Total execution time: ~36 min
+- Total execution time: ~44 min
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [███░░░░░░░] 25%
 |-------|-------|-------|----------|
 | 1 | 3 | 30m | 10m |
 | 2 | 2 | 6m | 3m |
+| 3 | 1 | 8m | 8m |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02, 01-03, 02-01, 02-02
-- Trend: Fast execution on focused plans
+- Last 5 plans: 01-02, 01-03, 02-01, 02-02, 03-01
+- Trend: Consistent 3-10m per plan
 
 *Updated after each plan completion*
 
@@ -52,6 +53,9 @@ Recent decisions affecting current work:
 - [02-01]: Argument truncation: 200 chars max in logs
 - [02-02]: jsonschema tag uses direct description text, not key=value format
 - [02-02]: Handler factory pattern: NewXxxHandler(deps) returns mcp.ToolHandlerFor[In, any]
+- [03-01]: Query function layer in db/queries.go for SQL isolation
+- [03-01]: Context detection: explicit > config.DefaultContext > git origin > cwd
+- [03-01]: RRF parameters: k=60, vector limit=2x for diversity
 
 ### Pending Todos
 
@@ -63,27 +67,23 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-01T22:03:06Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-02-01T22:38:59Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
 
-## Phase 2 Summary (Complete)
+## Phase 3 Progress
 
 **Plan 01 Completed:** 2026-02-01
-**Plan 02 Completed:** 2026-02-01
 
 **Deliverables:**
-- MCP server wrapper with lifecycle management (server.New, Run, Setup, MCPServer)
-- Logging middleware for all requests (method, duration, slow request warnings)
-- Main entry point with composition root (config, signals, DB, embedder, server)
-- Tool registration framework with Dependencies struct for DI
-- ErrorResult/TextResult helpers for consistent tool responses
-- Ping tool demonstrating handler factory pattern
-- Integration tests with in-memory transport
+- Query functions layer (QueryHybridSearch, QueryGetEntity, QueryUpdateAccess, QueryListLabels, QueryListTypes)
+- Search tool with hybrid BM25 + vector RRF fusion
+- Context detection (git origin, cwd fallback)
+- RegisterAll accepts config for context-aware tools
 
 **Patterns Established:**
-- Handler factory: `NewXxxHandler(deps) returns mcp.ToolHandlerFor[In, any]`
-- Tool registration: `tools.RegisterAll(server, deps)` in main
-- Error responses: `ErrorResult(msg, hint)` with recovery hints
+- Query functions on db.Client for SQL isolation
+- Nil-safe result extraction from surrealdb.Query wrapper
+- Context detection priority chain
 
-**Next:** Phase 03 - Search Tools
+**Next:** 03-02 - get_entity, list_labels, list_types tools
