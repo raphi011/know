@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - SurrealDB, Ollama embeddings, models, logging ✓
 - [x] **Phase 2: MCP Server** - Server setup, stdio transport, tool framework ✓
-- [ ] **Phase 3: Search Tools** - Hybrid search, get_entity, list_labels, list_types
+- [x] **Phase 3: Search Tools** - Hybrid search, get_entity, list_labels, list_types ✓
 - [ ] **Phase 4: Persistence Tools** - remember, forget with entity/relation handling
 - [ ] **Phase 5: Graph Tools** - traverse, find_path for relationship navigation
 - [ ] **Phase 6: Episode Tools** - add_episode, search_episodes, get_episode, delete_episode
@@ -67,8 +67,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Search tool with hybrid BM25 + vector RRF fusion, query layer
-- [ ] 03-02-PLAN.md — get_entity, list_labels, list_types tools
+- [x] 03-01-PLAN.md — Search tool with hybrid BM25 + vector RRF fusion, query layer
+- [x] 03-02-PLAN.md — get_entity, list_labels, list_types tools
 
 ### Phase 4: Persistence Tools
 **Goal**: Users can store and delete entities and relations
@@ -153,7 +153,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | ✓ Complete | 2026-02-01 |
 | 2. MCP Server | 2/2 | ✓ Complete | 2026-02-01 |
-| 3. Search Tools | 0/2 | Ready | - |
+| 3. Search Tools | 2/2 | ✓ Complete | 2026-02-01 |
 | 4. Persistence Tools | 0/2 | Not started | - |
 | 5. Graph Tools | 0/2 | Not started | - |
 | 6. Episode Tools | 0/2 | Not started | - |
@@ -162,6 +162,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 ---
 *Roadmap created: 2026-02-01*
-*Phase 2 complete: 2026-02-01*
+*Phase 3 complete: 2026-02-01*
 *Total plans: 17 (estimated)*
 *Total requirements: 31*

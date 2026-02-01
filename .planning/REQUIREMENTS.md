@@ -24,10 +24,10 @@ Requirements for Go migration. Each maps to roadmap phases.
 
 ### Search Tools
 
-- [ ] **SRCH-01**: `search` tool — hybrid search combining BM25 and vector similarity (RRF fusion)
-- [ ] **SRCH-02**: `get_entity` tool — retrieve entity by ID
-- [ ] **SRCH-03**: `list_labels` tool — list all labels with counts
-- [ ] **SRCH-04**: `list_types` tool — list entity types with descriptions
+- [x] **SRCH-01**: `search` tool — hybrid search combining BM25 and vector similarity (RRF fusion)
+- [x] **SRCH-02**: `get_entity` tool — retrieve entity by ID
+- [x] **SRCH-03**: `list_labels` tool — list all labels with counts
+- [x] **SRCH-04**: `list_types` tool — list entity types with descriptions
 
 ### Persistence Tools
 
