@@ -1,4 +1,4 @@
-// Package embedding_test contains integration tests for Ollama embedding client.
+// Package embedding_test contains integration tests for embedding clients.
 package embedding_test
 
 import (
@@ -12,16 +12,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewClient(t *testing.T) {
-	client, err := embedding.NewClient("")
+func TestNewOllamaClient(t *testing.T) {
+	client, err := embedding.NewOllamaClient("", 0)
 	require.NoError(t, err, "should create client with default model")
-	assert.Equal(t, embedding.DefaultModel, client.Model())
+	assert.Equal(t, embedding.DefaultOllamaModel, client.Model())
+	assert.Equal(t, embedding.DefaultOllamaDimension, client.Dimension())
 }
 
-func TestNewClientCustomModel(t *testing.T) {
-	client, err := embedding.NewClient("custom-model")
+func TestNewOllamaClientCustomModel(t *testing.T) {
+	client, err := embedding.NewOllamaClient("custom-model", 512)
 	require.NoError(t, err, "should create client with custom model")
 	assert.Equal(t, "custom-model", client.Model())
+	assert.Equal(t, 512, client.Dimension())
+}
+
+func TestDefaultOllama(t *testing.T) {
+	embedder, err := embedding.DefaultOllama()
+	require.NoError(t, err, "should create default embedder")
+	assert.Equal(t, embedding.DefaultOllamaModel, embedder.Model())
+	assert.Equal(t, embedding.DefaultOllamaDimension, embedder.Dimension())
+}
+
+func TestEmbedderInterface(t *testing.T) {
+	// Verify OllamaClient implements Embedder interface
+	var _ embedding.Embedder = (*embedding.OllamaClient)(nil)
 }
 
 func TestEmbed(t *testing.T) {
@@ -32,15 +46,15 @@ func TestEmbed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client, err := embedding.NewClient("")
+	client, err := embedding.NewOllamaClient("", 0)
 	require.NoError(t, err, "should create client")
 
 	emb, err := client.Embed(ctx, "This is a test sentence for embedding.")
 	require.NoError(t, err, "should generate embedding")
 
-	// CRITICAL: Verify dimension is exactly 384
-	assert.Len(t, emb, embedding.ExpectedDimension,
-		"embedding must be exactly %d dimensions", embedding.ExpectedDimension)
+	// CRITICAL: Verify dimension matches expected
+	assert.Len(t, emb, client.Dimension(),
+		"embedding must be exactly %d dimensions", client.Dimension())
 
 	// Verify values are reasonable (not all zeros, within normal range)
 	var sum float32
@@ -58,7 +72,7 @@ func TestEmbedBatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	client, err := embedding.NewClient("")
+	client, err := embedding.NewOllamaClient("", 0)
 	require.NoError(t, err, "should create client")
 
 	texts := []string{
@@ -73,13 +87,13 @@ func TestEmbedBatch(t *testing.T) {
 	assert.Len(t, embeddings, len(texts), "should return one embedding per text")
 
 	for i, emb := range embeddings {
-		assert.Len(t, emb, embedding.ExpectedDimension,
-			"embedding %d must be exactly %d dimensions", i, embedding.ExpectedDimension)
+		assert.Len(t, emb, client.Dimension(),
+			"embedding %d must be exactly %d dimensions", i, client.Dimension())
 	}
 }
 
 func TestEmbedBatchEmpty(t *testing.T) {
-	client, err := embedding.NewClient("")
+	client, err := embedding.NewOllamaClient("", 0)
 	require.NoError(t, err, "should create client")
 
 	ctx := context.Background()
@@ -96,7 +110,7 @@ func TestEmbedSimilarity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	client, err := embedding.NewClient("")
+	client, err := embedding.NewOllamaClient("", 0)
 	require.NoError(t, err, "should create client")
 
 	// Similar sentences should have high cosine similarity
@@ -128,7 +142,7 @@ func TestEmbedWithTruncation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client, err := embedding.NewClient("")
+	client, err := embedding.NewOllamaClient("", 0)
 	require.NoError(t, err, "should create client")
 
 	// Create a very long text
@@ -139,7 +153,16 @@ func TestEmbedWithTruncation(t *testing.T) {
 
 	emb, err := client.EmbedWithTruncation(ctx, longText, 512)
 	require.NoError(t, err, "should embed with truncation")
-	assert.Len(t, emb, embedding.ExpectedDimension)
+	assert.Len(t, emb, client.Dimension())
+}
+
+func TestNewEmbedderFactory(t *testing.T) {
+	// Test factory with Ollama provider
+	embedder, err := embedding.New(embedding.Config{
+		Provider: embedding.ProviderOllama,
+	})
+	require.NoError(t, err, "should create Ollama embedder via factory")
+	assert.Equal(t, embedding.DefaultOllamaModel, embedder.Model())
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors.
