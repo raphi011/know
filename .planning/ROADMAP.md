@@ -12,7 +12,7 @@ This roadmap delivers a complete Go rewrite of the Python MCP server for AI agen
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - SurrealDB, Ollama embeddings, models, logging
+- [x] **Phase 1: Foundation** - SurrealDB, Ollama embeddings, models, logging ✓
 - [ ] **Phase 2: MCP Server** - Server setup, stdio transport, tool framework
 - [ ] **Phase 3: Search Tools** - Hybrid search, get_entity, list_labels, list_types
 - [ ] **Phase 4: Persistence Tools** - remember, forget with entity/relation handling
@@ -36,9 +36,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Go module init with dependencies, data models, logging
-- [ ] 01-02-PLAN.md — SurrealDB connection with rews auto-reconnect
-- [ ] 01-03-PLAN.md — Ollama embedding client with 384-dim verification
+- [x] 01-01-PLAN.md — Go module init with dependencies, data models, logging
+- [x] 01-02-PLAN.md — SurrealDB connection with rews auto-reconnect
+- [x] 01-03-PLAN.md — Ollama embedding client with generic Embedder interface
 
 ### Phase 2: MCP Server
 **Goal**: Working MCP server with tool registration framework, no business logic yet
@@ -151,7 +151,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planned | - |
+| 1. Foundation | 3/3 | ✓ Complete | 2026-02-01 |
 | 2. MCP Server | 0/2 | Not started | - |
 | 3. Search Tools | 0/2 | Not started | - |
 | 4. Persistence Tools | 0/2 | Not started | - |
