@@ -10,28 +10,29 @@ See: .planning/PROJECT.md (updated 2026-02-01)
 ## Current Position
 
 Phase: 2 of 8 (MCP Server)
-Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-02-01 — Phase 1 complete (3 plans executed)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-02-01 — Completed 02-01-PLAN.md (MCP Server Skeleton)
 
-Progress: [█░░░░░░░░░] 12.5%
+Progress: [██░░░░░░░░] 18.75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: ~10 min per plan
-- Total execution time: ~30 min
+- Total plans completed: 4
+- Average duration: ~8 min per plan
+- Total execution time: ~33 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 3 | 30m | 10m |
+| 2 | 1 | 3m | 3m |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02, 01-03
-- Trend: Stable
+- Last 5 plans: 01-01, 01-02, 01-03, 02-01
+- Trend: Improving (02-01 faster due to focused scope)
 
 *Updated after each plan completion*
 
@@ -46,10 +47,13 @@ Recent decisions affecting current work:
 - [Init]: Lock to all-minilm:l6-v2 (384-dim) for embedding compatibility
 - [Init]: Use rews package for SurrealDB WebSocket auto-reconnect
 - [Phase-1]: Generic Embedder interface supports multiple backends (Ollama, Anthropic/Voyage)
+- [02-01]: Middleware uses SDK's MethodHandler signature with method string parameter
+- [02-01]: Slow request threshold: 100ms for WARN level logging
+- [02-01]: Argument truncation: 200 chars max in logs
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
@@ -57,18 +61,18 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-01
-Stopped at: Phase 1 complete, ready to plan Phase 2
+Last session: 2026-02-01T21:57:29Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
 
-## Phase 1 Summary
+## Phase 2 Summary (In Progress)
 
-**Completed:** 2026-02-01
+**Plan 01 Completed:** 2026-02-01
 
-**Deliverables:**
-- Go module with MCP SDK, SurrealDB, Ollama dependencies
-- Data models: Entity, Episode, Procedure, Relation (JSON snake_case)
-- Config: Environment loading with Python-matching defaults
-- Logging: Dual-output (stderr text + file JSON)
-- SurrealDB client: rews auto-reconnect, schema initialization
-- Embedding: Generic Embedder interface with Ollama and Anthropic/Voyage backends
+**Deliverables so far:**
+- MCP server wrapper with lifecycle management (server.New, Run, Setup, MCPServer)
+- Logging middleware for all requests (method, duration, slow request warnings)
+- Main entry point with composition root (config, signals, DB, embedder, server)
+- Integration tests with in-memory transport
+
+**Next:** 02-02-PLAN.md - Tool Registry and Handler Framework
