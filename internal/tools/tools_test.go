@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,8 @@ func TestPingTool(t *testing.T) {
 		Embedder: nil,
 		Logger:   logger,
 	}
-	tools.RegisterAll(server, deps)
+	cfg := &config.Config{}
+	tools.RegisterAll(server, deps, cfg)
 
 	// Create in-memory transports
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -68,9 +70,18 @@ func TestPingTool(t *testing.T) {
 	t.Run("tools/list returns ping", func(t *testing.T) {
 		result, err := session.ListTools(ctx, nil)
 		require.NoError(t, err)
-		require.Len(t, result.Tools, 1)
-		assert.Equal(t, "ping", result.Tools[0].Name)
-		assert.Equal(t, "Test tool - responds with pong or echoes input", result.Tools[0].Description)
+		require.Len(t, result.Tools, 2) // ping + search
+
+		// Find ping tool
+		var pingTool *mcp.Tool
+		for _, tool := range result.Tools {
+			if tool.Name == "ping" {
+				pingTool = tool
+				break
+			}
+		}
+		require.NotNil(t, pingTool, "ping tool should exist")
+		assert.Equal(t, "Test tool - responds with pong or echoes input", pingTool.Description)
 	})
 
 	// Test 2: Call ping without echo - should return "pong"

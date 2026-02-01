@@ -88,8 +88,8 @@ func main() {
 		Embedder: embedder,
 		Logger:   logger,
 	}
-	tools.RegisterAll(srv.MCPServer(), deps)
-	logger.Info("tools registered", "count", 1)
+	tools.RegisterAll(srv.MCPServer(), deps, &cfg)
+	logger.Info("tools registered", "count", 2)
 
 	// Log ready state
 	logger.Info("server ready, awaiting connections")
