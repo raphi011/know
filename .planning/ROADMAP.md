@@ -49,11 +49,11 @@ Plans:
   2. Claude Code can connect and list available tools
   3. Tool handler pattern established (service injection, error handling)
   4. MCP tool tests pass using in-memory transport
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: MCP server setup with official SDK
-- [ ] 02-02: Tool registration framework and handler pattern
+- [ ] 02-01-PLAN.md — MCP server wrapper, middleware, main entry point
+- [ ] 02-02-PLAN.md — Tool framework with Dependencies, error helpers, ping tool
 
 ### Phase 3: Search Tools
 **Goal**: Users can search and retrieve entities from memory
@@ -152,7 +152,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | ✓ Complete | 2026-02-01 |
-| 2. MCP Server | 0/2 | Not started | - |
+| 2. MCP Server | 0/2 | Planned | - |
 | 3. Search Tools | 0/2 | Not started | - |
 | 4. Persistence Tools | 0/2 | Not started | - |
 | 5. Graph Tools | 0/2 | Not started | - |
@@ -162,6 +162,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 ---
 *Roadmap created: 2026-02-01*
-*Phase 1 planned: 2026-02-01*
+*Phase 2 planned: 2026-02-01*
 *Total plans: 17 (estimated)*
 *Total requirements: 31*
