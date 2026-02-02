@@ -536,3 +536,72 @@ func (c *Client) QueryGetLinkedEntities(ctx context.Context, episodeID string) (
 	}
 	return (*results)[0].Result, nil
 }
+
+// QuerySearchEpisodes performs hybrid BM25+vector search on episodes.
+// Supports optional time range filtering and context filter.
+// Returns episodes ranked by RRF fusion with recency consideration.
+func (c *Client) QuerySearchEpisodes(
+	ctx context.Context,
+	query string,
+	embedding []float32,
+	timeStart *string,
+	timeEnd *string,
+	contextFilter *string,
+	limit int,
+) ([]models.Episode, error) {
+	// Build dynamic filter clauses
+	filterClause := ""
+	if timeStart != nil {
+		filterClause += " AND timestamp >= <datetime>$time_start"
+	}
+	if timeEnd != nil {
+		filterClause += " AND timestamp <= <datetime>$time_end"
+	}
+	if contextFilter != nil {
+		filterClause += " AND context = $context"
+	}
+
+	// RRF fusion query - combines vector (2x limit for variety) with BM25
+	// Vector: HNSW with ef=40 for better recall
+	// BM25: full-text search analyzer 0
+	// RRF k=60 (standard constant for rank fusion)
+	// ORDER BY timestamp DESC within subqueries for recency consideration
+	sql := fmt.Sprintf(`
+		SELECT * FROM search::rrf([
+			(SELECT id, content, summary, timestamp, metadata, context
+			 FROM episode
+			 WHERE embedding <|%d,40|> $emb %s
+			 ORDER BY timestamp DESC),
+			(SELECT id, content, summary, timestamp, metadata, context
+			 FROM episode
+			 WHERE content @0@ $q %s
+			 ORDER BY timestamp DESC)
+		], $limit, 60)
+	`, limit*2, filterClause, filterClause)
+
+	vars := map[string]any{
+		"q":     query,
+		"emb":   embedding,
+		"limit": limit,
+	}
+	if timeStart != nil {
+		vars["time_start"] = *timeStart
+	}
+	if timeEnd != nil {
+		vars["time_end"] = *timeEnd
+	}
+	if contextFilter != nil {
+		vars["context"] = *contextFilter
+	}
+
+	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("search episodes: %w", err)
+	}
+
+	// Extract from query result wrapper
+	if results != nil && len(*results) > 0 {
+		return (*results)[0].Result, nil
+	}
+	return []models.Episode{}, nil
+}
