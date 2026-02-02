@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-01)
 
 **Core value:** Agents can remember and recall knowledge across sessions with sub-second semantic search
-**Current focus:** Phase 4 - Persistence Tools
+**Current focus:** Phase 4 - Persistence Tools (COMPLETE)
 
 ## Current Position
 
-Phase: 4 of 8 (Persistence Tools)
-Plan: 1 of 3 in current phase
-Status: In progress
-Last activity: 2026-02-02 - Completed 04-01-PLAN.md
+Phase: 4 of 8 (Persistence Tools) - COMPLETE
+Plan: 2 of 2 in current phase - COMPLETE
+Status: Phase complete
+Last activity: 2026-02-02 - Completed 04-02-PLAN.md
 
-Progress: [████░░░░░░] 44%
+Progress: [█████░░░░░] 50% (4 of 8 phases)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: ~7 min per plan
-- Total execution time: ~54 min
+- Total execution time: ~66 min
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [████░░░░░░] 44%
 | 1 | 3 | 30m | 10m |
 | 2 | 2 | 6m | 3m |
 | 3 | 2 | 13m | 6.5m |
-| 4 | 1 | 5m | 5m |
+| 4 | 2 | 17m | 8.5m |
 
 **Recent Trend:**
-- Last 5 plans: 02-02, 03-01, 03-02, 04-01
-- Trend: Consistent 3-10m per plan
+- Last 5 plans: 03-01, 03-02, 04-01, 04-02
+- Trend: Consistent 5-12m per plan
 
 *Updated after each plan completion*
 
@@ -62,6 +62,9 @@ Recent decisions affecting current work:
 - [04-01]: array::union for additive label merge in SQL
 - [04-01]: Pre-check existence to return wasCreated indicator
 - [04-01]: Schema validation at SDK level for required fields
+- [04-02]: Relation creation validates entity existence before RELATE
+- [04-02]: Delete uses RETURN BEFORE to count actual deletions
+- [04-02]: forget tool resolves names to IDs if no colon present
 
 ### Pending Todos
 
@@ -73,21 +76,35 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-02T07:28:00Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-02-02T07:42:45Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
 
-## Phase 4 Summary (In Progress)
+## Phase 4 Summary (COMPLETE)
 
 **Plan 01 Complete:**
 - QueryUpsertEntity function with additive label merge
 - remember tool for entity storage with auto-generated embeddings
 - Composite ID generation (context:slugified-name)
-- 6 tools now registered: ping, search, get_entity, list_labels, list_types, remember
+
+**Plan 02 Complete:**
+- QueryCreateRelation with entity existence validation
+- QueryDeleteEntity with batch support and count return
+- Relation support in remember tool
+- forget tool for entity deletion
+- 7 tools now registered: ping, search, get_entity, list_labels, list_types, remember, forget
 
 **Patterns Established:**
 - Composite ID: context:slugified-name for entity uniqueness
 - Upsert wasCreated pattern: pre-check, upsert, return indicator
 - EntityResult response type (excludes embedding)
+- Idempotent delete: returns 0 for non-existent entities
+- Relation errors collected but don't fail entire request
 
-**Next:** 04-02 (relations), 04-03 (forget)
+**Full CRUD Cycle Complete:**
+- CREATE: remember tool with entities and relations
+- READ: search, get_entity, list_labels, list_types
+- UPDATE: remember tool (upsert behavior)
+- DELETE: forget tool
+
+**Next:** Phase 5 (if planned)
