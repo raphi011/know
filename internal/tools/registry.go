@@ -79,4 +79,10 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "delete_episode",
 		Description: "Delete an episodic memory by its ID",
 	}, NewDeleteEpisodeHandler(deps))
+
+	// Search episodes tool - semantic search with time filtering
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "search_episodes",
+		Description: "Search episodic memories by semantic content with optional time range filtering. Use to find past conversations or experiences.",
+	}, NewSearchEpisodesHandler(deps, cfg))
 }
