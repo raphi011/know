@@ -12,8 +12,8 @@ import (
 
 // RememberInput defines the input schema for the remember tool.
 type RememberInput struct {
-	Entities []EntityInput   `json:"entities,omitempty" jsonschema:"Entities to store"`
-	Relations []RelationInput `json:"relations,omitempty" jsonschema:"Relations to create (Phase 04-02)"`
+	Entities  []EntityInput   `json:"entities,omitempty" jsonschema:"Entities to store"`
+	Relations []RelationInput `json:"relations,omitempty" jsonschema:"Relations to create between entities"`
 	Context   string          `json:"context,omitempty" jsonschema:"Project namespace (auto-detected if omitted)"`
 }
 
@@ -27,7 +27,7 @@ type EntityInput struct {
 	Source     string   `json:"source,omitempty" jsonschema:"Where this info came from"`
 }
 
-// RelationInput placeholder for Phase 04-02.
+// RelationInput defines a relation between two entities.
 type RelationInput struct {
 	From   string  `json:"from" jsonschema:"required,Source entity name"`
 	To     string  `json:"to" jsonschema:"required,Target entity name"`
@@ -50,9 +50,11 @@ type EntityResult struct {
 
 // RememberResult is the response from the remember tool.
 type RememberResult struct {
-	Entities []EntityResult `json:"entities"`
-	Created  int            `json:"created"`
-	Updated  int            `json:"updated"`
+	Entities         []EntityResult `json:"entities"`
+	Created          int            `json:"created"`
+	Updated          int            `json:"updated"`
+	RelationsCreated int            `json:"relations_created,omitempty"`
+	RelationErrors   []string       `json:"relation_errors,omitempty"`
 }
 
 // slugify normalizes a name for use in entity IDs.
@@ -108,6 +110,12 @@ func NewRememberHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerF
 			Entities: make([]EntityResult, 0, len(input.Entities)),
 		}
 
+		// Get context string for ID generation
+		ctxStr := ""
+		if entityContext != nil {
+			ctxStr = *entityContext
+		}
+
 		for _, e := range input.Entities {
 			// Generate embedding
 			embedding, err := deps.Embedder.Embed(ctx, e.Content)
@@ -117,10 +125,6 @@ func NewRememberHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerF
 			}
 
 			// Generate composite ID
-			ctxStr := ""
-			if entityContext != nil {
-				ctxStr = *entityContext
-			}
 			id := generateEntityID(e.Name, ctxStr)
 
 			// Set defaults
@@ -178,10 +182,40 @@ func NewRememberHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerF
 			})
 		}
 
+		// Process relations after entities
+		for _, rel := range input.Relations {
+			// Validate required fields
+			if rel.From == "" || rel.To == "" || rel.Type == "" {
+				result.RelationErrors = append(result.RelationErrors, "relation missing from/to/type")
+				continue
+			}
+
+			// Resolve entity names to IDs
+			fromID := generateEntityID(rel.From, ctxStr)
+			toID := generateEntityID(rel.To, ctxStr)
+
+			// Default weight
+			weight := rel.Weight
+			if weight <= 0 {
+				weight = 1.0
+			}
+
+			// Create relation
+			if err := deps.DB.QueryCreateRelation(ctx, fromID, rel.Type, toID, weight); err != nil {
+				result.RelationErrors = append(result.RelationErrors,
+					rel.From+"->"+rel.To+": "+err.Error())
+				continue
+			}
+			result.RelationsCreated++
+		}
+
 		// Format response as JSON
 		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
 
-		deps.Logger.Info("remember completed", "created", result.Created, "updated", result.Updated)
+		deps.Logger.Info("remember completed",
+			"created", result.Created,
+			"updated", result.Updated,
+			"relations", result.RelationsCreated)
 		return TextResult(string(jsonBytes)), nil, nil
 	}
 }

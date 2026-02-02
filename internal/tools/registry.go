@@ -43,4 +43,10 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "remember",
 		Description: "Store entities in the knowledge graph with auto-generated embeddings",
 	}, NewRememberHandler(deps, cfg))
+
+	// Forget tool - delete entities from the knowledge graph
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "forget",
+		Description: "Delete entities from the knowledge graph by ID",
+	}, NewForgetHandler(deps, cfg))
 }
