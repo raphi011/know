@@ -386,3 +386,153 @@ func (c *Client) QueryDeleteEntity(ctx context.Context, ids ...string) (int, err
 	}
 	return len((*results)[0].Result), nil
 }
+
+// QueryCreateEpisode creates or updates an episode by ID.
+// Uses SurrealDB UPSERT to handle insert vs update semantics.
+// Returns the created/updated episode.
+func (c *Client) QueryCreateEpisode(
+	ctx context.Context,
+	episodeID string,
+	content string,
+	embedding []float32,
+	timestamp string,
+	summary *string,
+	metadata map[string]any,
+	episodeContext *string,
+) (*models.Episode, error) {
+	// Ensure metadata is not nil
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+
+	// UPSERT with conditional created field (only set on insert)
+	sql := `
+		UPSERT type::record("episode", $id) SET
+			content = $content,
+			embedding = $embedding,
+			timestamp = type::datetime($timestamp),
+			summary = $summary,
+			metadata = $metadata,
+			context = $context,
+			accessed = time::now(),
+			created = IF created THEN created ELSE time::now() END,
+			access_count = IF access_count THEN access_count ELSE 0 END
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, sql, map[string]any{
+		"id":        episodeID,
+		"content":   content,
+		"embedding": embedding,
+		"timestamp": timestamp,
+		"summary":   summary,
+		"metadata":  metadata,
+		"context":   episodeContext,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create episode: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create episode: no result returned")
+	}
+
+	return &(*results)[0].Result[0], nil
+}
+
+// QueryGetEpisode retrieves an episode by ID.
+// Returns nil if not found.
+func (c *Client) QueryGetEpisode(ctx context.Context, id string) (*models.Episode, error) {
+	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, `
+		SELECT * FROM type::record("episode", $id)
+	`, map[string]any{"id": id})
+
+	if err != nil {
+		return nil, fmt.Errorf("get episode: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// QueryUpdateEpisodeAccess updates access tracking for an episode.
+func (c *Client) QueryUpdateEpisodeAccess(ctx context.Context, id string) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("episode", $id) SET
+			accessed = time::now(),
+			access_count += 1
+	`, map[string]any{"id": id})
+	if err != nil {
+		return fmt.Errorf("update episode access: %w", err)
+	}
+	return nil
+}
+
+// QueryDeleteEpisode deletes an episode by ID.
+// Returns count of deleted (0 if not found - idempotent).
+func (c *Client) QueryDeleteEpisode(ctx context.Context, id string) (int, error) {
+	sql := `DELETE type::record("episode", $id) RETURN BEFORE`
+
+	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, sql, map[string]any{
+		"id": id,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("delete episode: %w", err)
+	}
+
+	// Count deleted (RETURN BEFORE returns deleted records)
+	if results == nil || len(*results) == 0 {
+		return 0, nil
+	}
+	return len((*results)[0].Result), nil
+}
+
+// QueryLinkEntityToEpisode creates an extracted_from relation from entity to episode.
+// Used to track which entities were mentioned/extracted from an episode.
+func (c *Client) QueryLinkEntityToEpisode(
+	ctx context.Context,
+	entityID string,
+	episodeID string,
+	position int,
+	confidence float64,
+) error {
+	sql := `
+		RELATE type::record("entity", $entity_id)->extracted_from->type::record("episode", $episode_id) SET
+			position = $position,
+			confidence = $confidence
+	`
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"entity_id":  entityID,
+		"episode_id": episodeID,
+		"position":   position,
+		"confidence": confidence,
+	})
+	if err != nil {
+		return fmt.Errorf("link entity to episode: %w", err)
+	}
+	return nil
+}
+
+// QueryGetLinkedEntities retrieves entities linked to an episode via extracted_from.
+func (c *Client) QueryGetLinkedEntities(ctx context.Context, episodeID string) ([]models.Entity, error) {
+	sql := `
+		SELECT * FROM entity WHERE id IN (
+			SELECT in FROM extracted_from WHERE out = type::record("episode", $episode_id)
+		)
+	`
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"episode_id": episodeID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get linked entities: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Entity{}, nil
+	}
+	return (*results)[0].Result, nil
+}
