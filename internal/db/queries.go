@@ -167,3 +167,74 @@ func (c *Client) QueryListTypes(ctx context.Context, contextFilter *string) ([]T
 	}
 	return (*results)[0].Result, nil
 }
+
+// QueryUpsertEntity creates or updates an entity by ID.
+// Uses SurrealDB UPSERT with array::union for additive label merge.
+// Returns (entity, wasCreated, error) where wasCreated indicates if entity was new.
+func (c *Client) QueryUpsertEntity(
+	ctx context.Context,
+	id string,
+	entityType string,
+	labels []string,
+	content string,
+	embedding []float32,
+	confidence float64,
+	source *string,
+	entityContext *string,
+) (*models.Entity, bool, error) {
+	// Ensure labels is not nil
+	if labels == nil {
+		labels = []string{}
+	}
+
+	// Check if entity exists to determine action
+	existsSQL := `SELECT count() AS c FROM type::record("entity", $id)`
+	existsResult, err := surrealdb.Query[[]struct{ C int }](ctx, c.db, existsSQL, map[string]any{"id": id})
+	if err != nil {
+		return nil, false, fmt.Errorf("check entity exists: %w", err)
+	}
+
+	wasCreated := true
+	if existsResult != nil && len(*existsResult) > 0 && len((*existsResult)[0].Result) > 0 {
+		wasCreated = (*existsResult)[0].Result[0].C == 0
+	}
+
+	// UPSERT with additive label merge
+	// Use array::union to merge existing labels with new ones
+	// Set importance/access_count only on create, preserve on update
+	sql := `
+		UPSERT type::record("entity", $id) SET
+			type = $type,
+			labels = array::union(labels ?? [], $labels),
+			content = $content,
+			embedding = $embedding,
+			confidence = $confidence,
+			source = $source,
+			context = $context,
+			accessed = time::now(),
+			decay_weight = 1.0,
+			importance = IF importance THEN importance ELSE 1.0 END,
+			access_count = IF access_count THEN access_count ELSE 0 END
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"id":         id,
+		"type":       entityType,
+		"labels":     labels,
+		"content":    content,
+		"embedding":  embedding,
+		"confidence": confidence,
+		"source":     source,
+		"context":    entityContext,
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("upsert entity: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, false, fmt.Errorf("upsert entity: no result returned")
+	}
+
+	return &(*results)[0].Result[0], wasCreated, nil
+}
