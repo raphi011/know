@@ -325,6 +325,36 @@ func (c *Client) QueryTraverse(
 	return (*results)[0].Result, nil
 }
 
+// QueryFindPath finds the shortest path between two entities via the relates table.
+// Returns path as slice of entities (intermediate nodes) or nil if no path found.
+// MaxDepth limits path length (1-20).
+func (c *Client) QueryFindPath(
+	ctx context.Context,
+	fromID string,
+	toID string,
+	maxDepth int,
+) ([]models.Entity, error) {
+	// SurrealDB path traversal: from->relates..{depth}->entity WHERE id = to
+	// Depth must be literal (cannot parameterize), so use fmt.Sprintf
+	sql := fmt.Sprintf(`
+		SELECT * FROM type::record("entity", $from)->relates..%d->entity
+		WHERE id = type::record("entity", $to) LIMIT 1
+	`, maxDepth)
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"from": fromID,
+		"to":   toID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find_path: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
+
 // QueryDeleteEntity deletes entities by ID.
 // TYPE RELATION in schema auto-cascades relation deletion.
 // Returns count of deleted entities (0 if none found - idempotent).
