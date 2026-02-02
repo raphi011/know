@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-01)
 
 **Core value:** Agents can remember and recall knowledge across sessions with sub-second semantic search
-**Current focus:** Phase 5 - Graph Tools (COMPLETE)
+**Current focus:** Phase 6 - Episode Tools (IN PROGRESS)
 
 ## Current Position
 
-Phase: 5 of 8 (Graph Tools) - COMPLETE
-Plan: 2 of 2 in current phase - COMPLETE
-Status: Phase complete
-Last activity: 2026-02-02 - Completed 05-02-PLAN.md
+Phase: 6 of 8 (Episode Tools)
+Plan: 1 of 2 in current phase - COMPLETE
+Status: In progress
+Last activity: 2026-02-02 - Completed 06-01-PLAN.md
 
-Progress: [███████░░░] 67% (6 of 9 plans complete)
+Progress: [████████░░] 78% (7 of 9 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: ~7 min per plan
-- Total execution time: ~80 min
+- Total plans completed: 7
+- Average duration: ~8 min per plan
+- Total execution time: ~88 min
 
 **By Phase:**
 
@@ -32,10 +32,11 @@ Progress: [███████░░░] 67% (6 of 9 plans complete)
 | 3 | 2 | 13m | 6.5m |
 | 4 | 2 | 17m | 8.5m |
 | 5 | 2 | 14m | 7m |
+| 6 | 1 | 8m | 8m |
 
 **Recent Trend:**
-- Last 5 plans: 04-01, 04-02, 05-01, 05-02
-- Trend: Consistent 5-12m per plan
+- Last 5 plans: 04-02, 05-01, 05-02, 06-01
+- Trend: Consistent 7-8m per plan
 
 *Updated after each plan completion*
 
@@ -70,6 +71,9 @@ Recent decisions affecting current work:
 - [05-01]: Default depth 2, max 10 for traverse performance
 - [05-02]: Default max_depth 5, max 20 for path finding
 - [05-02]: PathFound boolean for clear no-path vs error distinction
+- [06-01]: Episode ID format: ep_YYYY-MM-DDTHH-MM-SSZ (timestamp-based)
+- [06-01]: Entity linking logs failures but does not fail episode creation
+- [06-01]: Content truncated to 8000 chars for embedding, 500 chars for preview
 
 ### Pending Todos
 
@@ -81,29 +85,23 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-02T20:14:32Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-02-02T21:28:00Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
 
-## Phase 5 Summary (COMPLETE)
+## Phase 6 Summary (IN PROGRESS)
 
-**Plan 01:**
-- TraverseResult type with entity and connected neighbors
-- QueryTraverse function with bidirectional graph traversal
-- traverse tool for exploring entity neighbors
-- Supports depth 1-10 and relation type filtering
+**Plan 01 (COMPLETE):**
+- QueryCreateEpisode, QueryGetEpisode, QueryDeleteEpisode, QueryUpdateEpisodeAccess
+- QueryLinkEntityToEpisode, QueryGetLinkedEntities
+- episode.go with add_episode, get_episode, delete_episode handlers
+- Timestamp-based ID generation (ep_YYYY-MM-DDTHH-MM-SSZ)
 
-**Plan 02:**
-- QueryFindPath function for shortest path via relates table
-- find_path tool for path finding between entities
-- Max depth 1-20 with default 5
-- PathFound boolean for clear indication
-
-**9 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path
+**12 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode
 
 **Patterns Established:**
-- Graph traversal with depth interpolation (SurrealDB literal requirement)
-- Relation type filtering via subquery
-- Path finding with clear found/not-found distinction
+- Timestamp-based episode ID generation
+- Soft-fail entity linking (logs warnings, doesn't block)
+- Content truncation for embedding (8000 chars)
 
-**Next:** Phase 06 (Context and Prompt Tools)
+**Next:** Plan 02 (Episode Search/List Tools)
