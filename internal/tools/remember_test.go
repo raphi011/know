@@ -67,7 +67,7 @@ func TestRememberToolRegistered(t *testing.T) {
 	t.Run("remember tool appears in tools/list", func(t *testing.T) {
 		result, err := session.ListTools(ctx, nil)
 		require.NoError(t, err)
-		require.Len(t, result.Tools, 6) // ping + search + get_entity + list_labels + list_types + remember
+		require.Len(t, result.Tools, 7) // ping + search + get_entity + list_labels + list_types + remember + forget
 
 		toolNames := make([]string, len(result.Tools))
 		for i, tool := range result.Tools {
@@ -247,5 +247,116 @@ func TestGenerateEntityID(t *testing.T) {
 			// This test documents expected ID format
 			t.Logf("Expected ID for name=%q context=%q: %s", tt.name, tt.context, tt.expected)
 		})
+	}
+}
+
+func TestRememberToolRelationValidation(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Create server
+	impl := &mcp.Implementation{
+		Name:    "test-memcp",
+		Version: "0.0.1-test",
+	}
+	server := mcp.NewServer(impl, nil)
+
+	// Register tools with nil deps - validation happens before DB calls
+	deps := &tools.Dependencies{
+		DB:       nil,
+		Embedder: nil,
+		Logger:   logger,
+	}
+	cfg := &config.Config{}
+	tools.RegisterAll(server, deps, cfg)
+
+	// Create in-memory transports
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Run server in background
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.Run(ctx, serverTransport)
+	}()
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Create client and connect
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "test-client",
+		Version: "1.0.0",
+	}, nil)
+
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err, "client should connect successfully")
+	defer session.Close()
+
+	// Test: Relation without from/to/type returns error (schema validation)
+	t.Run("relation without from returns schema error", func(t *testing.T) {
+		params := &mcp.CallToolParams{
+			Name: "remember",
+			Arguments: map[string]any{
+				"entities": []any{
+					map[string]any{"name": "entity1", "content": "test content"},
+				},
+				"relations": []any{
+					map[string]any{"to": "entity2", "type": "relates_to"},
+				},
+			},
+		}
+		// SDK validates schema and returns error for missing required field
+		_, err := session.CallTool(ctx, params)
+		require.Error(t, err, "relation without from should return error")
+		assert.Contains(t, err.Error(), "from")
+	})
+
+	t.Run("relation without to returns schema error", func(t *testing.T) {
+		params := &mcp.CallToolParams{
+			Name: "remember",
+			Arguments: map[string]any{
+				"entities": []any{
+					map[string]any{"name": "entity1", "content": "test content"},
+				},
+				"relations": []any{
+					map[string]any{"from": "entity1", "type": "relates_to"},
+				},
+			},
+		}
+		_, err := session.CallTool(ctx, params)
+		require.Error(t, err, "relation without to should return error")
+		assert.Contains(t, err.Error(), "to")
+	})
+
+	t.Run("relation without type returns schema error", func(t *testing.T) {
+		params := &mcp.CallToolParams{
+			Name: "remember",
+			Arguments: map[string]any{
+				"entities": []any{
+					map[string]any{"name": "entity1", "content": "test content"},
+				},
+				"relations": []any{
+					map[string]any{"from": "entity1", "to": "entity2"},
+				},
+			},
+		}
+		_, err := session.CallTool(ctx, params)
+		require.Error(t, err, "relation without type should return error")
+		assert.Contains(t, err.Error(), "type")
+	})
+
+	// Cleanup
+	cancel()
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			t.Logf("server stopped with: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("server did not stop within timeout")
 	}
 }

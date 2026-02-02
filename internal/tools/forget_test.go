@@ -1,7 +1,6 @@
 //go:build integration
 
 // Package tools_test contains tests for MCP tools.
-// Integration tests requiring SurrealDB/Ollama are in test_integration.go
 package tools_test
 
 import (
@@ -18,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSearchToolRegistered(t *testing.T) {
+func TestForgetToolRegistered(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Create server
@@ -63,8 +62,8 @@ func TestSearchToolRegistered(t *testing.T) {
 	require.NoError(t, err, "client should connect successfully")
 	defer session.Close()
 
-	// Test: List tools - verify all search tools are registered
-	t.Run("tools/list returns all search tools", func(t *testing.T) {
+	// Test: List tools - verify forget tool is registered
+	t.Run("forget tool appears in tools/list", func(t *testing.T) {
 		result, err := session.ListTools(ctx, nil)
 		require.NoError(t, err)
 		require.Len(t, result.Tools, 7) // ping + search + get_entity + list_labels + list_types + remember + forget
@@ -73,27 +72,23 @@ func TestSearchToolRegistered(t *testing.T) {
 		for i, tool := range result.Tools {
 			toolNames[i] = tool.Name
 		}
-		assert.Contains(t, toolNames, "ping")
-		assert.Contains(t, toolNames, "search")
-		assert.Contains(t, toolNames, "get_entity")
-		assert.Contains(t, toolNames, "list_labels")
-		assert.Contains(t, toolNames, "list_types")
+		assert.Contains(t, toolNames, "forget")
 	})
 
-	// Test: Verify search tool description
-	t.Run("search has correct description", func(t *testing.T) {
+	// Test: Verify forget tool description
+	t.Run("forget has correct description", func(t *testing.T) {
 		result, err := session.ListTools(ctx, nil)
 		require.NoError(t, err)
 
-		var searchTool *mcp.Tool
+		var forgetTool *mcp.Tool
 		for _, tool := range result.Tools {
-			if tool.Name == "search" {
-				searchTool = tool
+			if tool.Name == "forget" {
+				forgetTool = tool
 				break
 			}
 		}
-		require.NotNil(t, searchTool, "search tool should exist")
-		assert.Equal(t, "Search the knowledge graph using hybrid BM25 + vector search with RRF fusion", searchTool.Description)
+		require.NotNil(t, forgetTool, "forget tool should exist")
+		assert.Equal(t, "Delete entities from the knowledge graph by ID", forgetTool.Description)
 	})
 
 	// Cleanup
@@ -109,7 +104,7 @@ func TestSearchToolRegistered(t *testing.T) {
 	}
 }
 
-func TestSearchToolValidation(t *testing.T) {
+func TestForgetToolValidation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Create server
@@ -119,7 +114,7 @@ func TestSearchToolValidation(t *testing.T) {
 	}
 	server := mcp.NewServer(impl, nil)
 
-	// Register tools with nil deps - validation happens before DB/Embedder calls
+	// Register tools with nil deps - validation happens before DB calls
 	deps := &tools.Dependencies{
 		DB:       nil,
 		Embedder: nil,
@@ -154,49 +149,19 @@ func TestSearchToolValidation(t *testing.T) {
 	require.NoError(t, err, "client should connect successfully")
 	defer session.Close()
 
-	// Test: Empty query returns error
-	t.Run("empty query returns error", func(t *testing.T) {
+	// Test: Empty IDs returns error
+	t.Run("empty ids returns error", func(t *testing.T) {
 		params := &mcp.CallToolParams{
-			Name:      "search",
-			Arguments: map[string]any{"query": ""},
+			Name:      "forget",
+			Arguments: map[string]any{"ids": []any{}},
 		}
 		result, err := session.CallTool(ctx, params)
 		require.NoError(t, err)
-		assert.True(t, result.IsError, "empty query should return error")
+		assert.True(t, result.IsError, "empty ids should return error")
 
 		textContent, ok := result.Content[0].(*mcp.TextContent)
 		require.True(t, ok)
-		assert.Contains(t, textContent.Text, "Query cannot be empty")
-	})
-
-	// Test: Limit > 100 returns error
-	t.Run("limit over 100 returns error", func(t *testing.T) {
-		params := &mcp.CallToolParams{
-			Name:      "search",
-			Arguments: map[string]any{"query": "test", "limit": 150},
-		}
-		result, err := session.CallTool(ctx, params)
-		require.NoError(t, err)
-		assert.True(t, result.IsError, "limit > 100 should return error")
-
-		textContent, ok := result.Content[0].(*mcp.TextContent)
-		require.True(t, ok)
-		assert.Contains(t, textContent.Text, "Limit must be 1-100")
-	})
-
-	// Test: get_entity empty ID returns error
-	t.Run("get_entity empty ID returns error", func(t *testing.T) {
-		params := &mcp.CallToolParams{
-			Name:      "get_entity",
-			Arguments: map[string]any{"id": ""},
-		}
-		result, err := session.CallTool(ctx, params)
-		require.NoError(t, err)
-		assert.True(t, result.IsError, "empty ID should return error")
-
-		textContent, ok := result.Content[0].(*mcp.TextContent)
-		require.True(t, ok)
-		assert.Contains(t, textContent.Text, "ID cannot be empty")
+		assert.Contains(t, textContent.Text, "At least one ID is required")
 	})
 
 	// Cleanup
