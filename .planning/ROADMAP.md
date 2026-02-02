@@ -93,11 +93,11 @@ Plans:
   1. User can get neighbors up to specified depth
   2. User can find shortest path between two entities
   3. Results include relationship types and directions
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: traverse tool (neighbors with depth)
-- [ ] 05-02: find_path tool (shortest path)
+- [ ] 05-01-PLAN.md — traverse tool (neighbors with depth)
+- [ ] 05-02-PLAN.md — find_path tool (shortest path)
 
 ### Phase 6: Episode Tools
 **Goal**: Users can store and search episodic memories
