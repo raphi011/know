@@ -61,4 +61,22 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "find_path",
 		Description: "Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts.",
 	}, NewFindPathHandler(deps))
+
+	// Add episode tool - store episodic memories
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "add_episode",
+		Description: "Store a conversation or experience as an episodic memory with auto-generated timestamp and embedding",
+	}, NewAddEpisodeHandler(deps, cfg))
+
+	// Get episode tool - retrieve by ID
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_episode",
+		Description: "Retrieve an episodic memory by its ID with full content",
+	}, NewGetEpisodeHandler(deps))
+
+	// Delete episode tool - remove by ID
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_episode",
+		Description: "Delete an episodic memory by its ID",
+	}, NewDeleteEpisodeHandler(deps))
 }
