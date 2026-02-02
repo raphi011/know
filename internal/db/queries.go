@@ -276,6 +276,55 @@ func (c *Client) QueryCreateRelation(
 	return nil
 }
 
+// TraverseResult contains an entity with its connected neighbors.
+type TraverseResult struct {
+	ID         string          `json:"id"`
+	Type       string          `json:"type"`
+	Labels     []string        `json:"labels"`
+	Content    string          `json:"content"`
+	Confidence float64         `json:"confidence"`
+	Context    string          `json:"context"`
+	Connected  []models.Entity `json:"connected"`
+}
+
+// QueryTraverse performs bidirectional graph traversal from a starting entity.
+// Returns the starting entity with connected neighbors at each depth level.
+// If relationTypes is provided, only traverses via those relation types.
+func (c *Client) QueryTraverse(
+	ctx context.Context,
+	startID string,
+	depth int,
+	relationTypes []string,
+) ([]TraverseResult, error) {
+	var sql string
+	vars := map[string]any{"id": startID}
+
+	if len(relationTypes) > 0 {
+		// Filter by rel_type field within the relates table
+		sql = fmt.Sprintf(`
+			SELECT *, ->(SELECT * FROM relates WHERE rel_type IN $types)..%d->entity AS connected
+			FROM type::record("entity", $id)
+		`, depth)
+		vars["types"] = relationTypes
+	} else {
+		// Traverse all relation types
+		sql = fmt.Sprintf(`
+			SELECT *, ->relates..%d->entity AS connected
+			FROM type::record("entity", $id)
+		`, depth)
+	}
+
+	results, err := surrealdb.Query[[]TraverseResult](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("traverse: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []TraverseResult{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
 // QueryDeleteEntity deletes entities by ID.
 // TYPE RELATION in schema auto-cascades relation deletion.
 // Returns count of deleted entities (0 if none found - idempotent).
