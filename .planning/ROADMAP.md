@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: MCP Server** - Server setup, stdio transport, tool framework ✓
 - [x] **Phase 3: Search Tools** - Hybrid search, get_entity, list_labels, list_types ✓
 - [x] **Phase 4: Persistence Tools** - remember, forget with entity/relation handling ✓
-- [ ] **Phase 5: Graph Tools** - traverse, find_path for relationship navigation
+- [x] **Phase 5: Graph Tools** - traverse, find_path for relationship navigation ✓
 - [ ] **Phase 6: Episode Tools** - add_episode, search_episodes, get_episode, delete_episode
 - [ ] **Phase 7: Procedure Tools** - CRUD and list for procedural memory
 - [ ] **Phase 8: Maintenance Tools** - reflect (decay, similar pairs identification)
@@ -96,8 +96,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — traverse tool (neighbors with depth)
-- [ ] 05-02-PLAN.md — find_path tool (shortest path)
+- [x] 05-01-PLAN.md — traverse tool (neighbors with depth)
+- [x] 05-02-PLAN.md — find_path tool (shortest path)
 
 ### Phase 6: Episode Tools
 **Goal**: Users can store and search episodic memories
@@ -155,7 +155,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. MCP Server | 2/2 | ✓ Complete | 2026-02-01 |
 | 3. Search Tools | 2/2 | ✓ Complete | 2026-02-01 |
 | 4. Persistence Tools | 2/2 | ✓ Complete | 2026-02-02 |
-| 5. Graph Tools | 0/2 | Not started | - |
+| 5. Graph Tools | 2/2 | ✓ Complete | 2026-02-02 |
 | 6. Episode Tools | 0/2 | Not started | - |
 | 7. Procedure Tools | 0/2 | Not started | - |
 | 8. Maintenance Tools | 0/2 | Not started | - |
@@ -164,5 +164,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 *Roadmap created: 2026-02-01*
 *Phase 3 complete: 2026-02-01*
 *Phase 4 complete: 2026-02-02*
+*Phase 5 complete: 2026-02-02*
 *Total plans: 17 (estimated)*
 *Total requirements: 31*

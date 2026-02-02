@@ -37,8 +37,8 @@ Requirements for Go migration. Each maps to roadmap phases.
 
 ### Graph Tools
 
-- [ ] **GRPH-01**: `traverse` tool — get neighbors up to specified depth
-- [ ] **GRPH-02**: `find_path` tool — find shortest path between two entities
+- [x] **GRPH-01**: `traverse` tool — get neighbors up to specified depth
+- [x] **GRPH-02**: `find_path` tool — find shortest path between two entities
 
 ### Episode Tools
 
@@ -122,8 +122,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-01 | Phase 4 | Complete |
 | PERS-02 | Phase 4 | Complete |
 | PERS-03 | Phase 4 | Complete |
-| GRPH-01 | Phase 5 | Pending |
-| GRPH-02 | Phase 5 | Pending |
+| GRPH-01 | Phase 5 | Complete |
+| GRPH-02 | Phase 5 | Complete |
 | EPSD-01 | Phase 6 | Pending |
 | EPSD-02 | Phase 6 | Pending |
 | EPSD-03 | Phase 6 | Pending |
@@ -147,4 +147,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-01*
-*Last updated: 2026-02-02 after Phase 4 completion*
+*Last updated: 2026-02-02 after Phase 5 completion*
