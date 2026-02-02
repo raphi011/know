@@ -108,11 +108,11 @@ Plans:
   2. User can search episodes by semantic content
   3. User can retrieve episode by ID
   4. User can delete episode by ID
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: add_episode, get_episode, delete_episode tools
-- [ ] 06-02: search_episodes tool
+- [ ] 06-01-PLAN.md — add_episode, get_episode, delete_episode tools
+- [ ] 06-02-PLAN.md — search_episodes tool with time filtering
 
 ### Phase 7: Procedure Tools
 **Goal**: Users can store and manage procedural memory (how-to knowledge)
@@ -156,7 +156,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 3. Search Tools | 2/2 | ✓ Complete | 2026-02-01 |
 | 4. Persistence Tools | 2/2 | ✓ Complete | 2026-02-02 |
 | 5. Graph Tools | 2/2 | ✓ Complete | 2026-02-02 |
-| 6. Episode Tools | 0/2 | Not started | - |
+| 6. Episode Tools | 0/2 | Planned | - |
 | 7. Procedure Tools | 0/2 | Not started | - |
 | 8. Maintenance Tools | 0/2 | Not started | - |
 
@@ -165,5 +165,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 *Phase 3 complete: 2026-02-01*
 *Phase 4 complete: 2026-02-02*
 *Phase 5 complete: 2026-02-02*
+*Phase 6 planned: 2026-02-02*
 *Total plans: 17 (estimated)*
 *Total requirements: 31*
