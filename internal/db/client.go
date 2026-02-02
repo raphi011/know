@@ -3,17 +3,27 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/contrib/rews"
 	"github.com/surrealdb/surrealdb.go/pkg/connection"
-	"github.com/surrealdb/surrealdb.go/pkg/connection/gws"
+	"github.com/surrealdb/surrealdb.go/pkg/connection/gorillaws"
 	"github.com/surrealdb/surrealdb.go/pkg/logger"
 	"github.com/surrealdb/surrealdb.go/surrealcbor"
 )
+
+func init() {
+	// Force HTTP/1.1 for WSS connections to prevent HTTP/2 ALPN negotiation.
+	// WebSocket upgrade requires HTTP/1.1 semantics which fail under HTTP/2.
+	gorillaws.DefaultDialer.TLSClientConfig = &tls.Config{
+		NextProtos: []string{"http/1.1"},
+	}
+}
 
 // Config holds SurrealDB connection configuration.
 type Config struct {
@@ -27,7 +37,7 @@ type Config struct {
 
 // Client wraps SurrealDB connection with auto-reconnect.
 type Client struct {
-	conn   *rews.Connection[*gws.Connection]
+	conn   *rews.Connection[*gorillaws.Connection]
 	db     *surrealdb.DB
 	cfg    Config
 	logger logger.Logger
@@ -46,11 +56,17 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger) (*Client, erro
 	// Use surrealcbor for CBOR encoding/decoding (handles SurrealDB custom tags)
 	codec := surrealcbor.New()
 
-	// Create rews connection with auto-reconnect
+	// Create rews connection with auto-reconnect using gorillaws
+	// Note: gorillaws requires ws:// or wss:// URL without /rpc suffix (it adds /rpc internally)
+	baseURL := cfg.URL
+	if strings.HasSuffix(baseURL, "/rpc") {
+		baseURL = strings.TrimSuffix(baseURL, "/rpc")
+	}
+
 	conn := rews.New(
-		func(ctx context.Context) (*gws.Connection, error) {
-			ws := gws.New(&connection.Config{
-				BaseURL:     cfg.URL,
+		func(ctx context.Context) (*gorillaws.Connection, error) {
+			ws := gorillaws.New(&connection.Config{
+				BaseURL:     baseURL,
 				Marshaler:   codec,
 				Unmarshaler: codec,
 				Logger:      sdkLogger,
