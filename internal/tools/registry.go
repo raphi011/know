@@ -37,4 +37,10 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "list_types",
 		Description: "List all entity types with counts",
 	}, NewListTypesHandler(deps, cfg))
+
+	// Remember tool - store entities with auto-generated embeddings
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "remember",
+		Description: "Store entities in the knowledge graph with auto-generated embeddings",
+	}, NewRememberHandler(deps, cfg))
 }
