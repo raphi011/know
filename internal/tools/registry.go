@@ -49,4 +49,10 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "forget",
 		Description: "Delete entities from the knowledge graph by ID",
 	}, NewForgetHandler(deps, cfg))
+
+	// Traverse tool - explore graph neighbors
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "traverse",
+		Description: "Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic.",
+	}, NewTraverseHandler(deps))
 }
