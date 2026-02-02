@@ -42,10 +42,10 @@ Requirements for Go migration. Each maps to roadmap phases.
 
 ### Episode Tools
 
-- [ ] **EPSD-01**: `add_episode` tool — store episodic memory with embedding
-- [ ] **EPSD-02**: `search_episodes` tool — search episodes by content
-- [ ] **EPSD-03**: `get_episode` tool — retrieve episode by ID
-- [ ] **EPSD-04**: `delete_episode` tool — delete episode by ID
+- [x] **EPSD-01**: `add_episode` tool — store episodic memory with embedding
+- [x] **EPSD-02**: `search_episodes` tool — search episodes by content
+- [x] **EPSD-03**: `get_episode` tool — retrieve episode by ID
+- [x] **EPSD-04**: `delete_episode` tool — delete episode by ID
 
 ### Procedure Tools
 
@@ -124,10 +124,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-03 | Phase 4 | Complete |
 | GRPH-01 | Phase 5 | Complete |
 | GRPH-02 | Phase 5 | Complete |
-| EPSD-01 | Phase 6 | Pending |
-| EPSD-02 | Phase 6 | Pending |
-| EPSD-03 | Phase 6 | Pending |
-| EPSD-04 | Phase 6 | Pending |
+| EPSD-01 | Phase 6 | Complete |
+| EPSD-02 | Phase 6 | Complete |
+| EPSD-03 | Phase 6 | Complete |
+| EPSD-04 | Phase 6 | Complete |
 | PROC-01 | Phase 7 | Pending |
 | PROC-02 | Phase 7 | Pending |
 | PROC-03 | Phase 7 | Pending |
@@ -147,4 +147,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-01*
-*Last updated: 2026-02-02 after Phase 5 completion*
+*Last updated: 2026-02-02 after Phase 6 completion*
