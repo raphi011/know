@@ -53,6 +53,31 @@ type DeleteEpisodeResult struct {
 	Message string `json:"message"`
 }
 
+// SearchEpisodesInput defines the input schema for the search_episodes tool.
+type SearchEpisodesInput struct {
+	Query     string `json:"query" jsonschema:"required,Semantic search query"`
+	TimeStart string `json:"time_start,omitempty" jsonschema:"Filter episodes after this time (ISO 8601, e.g. 2026-01-15T00:00:00Z)"`
+	TimeEnd   string `json:"time_end,omitempty" jsonschema:"Filter episodes before this time (ISO 8601)"`
+	Context   string `json:"context,omitempty" jsonschema:"Project namespace filter (auto-detected if omitted)"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Max results 1-50 (default 10)"`
+}
+
+// EpisodeSearchResult is the response from search_episodes.
+type EpisodeSearchResult struct {
+	Episodes []EpisodeResult `json:"episodes"`
+	Count    int             `json:"count"`
+}
+
+// EpisodeResult represents a single episode in search results.
+type EpisodeResult struct {
+	ID        string         `json:"id"`
+	Content   string         `json:"content"` // Full content, NOT truncated
+	Timestamp string         `json:"timestamp"`
+	Summary   *string        `json:"summary,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	Context   *string        `json:"context,omitempty"`
+}
+
 // extractEpisodeID removes "episode:" prefix if present.
 func extractEpisodeID(id string) string {
 	return strings.TrimPrefix(id, "episode:")
@@ -241,6 +266,110 @@ func NewDeleteEpisodeHandler(deps *Dependencies) mcp.ToolHandlerFor[DeleteEpisod
 		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
 
 		deps.Logger.Info("delete_episode completed", "id", id, "deleted", deleted)
+		return TextResult(string(jsonBytes)), nil, nil
+	}
+}
+
+// ensureTimezone appends Z if timestamp lacks timezone indicator.
+func ensureTimezone(ts string) string {
+	if ts == "" || len(ts) < 6 {
+		return ts
+	}
+	// Check for Z suffix
+	if strings.HasSuffix(ts, "Z") {
+		return ts
+	}
+	// Check for timezone offset patterns (+HH:MM or -HH:MM) in last 6 chars
+	tail := ts[len(ts)-6:]
+	if strings.Contains(tail, "+") || strings.Contains(tail, "-") {
+		return ts
+	}
+	return ts + "Z"
+}
+
+// NewSearchEpisodesHandler creates the search_episodes tool handler.
+// Searches episodic memories using hybrid BM25+vector search with optional time filtering.
+func NewSearchEpisodesHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerFor[SearchEpisodesInput, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchEpisodesInput) (
+		*mcp.CallToolResult, any, error,
+	) {
+		// Validate query
+		if input.Query == "" {
+			return ErrorResult("Query cannot be empty", "Provide a search query"), nil, nil
+		}
+
+		// Set limit defaults and validate
+		limit := input.Limit
+		if limit <= 0 {
+			limit = 10
+		}
+		if limit > 50 {
+			limit = 50
+		}
+
+		// Generate embedding
+		embedding, err := deps.Embedder.Embed(ctx, input.Query)
+		if err != nil {
+			deps.Logger.Error("embedding failed", "error", err)
+			return ErrorResult("Failed to generate embedding", "Check Ollama connection"), nil, nil
+		}
+
+		// Prepare time filters (optional)
+		var timeStart, timeEnd *string
+		if input.TimeStart != "" {
+			ts := ensureTimezone(input.TimeStart)
+			timeStart = &ts
+		}
+		if input.TimeEnd != "" {
+			te := ensureTimezone(input.TimeEnd)
+			timeEnd = &te
+		}
+
+		// Detect context: explicit > config
+		var contextFilter *string
+		if input.Context != "" {
+			contextFilter = &input.Context
+		} else {
+			contextFilter = DetectContext(cfg)
+		}
+
+		// Query episodes
+		episodes, err := deps.DB.QuerySearchEpisodes(ctx, input.Query, embedding, timeStart, timeEnd, contextFilter, limit)
+		if err != nil {
+			deps.Logger.Error("search_episodes failed", "error", err)
+			return ErrorResult("Failed to search episodes", "Database may be unavailable"), nil, nil
+		}
+
+		// Update access tracking for each result (fire-and-forget)
+		for _, ep := range episodes {
+			go func(id string) {
+				_ = deps.DB.QueryUpdateEpisodeAccess(context.Background(), id)
+			}(extractEpisodeID(ep.ID))
+		}
+
+		// Build result with FULL content (user decision: no truncation)
+		results := make([]EpisodeResult, len(episodes))
+		for i, ep := range episodes {
+			results[i] = EpisodeResult{
+				ID:        ep.ID,
+				Content:   ep.Content, // Full content, NOT truncated
+				Timestamp: ep.Timestamp.Format(time.RFC3339),
+				Summary:   ep.Summary,
+				Metadata:  ep.Metadata,
+				Context:   ep.Context,
+			}
+		}
+
+		result := EpisodeSearchResult{
+			Episodes: results,
+			Count:    len(results),
+		}
+
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+
+		// Log query (truncated) and result count
+		queryLog := truncateContent(input.Query, 100)
+		deps.Logger.Info("search_episodes completed", "query", queryLog, "results", len(results))
 		return TextResult(string(jsonBytes)), nil, nil
 	}
 }
