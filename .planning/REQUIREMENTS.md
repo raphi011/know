@@ -31,9 +31,9 @@ Requirements for Go migration. Each maps to roadmap phases.
 
 ### Persistence Tools
 
-- [ ] **PERS-01**: `remember` tool — store entities with embeddings (without contradiction detection)
-- [ ] **PERS-02**: `remember` tool — create relations between entities
-- [ ] **PERS-03**: `forget` tool — delete entity by ID
+- [x] **PERS-01**: `remember` tool — store entities with embeddings (without contradiction detection)
+- [x] **PERS-02**: `remember` tool — create relations between entities
+- [x] **PERS-03**: `forget` tool — delete entity by ID
 
 ### Graph Tools
 
@@ -115,13 +115,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MCP-01 | Phase 2 | Complete |
 | MCP-02 | Phase 2 | Complete |
 | MCP-03 | Phase 2 | Complete |
-| SRCH-01 | Phase 3 | Pending |
-| SRCH-02 | Phase 3 | Pending |
-| SRCH-03 | Phase 3 | Pending |
-| SRCH-04 | Phase 3 | Pending |
-| PERS-01 | Phase 4 | Pending |
-| PERS-02 | Phase 4 | Pending |
-| PERS-03 | Phase 4 | Pending |
+| SRCH-01 | Phase 3 | Complete |
+| SRCH-02 | Phase 3 | Complete |
+| SRCH-03 | Phase 3 | Complete |
+| SRCH-04 | Phase 3 | Complete |
+| PERS-01 | Phase 4 | Complete |
+| PERS-02 | Phase 4 | Complete |
+| PERS-03 | Phase 4 | Complete |
 | GRPH-01 | Phase 5 | Pending |
 | GRPH-02 | Phase 5 | Pending |
 | EPSD-01 | Phase 6 | Pending |
@@ -147,4 +147,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-01*
-*Last updated: 2026-02-01 after roadmap creation*
+*Last updated: 2026-02-02 after Phase 4 completion*
