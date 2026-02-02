@@ -55,4 +55,10 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "traverse",
 		Description: "Explore how stored knowledge connects to other knowledge. Use when the user asks 'what's related to...', 'how does X connect to Y', or wants to understand context around a topic.",
 	}, NewTraverseHandler(deps))
+
+	// Find path tool - shortest path between entities
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "find_path",
+		Description: "Find how two pieces of knowledge are connected through intermediate relationships. Use when the user asks 'how is X related to Y' or wants to trace connections between concepts.",
+	}, NewFindPathHandler(deps))
 }
