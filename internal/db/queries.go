@@ -238,3 +238,72 @@ func (c *Client) QueryUpsertEntity(
 
 	return &(*results)[0].Result[0], wasCreated, nil
 }
+
+// QueryCreateRelation creates or updates a relation between two entities.
+// Uses RELATE which respects the unique_key index for deduplication.
+// Returns error if source or target entity doesn't exist.
+func (c *Client) QueryCreateRelation(
+	ctx context.Context,
+	fromID string,
+	relType string,
+	toID string,
+	weight float64,
+) error {
+	// Verify both entities exist, then create relation
+	// SurrealDB RELATE upserts based on unique_key index
+	sql := `
+		LET $from_exists = (SELECT count() AS c FROM type::record("entity", $from_id)).c > 0;
+		LET $to_exists = (SELECT count() AS c FROM type::record("entity", $to_id)).c > 0;
+
+		IF !$from_exists OR !$to_exists {
+			THROW "Entity not found"
+		};
+
+		RELATE type::record("entity", $from_id)->relates->type::record("entity", $to_id) SET
+			rel_type = $rel_type,
+			weight = $weight;
+	`
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"from_id":  fromID,
+		"to_id":    toID,
+		"rel_type": relType,
+		"weight":   weight,
+	})
+	if err != nil {
+		return fmt.Errorf("create relation: %w", err)
+	}
+	return nil
+}
+
+// QueryDeleteEntity deletes entities by ID.
+// TYPE RELATION in schema auto-cascades relation deletion.
+// Returns count of deleted entities (0 if none found - idempotent).
+func (c *Client) QueryDeleteEntity(ctx context.Context, ids ...string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	// Build record IDs for batch delete
+	// Delete with RETURN BEFORE to count actual deletions
+	sql := `DELETE entity WHERE id IN $ids RETURN BEFORE`
+
+	// Convert string IDs to record format
+	recordIDs := make([]string, len(ids))
+	for i, id := range ids {
+		recordIDs[i] = "entity:" + id
+	}
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"ids": recordIDs,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("delete entity: %w", err)
+	}
+
+	// Count deleted (RETURN BEFORE returns deleted records)
+	if results == nil || len(*results) == 0 {
+		return 0, nil
+	}
+	return len((*results)[0].Result), nil
+}
