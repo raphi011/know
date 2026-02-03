@@ -69,7 +69,7 @@ func NewFindPathHandler(deps *Dependencies) mcp.ToolHandlerFor[FindPathInput, an
 		// Build path IDs from entities
 		pathIDs := make([]string, len(path))
 		for i, e := range path {
-			pathIDs[i] = e.ID
+			pathIDs[i] = e.ID.String()
 		}
 
 		result := FindPathResult{

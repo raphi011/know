@@ -1,11 +1,15 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
+)
 
 // Entity represents a memory entity in the knowledge graph.
 // Matches Python memcp/models.py EntityResult.
 type Entity struct {
-	ID             string    `json:"id"`
+	ID             surrealmodels.RecordID `json:"id"`
 	Type           string    `json:"type,omitempty"`
 	Labels         []string  `json:"labels,omitempty"`
 	Content        string    `json:"content"`

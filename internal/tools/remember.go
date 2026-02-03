@@ -170,7 +170,7 @@ func NewRememberHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerF
 			}
 
 			result.Entities = append(result.Entities, EntityResult{
-				ID:         entity.ID,
+				ID:         entity.ID.String(),
 				Name:       e.Name,
 				Type:       entity.Type,
 				Labels:     entity.Labels,

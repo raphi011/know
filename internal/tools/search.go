@@ -63,8 +63,8 @@ func NewSearchHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerFor
 
 		// Update access tracking for each result
 		for _, e := range entities {
-			if updateErr := deps.DB.QueryUpdateAccess(ctx, extractID(e.ID)); updateErr != nil {
-				deps.Logger.Warn("failed to update access", "id", e.ID, "error", updateErr)
+			if updateErr := deps.DB.QueryUpdateAccess(ctx, extractIDFromRecord(e.ID)); updateErr != nil {
+				deps.Logger.Warn("failed to update access", "id", e.ID.String(), "error", updateErr)
 			}
 		}
 
@@ -103,7 +103,7 @@ func NewGetEntityHandler(deps *Dependencies) mcp.ToolHandlerFor[GetEntityInput, 
 		}
 
 		// Extract ID (handle "entity:xxx" or "xxx")
-		id := extractID(input.ID)
+		id := extractIDFromString(input.ID)
 
 		// Query entity
 		entity, err := deps.DB.QueryGetEntity(ctx, id)

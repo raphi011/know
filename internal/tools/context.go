@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // DetectContext determines the project context for scoping entities.
@@ -78,7 +79,17 @@ func parseRepoName(url string) string {
 	return ""
 }
 
-// extractID removes "entity:" prefix if present.
-func extractID(id string) string {
+// extractIDFromRecord extracts the ID portion from a RecordID.
+// For RecordID{Table: "entity", ID: "foo"}, returns "foo".
+func extractIDFromRecord(id surrealmodels.RecordID) string {
+	if idStr, ok := id.ID.(string); ok {
+		return idStr
+	}
+	// Fallback: use String() and strip table prefix
+	return strings.TrimPrefix(id.String(), id.Table+":")
+}
+
+// extractIDFromString removes "entity:" prefix if present from a string ID.
+func extractIDFromString(id string) string {
 	return strings.TrimPrefix(id, "entity:")
 }
