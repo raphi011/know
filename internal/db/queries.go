@@ -801,3 +801,82 @@ func (c *Client) QueryListProcedures(
 	}
 	return (*results)[0].Result, nil
 }
+
+// QueryApplyDecay reduces decay_weight and importance for entities not accessed
+// within the specified number of days.
+// Floor: decay_weight > 0.1 prevents complete decay.
+// Returns entities affected with before/after values.
+// Uses two-step approach: SELECT to capture old values, then UPDATE.
+func (c *Client) QueryApplyDecay(
+	ctx context.Context,
+	decayDays int,
+	contextFilter *string,
+	global bool,
+	dryRun bool,
+) ([]models.DecayedEntity, error) {
+	// Build context filter
+	contextClause := ""
+	vars := map[string]any{"decay_days": decayDays}
+
+	if !global && contextFilter != nil {
+		contextClause = "AND context = $context"
+		vars["context"] = *contextFilter
+	}
+
+	// Decay factor: multiply by 0.9 (10% reduction each run)
+	// Floor at 0.1 to prevent complete decay
+	decayFactor := 0.9
+
+	// Step 1: SELECT entities that would be affected (with computed new values)
+	// This works for both dry_run (preview only) and apply (capture before updating)
+	selectSQL := fmt.Sprintf(`
+		SELECT
+			id,
+			content AS name,
+			decay_weight AS old_decay_weight,
+			math::max(decay_weight * %f, 0.1) AS new_decay_weight,
+			importance AS old_importance,
+			math::max(importance * %f, 0.1) AS new_importance
+		FROM entity
+		WHERE accessed < time::now() - duration::from::days($decay_days)
+			AND decay_weight > 0.1
+			%s
+	`, decayFactor, decayFactor, contextClause)
+
+	results, err := surrealdb.Query[[]models.DecayedEntity](ctx, c.db, selectSQL, vars)
+	if err != nil {
+		return nil, fmt.Errorf("decay select: %w", err)
+	}
+
+	var entities []models.DecayedEntity
+	if results != nil && len(*results) > 0 {
+		entities = (*results)[0].Result
+	}
+
+	// If dry_run, return preview without applying
+	if dryRun {
+		return entities, nil
+	}
+
+	// If no entities to update, return empty
+	if len(entities) == 0 {
+		return []models.DecayedEntity{}, nil
+	}
+
+	// Step 2: Apply UPDATE to affected entities
+	updateSQL := fmt.Sprintf(`
+		UPDATE entity SET
+			decay_weight = math::max(decay_weight * %f, 0.1),
+			importance = math::max(importance * %f, 0.1)
+		WHERE accessed < time::now() - duration::from::days($decay_days)
+			AND decay_weight > 0.1
+			%s
+	`, decayFactor, decayFactor, contextClause)
+
+	_, err = surrealdb.Query[any](ctx, c.db, updateSQL, vars)
+	if err != nil {
+		return nil, fmt.Errorf("apply decay: %w", err)
+	}
+
+	return entities, nil
+}
