@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-01)
 
 **Core value:** Agents can remember and recall knowledge across sessions with sub-second semantic search
-**Current focus:** Phase 7 - Procedure Tools (IN PROGRESS)
+**Current focus:** Phase 7 - Procedure Tools (COMPLETE)
 
 ## Current Position
 
-Phase: 7 of 8 (Procedure Tools)
-Plan: 1 of 2 in current phase - COMPLETE
-Status: In progress
-Last activity: 2026-02-03 - Completed 07-01-PLAN.md
+Phase: 7 of 8 (Procedure Tools) - COMPLETE
+Plan: 2 of 2 in current phase - COMPLETE
+Status: Phase 7 complete, ready for Phase 8
+Last activity: 2026-02-03 - Completed 07-02-PLAN.md
 
-Progress: [█████████░] 90% (9 of 10 plans complete)
+Progress: [██████████] 100% (10 of 10 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: ~7 min per plan
-- Total execution time: ~99 min
+- Total execution time: ~104 min
 
 **By Phase:**
 
@@ -33,10 +33,10 @@ Progress: [█████████░] 90% (9 of 10 plans complete)
 | 4 | 2 | 17m | 8.5m |
 | 5 | 2 | 14m | 7m |
 | 6 | 2 | 13m | 6.5m |
-| 7 | 1 | 6m | 6m |
+| 7 | 2 | 11m | 5.5m |
 
 **Recent Trend:**
-- Last 5 plans: 05-02, 06-01, 06-02, 07-01
+- Last 5 plans: 06-01, 06-02, 07-01, 07-02
 - Trend: Consistent 5-7m per plan
 
 *Updated after each plan completion*
@@ -82,6 +82,9 @@ Recent decisions affecting current work:
 - [07-01]: Step order uses 1-based indexing
 - [07-01]: Embedding from combined name + description + steps content
 - [07-01]: Pre-check existence for action: created/updated indicator
+- [07-02]: Search returns ProcedureSummary for efficiency
+- [07-02]: Search default limit 10, max 50; list default 50, max 100
+- [07-02]: Fire-and-forget access tracking for search results
 
 ### Pending Todos
 
@@ -93,27 +96,29 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-03T11:56:06Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-02-03T12:03:30Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
 
-## Phase 7 Summary (IN PROGRESS)
+## Phase 7 Summary (COMPLETE)
 
 **Plan 01 (COMPLETE):**
 - QueryCreateProcedure, QueryGetProcedure, QueryUpdateProcedureAccess, QueryDeleteProcedure
 - procedure.go with create_procedure, get_procedure, delete_procedure handlers
 - Name-based ID generation with context prefix
 
-**Plan 02 (PENDING):**
-- search_procedures with hybrid BM25+vector search
-- Context filtering
-- Label filtering
+**Plan 02 (COMPLETE):**
+- QuerySearchProcedures with hybrid BM25+vector search and RRF fusion
+- QueryListProcedures with context filtering
+- search_procedures and list_procedures handlers
+- ProcedureSummary type for lightweight results
 
-**16 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode, search_episodes, create_procedure, get_procedure, delete_procedure
+**18 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode, search_episodes, create_procedure, get_procedure, delete_procedure, search_procedures, list_procedures
 
 **Patterns Established:**
 - Procedure CRUD follows same pattern as Episode CRUD
 - generateProcedureID reuses slugify from remember.go
 - Step ordering with 1-based indexing
+- ProcedureSummary for lightweight search/list results
 
-**Next:** Phase 07-02 (search_procedures)
+**Next:** Phase 8 (polish) if created, otherwise project complete
