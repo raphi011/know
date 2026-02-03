@@ -260,3 +260,167 @@ func NewDeleteProcedureHandler(deps *Dependencies) mcp.ToolHandlerFor[DeleteProc
 		return TextResult(string(jsonBytes)), nil, nil
 	}
 }
+
+// SearchProceduresInput defines the input schema for the search_procedures tool.
+type SearchProceduresInput struct {
+	Query   string   `json:"query" jsonschema:"required,Semantic search query"`
+	Labels  []string `json:"labels,omitempty" jsonschema:"Filter by labels (matches ANY)"`
+	Context string   `json:"context,omitempty" jsonschema:"Project namespace filter (auto-detected if omitted)"`
+	Limit   int      `json:"limit,omitempty" jsonschema:"Max results 1-50 (default 10)"`
+}
+
+// ListProceduresInput defines the input schema for the list_procedures tool.
+type ListProceduresInput struct {
+	Context string `json:"context,omitempty" jsonschema:"Project namespace filter (auto-detected if omitted)"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"Max results 1-100 (default 50)"`
+}
+
+// ProcedureSearchResult is the response from search_procedures.
+type ProcedureSearchResult struct {
+	Procedures []ProcedureSummary `json:"procedures"`
+	Count      int                `json:"count"`
+}
+
+// ProcedureSummary is a lightweight procedure representation for search/list results.
+type ProcedureSummary struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	StepCount   int      `json:"step_count"`
+	Labels      []string `json:"labels,omitempty"`
+	Context     *string  `json:"context,omitempty"`
+}
+
+// NewSearchProceduresHandler creates the search_procedures tool handler.
+// Searches procedural memories using hybrid BM25+vector search with optional filtering.
+func NewSearchProceduresHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerFor[SearchProceduresInput, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchProceduresInput) (
+		*mcp.CallToolResult, any, error,
+	) {
+		// Validate query
+		if input.Query == "" {
+			return ErrorResult("Query cannot be empty", "Provide a search query"), nil, nil
+		}
+
+		// Set limit defaults and validate
+		limit := input.Limit
+		if limit <= 0 {
+			limit = 10
+		}
+		if limit > 50 {
+			limit = 50
+		}
+
+		// Generate embedding
+		embedding, err := deps.Embedder.Embed(ctx, input.Query)
+		if err != nil {
+			deps.Logger.Error("embedding failed", "error", err)
+			return ErrorResult("Failed to generate embedding", "Check Ollama connection"), nil, nil
+		}
+
+		// Detect context: explicit > config
+		var contextFilter *string
+		if input.Context != "" {
+			contextFilter = &input.Context
+		} else {
+			contextFilter = DetectContext(cfg)
+		}
+
+		// Query procedures
+		procedures, err := deps.DB.QuerySearchProcedures(ctx, input.Query, embedding, input.Labels, contextFilter, limit)
+		if err != nil {
+			deps.Logger.Error("search_procedures failed", "error", err)
+			return ErrorResult("Failed to search procedures", "Database may be unavailable"), nil, nil
+		}
+
+		// Update access tracking for each result (fire-and-forget)
+		for _, proc := range procedures {
+			go func(id string) {
+				_ = deps.DB.QueryUpdateProcedureAccess(context.Background(), id)
+			}(extractProcedureID(proc.ID))
+		}
+
+		// Build result with summaries (no full steps)
+		summaries := make([]ProcedureSummary, len(procedures))
+		for i, proc := range procedures {
+			summaries[i] = ProcedureSummary{
+				ID:          proc.ID,
+				Name:        proc.Name,
+				Description: proc.Description,
+				StepCount:   len(proc.Steps),
+				Labels:      proc.Labels,
+				Context:     proc.Context,
+			}
+		}
+
+		result := ProcedureSearchResult{
+			Procedures: summaries,
+			Count:      len(summaries),
+		}
+
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+
+		// Log query (truncated) and result count
+		queryLog := input.Query
+		if len(queryLog) > 100 {
+			queryLog = queryLog[:100] + "..."
+		}
+		deps.Logger.Info("search_procedures completed", "query", queryLog, "results", len(summaries))
+		return TextResult(string(jsonBytes)), nil, nil
+	}
+}
+
+// NewListProceduresHandler creates the list_procedures tool handler.
+// Lists all procedures with optional context filtering.
+func NewListProceduresHandler(deps *Dependencies, cfg *config.Config) mcp.ToolHandlerFor[ListProceduresInput, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input ListProceduresInput) (
+		*mcp.CallToolResult, any, error,
+	) {
+		// Set limit defaults and validate
+		limit := input.Limit
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 100 {
+			limit = 100
+		}
+
+		// Detect context: explicit > config
+		var contextFilter *string
+		if input.Context != "" {
+			contextFilter = &input.Context
+		} else {
+			contextFilter = DetectContext(cfg)
+		}
+
+		// Query procedures
+		procedures, err := deps.DB.QueryListProcedures(ctx, contextFilter, limit)
+		if err != nil {
+			deps.Logger.Error("list_procedures failed", "error", err)
+			return ErrorResult("Failed to list procedures", "Database may be unavailable"), nil, nil
+		}
+
+		// Build result with summaries (no full steps)
+		summaries := make([]ProcedureSummary, len(procedures))
+		for i, proc := range procedures {
+			summaries[i] = ProcedureSummary{
+				ID:          proc.ID,
+				Name:        proc.Name,
+				Description: proc.Description,
+				StepCount:   len(proc.Steps),
+				Labels:      proc.Labels,
+				Context:     proc.Context,
+			}
+		}
+
+		result := ProcedureSearchResult{
+			Procedures: summaries,
+			Count:      len(summaries),
+		}
+
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+
+		deps.Logger.Info("list_procedures completed", "results", len(summaries))
+		return TextResult(string(jsonBytes)), nil, nil
+	}
+}
