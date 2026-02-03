@@ -103,4 +103,16 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "delete_procedure",
 		Description: "Delete a procedural memory by its ID",
 	}, NewDeleteProcedureHandler(deps))
+
+	// Search procedures tool - semantic search with filtering
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "search_procedures",
+		Description: "Search procedural memories by semantic content. Use to find relevant workflows, processes, or how-to guides.",
+	}, NewSearchProceduresHandler(deps, cfg))
+
+	// List procedures tool - enumerate all procedures
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_procedures",
+		Description: "List all stored procedures with optional context filtering. Returns summaries, use get_procedure for full steps.",
+	}, NewListProceduresHandler(deps, cfg))
 }
