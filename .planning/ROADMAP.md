@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Persistence Tools** - remember, forget with entity/relation handling ✓
 - [x] **Phase 5: Graph Tools** - traverse, find_path for relationship navigation ✓
 - [x] **Phase 6: Episode Tools** - add_episode, search_episodes, get_episode, delete_episode ✓
-- [ ] **Phase 7: Procedure Tools** - CRUD and list for procedural memory
+- [x] **Phase 7: Procedure Tools** - CRUD and list for procedural memory ✓
 - [ ] **Phase 8: Maintenance Tools** - reflect (decay, similar pairs identification)
 
 ## Phase Details
@@ -124,11 +124,11 @@ Plans:
   3. User can retrieve procedure by ID
   4. User can delete procedure by ID
   5. User can list all procedures
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: create_procedure, get_procedure, delete_procedure tools
-- [ ] 07-02: search_procedures, list_procedures tools
+- [x] 07-01-PLAN.md — create_procedure, get_procedure, delete_procedure tools
+- [x] 07-02-PLAN.md — search_procedures, list_procedures tools
 
 ### Phase 8: Maintenance Tools
 **Goal**: Users can run maintenance operations on memory store
@@ -157,7 +157,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 4. Persistence Tools | 2/2 | ✓ Complete | 2026-02-02 |
 | 5. Graph Tools | 2/2 | ✓ Complete | 2026-02-02 |
 | 6. Episode Tools | 2/2 | ✓ Complete | 2026-02-02 |
-| 7. Procedure Tools | 0/2 | Not started | - |
+| 7. Procedure Tools | 2/2 | ✓ Complete | 2026-02-03 |
 | 8. Maintenance Tools | 0/2 | Not started | - |
 
 ---
@@ -166,5 +166,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 *Phase 4 complete: 2026-02-02*
 *Phase 5 complete: 2026-02-02*
 *Phase 6 complete: 2026-02-02*
+*Phase 7 complete: 2026-02-03*
 *Total plans: 17 (estimated)*
 *Total requirements: 31*

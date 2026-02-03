@@ -49,11 +49,11 @@ Requirements for Go migration. Each maps to roadmap phases.
 
 ### Procedure Tools
 
-- [ ] **PROC-01**: `create_procedure` tool — store procedural memory with steps
-- [ ] **PROC-02**: `search_procedures` tool — search procedures by content
-- [ ] **PROC-03**: `get_procedure` tool — retrieve procedure by ID
-- [ ] **PROC-04**: `delete_procedure` tool — delete procedure by ID
-- [ ] **PROC-05**: `list_procedures` tool — list all procedures
+- [x] **PROC-01**: `create_procedure` tool — store procedural memory with steps
+- [x] **PROC-02**: `search_procedures` tool — search procedures by content
+- [x] **PROC-03**: `get_procedure` tool — retrieve procedure by ID
+- [x] **PROC-04**: `delete_procedure` tool — delete procedure by ID
+- [x] **PROC-05**: `list_procedures` tool — list all procedures
 
 ### Maintenance Tools
 
@@ -128,11 +128,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EPSD-02 | Phase 6 | Complete |
 | EPSD-03 | Phase 6 | Complete |
 | EPSD-04 | Phase 6 | Complete |
-| PROC-01 | Phase 7 | Pending |
-| PROC-02 | Phase 7 | Pending |
-| PROC-03 | Phase 7 | Pending |
-| PROC-04 | Phase 7 | Pending |
-| PROC-05 | Phase 7 | Pending |
+| PROC-01 | Phase 7 | Complete |
+| PROC-02 | Phase 7 | Complete |
+| PROC-03 | Phase 7 | Complete |
+| PROC-04 | Phase 7 | Complete |
+| PROC-05 | Phase 7 | Complete |
 | MAINT-01 | Phase 8 | Pending |
 | MAINT-02 | Phase 8 | Pending |
 | TEST-01 | Phase 8 | Pending |
@@ -147,4 +147,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-01*
-*Last updated: 2026-02-02 after Phase 6 completion*
+*Last updated: 2026-02-03 after Phase 7 completion*
