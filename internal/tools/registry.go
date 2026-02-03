@@ -115,4 +115,10 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "list_procedures",
 		Description: "List all stored procedures with optional context filtering. Returns summaries, use get_procedure for full steps.",
 	}, NewListProceduresHandler(deps, cfg))
+
+	// Reflect tool - memory maintenance operations
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "reflect",
+		Description: "Maintain memory store health: 'decay' reduces importance of unused entities, 'similar' identifies potential duplicates for manual review",
+	}, NewReflectHandler(deps, cfg))
 }
