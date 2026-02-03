@@ -880,3 +880,54 @@ func (c *Client) QueryApplyDecay(
 
 	return entities, nil
 }
+
+// QueryFindSimilarPairs finds entity pairs with embedding similarity above threshold.
+// Uses vector::similarity::cosine for comparison.
+// Deduplicates pairs (returns A-B but not B-A).
+// Returns at most `limit` pairs.
+func (c *Client) QueryFindSimilarPairs(
+	ctx context.Context,
+	threshold float64,
+	limit int,
+	contextFilter *string,
+	global bool,
+) ([]models.SimilarPair, error) {
+	// Build context filter for both entities in pair
+	contextClause := ""
+	vars := map[string]any{
+		"threshold": threshold,
+		"limit":     limit,
+	}
+
+	if !global && contextFilter != nil {
+		contextClause = "AND e1.context = $context AND e2.context = $context"
+		vars["context"] = *contextFilter
+	}
+
+	// Find similar pairs using cosine similarity
+	// Sort pair IDs to deduplicate (e1.id < e2.id ensures A-B not B-A)
+	sql := fmt.Sprintf(`
+		SELECT
+			e1.id AS entity1_id,
+			e1.content AS entity1_name,
+			e2.id AS entity2_id,
+			e2.content AS entity2_name,
+			vector::similarity::cosine(e1.embedding, e2.embedding) AS similarity
+		FROM entity AS e1, entity AS e2
+		WHERE e1.id < e2.id
+			AND vector::similarity::cosine(e1.embedding, e2.embedding) >= $threshold
+			%s
+		ORDER BY similarity DESC
+		LIMIT $limit
+	`, contextClause)
+
+	results, err := surrealdb.Query[[]models.SimilarPair](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("find similar pairs: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.SimilarPair{}, nil
+	}
+	return (*results)[0].Result, nil
+}
