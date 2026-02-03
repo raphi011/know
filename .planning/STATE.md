@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-01)
 
 **Core value:** Agents can remember and recall knowledge across sessions with sub-second semantic search
-**Current focus:** Phase 7 - Procedure Tools (COMPLETE)
+**Current focus:** Phase 8 - Maintenance Tools (IN PROGRESS)
 
 ## Current Position
 
-Phase: 7 of 8 (Procedure Tools) - COMPLETE
-Plan: 2 of 2 in current phase - COMPLETE
-Status: Phase 7 complete, ready for Phase 8
-Last activity: 2026-02-03 - Completed 07-02-PLAN.md
+Phase: 8 of 8 (Maintenance Tools) - IN PROGRESS
+Plan: 1 of 2 in current phase - COMPLETE
+Status: Plan 08-01 complete, ready for 08-02
+Last activity: 2026-02-03 - Completed 08-01-PLAN.md
 
-Progress: [██████████] 100% (10 of 10 plans complete)
+Progress: [███████████] 94% (11 of 12 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: ~7 min per plan
-- Total execution time: ~104 min
+- Total execution time: ~110 min
 
 **By Phase:**
 
@@ -34,9 +34,10 @@ Progress: [██████████] 100% (10 of 10 plans complete)
 | 5 | 2 | 14m | 7m |
 | 6 | 2 | 13m | 6.5m |
 | 7 | 2 | 11m | 5.5m |
+| 8 | 1 | 6m | 6m |
 
 **Recent Trend:**
-- Last 5 plans: 06-01, 06-02, 07-01, 07-02
+- Last 5 plans: 06-02, 07-01, 07-02, 08-01
 - Trend: Consistent 5-7m per plan
 
 *Updated after each plan completion*
@@ -85,6 +86,11 @@ Recent decisions affecting current work:
 - [07-02]: Search returns ProcedureSummary for efficiency
 - [07-02]: Search default limit 10, max 50; list default 50, max 100
 - [07-02]: Fire-and-forget access tracking for search results
+- [08-01]: Single reflect tool with action parameter (decay|similar) vs separate tools
+- [08-01]: Decay factor 0.9 with floor at 0.1 prevents complete decay
+- [08-01]: Two-step SELECT then UPDATE for before/after value capture
+- [08-01]: e1.id < e2.id for pair deduplication in similar query
+- [08-01]: Similar action is identify-only (dry_run always true)
 
 ### Pending Todos
 
@@ -96,29 +102,27 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-03T12:03:30Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-02-03T12:21:00Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
 
-## Phase 7 Summary (COMPLETE)
+## Phase 8 Summary (IN PROGRESS)
 
 **Plan 01 (COMPLETE):**
-- QueryCreateProcedure, QueryGetProcedure, QueryUpdateProcedureAccess, QueryDeleteProcedure
-- procedure.go with create_procedure, get_procedure, delete_procedure handlers
-- Name-based ID generation with context prefix
+- DecayedEntity, DecayResult, SimilarPair, SimilarPairsResult model types
+- QueryApplyDecay with two-step SELECT/UPDATE, 0.9 factor, 0.1 floor
+- QueryFindSimilarPairs with cosine similarity and pair deduplication
+- reflect.go with NewReflectHandler (action=decay, action=similar)
+- reflect tool registered (19 total tools)
 
-**Plan 02 (COMPLETE):**
-- QuerySearchProcedures with hybrid BM25+vector search and RRF fusion
-- QueryListProcedures with context filtering
-- search_procedures and list_procedures handlers
-- ProcedureSummary type for lightweight results
+**Plan 02:**
+- Unit tests for query functions (pending)
 
-**18 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode, search_episodes, create_procedure, get_procedure, delete_procedure, search_procedures, list_procedures
+**19 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode, search_episodes, create_procedure, get_procedure, delete_procedure, search_procedures, list_procedures, reflect
 
 **Patterns Established:**
-- Procedure CRUD follows same pattern as Episode CRUD
-- generateProcedureID reuses slugify from remember.go
-- Step ordering with 1-based indexing
-- ProcedureSummary for lightweight search/list results
+- Single tool with action parameter for related operations
+- Two-step SELECT then UPDATE for before/after capture
+- e1.id < e2.id for cross-join pair deduplication
 
-**Next:** Phase 8 (polish) if created, otherwise project complete
+**Next:** 08-02-PLAN.md (unit tests)
