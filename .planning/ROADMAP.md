@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Graph Tools** - traverse, find_path for relationship navigation ✓
 - [x] **Phase 6: Episode Tools** - add_episode, search_episodes, get_episode, delete_episode ✓
 - [x] **Phase 7: Procedure Tools** - CRUD and list for procedural memory ✓
-- [ ] **Phase 8: Maintenance Tools** - reflect (decay, similar pairs identification)
+- [x] **Phase 8: Maintenance Tools** - reflect (decay, similar pairs identification) ✓
 
 ## Phase Details
 
@@ -138,11 +138,12 @@ Plans:
   1. User can apply decay to unused entities (reduce importance scores)
   2. User can identify similar entity pairs for potential merging
   3. All query functions have unit test coverage
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 08-01: reflect tool (decay, similar pairs)
-- [ ] 08-02: Query function unit tests
+- [x] 08-01-PLAN.md — reflect tool (decay, similar pairs)
+- [x] 08-02-PLAN.md — Query function integration tests (entity, episode, procedure, maintenance)
+- [x] 08-03-PLAN.md — Gap closure: remaining query function tests (relations, graph, search, access)
 
 ## Progress
 
@@ -158,7 +159,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 5. Graph Tools | 2/2 | ✓ Complete | 2026-02-02 |
 | 6. Episode Tools | 2/2 | ✓ Complete | 2026-02-02 |
 | 7. Procedure Tools | 2/2 | ✓ Complete | 2026-02-03 |
-| 8. Maintenance Tools | 0/2 | Not started | - |
+| 8. Maintenance Tools | 3/3 | ✓ Complete | 2026-02-03 |
 
 ---
 *Roadmap created: 2026-02-01*
@@ -167,5 +168,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 *Phase 5 complete: 2026-02-02*
 *Phase 6 complete: 2026-02-02*
 *Phase 7 complete: 2026-02-03*
-*Total plans: 17 (estimated)*
+*Phase 8 complete: 2026-02-03*
+*Total plans: 17*
 *Total requirements: 31*
