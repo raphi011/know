@@ -1,4 +1,4 @@
-// Package db provides SurrealDB query functions for entity operations.
+// Package db provides SurrealDB query functions for Knowhow entity operations.
 package db
 
 import (
@@ -20,80 +20,89 @@ func optionalString(s *string) any {
 	return *s
 }
 
-// LabelCount represents a label with its entity count.
-type LabelCount struct {
-	Label string `json:"label"`
-	Count int    `json:"count"`
+// optionalFloat returns models.None for nil pointers, otherwise returns the float value.
+func optionalFloat(f *float64) any {
+	if f == nil {
+		return surrealmodels.None
+	}
+	return *f
 }
 
-// TypeCount represents an entity type with its count.
-type TypeCount struct {
-	Type  string `json:"type"`
-	Count int    `json:"count"`
-}
+// =============================================================================
+// ENTITY QUERIES
+// =============================================================================
 
-// QueryHybridSearch performs RRF fusion of BM25 + vector search results.
-// Returns entities ranked by combined relevance score.
-func (c *Client) QueryHybridSearch(
-	ctx context.Context,
-	query string,
-	embedding []float32,
-	labels []string,
-	limit int,
-	contextFilter *string,
-) ([]models.Entity, error) {
-	// Build dynamic filter clauses
-	labelClause := ""
-	if len(labels) > 0 {
-		labelClause = "AND labels CONTAINSANY $labels"
-	}
-	contextClause := ""
-	if contextFilter != nil {
-		contextClause = "AND context = $context"
+// CreateEntity creates a new entity with a generated or specified ID.
+// Returns the created entity.
+func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*models.Entity, error) {
+	// Generate ID from name if not provided
+	id := slugify(input.Name)
+
+	// Ensure labels is not nil
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
 	}
 
-	// RRF fusion query - combines vector (2x limit for variety) with BM25
-	// Vector: HNSW with ef=40 for better recall
-	// BM25: full-text search analyzer 0
-	// RRF k=60 (standard constant for rank fusion)
-	sql := fmt.Sprintf(`
-		SELECT * FROM search::rrf([
-			(SELECT id, type, labels, content, confidence, source, decay_weight,
-					context, importance, accessed, access_count
-			 FROM entity
-			 WHERE embedding <|%d,40|> $emb %s %s),
-			(SELECT id, type, labels, content, confidence, source, decay_weight,
-					context, importance, accessed, access_count
-			 FROM entity
-			 WHERE content @0@ $q %s %s)
-		], $limit, 60)
-	`, limit*2, labelClause, contextClause, labelClause, contextClause)
-
-	vars := map[string]any{
-		"q":      query,
-		"emb":    embedding,
-		"labels": labels,
-		"limit":  limit,
+	// Set defaults
+	source := "manual"
+	if input.Source != nil {
+		source = *input.Source
 	}
-	if contextFilter != nil {
-		vars["context"] = *contextFilter
+	confidence := 0.5
+	if input.Confidence != nil {
+		confidence = *input.Confidence
+	}
+	verified := false
+	if input.Verified != nil {
+		verified = *input.Verified
 	}
 
-	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, vars)
+	sql := `
+		CREATE type::record("entity", $id) SET
+			type = $type,
+			name = $name,
+			content = $content,
+			summary = $summary,
+			labels = $labels,
+			verified = $verified,
+			confidence = $confidence,
+			source = $source,
+			source_path = $source_path,
+			metadata = $metadata,
+			embedding = $embedding,
+			access_count = 0
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"id":          id,
+		"type":        input.Type,
+		"name":        input.Name,
+		"content":     optionalString(input.Content),
+		"summary":     optionalString(input.Summary),
+		"labels":      labels,
+		"verified":    verified,
+		"confidence":  confidence,
+		"source":      source,
+		"source_path": optionalString(input.SourcePath),
+		"metadata":    input.Metadata,
+		"embedding":   input.Embedding,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("hybrid search: %w", err)
+		return nil, fmt.Errorf("create entity: %w", err)
 	}
 
-	// Extract from query result wrapper
-	if results != nil && len(*results) > 0 {
-		return (*results)[0].Result, nil
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create entity: no result returned")
 	}
-	return []models.Entity{}, nil
+
+	return &(*results)[0].Result[0], nil
 }
 
-// QueryGetEntity retrieves an entity by ID.
+// GetEntity retrieves an entity by ID.
 // Returns nil if not found.
-func (c *Client) QueryGetEntity(ctx context.Context, id string) (*models.Entity, error) {
+func (c *Client) GetEntity(ctx context.Context, id string) (*models.Entity, error) {
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
 		SELECT * FROM type::record("entity", $id)
 	`, map[string]any{"id": id})
@@ -108,51 +117,595 @@ func (c *Client) QueryGetEntity(ctx context.Context, id string) (*models.Entity,
 	return &(*results)[0].Result[0], nil
 }
 
-// QueryUpdateAccess updates access tracking for an entity.
-// Resets decay_weight to 1.0 to mark as recently accessed.
-func (c *Client) QueryUpdateAccess(ctx context.Context, id string) error {
+// GetEntityByName retrieves an entity by name (case-insensitive).
+// Returns nil if not found.
+func (c *Client) GetEntityByName(ctx context.Context, name string) (*models.Entity, error) {
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
+		SELECT * FROM entity WHERE string::lowercase(name) = string::lowercase($name) LIMIT 1
+	`, map[string]any{"name": name})
+
+	if err != nil {
+		return nil, fmt.Errorf("get entity by name: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// UpdateEntity updates an entity with partial data.
+// Only non-nil fields in the update are changed.
+func (c *Client) UpdateEntity(ctx context.Context, id string, update models.EntityUpdate) (*models.Entity, error) {
+	// Build dynamic SET clause
+	setClauses := []string{}
+	vars := map[string]any{"id": id}
+
+	if update.Name != nil {
+		setClauses = append(setClauses, "name = $name")
+		vars["name"] = *update.Name
+	}
+	if update.Content != nil {
+		setClauses = append(setClauses, "content = $content")
+		vars["content"] = *update.Content
+	}
+	if update.Summary != nil {
+		setClauses = append(setClauses, "summary = $summary")
+		vars["summary"] = *update.Summary
+	}
+	if update.Labels != nil {
+		setClauses = append(setClauses, "labels = $labels")
+		vars["labels"] = update.Labels
+	}
+	if len(update.AddLabels) > 0 {
+		setClauses = append(setClauses, "labels = array::union(labels, $add_labels)")
+		vars["add_labels"] = update.AddLabels
+	}
+	if len(update.DelLabels) > 0 {
+		setClauses = append(setClauses, "labels = array::difference(labels, $del_labels)")
+		vars["del_labels"] = update.DelLabels
+	}
+	if update.Verified != nil {
+		setClauses = append(setClauses, "verified = $verified")
+		vars["verified"] = *update.Verified
+	}
+	if update.Confidence != nil {
+		setClauses = append(setClauses, "confidence = $confidence")
+		vars["confidence"] = *update.Confidence
+	}
+	if update.Metadata != nil {
+		setClauses = append(setClauses, "metadata = $metadata")
+		vars["metadata"] = update.Metadata
+	}
+	if update.Embedding != nil {
+		setClauses = append(setClauses, "embedding = $embedding")
+		vars["embedding"] = update.Embedding
+	}
+
+	// Always update accessed time
+	setClauses = append(setClauses, "accessed = time::now()")
+
+	if len(setClauses) == 1 { // Only accessed time update
+		// No real updates, just touch the record
+	}
+
+	sql := fmt.Sprintf(`
+		UPDATE type::record("entity", $id) SET %s RETURN AFTER
+	`, strings.Join(setClauses, ", "))
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("update entity: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("entity not found")
+	}
+
+	return &(*results)[0].Result[0], nil
+}
+
+// DeleteEntity deletes an entity by ID.
+// Cascade delete of chunks and relations is handled by SurrealDB events.
+// Returns true if entity was deleted.
+func (c *Client) DeleteEntity(ctx context.Context, id string) (bool, error) {
+	sql := `DELETE type::record("entity", $id) RETURN BEFORE`
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{"id": id})
+	if err != nil {
+		return false, fmt.Errorf("delete entity: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+// UpdateEntityAccess updates access tracking for an entity.
+func (c *Client) UpdateEntityAccess(ctx context.Context, id string) error {
 	_, err := surrealdb.Query[any](ctx, c.db, `
 		UPDATE type::record("entity", $id) SET
 			accessed = time::now(),
-			access_count += 1,
-			decay_weight = 1.0
+			access_count += 1
 	`, map[string]any{"id": id})
 	if err != nil {
-		return fmt.Errorf("update access: %w", err)
+		return fmt.Errorf("update entity access: %w", err)
 	}
 	return nil
 }
 
-// QueryListLabels returns unique labels with entity counts.
-// If contextFilter is non-nil, only counts entities in that context.
-func (c *Client) QueryListLabels(ctx context.Context, contextFilter *string) ([]LabelCount, error) {
-	// Build context filter
-	contextClause := ""
-	vars := map[string]any{}
-	if contextFilter != nil {
-		contextClause = "WHERE context = $context"
-		vars["context"] = *contextFilter
+// =============================================================================
+// SEARCH QUERIES
+// =============================================================================
+
+// SearchOptions configures entity search behavior.
+type SearchOptions struct {
+	Query        string    // Search query text
+	Embedding    []float32 // Query embedding for vector search
+	Labels       []string  // Filter by labels (CONTAINSANY)
+	Types        []string  // Filter by entity types
+	VerifiedOnly bool      // Only return verified entities
+	Limit        int       // Max results (default 10)
+}
+
+// HybridSearch performs RRF fusion of BM25 + vector search results.
+// Returns entities ranked by combined relevance score.
+func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models.Entity, error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 10
 	}
 
-	// SurrealDB v3: SPLIT on array field doesn't work with array::flatten in subquery
-	// Instead, use array operations to flatten all labels, then count occurrences
-	// LET $all_labels = collect all label arrays → flatten → group and count
+	// Build dynamic filter clauses
+	filterClauses := []string{}
+	vars := map[string]any{
+		"q":     opts.Query,
+		"emb":   opts.Embedding,
+		"limit": limit,
+	}
+
+	if len(opts.Labels) > 0 {
+		filterClauses = append(filterClauses, "labels CONTAINSANY $labels")
+		vars["labels"] = opts.Labels
+	}
+	if len(opts.Types) > 0 {
+		filterClauses = append(filterClauses, "type IN $types")
+		vars["types"] = opts.Types
+	}
+	if opts.VerifiedOnly {
+		filterClauses = append(filterClauses, "verified = true")
+	}
+
+	filterClause := ""
+	if len(filterClauses) > 0 {
+		filterClause = "AND " + strings.Join(filterClauses, " AND ")
+	}
+
+	// RRF fusion query - combines vector (2x limit for variety) with BM25
 	sql := fmt.Sprintf(`
-		LET $all_labels = (SELECT labels FROM entity %s);
+		SELECT * FROM search::rrf([
+			(SELECT * FROM entity
+			 WHERE embedding <|%d,60|> $emb %s),
+			(SELECT * FROM entity
+			 WHERE content @0@ $q OR name @1@ $q %s)
+		], $limit, 60)
+	`, limit*2, filterClause, filterClause)
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid search: %w", err)
+	}
+
+	if results != nil && len(*results) > 0 {
+		return (*results)[0].Result, nil
+	}
+	return []models.Entity{}, nil
+}
+
+// SearchWithChunks performs hybrid search including chunk matches.
+// Returns entities with their matching chunks for RAG context.
+func (c *Client) SearchWithChunks(ctx context.Context, opts SearchOptions) ([]models.EntitySearchResult, error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Build filter clause
+	filterClauses := []string{}
+	vars := map[string]any{
+		"q":     opts.Query,
+		"emb":   opts.Embedding,
+		"limit": limit,
+	}
+
+	if len(opts.Labels) > 0 {
+		filterClauses = append(filterClauses, "labels CONTAINSANY $labels")
+		vars["labels"] = opts.Labels
+	}
+	if len(opts.Types) > 0 {
+		filterClauses = append(filterClauses, "type IN $types")
+		vars["types"] = opts.Types
+	}
+	if opts.VerifiedOnly {
+		filterClauses = append(filterClauses, "verified = true")
+	}
+
+	filterClause := ""
+	chunkFilterClause := ""
+	if len(filterClauses) > 0 {
+		filterClause = "AND " + strings.Join(filterClauses, " AND ")
+		chunkFilterClause = "AND " + strings.Join(filterClauses, " AND ")
+	}
+
+	// Search entities and chunks, then aggregate by entity
+	sql := fmt.Sprintf(`
+		LET $entity_hits = (
+			SELECT *, [] AS matched_chunks FROM search::rrf([
+				(SELECT * FROM entity WHERE embedding <|%d,60|> $emb %s),
+				(SELECT * FROM entity WHERE content @0@ $q OR name @1@ $q %s)
+			], %d, 60)
+		);
+
+		LET $chunk_hits = (
+			SELECT entity.* AS entity,
+				   [{ content: content, heading_path: heading_path, position: position }] AS matched_chunks
+			FROM chunk
+			WHERE embedding <|%d,60|> $emb %s
+		);
+
+		-- Merge entity hits with chunk hits
+		RETURN array::distinct(array::concat($entity_hits, $chunk_hits.map(|$c| {
+			...$c.entity,
+			matched_chunks: $c.matched_chunks
+		}))).slice(0, $limit)
+	`, limit*2, filterClause, filterClause, limit*2, limit*3, chunkFilterClause)
+
+	results, err := surrealdb.Query[[]models.EntitySearchResult](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("search with chunks: %w", err)
+	}
+
+	// Result is in the last query result (RETURN statement)
+	if results != nil && len(*results) > 0 {
+		lastIdx := len(*results) - 1
+		return (*results)[lastIdx].Result, nil
+	}
+	return []models.EntitySearchResult{}, nil
+}
+
+// =============================================================================
+// CHUNK QUERIES
+// =============================================================================
+
+// CreateChunks creates multiple chunks for an entity.
+func (c *Client) CreateChunks(ctx context.Context, entityID string, chunks []models.ChunkInput) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	for _, chunk := range chunks {
+		sql := `
+			CREATE chunk SET
+				entity = type::record("entity", $entity_id),
+				content = $content,
+				position = $position,
+				heading_path = $heading_path,
+				labels = $labels,
+				embedding = $embedding
+		`
+		_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+			"entity_id":    entityID,
+			"content":      chunk.Content,
+			"position":     chunk.Position,
+			"heading_path": optionalString(chunk.HeadingPath),
+			"labels":       chunk.Labels,
+			"embedding":    chunk.Embedding,
+		})
+		if err != nil {
+			return fmt.Errorf("create chunk %d: %w", chunk.Position, err)
+		}
+	}
+
+	return nil
+}
+
+// DeleteChunks deletes all chunks for an entity.
+func (c *Client) DeleteChunks(ctx context.Context, entityID string) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		DELETE chunk WHERE entity = type::record("entity", $entity_id)
+	`, map[string]any{"entity_id": entityID})
+	if err != nil {
+		return fmt.Errorf("delete chunks: %w", err)
+	}
+	return nil
+}
+
+// GetChunks retrieves all chunks for an entity, ordered by position.
+func (c *Client) GetChunks(ctx context.Context, entityID string) ([]models.Chunk, error) {
+	results, err := surrealdb.Query[[]models.Chunk](ctx, c.db, `
+		SELECT * FROM chunk
+		WHERE entity = type::record("entity", $entity_id)
+		ORDER BY position ASC
+	`, map[string]any{"entity_id": entityID})
+
+	if err != nil {
+		return nil, fmt.Errorf("get chunks: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Chunk{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// =============================================================================
+// RELATION QUERIES
+// =============================================================================
+
+// CreateRelation creates a relation between two entities.
+// If a relation of the same type already exists, updates its strength.
+func (c *Client) CreateRelation(ctx context.Context, input models.RelationInput) error {
+	strength := 1.0
+	if input.Strength != nil {
+		strength = *input.Strength
+	}
+	source := "manual"
+	if input.Source != nil {
+		source = *input.Source
+	}
+
+	// Use UPSERT pattern based on unique_key
+	sql := `
+		LET $from_rec = type::record("entity", $from_id);
+		LET $to_rec = type::record("entity", $to_id);
+		LET $sorted = array::sort([<string>$from_rec, <string>$to_rec]);
+		LET $unique = string::concat($sorted, $rel_type);
+		LET $existing = (SELECT * FROM relates_to WHERE unique_key = $unique);
+		IF array::len($existing) > 0 THEN
+			UPDATE $existing[0].id SET strength = $strength, metadata = $metadata
+		ELSE
+			RELATE $from_rec->relates_to->$to_rec SET
+				rel_type = $rel_type,
+				strength = $strength,
+				source = $source,
+				metadata = $metadata
+		END
+	`
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"from_id":  input.FromID,
+		"to_id":    input.ToID,
+		"rel_type": input.RelType,
+		"strength": strength,
+		"source":   source,
+		"metadata": input.Metadata,
+	})
+	if err != nil {
+		return fmt.Errorf("create relation: %w", err)
+	}
+	return nil
+}
+
+// GetRelations retrieves all relations for an entity (both directions).
+func (c *Client) GetRelations(ctx context.Context, entityID string) ([]models.Relation, error) {
+	sql := `
+		SELECT * FROM relates_to
+		WHERE in = type::record("entity", $id) OR out = type::record("entity", $id)
+	`
+	results, err := surrealdb.Query[[]models.Relation](ctx, c.db, sql, map[string]any{"id": entityID})
+	if err != nil {
+		return nil, fmt.Errorf("get relations: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Relation{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// DeleteRelation deletes a specific relation by from, to, and type.
+func (c *Client) DeleteRelation(ctx context.Context, fromID, toID, relType string) error {
+	sql := `
+		DELETE relates_to WHERE
+			(in = type::record("entity", $from_id) AND out = type::record("entity", $to_id) AND rel_type = $rel_type)
+			OR
+			(in = type::record("entity", $to_id) AND out = type::record("entity", $from_id) AND rel_type = $rel_type)
+	`
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"from_id":  fromID,
+		"to_id":    toID,
+		"rel_type": relType,
+	})
+	if err != nil {
+		return fmt.Errorf("delete relation: %w", err)
+	}
+	return nil
+}
+
+// =============================================================================
+// TEMPLATE QUERIES
+// =============================================================================
+
+// CreateTemplate creates a new template.
+func (c *Client) CreateTemplate(ctx context.Context, input models.TemplateInput) (*models.Template, error) {
+	id := slugify(input.Name)
+
+	sql := `
+		CREATE type::record("template", $id) SET
+			name = $name,
+			description = $description,
+			content = $content
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Template](ctx, c.db, sql, map[string]any{
+		"id":          id,
+		"name":        input.Name,
+		"description": optionalString(input.Description),
+		"content":     input.Content,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create template: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create template: no result returned")
+	}
+
+	return &(*results)[0].Result[0], nil
+}
+
+// GetTemplate retrieves a template by name.
+func (c *Client) GetTemplate(ctx context.Context, name string) (*models.Template, error) {
+	results, err := surrealdb.Query[[]models.Template](ctx, c.db, `
+		SELECT * FROM template WHERE name = $name LIMIT 1
+	`, map[string]any{"name": name})
+
+	if err != nil {
+		return nil, fmt.Errorf("get template: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// ListTemplates returns all templates.
+func (c *Client) ListTemplates(ctx context.Context) ([]models.Template, error) {
+	results, err := surrealdb.Query[[]models.Template](ctx, c.db, `
+		SELECT * FROM template ORDER BY name ASC
+	`, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("list templates: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Template{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// DeleteTemplate deletes a template by name.
+func (c *Client) DeleteTemplate(ctx context.Context, name string) (bool, error) {
+	sql := `DELETE template WHERE name = $name RETURN BEFORE`
+
+	results, err := surrealdb.Query[[]models.Template](ctx, c.db, sql, map[string]any{"name": name})
+	if err != nil {
+		return false, fmt.Errorf("delete template: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+// =============================================================================
+// TOKEN USAGE QUERIES
+// =============================================================================
+
+// RecordTokenUsage records LLM token usage.
+func (c *Client) RecordTokenUsage(ctx context.Context, input models.TokenUsageInput) error {
+	total := input.InputTokens + input.OutputTokens
+
+	sql := `
+		CREATE token_usage SET
+			operation = $operation,
+			model = $model,
+			input_tokens = $input_tokens,
+			output_tokens = $output_tokens,
+			total_tokens = $total_tokens,
+			cost_usd = $cost_usd,
+			entity_id = $entity_id
+	`
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"operation":     input.Operation,
+		"model":         input.Model,
+		"input_tokens":  input.InputTokens,
+		"output_tokens": input.OutputTokens,
+		"total_tokens":  total,
+		"cost_usd":      optionalFloat(input.CostUSD),
+		"entity_id":     optionalString(input.EntityID),
+	})
+	if err != nil {
+		return fmt.Errorf("record token usage: %w", err)
+	}
+	return nil
+}
+
+// GetTokenUsageSummary returns aggregated token usage statistics.
+func (c *Client) GetTokenUsageSummary(ctx context.Context, since string) (*models.TokenUsageSummary, error) {
+	sql := `
+		LET $usage = (SELECT * FROM token_usage WHERE created_at >= <datetime>$since);
+		LET $total = math::sum($usage.total_tokens) ?? 0;
+		LET $cost = math::sum($usage.cost_usd) ?? 0.0;
+		LET $by_op = $usage.group(|$u| $u.operation).map(|$g| {
+			key: $g[0].operation,
+			value: math::sum($g.total_tokens)
+		});
+		LET $by_model = $usage.group(|$u| $u.model).map(|$g| {
+			key: $g[0].model,
+			value: math::sum($g.total_tokens)
+		});
+		RETURN {
+			total_tokens: $total,
+			total_cost_usd: $cost,
+			by_operation: object::from_entries($by_op),
+			by_model: object::from_entries($by_model)
+		}
+	`
+
+	results, err := surrealdb.Query[models.TokenUsageSummary](ctx, c.db, sql, map[string]any{
+		"since": since,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get token usage summary: %w", err)
+	}
+
+	if results != nil && len(*results) > 0 {
+		lastIdx := len(*results) - 1
+		return &(*results)[lastIdx].Result, nil
+	}
+	return &models.TokenUsageSummary{}, nil
+}
+
+// =============================================================================
+// UTILITY QUERIES
+// =============================================================================
+
+// LabelCount represents a label with its entity count.
+type LabelCount struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+// TypeCount represents an entity type with its count.
+type TypeCount struct {
+	Type  string `json:"type"`
+	Count int    `json:"count"`
+}
+
+// ListLabels returns unique labels with entity counts.
+func (c *Client) ListLabels(ctx context.Context) ([]LabelCount, error) {
+	sql := `
+		LET $all_labels = (SELECT labels FROM entity);
 		LET $flattened = array::flatten($all_labels.labels);
 		LET $unique = array::distinct($flattened);
 		RETURN $unique.map(|$label| {
 			label: $label,
 			count: $flattened.filter(|$l| $l == $label).len()
 		}).sort(|$a, $b| IF $a.count > $b.count THEN -1 ELSE IF $a.count < $b.count THEN 1 ELSE 0 END)
-	`, contextClause)
+	`
 
-	results, err := surrealdb.Query[[]LabelCount](ctx, c.db, sql, vars)
+	results, err := surrealdb.Query[[]LabelCount](ctx, c.db, sql, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list labels: %w", err)
 	}
 
-	// RETURN statement puts result in last query result
 	if results == nil || len(*results) == 0 {
 		return []LabelCount{}, nil
 	}
@@ -160,22 +713,13 @@ func (c *Client) QueryListLabels(ctx context.Context, contextFilter *string) ([]
 	return (*results)[lastIdx].Result, nil
 }
 
-// QueryListTypes returns entity types with counts.
-// If contextFilter is non-nil, only counts entities in that context.
-func (c *Client) QueryListTypes(ctx context.Context, contextFilter *string) ([]TypeCount, error) {
-	// Build context filter
-	contextClause := ""
-	vars := map[string]any{}
-	if contextFilter != nil {
-		contextClause = "WHERE context = $context"
-		vars["context"] = *contextFilter
-	}
+// ListTypes returns entity types with counts.
+func (c *Client) ListTypes(ctx context.Context) ([]TypeCount, error) {
+	sql := `
+		SELECT type, count() AS count FROM entity GROUP BY type ORDER BY count DESC
+	`
 
-	sql := fmt.Sprintf(`
-		SELECT type, count() AS count FROM entity %s GROUP BY type ORDER BY count DESC
-	`, contextClause)
-
-	results, err := surrealdb.Query[[]TypeCount](ctx, c.db, sql, vars)
+	results, err := surrealdb.Query[[]TypeCount](ctx, c.db, sql, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list types: %w", err)
 	}
@@ -186,412 +730,36 @@ func (c *Client) QueryListTypes(ctx context.Context, contextFilter *string) ([]T
 	return (*results)[0].Result, nil
 }
 
-// QueryUpsertEntity creates or updates an entity by ID.
-// Uses SurrealDB UPSERT with array::union for additive label merge.
-// Returns (entity, wasCreated, error) where wasCreated indicates if entity was new.
-func (c *Client) QueryUpsertEntity(
-	ctx context.Context,
-	id string,
-	entityType string,
-	labels []string,
-	content string,
-	embedding []float32,
-	confidence float64,
-	source *string,
-	entityContext *string,
-) (*models.Entity, bool, error) {
-	// Ensure labels is not nil
-	if labels == nil {
-		labels = []string{}
+// ListEntities returns entities with optional filtering.
+func (c *Client) ListEntities(ctx context.Context, entityType string, labels []string, limit int) ([]models.Entity, error) {
+	if limit <= 0 {
+		limit = 50
 	}
 
-	// Check if entity exists to determine action
-	// SurrealDB v3: SELECT on non-existent record returns empty array, not [{c:0}]
-	existsSQL := `SELECT * FROM type::record("entity", $id)`
-	existsResult, err := surrealdb.Query[[]models.Entity](ctx, c.db, existsSQL, map[string]any{"id": id})
-	if err != nil {
-		return nil, false, fmt.Errorf("check entity exists: %w", err)
+	filterClauses := []string{}
+	vars := map[string]any{"limit": limit}
+
+	if entityType != "" {
+		filterClauses = append(filterClauses, "type = $type")
+		vars["type"] = entityType
+	}
+	if len(labels) > 0 {
+		filterClauses = append(filterClauses, "labels CONTAINSANY $labels")
+		vars["labels"] = labels
 	}
 
-	exists := existsResult != nil && len(*existsResult) > 0 && len((*existsResult)[0].Result) > 0
-
-	var sql string
-	if exists {
-		// SurrealDB v3: UPSERT SET doesn't read existing field values during SET clause
-		// Use UPDATE for existing entities to properly merge labels
-		sql = `
-			UPDATE type::record("entity", $id) SET
-				type = $type,
-				labels = array::union(labels ?? [], $labels),
-				content = $content,
-				embedding = $embedding,
-				confidence = $confidence,
-				source = $source,
-				context = $context,
-				accessed = time::now(),
-				decay_weight = 1.0
-			RETURN AFTER
-		`
-	} else {
-		// CREATE for new entities with initial values
-		sql = `
-			CREATE type::record("entity", $id) SET
-				type = $type,
-				labels = $labels,
-				content = $content,
-				embedding = $embedding,
-				confidence = $confidence,
-				source = $source,
-				context = $context,
-				accessed = time::now(),
-				decay_weight = 1.0,
-				importance = 1.0,
-				access_count = 0
-			RETURN AFTER
-		`
+	whereClause := ""
+	if len(filterClauses) > 0 {
+		whereClause = "WHERE " + strings.Join(filterClauses, " AND ")
 	}
 
-	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
-		"id":         id,
-		"type":       entityType,
-		"labels":     labels,
-		"content":    content,
-		"embedding":  embedding,
-		"confidence": confidence,
-		"source":     optionalString(source),
-		"context":    optionalString(entityContext),
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("upsert entity: %w", err)
-	}
-
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, false, fmt.Errorf("upsert entity: no result returned")
-	}
-
-	return &(*results)[0].Result[0], !exists, nil
-}
-
-// QueryCreateRelation creates or updates a relation between two entities.
-// Uses RELATE which respects the unique_key index for deduplication.
-// Returns error if source or target entity doesn't exist.
-func (c *Client) QueryCreateRelation(
-	ctx context.Context,
-	fromID string,
-	relType string,
-	toID string,
-	weight float64,
-) error {
-	// Verify both entities exist first using array::len (v3 compatible)
-	checkSQL := `
-		LET $from_exists = array::len(SELECT * FROM type::record("entity", $from_id)) > 0;
-		LET $to_exists = array::len(SELECT * FROM type::record("entity", $to_id)) > 0;
-		RETURN { from_exists: $from_exists, to_exists: $to_exists };
-	`
-	checkResult, err := surrealdb.Query[map[string]any](ctx, c.db, checkSQL, map[string]any{
-		"from_id": fromID,
-		"to_id":   toID,
-	})
-	if err != nil {
-		return fmt.Errorf("check entities: %w", err)
-	}
-
-	// Parse existence check result - RETURN puts result in last query result
-	if checkResult != nil && len(*checkResult) > 0 {
-		lastIdx := len(*checkResult) - 1
-		result := (*checkResult)[lastIdx].Result
-		fromExists, _ := result["from_exists"].(bool)
-		toExists, _ := result["to_exists"].(bool)
-		if !fromExists || !toExists {
-			return fmt.Errorf("entity not found")
-		}
-	}
-
-	// SurrealDB v3: RELATE doesn't upsert - unique_key constraint prevents duplicates
-	// Use UPSERT pattern: compute unique_key and update if exists, else create
-	// unique_key = array::sort([in, out]) + rel_type
-	relateSQL := fmt.Sprintf(`
-		LET $from_rec = type::record("entity", $from_id);
-		LET $to_rec = type::record("entity", $to_id);
-		LET $sorted = array::sort([<string>$from_rec, <string>$to_rec]);
-		LET $unique = string::concat($sorted, $rel_type);
-		LET $existing = (SELECT * FROM relates WHERE unique_key = $unique);
-		IF array::len($existing) > 0 THEN
-			UPDATE $existing[0].id SET weight = $weight
-		ELSE
-			RELATE $from_rec->relates->$to_rec SET rel_type = $rel_type, weight = $weight
-		END
-	`)
-	_, err = surrealdb.Query[any](ctx, c.db, relateSQL, map[string]any{
-		"from_id":  fromID,
-		"to_id":    toID,
-		"rel_type": relType,
-		"weight":   weight,
-	})
-	if err != nil {
-		return fmt.Errorf("create relation: %w", err)
-	}
-	return nil
-}
-
-// TraverseResult contains an entity with its connected neighbors.
-type TraverseResult struct {
-	ID         string          `json:"id"`
-	Type       string          `json:"type"`
-	Labels     []string        `json:"labels"`
-	Content    string          `json:"content"`
-	Confidence float64         `json:"confidence"`
-	Context    string          `json:"context"`
-	Connected  []models.Entity `json:"connected"`
-}
-
-// QueryTraverse performs bidirectional graph traversal from a starting entity.
-// Returns the starting entity with connected neighbors at each depth level.
-// If relationTypes is provided, only traverses via those relation types.
-//
-// WARNING: Go SDK v1.2.0 cannot decode SurrealDB v3 graph traversal results
-// due to CBOR range type incompatibility. The query syntax '->relates..{depth}->entity'
-// returns range bounds that cause CBOR decode panics. This will be fixed in a future SDK release.
-func (c *Client) QueryTraverse(
-	ctx context.Context,
-	startID string,
-	depth int,
-	relationTypes []string,
-) ([]TraverseResult, error) {
-	var sql string
-	vars := map[string]any{"id": startID}
-
-	if len(relationTypes) > 0 {
-		// Filter by rel_type field within the relates table
-		sql = fmt.Sprintf(`
-			SELECT *, ->(SELECT * FROM relates WHERE rel_type IN $types)..%d->entity AS connected
-			FROM type::record("entity", $id)
-		`, depth)
-		vars["types"] = relationTypes
-	} else {
-		// Traverse all relation types
-		sql = fmt.Sprintf(`
-			SELECT *, ->relates..%d->entity AS connected
-			FROM type::record("entity", $id)
-		`, depth)
-	}
-
-	results, err := surrealdb.Query[[]TraverseResult](ctx, c.db, sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("traverse: %w", err)
-	}
-
-	if results == nil || len(*results) == 0 {
-		return []TraverseResult{}, nil
-	}
-	return (*results)[0].Result, nil
-}
-
-// QueryFindPath finds the shortest path between two entities via the relates table.
-// Returns path as slice of entities (intermediate nodes) or nil if no path found.
-// MaxDepth limits path length (1-20).
-//
-// WARNING: Go SDK v1.2.0 cannot decode SurrealDB v3 graph traversal results
-// due to CBOR range type incompatibility. The query syntax '->relates..{depth}->entity'
-// returns range bounds that cause CBOR decode panics. This will be fixed in a future SDK release.
-func (c *Client) QueryFindPath(
-	ctx context.Context,
-	fromID string,
-	toID string,
-	maxDepth int,
-) ([]models.Entity, error) {
-	// SurrealDB path traversal: from->relates..{depth}->entity WHERE id = to
-	// Depth must be literal (cannot parameterize), so use fmt.Sprintf
 	sql := fmt.Sprintf(`
-		SELECT * FROM type::record("entity", $from)->relates..%d->entity
-		WHERE id = type::record("entity", $to) LIMIT 1
-	`, maxDepth)
+		SELECT * FROM entity %s ORDER BY updated_at DESC LIMIT $limit
+	`, whereClause)
 
-	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
-		"from": fromID,
-		"to":   toID,
-	})
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, vars)
 	if err != nil {
-		return nil, fmt.Errorf("find_path: %w", err)
-	}
-
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
-}
-
-// QueryDeleteEntity deletes entities by ID.
-// TYPE RELATION in schema auto-cascades relation deletion.
-// Returns count of deleted entities (0 if none found - idempotent).
-func (c *Client) QueryDeleteEntity(ctx context.Context, ids ...string) (int, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-
-	// SurrealDB v3: WHERE id IN array requires record IDs with type::record()
-	// Build array of type::record() calls inline since parameters don't work in array construction
-	recordRefs := make([]string, len(ids))
-	for i, id := range ids {
-		recordRefs[i] = fmt.Sprintf(`type::record("entity", "%s")`, id)
-	}
-
-	// Use inline array construction instead of parameterized array
-	sql := fmt.Sprintf(`DELETE entity WHERE id IN [%s] RETURN BEFORE`, strings.Join(recordRefs, ", "))
-
-	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, nil)
-	if err != nil {
-		return 0, fmt.Errorf("delete entity: %w", err)
-	}
-
-	// Count deleted (RETURN BEFORE returns deleted records)
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
-}
-
-// QueryCreateEpisode creates or updates an episode by ID.
-// Uses SurrealDB UPSERT to handle insert vs update semantics.
-// Returns the created/updated episode.
-func (c *Client) QueryCreateEpisode(
-	ctx context.Context,
-	episodeID string,
-	content string,
-	embedding []float32,
-	timestamp string,
-	summary *string,
-	metadata map[string]any,
-	episodeContext *string,
-) (*models.Episode, error) {
-	// Ensure metadata is not nil
-	if metadata == nil {
-		metadata = map[string]any{}
-	}
-
-	// SurrealDB v3: UPSERT RETURN AFTER returns record with id field as RecordID type
-	// Since Episode.ID is string, explicitly cast to string in SELECT after UPSERT
-	sql := `
-		UPSERT type::record("episode", $id) SET
-			content = $content,
-			embedding = $embedding,
-			timestamp = type::datetime($timestamp),
-			summary = $summary,
-			metadata = $metadata,
-			context = $context,
-			accessed = time::now(),
-			created = IF created THEN created ELSE time::now() END,
-			access_count = IF access_count THEN access_count ELSE 0 END;
-		SELECT <string>id AS id, content, summary, embedding, metadata, timestamp,
-			context, created, accessed, access_count
-		FROM type::record("episode", $id)
-	`
-
-	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, sql, map[string]any{
-		"id":        episodeID,
-		"content":   content,
-		"embedding": embedding,
-		"timestamp": timestamp,
-		"summary":   optionalString(summary),
-		"metadata":  metadata,
-		"context":   optionalString(episodeContext),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create episode: %w", err)
-	}
-
-	// SELECT is the second statement, so result is at index 1
-	if results == nil || len(*results) < 2 || len((*results)[1].Result) == 0 {
-		return nil, fmt.Errorf("create episode: no result returned")
-	}
-
-	return &(*results)[1].Result[0], nil
-}
-
-// QueryGetEpisode retrieves an episode by ID.
-// Returns nil if not found.
-func (c *Client) QueryGetEpisode(ctx context.Context, id string) (*models.Episode, error) {
-	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, `
-		SELECT * FROM type::record("episode", $id)
-	`, map[string]any{"id": id})
-
-	if err != nil {
-		return nil, fmt.Errorf("get episode: %w", err)
-	}
-
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
-}
-
-// QueryUpdateEpisodeAccess updates access tracking for an episode.
-func (c *Client) QueryUpdateEpisodeAccess(ctx context.Context, id string) error {
-	_, err := surrealdb.Query[any](ctx, c.db, `
-		UPDATE type::record("episode", $id) SET
-			accessed = time::now(),
-			access_count += 1
-	`, map[string]any{"id": id})
-	if err != nil {
-		return fmt.Errorf("update episode access: %w", err)
-	}
-	return nil
-}
-
-// QueryDeleteEpisode deletes an episode by ID.
-// Returns count of deleted (0 if not found - idempotent).
-func (c *Client) QueryDeleteEpisode(ctx context.Context, id string) (int, error) {
-	sql := `DELETE type::record("episode", $id) RETURN BEFORE`
-
-	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, sql, map[string]any{
-		"id": id,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("delete episode: %w", err)
-	}
-
-	// Count deleted (RETURN BEFORE returns deleted records)
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
-}
-
-// QueryLinkEntityToEpisode creates an extracted_from relation from entity to episode.
-// Used to track which entities were mentioned/extracted from an episode.
-func (c *Client) QueryLinkEntityToEpisode(
-	ctx context.Context,
-	entityID string,
-	episodeID string,
-	position int,
-	confidence float64,
-) error {
-	// SurrealDB v3 RELATE requires direct record notation, not type::record()
-	sql := fmt.Sprintf(`RELATE entity:%s->extracted_from->episode:%s SET position = $position, confidence = $confidence`, entityID, episodeID)
-
-	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
-		"position":   position,
-		"confidence": confidence,
-	})
-	if err != nil {
-		return fmt.Errorf("link entity to episode: %w", err)
-	}
-	return nil
-}
-
-// QueryGetLinkedEntities retrieves entities linked to an episode via extracted_from.
-func (c *Client) QueryGetLinkedEntities(ctx context.Context, episodeID string) ([]models.Entity, error) {
-	// SurrealDB v3: Use graph traversal instead of subquery for better compatibility
-	// Get entities by traversing backwards from episode via extracted_from relation
-	sql := `
-		SELECT * FROM type::record("episode", $episode_id)<-extracted_from<-entity
-	`
-
-	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
-		"episode_id": episodeID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("get linked entities: %w", err)
+		return nil, fmt.Errorf("list entities: %w", err)
 	}
 
 	if results == nil || len(*results) == 0 {
@@ -600,417 +768,18 @@ func (c *Client) QueryGetLinkedEntities(ctx context.Context, episodeID string) (
 	return (*results)[0].Result, nil
 }
 
-// QuerySearchEpisodes performs hybrid BM25+vector search on episodes.
-// Supports optional time range filtering and context filter.
-// Returns episodes ranked by RRF fusion with recency consideration.
-func (c *Client) QuerySearchEpisodes(
-	ctx context.Context,
-	query string,
-	embedding []float32,
-	timeStart *string,
-	timeEnd *string,
-	contextFilter *string,
-	limit int,
-) ([]models.Episode, error) {
-	// Build dynamic filter clauses
-	filterClause := ""
-	if timeStart != nil {
-		filterClause += " AND timestamp >= <datetime>$time_start"
+// slugify converts a name to a URL-safe ID.
+func slugify(name string) string {
+	// Simple slugification: lowercase, replace spaces with hyphens
+	s := strings.ToLower(name)
+	s = strings.ReplaceAll(s, " ", "-")
+	s = strings.ReplaceAll(s, "_", "-")
+	// Remove non-alphanumeric except hyphens
+	result := strings.Builder{}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
 	}
-	if timeEnd != nil {
-		filterClause += " AND timestamp <= <datetime>$time_end"
-	}
-	if contextFilter != nil {
-		filterClause += " AND context = $context"
-	}
-
-	// RRF fusion query - combines vector (2x limit for variety) with BM25
-	// Vector: HNSW with ef=40 for better recall
-	// BM25: full-text search analyzer 0
-	// RRF k=60 (standard constant for rank fusion)
-	// ORDER BY timestamp DESC within subqueries for recency consideration
-	sql := fmt.Sprintf(`
-		SELECT * FROM search::rrf([
-			(SELECT id, content, summary, timestamp, metadata, context
-			 FROM episode
-			 WHERE embedding <|%d,40|> $emb %s
-			 ORDER BY timestamp DESC),
-			(SELECT id, content, summary, timestamp, metadata, context
-			 FROM episode
-			 WHERE content @0@ $q %s
-			 ORDER BY timestamp DESC)
-		], $limit, 60)
-	`, limit*2, filterClause, filterClause)
-
-	vars := map[string]any{
-		"q":     query,
-		"emb":   embedding,
-		"limit": limit,
-	}
-	if timeStart != nil {
-		vars["time_start"] = *timeStart
-	}
-	if timeEnd != nil {
-		vars["time_end"] = *timeEnd
-	}
-	if contextFilter != nil {
-		vars["context"] = *contextFilter
-	}
-
-	results, err := surrealdb.Query[[]models.Episode](ctx, c.db, sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("search episodes: %w", err)
-	}
-
-	// Extract from query result wrapper
-	if results != nil && len(*results) > 0 {
-		return (*results)[0].Result, nil
-	}
-	return []models.Episode{}, nil
-}
-
-// QueryCreateProcedure creates or updates a procedure by ID.
-// Uses SurrealDB UPSERT to handle insert vs update semantics.
-// Returns the created/updated procedure.
-func (c *Client) QueryCreateProcedure(
-	ctx context.Context,
-	procedureID string,
-	name string,
-	description string,
-	steps []models.ProcedureStep,
-	embedding []float32,
-	labels []string,
-	procedureContext *string,
-) (*models.Procedure, error) {
-	// Ensure labels and steps are not nil
-	if labels == nil {
-		labels = []string{}
-	}
-	if steps == nil {
-		steps = []models.ProcedureStep{}
-	}
-
-	// SurrealDB v3: UPSERT RETURN AFTER returns record with id field as RecordID type
-	// Since Procedure.ID is string, explicitly cast to string in SELECT after UPSERT
-	sql := `
-		UPSERT type::record("procedure", $id) SET
-			name = $name,
-			description = $description,
-			steps = $steps,
-			embedding = $embedding,
-			labels = $labels,
-			context = $context,
-			accessed = time::now(),
-			created = IF created THEN created ELSE time::now() END,
-			access_count = IF access_count THEN access_count ELSE 0 END;
-		SELECT <string>id AS id, name, description, steps, embedding, labels,
-			context, created, accessed, access_count
-		FROM type::record("procedure", $id)
-	`
-
-	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, map[string]any{
-		"id":          procedureID,
-		"name":        name,
-		"description": description,
-		"steps":       steps,
-		"embedding":   embedding,
-		"labels":      labels,
-		"context":     optionalString(procedureContext),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create procedure: %w", err)
-	}
-
-	// SELECT is the second statement, so result is at index 1
-	if results == nil || len(*results) < 2 || len((*results)[1].Result) == 0 {
-		return nil, fmt.Errorf("create procedure: no result returned")
-	}
-
-	return &(*results)[1].Result[0], nil
-}
-
-// QueryGetProcedure retrieves a procedure by ID.
-// Returns nil if not found.
-func (c *Client) QueryGetProcedure(ctx context.Context, id string) (*models.Procedure, error) {
-	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, `
-		SELECT * FROM type::record("procedure", $id)
-	`, map[string]any{"id": id})
-
-	if err != nil {
-		return nil, fmt.Errorf("get procedure: %w", err)
-	}
-
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
-}
-
-// QueryUpdateProcedureAccess updates access tracking for a procedure.
-func (c *Client) QueryUpdateProcedureAccess(ctx context.Context, id string) error {
-	_, err := surrealdb.Query[any](ctx, c.db, `
-		UPDATE type::record("procedure", $id) SET
-			accessed = time::now(),
-			access_count += 1
-	`, map[string]any{"id": id})
-	if err != nil {
-		return fmt.Errorf("update procedure access: %w", err)
-	}
-	return nil
-}
-
-// QueryDeleteProcedure deletes a procedure by ID.
-// Returns count of deleted (0 if not found - idempotent).
-func (c *Client) QueryDeleteProcedure(ctx context.Context, id string) (int, error) {
-	sql := `DELETE type::record("procedure", $id) RETURN BEFORE`
-
-	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, map[string]any{
-		"id": id,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("delete procedure: %w", err)
-	}
-
-	// Count deleted (RETURN BEFORE returns deleted records)
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
-}
-
-// QuerySearchProcedures performs hybrid BM25+vector search on procedures.
-// Searches name and description fields. Supports label and context filtering.
-// Returns procedures ranked by RRF fusion.
-func (c *Client) QuerySearchProcedures(
-	ctx context.Context,
-	query string,
-	embedding []float32,
-	labels []string,
-	contextFilter *string,
-	limit int,
-) ([]models.Procedure, error) {
-	// Build dynamic filter clauses
-	labelClause := ""
-	if len(labels) > 0 {
-		labelClause = "AND labels CONTAINSANY $labels"
-	}
-	contextClause := ""
-	if contextFilter != nil {
-		contextClause = "AND context = $context"
-	}
-
-	// RRF fusion query - combines vector (2x limit for variety) with BM25
-	// Vector: HNSW with ef=40 for better recall
-	// BM25: full-text search on name (analyzer 0) and description (analyzer 1)
-	// RRF k=60 (standard constant for rank fusion)
-	sql := fmt.Sprintf(`
-		SELECT * FROM search::rrf([
-			(SELECT id, name, description, steps, labels, context, accessed, access_count
-			 FROM procedure
-			 WHERE embedding <|%d,40|> $emb %s %s),
-			(SELECT id, name, description, steps, labels, context, accessed, access_count
-			 FROM procedure
-			 WHERE name @0@ $q OR description @1@ $q %s %s)
-		], $limit, 60)
-	`, limit*2, labelClause, contextClause, labelClause, contextClause)
-
-	vars := map[string]any{
-		"q":      query,
-		"emb":    embedding,
-		"labels": labels,
-		"limit":  limit,
-	}
-	if contextFilter != nil {
-		vars["context"] = *contextFilter
-	}
-
-	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("search procedures: %w", err)
-	}
-
-	// Extract from query result wrapper
-	if results != nil && len(*results) > 0 {
-		return (*results)[0].Result, nil
-	}
-	return []models.Procedure{}, nil
-}
-
-// QueryListProcedures returns all procedures with optional context filtering.
-// Returns procedures ordered by last access time (most recent first).
-func (c *Client) QueryListProcedures(
-	ctx context.Context,
-	contextFilter *string,
-	limit int,
-) ([]models.Procedure, error) {
-	// Build context filter
-	contextClause := ""
-	vars := map[string]any{"limit": limit}
-	if contextFilter != nil {
-		contextClause = "WHERE context = $context"
-		vars["context"] = *contextFilter
-	}
-
-	sql := fmt.Sprintf(`
-		SELECT id, name, description, steps, labels, context, accessed, access_count
-		FROM procedure %s
-		ORDER BY accessed DESC
-		LIMIT $limit
-	`, contextClause)
-
-	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("list procedures: %w", err)
-	}
-
-	if results == nil || len(*results) == 0 {
-		return []models.Procedure{}, nil
-	}
-	return (*results)[0].Result, nil
-}
-
-// QueryApplyDecay reduces decay_weight and importance for entities not accessed
-// within the specified number of days.
-// Floor: decay_weight > 0.1 prevents complete decay.
-// Returns entities affected with before/after values.
-// Uses two-step approach: SELECT to capture old values, then UPDATE.
-func (c *Client) QueryApplyDecay(
-	ctx context.Context,
-	decayDays int,
-	contextFilter *string,
-	global bool,
-	dryRun bool,
-) ([]models.DecayedEntity, error) {
-	// Build context filter
-	contextClause := ""
-	vars := map[string]any{"decay_days": decayDays}
-
-	if !global && contextFilter != nil {
-		contextClause = "AND context = $context"
-		vars["context"] = *contextFilter
-	}
-
-	// Decay factor: multiply by 0.9 (10% reduction each run)
-	// Floor at 0.1 to prevent complete decay
-	decayFactor := 0.9
-
-	// Step 1: SELECT entities that would be affected (with computed new values)
-	// This works for both dry_run (preview only) and apply (capture before updating)
-	selectSQL := fmt.Sprintf(`
-		SELECT
-			id,
-			content AS name,
-			decay_weight AS old_decay_weight,
-			math::max([decay_weight * %f, 0.1]) AS new_decay_weight,
-			importance AS old_importance,
-			math::max([importance * %f, 0.1]) AS new_importance
-		FROM entity
-		WHERE accessed < time::now() - duration::from_days($decay_days)
-			AND decay_weight > 0.1
-			%s
-	`, decayFactor, decayFactor, contextClause)
-
-	results, err := surrealdb.Query[[]models.DecayedEntity](ctx, c.db, selectSQL, vars)
-	if err != nil {
-		return nil, fmt.Errorf("decay select: %w", err)
-	}
-
-	var entities []models.DecayedEntity
-	if results != nil && len(*results) > 0 {
-		entities = (*results)[0].Result
-	}
-
-	// If dry_run, return preview without applying
-	if dryRun {
-		return entities, nil
-	}
-
-	// If no entities to update, return empty
-	if len(entities) == 0 {
-		return []models.DecayedEntity{}, nil
-	}
-
-	// Step 2: Apply UPDATE to affected entities
-	updateSQL := fmt.Sprintf(`
-		UPDATE entity SET
-			decay_weight = math::max([decay_weight * %f, 0.1]),
-			importance = math::max([importance * %f, 0.1])
-		WHERE accessed < time::now() - duration::from_days($decay_days)
-			AND decay_weight > 0.1
-			%s
-	`, decayFactor, decayFactor, contextClause)
-
-	_, err = surrealdb.Query[any](ctx, c.db, updateSQL, vars)
-	if err != nil {
-		return nil, fmt.Errorf("apply decay: %w", err)
-	}
-
-	return entities, nil
-}
-
-// QueryFindSimilarPairs finds entity pairs with embedding similarity above threshold.
-// Uses vector::similarity::cosine for comparison.
-// Deduplicates pairs (returns A-B but not B-A).
-// Returns at most `limit` pairs.
-func (c *Client) QueryFindSimilarPairs(
-	ctx context.Context,
-	threshold float64,
-	limit int,
-	contextFilter *string,
-	global bool,
-) ([]models.SimilarPair, error) {
-	// Build context filter
-	vars := map[string]any{
-		"threshold": threshold,
-		"limit":     limit,
-	}
-
-	// Context filter for entity selection
-	outerWhere := ""
-	if !global && contextFilter != nil {
-		outerWhere = "WHERE context = $context"
-		vars["context"] = *contextFilter
-	}
-
-	// Find similar pairs using cosine similarity
-	// v3.0 doesn't support cross-join in FROM clause, use LET + array operations
-	// Sort pair IDs to deduplicate (id > $parent.id ensures A-B but not B-A)
-	sql := fmt.Sprintf(`
-		LET $all_entities = (SELECT id, content, embedding FROM entity %s);
-		LET $pairs = array::flatten(
-			$all_entities.map(|$e1| (
-				$all_entities
-					.filter(|$e2| $e2.id > $e1.id)
-					.map(|$e2| {
-						entity1_id: string::concat($e1.id),
-						entity1_name: $e1.content,
-						entity2_id: string::concat($e2.id),
-						entity2_name: $e2.content,
-						similarity: vector::similarity::cosine($e1.embedding, $e2.embedding)
-					})
-					.filter(|$p| $p.similarity >= $threshold)
-			))
-		);
-		RETURN $pairs
-			.sort(|$a, $b| IF $a.similarity > $b.similarity THEN -1 ELSE IF $a.similarity < $b.similarity THEN 1 ELSE 0 END)
-			.slice(0, $limit);
-	`, outerWhere)
-
-	results, err := surrealdb.Query[[]models.SimilarPair](ctx, c.db, sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("find similar pairs: %w", err)
-	}
-
-	if results == nil {
-		return []models.SimilarPair{}, nil
-	}
-
-	// Since we use RETURN, the last result contains the pairs
-	if len(*results) == 0 {
-		return []models.SimilarPair{}, nil
-	}
-
-	// Get the last result (the RETURN statement)
-	lastIdx := len(*results) - 1
-	return (*results)[lastIdx].Result, nil
+	return result.String()
 }
