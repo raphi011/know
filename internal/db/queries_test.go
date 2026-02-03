@@ -86,9 +86,164 @@ func differentEmbedding() []float32 {
 	return emb
 }
 
-// Silence unused import warnings - these will be used in subsequent tasks
-var (
-	_ = fmt.Sprintf
-	_ = models.Entity{}
-	_ = assert.True
-)
+func TestQueryUpsertEntity(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_upsert_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	id := prefix + "_entity1"
+	testCtx := "test-context"
+
+	// Create new entity
+	entity, wasCreated, err := client.QueryUpsertEntity(
+		ctx, id, "concept", []string{"test", "unit"}, "Test content",
+		testEmbedding(), 0.9, nil, &testCtx,
+	)
+	require.NoError(t, err)
+	assert.True(t, wasCreated, "should be created")
+	assert.Equal(t, "entity:"+id, entity.ID)
+	assert.Equal(t, "concept", entity.Type)
+	assert.Contains(t, entity.Labels, "test")
+
+	// Update existing entity
+	entity2, wasCreated2, err := client.QueryUpsertEntity(
+		ctx, id, "concept", []string{"new-label"}, "Updated content",
+		testEmbedding(), 0.95, nil, &testCtx,
+	)
+	require.NoError(t, err)
+	assert.False(t, wasCreated2, "should be updated")
+	assert.Equal(t, "Updated content", entity2.Content)
+	// Labels should be merged
+	assert.Contains(t, entity2.Labels, "test")
+	assert.Contains(t, entity2.Labels, "new-label")
+}
+
+func TestQueryGetEntity(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_get_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	id := prefix + "_entity1"
+
+	// Get non-existent
+	entity, err := client.QueryGetEntity(ctx, id)
+	require.NoError(t, err)
+	assert.Nil(t, entity, "should return nil for non-existent")
+
+	// Create and get
+	_, _, err = client.QueryUpsertEntity(ctx, id, "test", nil, "Content", testEmbedding(), 1.0, nil, nil)
+	require.NoError(t, err)
+
+	entity, err = client.QueryGetEntity(ctx, id)
+	require.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.Equal(t, "Content", entity.Content)
+}
+
+func TestQueryDeleteEntity(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_del_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	id := prefix + "_entity1"
+
+	// Delete non-existent (idempotent)
+	count, err := client.QueryDeleteEntity(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// Create and delete
+	_, _, err = client.QueryUpsertEntity(ctx, id, "test", nil, "Content", testEmbedding(), 1.0, nil, nil)
+	require.NoError(t, err)
+
+	count, err = client.QueryDeleteEntity(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	// Verify deleted
+	entity, err := client.QueryGetEntity(ctx, id)
+	require.NoError(t, err)
+	assert.Nil(t, entity)
+}
+
+func TestQueryHybridSearch(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_search_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "search-test-ctx"
+
+	// Create test entities
+	_, _, err := client.QueryUpsertEntity(ctx, prefix+"_go", "lang", []string{"programming"}, "Go is a programming language", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_rust", "lang", []string{"programming"}, "Rust is a systems language", differentEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// Search
+	results, err := client.QueryHybridSearch(ctx, "programming", testEmbedding(), nil, 10, &testCtx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(results), 1, "should find results")
+
+	// Search with label filter
+	results, err = client.QueryHybridSearch(ctx, "programming", testEmbedding(), []string{"programming"}, 10, &testCtx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(results), 1)
+}
+
+func TestQueryListLabels(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_labels_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "labels-test-ctx"
+
+	// Create entities with labels
+	_, _, err := client.QueryUpsertEntity(ctx, prefix+"_1", "test", []string{"alpha", "beta"}, "Content 1", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_2", "test", []string{"alpha", "gamma"}, "Content 2", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// List labels
+	labels, err := client.QueryListLabels(ctx, &testCtx)
+	require.NoError(t, err)
+
+	// Find alpha (should have count 2)
+	var alphaCount int
+	for _, l := range labels {
+		if l.Label == "alpha" {
+			alphaCount = l.Count
+			break
+		}
+	}
+	assert.Equal(t, 2, alphaCount, "alpha should appear twice")
+}
+
+func TestQueryListTypes(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_types_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "types-test-ctx"
+
+	// Create entities with types
+	_, _, err := client.QueryUpsertEntity(ctx, prefix+"_1", "concept", nil, "Content 1", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_2", "concept", nil, "Content 2", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_3", "person", nil, "Content 3", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// List types
+	types, err := client.QueryListTypes(ctx, &testCtx)
+	require.NoError(t, err)
+
+	typeMap := make(map[string]int)
+	for _, tc := range types {
+		typeMap[tc.Type] = tc.Count
+	}
+	assert.Equal(t, 2, typeMap["concept"])
+	assert.Equal(t, 1, typeMap["person"])
+}
+
+// Silence unused import warning - models used for type references
+var _ = models.Entity{}
