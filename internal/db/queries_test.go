@@ -366,3 +366,125 @@ func TestQueryDeleteProcedure(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 }
+
+// ========== Maintenance Query Tests ==========
+
+func TestQueryApplyDecay(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_decay_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "decay-test-ctx"
+
+	// Create entity with old accessed timestamp
+	id := prefix + "_stale"
+	_, _, err := client.QueryUpsertEntity(ctx, id, "test", nil, "Stale content", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// Manually set accessed to 60 days ago
+	_, err = client.Query(ctx, `UPDATE type::record("entity", $id) SET accessed = time::now() - 60d`, map[string]any{"id": id})
+	require.NoError(t, err)
+
+	// Dry run - should find the stale entity
+	entities, err := client.QueryApplyDecay(ctx, 30, &testCtx, false, true)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(entities), 1, "should find stale entity in dry run")
+
+	// Apply decay
+	entities, err = client.QueryApplyDecay(ctx, 30, &testCtx, false, false)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(entities), 1, "should apply decay")
+
+	// Verify decay applied
+	entity, err := client.QueryGetEntity(ctx, id)
+	require.NoError(t, err)
+	assert.Less(t, entity.DecayWeight, 1.0, "decay_weight should be reduced")
+}
+
+func TestQueryApplyDecay_Floor(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_decay_floor_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "decay-floor-ctx"
+	id := prefix + "_floor"
+
+	// Create entity with low decay_weight
+	_, _, err := client.QueryUpsertEntity(ctx, id, "test", nil, "Content", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// Set decay_weight to 0.15 and accessed to old
+	_, err = client.Query(ctx, `UPDATE type::record("entity", $id) SET decay_weight = 0.15, accessed = time::now() - 60d`, map[string]any{"id": id})
+	require.NoError(t, err)
+
+	// Apply decay
+	_, err = client.QueryApplyDecay(ctx, 30, &testCtx, false, false)
+	require.NoError(t, err)
+
+	// Verify floor at 0.1
+	entity, err := client.QueryGetEntity(ctx, id)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, entity.DecayWeight, 0.1, "decay_weight should not go below 0.1")
+}
+
+func TestQueryFindSimilarPairs(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_similar_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "similar-test-ctx"
+
+	// Create two similar entities
+	_, _, err := client.QueryUpsertEntity(ctx, prefix+"_a", "test", nil, "Content A", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_b", "test", nil, "Content B", similarEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// Create one different entity
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_c", "test", nil, "Content C", differentEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	// Find similar pairs with low threshold
+	pairs, err := client.QueryFindSimilarPairs(ctx, 0.5, 10, &testCtx, false)
+	require.NoError(t, err)
+
+	// Should find at least the A-B pair (similar embeddings)
+	found := false
+	for _, p := range pairs {
+		if (p.Entity1ID == "entity:"+prefix+"_a" && p.Entity2ID == "entity:"+prefix+"_b") ||
+			(p.Entity1ID == "entity:"+prefix+"_b" && p.Entity2ID == "entity:"+prefix+"_a") {
+			found = true
+			assert.Greater(t, p.Similarity, 0.9, "A-B pair should have high similarity")
+			break
+		}
+	}
+	assert.True(t, found, "should find similar pair A-B")
+}
+
+func TestQueryFindSimilarPairs_NoDuplicates(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_nodup_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEntities(t, client, ctx, prefix) })
+
+	testCtx := "nodup-test-ctx"
+
+	// Create similar entities
+	_, _, err := client.QueryUpsertEntity(ctx, prefix+"_x", "test", nil, "X", testEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+	_, _, err = client.QueryUpsertEntity(ctx, prefix+"_y", "test", nil, "Y", similarEmbedding(), 1.0, nil, &testCtx)
+	require.NoError(t, err)
+
+	pairs, err := client.QueryFindSimilarPairs(ctx, 0.5, 10, &testCtx, false)
+	require.NoError(t, err)
+
+	// Should not have both X-Y and Y-X
+	pairCount := 0
+	for _, p := range pairs {
+		isXY := (p.Entity1ID == "entity:"+prefix+"_x" && p.Entity2ID == "entity:"+prefix+"_y")
+		isYX := (p.Entity1ID == "entity:"+prefix+"_y" && p.Entity2ID == "entity:"+prefix+"_x")
+		if isXY || isYX {
+			pairCount++
+		}
+	}
+	assert.LessOrEqual(t, pairCount, 1, "should not have duplicate pairs")
+}
