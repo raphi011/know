@@ -85,4 +85,22 @@ func RegisterAll(server *mcp.Server, deps *Dependencies, cfg *config.Config) {
 		Name:        "search_episodes",
 		Description: "Search episodic memories by semantic content with optional time range filtering. Use to find past conversations or experiences.",
 	}, NewSearchEpisodesHandler(deps, cfg))
+
+	// Create procedure tool - store procedural memories
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "create_procedure",
+		Description: "Store a step-by-step procedure (workflow, process, how-to) with ordered steps and auto-generated embedding",
+	}, NewCreateProcedureHandler(deps, cfg))
+
+	// Get procedure tool - retrieve by ID
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_procedure",
+		Description: "Retrieve a procedural memory by its ID with all steps",
+	}, NewGetProcedureHandler(deps))
+
+	// Delete procedure tool - remove by ID
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_procedure",
+		Description: "Delete a procedural memory by its ID",
+	}, NewDeleteProcedureHandler(deps))
 }
