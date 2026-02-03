@@ -710,3 +710,94 @@ func (c *Client) QueryDeleteProcedure(ctx context.Context, id string) (int, erro
 	}
 	return len((*results)[0].Result), nil
 }
+
+// QuerySearchProcedures performs hybrid BM25+vector search on procedures.
+// Searches name and description fields. Supports label and context filtering.
+// Returns procedures ranked by RRF fusion.
+func (c *Client) QuerySearchProcedures(
+	ctx context.Context,
+	query string,
+	embedding []float32,
+	labels []string,
+	contextFilter *string,
+	limit int,
+) ([]models.Procedure, error) {
+	// Build dynamic filter clauses
+	labelClause := ""
+	if len(labels) > 0 {
+		labelClause = "AND labels CONTAINSANY $labels"
+	}
+	contextClause := ""
+	if contextFilter != nil {
+		contextClause = "AND context = $context"
+	}
+
+	// RRF fusion query - combines vector (2x limit for variety) with BM25
+	// Vector: HNSW with ef=40 for better recall
+	// BM25: full-text search on name (analyzer 0) and description (analyzer 1)
+	// RRF k=60 (standard constant for rank fusion)
+	sql := fmt.Sprintf(`
+		SELECT * FROM search::rrf([
+			(SELECT id, name, description, steps, labels, context, accessed, access_count
+			 FROM procedure
+			 WHERE embedding <|%d,40|> $emb %s %s),
+			(SELECT id, name, description, steps, labels, context, accessed, access_count
+			 FROM procedure
+			 WHERE name @0@ $q OR description @1@ $q %s %s)
+		], $limit, 60)
+	`, limit*2, labelClause, contextClause, labelClause, contextClause)
+
+	vars := map[string]any{
+		"q":      query,
+		"emb":    embedding,
+		"labels": labels,
+		"limit":  limit,
+	}
+	if contextFilter != nil {
+		vars["context"] = *contextFilter
+	}
+
+	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("search procedures: %w", err)
+	}
+
+	// Extract from query result wrapper
+	if results != nil && len(*results) > 0 {
+		return (*results)[0].Result, nil
+	}
+	return []models.Procedure{}, nil
+}
+
+// QueryListProcedures returns all procedures with optional context filtering.
+// Returns procedures ordered by last access time (most recent first).
+func (c *Client) QueryListProcedures(
+	ctx context.Context,
+	contextFilter *string,
+	limit int,
+) ([]models.Procedure, error) {
+	// Build context filter
+	contextClause := ""
+	vars := map[string]any{"limit": limit}
+	if contextFilter != nil {
+		contextClause = "WHERE context = $context"
+		vars["context"] = *contextFilter
+	}
+
+	sql := fmt.Sprintf(`
+		SELECT id, name, description, steps, labels, context, accessed, access_count
+		FROM procedure %s
+		ORDER BY accessed DESC
+		LIMIT $limit
+	`, contextClause)
+
+	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list procedures: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Procedure{}, nil
+	}
+	return (*results)[0].Result, nil
+}
