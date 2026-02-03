@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-01)
 
 **Core value:** Agents can remember and recall knowledge across sessions with sub-second semantic search
-**Current focus:** Phase 6 - Episode Tools (COMPLETE)
+**Current focus:** Phase 7 - Procedure Tools (IN PROGRESS)
 
 ## Current Position
 
-Phase: 6 of 8 (Episode Tools) - COMPLETE
-Plan: 2 of 2 in current phase - COMPLETE
-Status: Phase complete
-Last activity: 2026-02-02 - Completed 06-02-PLAN.md
+Phase: 7 of 8 (Procedure Tools)
+Plan: 1 of 2 in current phase - COMPLETE
+Status: In progress
+Last activity: 2026-02-03 - Completed 07-01-PLAN.md
 
-Progress: [████████░░] 89% (8 of 9 plans complete)
+Progress: [█████████░] 90% (9 of 10 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: ~8 min per plan
-- Total execution time: ~93 min
+- Total plans completed: 9
+- Average duration: ~7 min per plan
+- Total execution time: ~99 min
 
 **By Phase:**
 
@@ -33,10 +33,11 @@ Progress: [████████░░] 89% (8 of 9 plans complete)
 | 4 | 2 | 17m | 8.5m |
 | 5 | 2 | 14m | 7m |
 | 6 | 2 | 13m | 6.5m |
+| 7 | 1 | 6m | 6m |
 
 **Recent Trend:**
-- Last 5 plans: 05-01, 05-02, 06-01, 06-02
-- Trend: Consistent 5-8m per plan
+- Last 5 plans: 05-02, 06-01, 06-02, 07-01
+- Trend: Consistent 5-7m per plan
 
 *Updated after each plan completion*
 
@@ -77,6 +78,10 @@ Recent decisions affecting current work:
 - [06-02]: Search results return FULL content (not truncated) - user decision
 - [06-02]: ensureTimezone normalizes ISO 8601 timestamps without TZ info
 - [06-02]: Episode search default limit 10, max 50
+- [07-01]: Procedure ID format: context:slugified-name (reuses entity ID pattern)
+- [07-01]: Step order uses 1-based indexing
+- [07-01]: Embedding from combined name + description + steps content
+- [07-01]: Pre-check existence for action: created/updated indicator
 
 ### Pending Todos
 
@@ -88,31 +93,27 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-02T21:35:00Z
-Stopped at: Completed 06-02-PLAN.md (Phase 6 complete)
+Last session: 2026-02-03T11:56:06Z
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None
 
-## Phase 6 Summary (COMPLETE)
+## Phase 7 Summary (IN PROGRESS)
 
 **Plan 01 (COMPLETE):**
-- QueryCreateEpisode, QueryGetEpisode, QueryDeleteEpisode, QueryUpdateEpisodeAccess
-- QueryLinkEntityToEpisode, QueryGetLinkedEntities
-- episode.go with add_episode, get_episode, delete_episode handlers
-- Timestamp-based ID generation (ep_YYYY-MM-DDTHH-MM-SSZ)
+- QueryCreateProcedure, QueryGetProcedure, QueryUpdateProcedureAccess, QueryDeleteProcedure
+- procedure.go with create_procedure, get_procedure, delete_procedure handlers
+- Name-based ID generation with context prefix
 
-**Plan 02 (COMPLETE):**
-- QuerySearchEpisodes with hybrid BM25+vector RRF search
-- Time range filtering (time_start/time_end)
+**Plan 02 (PENDING):**
+- search_procedures with hybrid BM25+vector search
 - Context filtering
-- search_episodes handler with full content results
+- Label filtering
 
-**13 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode, search_episodes
+**16 tools now registered:** ping, search, get_entity, list_labels, list_types, remember, forget, traverse, find_path, add_episode, get_episode, delete_episode, search_episodes, create_procedure, get_procedure, delete_procedure
 
 **Patterns Established:**
-- Timestamp-based episode ID generation
-- Soft-fail entity linking (logs warnings, doesn't block)
-- Content truncation for embedding (8000 chars)
-- Episode search uses same RRF pattern as entity search
-- ensureTimezone helper for ISO 8601 normalization
+- Procedure CRUD follows same pattern as Episode CRUD
+- generateProcedureID reuses slugify from remember.go
+- Step ordering with 1-based indexing
 
-**Next:** Phase 07 (Decay/Maintenance) or Phase 08 (Polish)
+**Next:** Phase 07-02 (search_procedures)
