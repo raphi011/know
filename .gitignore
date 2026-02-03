@@ -20,6 +20,12 @@ go.work.sum
 # Dependency directories
 vendor/
 
+# Build output
+bin/
+dist/
+build/
+tmp/
+
 # IDE
 .idea/
 .vscode/
@@ -30,13 +36,13 @@ vendor/
 .env
 .envrc
 
+# Security
+*.pem
+*.key
+
 # OS files
 .DS_Store
 Thumbs.db
-
-# Build output
-dist/
-build/
 
 # Claude Code
 .claude/settings.local.json
