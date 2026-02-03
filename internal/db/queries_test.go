@@ -245,5 +245,124 @@ func TestQueryListTypes(t *testing.T) {
 	assert.Equal(t, 1, typeMap["person"])
 }
 
-// Silence unused import warning - models used for type references
-var _ = models.Entity{}
+// ========== Episode Query Tests ==========
+
+func TestQueryCreateEpisode(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_episode_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEpisodes(t, client, ctx, prefix) })
+
+	id := prefix + "_ep1"
+	testCtx := "episode-test-ctx"
+	timestamp := time.Now().Format(time.RFC3339)
+
+	episode, err := client.QueryCreateEpisode(ctx, id, "Episode content", testEmbedding(), timestamp, nil, nil, &testCtx)
+	require.NoError(t, err)
+	assert.Equal(t, "episode:"+id, episode.ID)
+	assert.Equal(t, "Episode content", episode.Content)
+}
+
+func TestQueryGetEpisode(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_get_ep_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEpisodes(t, client, ctx, prefix) })
+
+	id := prefix + "_ep1"
+
+	// Get non-existent
+	episode, err := client.QueryGetEpisode(ctx, id)
+	require.NoError(t, err)
+	assert.Nil(t, episode)
+
+	// Create and get
+	_, err = client.QueryCreateEpisode(ctx, id, "Content", testEmbedding(), time.Now().Format(time.RFC3339), nil, nil, nil)
+	require.NoError(t, err)
+
+	episode, err = client.QueryGetEpisode(ctx, id)
+	require.NoError(t, err)
+	assert.NotNil(t, episode)
+}
+
+func TestQueryDeleteEpisode(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_del_ep_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupEpisodes(t, client, ctx, prefix) })
+
+	id := prefix + "_ep1"
+
+	// Delete non-existent
+	count, err := client.QueryDeleteEpisode(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// Create and delete
+	_, err = client.QueryCreateEpisode(ctx, id, "Content", testEmbedding(), time.Now().Format(time.RFC3339), nil, nil, nil)
+	require.NoError(t, err)
+
+	count, err = client.QueryDeleteEpisode(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+}
+
+// ========== Procedure Query Tests ==========
+
+func TestQueryCreateProcedure(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_proc_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupProcedures(t, client, ctx, prefix) })
+
+	id := prefix + "_proc1"
+	testCtx := "proc-test-ctx"
+	steps := []models.ProcedureStep{
+		{Order: 1, Content: "Step 1", Optional: false},
+		{Order: 2, Content: "Step 2", Optional: true},
+	}
+
+	proc, err := client.QueryCreateProcedure(ctx, id, "Test Procedure", "A test", steps, testEmbedding(), []string{"test"}, &testCtx)
+	require.NoError(t, err)
+	assert.Equal(t, "procedure:"+id, proc.ID)
+	assert.Equal(t, "Test Procedure", proc.Name)
+	assert.Len(t, proc.Steps, 2)
+}
+
+func TestQueryGetProcedure(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_get_proc_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupProcedures(t, client, ctx, prefix) })
+
+	id := prefix + "_proc1"
+
+	// Get non-existent
+	proc, err := client.QueryGetProcedure(ctx, id)
+	require.NoError(t, err)
+	assert.Nil(t, proc)
+
+	// Create and get
+	_, err = client.QueryCreateProcedure(ctx, id, "Test", "Desc", nil, testEmbedding(), nil, nil)
+	require.NoError(t, err)
+
+	proc, err = client.QueryGetProcedure(ctx, id)
+	require.NoError(t, err)
+	assert.NotNil(t, proc)
+}
+
+func TestQueryDeleteProcedure(t *testing.T) {
+	client, ctx := testClient(t)
+	prefix := fmt.Sprintf("test_del_proc_%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupProcedures(t, client, ctx, prefix) })
+
+	id := prefix + "_proc1"
+
+	// Delete non-existent
+	count, err := client.QueryDeleteProcedure(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// Create and delete
+	_, err = client.QueryCreateProcedure(ctx, id, "Test", "Desc", nil, testEmbedding(), nil, nil)
+	require.NoError(t, err)
+
+	count, err = client.QueryDeleteProcedure(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+}
