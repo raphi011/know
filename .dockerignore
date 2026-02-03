@@ -2,24 +2,11 @@
 .git
 .gitignore
 
-# Python
-__pycache__
-*.py[cod]
-*.egg-info
-.eggs
-dist
-build
-.venv
-venv
-.pytest_cache
-.mypy_cache
-.ruff_cache
-htmlcov
-.coverage
-
-# Node (dashboard has its own node_modules copied during build)
-dashboard/node_modules
-dashboard/.next
+# Go
+vendor/
+bin/
+*.test
+*.out
 
 # IDE
 .vscode
@@ -31,18 +18,21 @@ dashboard/.next
 .DS_Store
 Thumbs.db
 
-# Project specific
-*.log
+# Environment
 .env
 .envrc
+*.log
+
+# Security
+*.pem
+*.key
 
 # Documentation
 *.md
-!README.md
+docs/
 
-# Tests (not needed in production image)
-test_*.py
-tests/
+# Helm (not needed in image)
+helm/
 
 # Claude Code
 .claude/
