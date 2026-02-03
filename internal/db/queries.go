@@ -605,3 +605,108 @@ func (c *Client) QuerySearchEpisodes(
 	}
 	return []models.Episode{}, nil
 }
+
+// QueryCreateProcedure creates or updates a procedure by ID.
+// Uses SurrealDB UPSERT to handle insert vs update semantics.
+// Returns the created/updated procedure.
+func (c *Client) QueryCreateProcedure(
+	ctx context.Context,
+	procedureID string,
+	name string,
+	description string,
+	steps []models.ProcedureStep,
+	embedding []float32,
+	labels []string,
+	procedureContext *string,
+) (*models.Procedure, error) {
+	// Ensure labels and steps are not nil
+	if labels == nil {
+		labels = []string{}
+	}
+	if steps == nil {
+		steps = []models.ProcedureStep{}
+	}
+
+	// UPSERT with conditional created field (only set on insert)
+	sql := `
+		UPSERT type::record("procedure", $id) SET
+			name = $name,
+			description = $description,
+			steps = $steps,
+			embedding = $embedding,
+			labels = $labels,
+			context = $context,
+			accessed = time::now(),
+			created = IF created THEN created ELSE time::now() END,
+			access_count = IF access_count THEN access_count ELSE 0 END
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, map[string]any{
+		"id":          procedureID,
+		"name":        name,
+		"description": description,
+		"steps":       steps,
+		"embedding":   embedding,
+		"labels":      labels,
+		"context":     procedureContext,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create procedure: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create procedure: no result returned")
+	}
+
+	return &(*results)[0].Result[0], nil
+}
+
+// QueryGetProcedure retrieves a procedure by ID.
+// Returns nil if not found.
+func (c *Client) QueryGetProcedure(ctx context.Context, id string) (*models.Procedure, error) {
+	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, `
+		SELECT * FROM type::record("procedure", $id)
+	`, map[string]any{"id": id})
+
+	if err != nil {
+		return nil, fmt.Errorf("get procedure: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// QueryUpdateProcedureAccess updates access tracking for a procedure.
+func (c *Client) QueryUpdateProcedureAccess(ctx context.Context, id string) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("procedure", $id) SET
+			accessed = time::now(),
+			access_count += 1
+	`, map[string]any{"id": id})
+	if err != nil {
+		return fmt.Errorf("update procedure access: %w", err)
+	}
+	return nil
+}
+
+// QueryDeleteProcedure deletes a procedure by ID.
+// Returns count of deleted (0 if not found - idempotent).
+func (c *Client) QueryDeleteProcedure(ctx context.Context, id string) (int, error) {
+	sql := `DELETE type::record("procedure", $id) RETURN BEFORE`
+
+	results, err := surrealdb.Query[[]models.Procedure](ctx, c.db, sql, map[string]any{
+		"id": id,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("delete procedure: %w", err)
+	}
+
+	// Count deleted (RETURN BEFORE returns deleted records)
+	if results == nil || len(*results) == 0 {
+		return 0, nil
+	}
+	return len((*results)[0].Result), nil
+}
