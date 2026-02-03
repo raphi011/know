@@ -9,9 +9,9 @@ services:
 
   memcp:
     build: .
-    container_name: memcp-dashboard
+    container_name: memcp-server
     ports:
-      - "3000:3000"
+      - "8080:8080"
     environment:
       - SURREALDB_URL=ws://surrealdb:8000/rpc
       - SURREALDB_NAMESPACE=knowledge
