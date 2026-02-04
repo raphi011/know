@@ -796,6 +796,147 @@ func (c *Client) ListEntities(ctx context.Context, entityType string, labels []s
 	return (*results)[0].Result, nil
 }
 
+// =============================================================================
+// INGEST JOB QUERIES
+// =============================================================================
+
+// CreateIngestJob creates a new ingest job record.
+func (c *Client) CreateIngestJob(ctx context.Context, id, dirPath string, files []string, opts map[string]any) error {
+	sql := `
+		CREATE type::record("ingest_job", $id) SET
+			job_type = "ingest",
+			status = "pending",
+			dir_path = $dir_path,
+			files = $files,
+			options = $options,
+			total = $total,
+			progress = 0
+	`
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"id":       id,
+		"dir_path": dirPath,
+		"files":    files,
+		"options":  optionalObject(opts),
+		"total":    len(files),
+	})
+	if err != nil {
+		return fmt.Errorf("create ingest job: %w", err)
+	}
+	return nil
+}
+
+// GetIngestJob retrieves an ingest job by ID.
+func (c *Client) GetIngestJob(ctx context.Context, id string) (*models.IngestJob, error) {
+	results, err := surrealdb.Query[[]models.IngestJob](ctx, c.db, `
+		SELECT * FROM type::record("ingest_job", $id)
+	`, map[string]any{"id": id})
+
+	if err != nil {
+		return nil, fmt.Errorf("get ingest job: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// GetIncompleteJobs returns all pending or running jobs.
+func (c *Client) GetIncompleteJobs(ctx context.Context) ([]models.IngestJob, error) {
+	results, err := surrealdb.Query[[]models.IngestJob](ctx, c.db, `
+		SELECT * FROM ingest_job WHERE status IN ["pending", "running"] ORDER BY started_at ASC
+	`, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("get incomplete jobs: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.IngestJob{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// UpdateJobStatus updates the status of a job.
+func (c *Client) UpdateJobStatus(ctx context.Context, id, status string) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET status = $status
+	`, map[string]any{"id": id, "status": status})
+	if err != nil {
+		return fmt.Errorf("update job status: %w", err)
+	}
+	return nil
+}
+
+// UpdateJobProgress updates the progress of a job.
+func (c *Client) UpdateJobProgress(ctx context.Context, id string, progress int) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET progress = $progress
+	`, map[string]any{"id": id, "progress": progress})
+	if err != nil {
+		return fmt.Errorf("update job progress: %w", err)
+	}
+	return nil
+}
+
+// CompleteJob marks a job as completed with result.
+func (c *Client) CompleteJob(ctx context.Context, id string, result map[string]any) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET
+			status = "completed",
+			result = $result,
+			completed_at = time::now()
+	`, map[string]any{"id": id, "result": result})
+	if err != nil {
+		return fmt.Errorf("complete job: %w", err)
+	}
+	return nil
+}
+
+// FailJob marks a job as failed with error message.
+func (c *Client) FailJob(ctx context.Context, id string, errMsg string) error {
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET
+			status = "failed",
+			error = $error,
+			completed_at = time::now()
+	`, map[string]any{"id": id, "error": errMsg})
+	if err != nil {
+		return fmt.Errorf("fail job: %w", err)
+	}
+	return nil
+}
+
+// GetEntitiesBySourcePaths returns source_path values for entities that exist with given paths.
+func (c *Client) GetEntitiesBySourcePaths(ctx context.Context, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return []string{}, nil
+	}
+
+	results, err := surrealdb.Query[[]struct {
+		SourcePath *string `json:"source_path"`
+	}](ctx, c.db, `
+		SELECT source_path FROM entity WHERE source_path IN $paths
+	`, map[string]any{"paths": paths})
+
+	if err != nil {
+		return nil, fmt.Errorf("get entities by source paths: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []string{}, nil
+	}
+
+	existingPaths := make([]string, 0, len((*results)[0].Result))
+	for _, r := range (*results)[0].Result {
+		if r.SourcePath != nil {
+			existingPaths = append(existingPaths, *r.SourcePath)
+		}
+	}
+	return existingPaths, nil
+}
+
 // slugify converts a name to a URL-safe ID.
 func slugify(name string) string {
 	// Simple slugification: lowercase, replace spaces with hyphens
