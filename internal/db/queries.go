@@ -372,10 +372,9 @@ func (c *Client) SearchWithChunks(ctx context.Context, opts SearchOptions) ([]mo
 		);
 
 		-- Merge entity hits with chunk hits
-		RETURN array::distinct(array::concat($entity_hits, $chunk_hits.map(|$c| {
-			...$c.entity,
-			matched_chunks: $c.matched_chunks
-		}))).slice(0, $limit)
+		RETURN array::distinct(array::concat($entity_hits, $chunk_hits.map(|$c|
+			object::extend($c.entity, { matched_chunks: $c.matched_chunks })
+		))).slice(0, $limit)
 	`, limit*2, filterClause, filterClause, limit*2, limit*3, chunkFilterClause)
 
 	results, err := surrealdb.Query[[]models.EntitySearchResult](ctx, c.db, sql, vars)

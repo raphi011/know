@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/llm"
@@ -42,6 +45,10 @@ type IngestOptions struct {
 	DryRun bool
 	// Recursive processes subdirectories
 	Recursive bool
+	// Concurrency sets number of parallel workers (default 4)
+	Concurrency int
+	// Job for progress reporting (optional, set by async ingestion)
+	Job *Job
 }
 
 // IngestResult summarizes an ingestion operation.
@@ -142,7 +149,11 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	// Extract graph relations using LLM if requested
 	if opts.ExtractGraph && s.model != nil {
 		if err := s.extractGraphRelations(ctx, entity); err != nil {
-			// Log but don't fail
+			// Fatal API errors (billing, auth) should stop everything
+			if errors.Is(err, llm.ErrFatalAPI) {
+				return nil, fmt.Errorf("graph extraction: %w", err)
+			}
+			// Log but don't fail for other errors
 			slog.Warn("graph extraction failed", "file", filePath, "error", err)
 		}
 	}
@@ -247,6 +258,9 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 	if err != nil {
 		return fmt.Errorf("get entity ID: %w", err)
 	}
+
+	contentLen := len(*entity.Content)
+	slog.Debug("starting graph extraction", "entity", entity.Name, "content_len", contentLen)
 
 	// Get existing entity names for context
 	existingEntities, err := s.db.ListEntities(ctx, "", nil, 100)
@@ -369,8 +383,6 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 
 // IngestDirectory ingests all Markdown files from a directory.
 func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opts IngestOptions) (*IngestResult, error) {
-	result := &IngestResult{}
-
 	// Find markdown files
 	var files []string
 	walkFn := func(path string, d os.DirEntry, err error) error {
@@ -391,30 +403,86 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 		return nil, fmt.Errorf("scan directory: %w", err)
 	}
 
-	// Process files
-	for _, file := range files {
-		result.FilesProcessed++
+	totalFiles := len(files)
+	slog.Info("starting directory ingestion", "dir", dirPath, "files", totalFiles, "concurrency", opts.Concurrency, "extract_graph", opts.ExtractGraph)
 
-		entity, err := s.IngestFile(ctx, file, opts)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, err))
-			continue
-		}
-
-		result.EntitiesCreated++
-
-		// Count chunks
-		if entity != nil && !opts.DryRun {
-			if entityID, err := models.RecordIDString(entity.ID); err == nil {
-				chunks, err := s.db.GetChunks(ctx, entityID)
-				if err != nil {
-					slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
-				} else {
-					result.ChunksCreated += len(chunks)
-				}
-			}
-		}
+	// Set default concurrency
+	concurrency := opts.Concurrency
+	if concurrency <= 0 {
+		concurrency = 4
 	}
 
-	return result, nil
+	// Result aggregation with thread-safe counters
+	var (
+		filesProcessed  atomic.Int32
+		entitiesCreated atomic.Int32
+		chunksCreated   atomic.Int32
+		errorsMu        sync.Mutex
+		errors          []string
+	)
+
+	// Worker pool
+	fileChan := make(chan string, len(files))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for file := range fileChan {
+				if ctx.Err() != nil {
+					return
+				}
+
+				processed := filesProcessed.Add(1)
+				slog.Info("processing file", "worker", workerID, "file", filepath.Base(file), "progress", fmt.Sprintf("%d/%d", processed, totalFiles))
+
+				// Update job progress if tracking
+				if opts.Job != nil {
+					opts.Job.UpdateProgress(int(processed), totalFiles)
+				}
+
+				entity, err := s.IngestFile(ctx, file, opts)
+				if err != nil {
+					errorsMu.Lock()
+					errors = append(errors, fmt.Sprintf("%s: %v", file, err))
+					errorsMu.Unlock()
+					continue
+				}
+
+				entitiesCreated.Add(1)
+
+				// Count chunks
+				if entity != nil && !opts.DryRun {
+					if entityID, err := models.RecordIDString(entity.ID); err == nil {
+						chunks, err := s.db.GetChunks(ctx, entityID)
+						if err != nil {
+							slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
+						} else {
+							chunksCreated.Add(int32(len(chunks)))
+						}
+					}
+				}
+			}
+		}(i)
+	}
+
+	// Send files to workers
+	for _, file := range files {
+		fileChan <- file
+	}
+	close(fileChan)
+
+	// Wait for completion
+	wg.Wait()
+
+	slog.Info("directory ingestion complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+
+	return &IngestResult{
+		FilesProcessed:  int(filesProcessed.Load()),
+		EntitiesCreated: int(entitiesCreated.Load()),
+		ChunksCreated:   int(chunksCreated.Load()),
+		Errors:          errors,
+	}, nil
 }
