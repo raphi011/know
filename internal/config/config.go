@@ -15,6 +15,7 @@ const (
 	ProviderOllama    LLMProvider = "ollama"
 	ProviderOpenAI    LLMProvider = "openai"
 	ProviderAnthropic LLMProvider = "anthropic"
+	ProviderBedrock   LLMProvider = "bedrock"
 )
 
 // Config holds all configuration values.
@@ -37,13 +38,17 @@ type Config struct {
 	LLMModel    string
 
 	// Provider-specific settings
-	OllamaHost     string
-	OpenAIAPIKey   string
-	AnthropicAPIKey string
+	OllamaHost           string
+	OpenAIAPIKey         string
+	AnthropicAPIKey      string
+	BedrockModelProvider string // e.g., "anthropic" for inference profiles
 
 	// Logging
 	LogFile  string
 	LogLevel slog.Level
+
+	// Server settings
+	IngestConcurrency int
 }
 
 // Load reads configuration from environment variables.
@@ -67,13 +72,17 @@ func Load() Config {
 		LLMModel:    getEnv("KNOWHOW_LLM_MODEL", "llama3.2"),
 
 		// Provider hosts/keys
-		OllamaHost:      getEnv("OLLAMA_HOST", "http://localhost:11434"),
-		OpenAIAPIKey:    getEnv("OPENAI_API_KEY", ""),
-		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
+		OllamaHost:           getEnv("OLLAMA_HOST", "http://localhost:11434"),
+		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
+		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
+		BedrockModelProvider: getEnv("KNOWHOW_BEDROCK_MODEL_PROVIDER", ""),
 
 		// Logging
 		LogFile:  getEnv("KNOWHOW_LOG_FILE", "/tmp/knowhow.log"),
 		LogLevel: parseLogLevel(getEnv("KNOWHOW_LOG_LEVEL", "INFO")),
+
+		// Server settings
+		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
 	}
 }
 
