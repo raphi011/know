@@ -158,3 +158,24 @@ func (c *Client) InitSchema(ctx context.Context) error {
 func (c *Client) Query(ctx context.Context, sql string, vars map[string]any) (*[]surrealdb.QueryResult[any], error) {
 	return surrealdb.Query[any](ctx, c.db, sql, vars)
 }
+
+// WipeData deletes all data from the database while preserving schema.
+// Use for testing only.
+func (c *Client) WipeData(ctx context.Context) error {
+	c.logger.Warn("wiping all data from database")
+
+	// Delete all records from each table
+	// Order matters due to relations referencing entities
+	tables := []string{"relates_to", "chunk", "template", "token_usage", "entity"}
+
+	for _, table := range tables {
+		query := fmt.Sprintf("DELETE %s", table)
+		if _, err := surrealdb.Query[any](ctx, c.db, query, nil); err != nil {
+			return fmt.Errorf("delete %s: %w", table, err)
+		}
+		c.logger.Info("deleted table data", "table", table)
+	}
+
+	c.logger.Info("database wipe complete")
+	return nil
+}

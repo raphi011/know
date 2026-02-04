@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,13 +19,17 @@ import (
 )
 
 func main() {
+	// Parse flags
+	wipeDB := flag.Bool("wipe", false, "wipe all data from database on startup (testing only)")
+	flag.Parse()
+
 	// Load configuration
 	cfg := config.Load()
 
 	// Get server port from environment or default
 	port := os.Getenv("KNOWHOW_SERVER_PORT")
 	if port == "" {
-		port = "8080"
+		port = "8484"
 	}
 
 	// Initialize logging
@@ -44,6 +49,17 @@ func main() {
 	if err != nil {
 		slog.Error("failed to create resolver", "error", err)
 		os.Exit(1)
+	}
+
+	// Wipe database if requested
+	if *wipeDB {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := resolver.WipeData(ctx); err != nil {
+			cancel()
+			slog.Error("failed to wipe database", "error", err)
+			os.Exit(1)
+		}
+		cancel()
 	}
 	defer func() {
 		if err := resolver.Close(context.Background()); err != nil {
