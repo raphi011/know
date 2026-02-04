@@ -66,8 +66,13 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 		baseURL = strings.TrimSuffix(baseURL, "/rpc")
 	}
 
+	var connAttempt int
 	conn := rews.New(
 		func(ctx context.Context) (*gorillaws.Connection, error) {
+			connAttempt++
+			if connAttempt > 1 {
+				sdkLogger.Warn("rews reconnecting", "attempt", connAttempt)
+			}
 			ws := gorillaws.New(&connection.Config{
 				BaseURL:     baseURL,
 				Marshaler:   codec,
@@ -131,13 +136,48 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 	}
 
 	sdkLogger.Info("SurrealDB connection established")
-	return &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc}, nil
+	client := &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc}
+
+	// Start connection health monitor
+	go client.monitorConnection()
+
+	return client, nil
 }
 
 // Close closes the SurrealDB connection.
 func (c *Client) Close(ctx context.Context) error {
 	c.logger.Info("closing SurrealDB connection")
 	return c.conn.Close(ctx)
+}
+
+// monitorConnection logs WebSocket connection state changes and sends periodic heartbeats.
+// Heartbeat queries keep the connection alive during long external operations (e.g., LLM calls)
+// that would otherwise let the WebSocket go idle and get closed by the server/network.
+func (c *Client) monitorConnection() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	wasConnected := true
+	for range ticker.C {
+		isConnected := !c.conn.IsClosed()
+
+		if !isConnected && wasConnected {
+			c.logger.Error("SurrealDB WebSocket disconnected")
+		} else if isConnected && !wasConnected {
+			c.logger.Info("SurrealDB WebSocket reconnected")
+		}
+		wasConnected = isConnected
+
+		// Send heartbeat query to keep connection alive
+		if isConnected {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, err := surrealdb.Query[any](ctx, c.db, "RETURN 1", nil)
+			cancel()
+			if err != nil {
+				c.logger.Warn("heartbeat query failed", "error", err)
+			}
+		}
+	}
 }
 
 // recordTiming records operation timing if metrics are enabled.

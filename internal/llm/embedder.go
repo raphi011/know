@@ -204,14 +204,32 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (embe
 
 // EmbedDocuments implements embeddings.Embedder.
 func (b *bedrockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	start := time.Now()
+	totalChars := 0
+	for _, t := range texts {
+		totalChars += len(t)
+	}
+	slog.Debug("bedrock embedding starting", "provider", b.provider, "texts", len(texts), "total_chars", totalChars)
+
+	var vecs [][]float32
+	var err error
+
 	switch b.provider {
 	case "amazon":
-		return bedrockembed.FetchAmazonTextEmbeddings(ctx, b.client, b.modelID, texts)
+		vecs, err = bedrockembed.FetchAmazonTextEmbeddings(ctx, b.client, b.modelID, texts)
 	case "cohere":
-		return bedrockembed.FetchCohereTextEmbeddings(ctx, b.client, b.modelID, texts, bedrockembed.CohereInputTypeText)
+		vecs, err = bedrockembed.FetchCohereTextEmbeddings(ctx, b.client, b.modelID, texts, bedrockembed.CohereInputTypeText)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", b.provider)
 	}
+
+	duration := time.Since(start)
+	if err != nil {
+		slog.Warn("bedrock embedding failed", "provider", b.provider, "duration_ms", duration.Milliseconds(), "error", err)
+		return nil, err
+	}
+	slog.Debug("bedrock embedding complete", "provider", b.provider, "texts", len(texts), "duration_ms", duration.Milliseconds())
+	return vecs, nil
 }
 
 // EmbedQuery implements embeddings.Embedder.
