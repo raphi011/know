@@ -163,10 +163,15 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 	links := parser.ExtractWikiLinks(doc.Content)
 	for _, link := range links {
 		// Try to find matching entity
-		target, _ := s.db.GetEntityByName(ctx, link)
+		target, err := s.db.GetEntityByName(ctx, link)
+		if err != nil {
+			slog.Debug("failed to lookup entity for wiki link", "link", link, "error", err)
+			continue
+		}
 		if target != nil {
 			targetID, err := models.RecordIDString(target.ID)
 			if err != nil {
+				slog.Debug("failed to get target ID for wiki link", "link", link, "error", err)
 				continue
 			}
 			relSource := string(models.RelationSourceInferred)
@@ -183,10 +188,15 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 	mentions := parser.ExtractMentions(doc.Content)
 	for _, mention := range mentions {
 		// Try to find matching person entity
-		target, _ := s.db.GetEntityByName(ctx, mention)
+		target, err := s.db.GetEntityByName(ctx, mention)
+		if err != nil {
+			slog.Debug("failed to lookup entity for mention", "mention", mention, "error", err)
+			continue
+		}
 		if target != nil && target.Type == "person" {
 			targetID, err := models.RecordIDString(target.ID)
 			if err != nil {
+				slog.Debug("failed to get target ID for mention", "mention", mention, "error", err)
 				continue
 			}
 			relSource := string(models.RelationSourceInferred)
@@ -202,10 +212,15 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 	// Extract relations from frontmatter
 	if relatesTo := doc.GetFrontmatterStringSlice("relates_to"); len(relatesTo) > 0 {
 		for _, targetName := range relatesTo {
-			target, _ := s.db.GetEntityByName(ctx, targetName)
+			target, err := s.db.GetEntityByName(ctx, targetName)
+			if err != nil {
+				slog.Debug("failed to lookup entity for frontmatter relation", "target", targetName, "error", err)
+				continue
+			}
 			if target != nil {
 				targetID, err := models.RecordIDString(target.ID)
 				if err != nil {
+					slog.Debug("failed to get target ID for frontmatter relation", "target", targetName, "error", err)
 					continue
 				}
 				relSource := string(models.RelationSourceInferred)
@@ -234,7 +249,11 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 	}
 
 	// Get existing entity names for context
-	existingEntities, _ := s.db.ListEntities(ctx, "", nil, 100)
+	existingEntities, err := s.db.ListEntities(ctx, "", nil, 100)
+	if err != nil {
+		slog.Warn("failed to list entities for graph context", "error", err)
+		// Continue with empty list - LLM can still extract new entities
+	}
 	entityNames := make([]string, 0, len(existingEntities))
 	for _, e := range existingEntities {
 		entityNames = append(entityNames, e.Name)
@@ -256,8 +275,11 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 		if len(parts) >= 4 && parts[0] == "ENTITY" {
 			// Create new entity if it doesn't exist
 			name := strings.TrimSpace(parts[1])
-			existing, _ := s.db.GetEntityByName(ctx, name)
-			if existing == nil {
+			existing, err := s.db.GetEntityByName(ctx, name)
+			if err != nil {
+				slog.Debug("failed to check existing entity", "name", name, "error", err)
+			}
+			if existing == nil && err == nil {
 				entityType := strings.TrimSpace(parts[2])
 				description := strings.TrimSpace(parts[3])
 				aiSource := models.SourceAIGenerated
@@ -284,8 +306,16 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 			relType := strings.TrimSpace(parts[3])
 
 			// Find source and target entities
-			sourceEntity, _ := s.db.GetEntityByName(ctx, sourceName)
-			targetEntity, _ := s.db.GetEntityByName(ctx, targetName)
+			sourceEntity, err := s.db.GetEntityByName(ctx, sourceName)
+			if err != nil {
+				slog.Debug("failed to lookup source entity for relation", "source", sourceName, "error", err)
+				continue
+			}
+			targetEntity, err := s.db.GetEntityByName(ctx, targetName)
+			if err != nil {
+				slog.Debug("failed to lookup target entity for relation", "target", targetName, "error", err)
+				continue
+			}
 
 			if sourceEntity != nil && targetEntity != nil {
 				sourceID, srcErr := models.RecordIDString(sourceEntity.ID)
@@ -309,18 +339,26 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 		// Also link extracted entities to the source entity
 		if len(parts) >= 4 && parts[0] == "ENTITY" {
 			name := strings.TrimSpace(parts[1])
-			targetEntity, _ := s.db.GetEntityByName(ctx, name)
+			targetEntity, err := s.db.GetEntityByName(ctx, name)
+			if err != nil {
+				slog.Debug("failed to lookup extracted entity", "name", name, "error", err)
+				continue
+			}
 			if targetEntity != nil {
 				targetID, err := models.RecordIDString(targetEntity.ID)
-				if err == nil {
-					relSource := string(models.RelationSourceAIDetected)
+				if err != nil {
+					slog.Debug("failed to get target ID for extracted entity", "name", name, "error", err)
+					continue
+				}
+				relSource := string(models.RelationSourceAIDetected)
 
-					_ = s.db.CreateRelation(ctx, models.RelationInput{
-						FromID:  entityID,
-						ToID:    targetID,
-						RelType: "mentions",
-						Source:  &relSource,
-					})
+				if err := s.db.CreateRelation(ctx, models.RelationInput{
+					FromID:  entityID,
+					ToID:    targetID,
+					RelType: "mentions",
+					Source:  &relSource,
+				}); err != nil {
+					slog.Warn("failed to create mentions relation from graph extraction", "entity", entityID, "target", targetID, "error", err)
 				}
 			}
 		}
@@ -368,8 +406,12 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 		// Count chunks
 		if entity != nil && !opts.DryRun {
 			if entityID, err := models.RecordIDString(entity.ID); err == nil {
-				chunks, _ := s.db.GetChunks(ctx, entityID)
-				result.ChunksCreated += len(chunks)
+				chunks, err := s.db.GetChunks(ctx, entityID)
+				if err != nil {
+					slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
+				} else {
+					result.ChunksCreated += len(chunks)
+				}
 			}
 		}
 	}

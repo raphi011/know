@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
@@ -104,7 +105,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	entityID, _ := models.RecordIDString(entity.ID)
+	entityID, err := models.RecordIDString(entity.ID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to extract entity ID for display: %v\n", err)
+		entityID = "<unknown>"
+	}
 	fmt.Printf("Created entity: %s (%s)\n", entity.Name, entityID)
 	if verbose {
 		fmt.Printf("  Type: %s\n", entity.Type)

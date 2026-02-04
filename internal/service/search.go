@@ -65,7 +65,9 @@ func (s *SearchService) Search(ctx context.Context, opts SearchOptions) ([]model
 	// Update access for returned entities
 	for _, entity := range results {
 		if idStr, err := models.RecordIDString(entity.ID); err == nil {
-			_ = s.db.UpdateEntityAccess(ctx, idStr)
+			if err := s.db.UpdateEntityAccess(ctx, idStr); err != nil {
+				slog.Warn("failed to update entity access", "entity", idStr, "error", err)
+			}
 		} else {
 			slog.Warn("failed to get entity ID for access tracking", "error", err)
 		}
@@ -103,7 +105,9 @@ func (s *SearchService) SearchWithChunks(ctx context.Context, opts SearchOptions
 	// Update access for returned entities
 	for _, result := range results {
 		if idStr, err := models.RecordIDString(result.ID); err == nil {
-			_ = s.db.UpdateEntityAccess(ctx, idStr)
+			if err := s.db.UpdateEntityAccess(ctx, idStr); err != nil {
+				slog.Warn("failed to update entity access", "entity", idStr, "error", err)
+			}
 		} else {
 			slog.Warn("failed to get entity ID for access tracking", "error", err)
 		}
@@ -161,10 +165,10 @@ func (s *SearchService) Ask(ctx context.Context, query string, opts SearchOption
 		contextParts = append(contextParts, part)
 	}
 
-	context := strings.Join(contextParts, "\n---\n")
+	searchContext := strings.Join(contextParts, "\n---\n")
 
 	// Synthesize answer
-	return s.model.SynthesizeAnswer(ctx, query, context)
+	return s.model.SynthesizeAnswer(ctx, query, searchContext)
 }
 
 // AskWithTemplate fills a template with knowledge from search.

@@ -186,7 +186,9 @@ func (s *EntityService) Get(ctx context.Context, id string) (*models.Entity, err
 		return nil, err
 	}
 	if entity != nil {
-		_ = s.db.UpdateEntityAccess(ctx, id)
+		if err := s.db.UpdateEntityAccess(ctx, id); err != nil {
+			slog.Warn("failed to update entity access", "entity", id, "error", err)
+		}
 	}
 	return entity, nil
 }
