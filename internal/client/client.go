@@ -19,19 +19,27 @@ type Client struct {
 }
 
 // New creates a new GraphQL client.
-// If endpoint is empty, uses KNOWHOW_SERVER_URL env var or defaults to localhost:8080.
+// If endpoint is empty, uses KNOWHOW_SERVER_URL env var or defaults to localhost:8484.
+// Timeout can be configured via KNOWHOW_CLIENT_TIMEOUT env var (default 10m for batch operations).
 func New(endpoint string) *Client {
 	if endpoint == "" {
 		endpoint = os.Getenv("KNOWHOW_SERVER_URL")
 	}
 	if endpoint == "" {
-		endpoint = "http://localhost:8080/query"
+		endpoint = "http://localhost:8484/query"
+	}
+
+	timeout := 10 * time.Minute // Default: 10 minutes for batch LLM operations
+	if t := os.Getenv("KNOWHOW_CLIENT_TIMEOUT"); t != "" {
+		if d, err := time.ParseDuration(t); err == nil {
+			timeout = d
+		}
 	}
 
 	return &Client{
 		endpoint: endpoint,
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second, // Long timeout for LLM operations
+			Timeout: timeout,
 		},
 	}
 }
@@ -478,6 +486,19 @@ type IngestOptions struct {
 	Recursive    *bool
 }
 
+// Job represents a background processing job.
+type Job struct {
+	ID          string        `json:"id"`
+	Type        string        `json:"type"`
+	Status      string        `json:"status"`
+	Progress    int           `json:"progress"`
+	Total       int           `json:"total"`
+	Result      *IngestResult `json:"result,omitempty"`
+	Error       *string       `json:"error,omitempty"`
+	StartedAt   time.Time     `json:"startedAt"`
+	CompletedAt *time.Time    `json:"completedAt,omitempty"`
+}
+
 // IngestFile ingests a single file.
 func (c *Client) IngestFile(ctx context.Context, filePath string, opts *IngestOptions) (*Entity, error) {
 	const query = `
@@ -551,6 +572,88 @@ func (c *Client) IngestDirectory(ctx context.Context, dirPath string, opts *Inge
 		return nil, err
 	}
 	return &result.IngestDirectory, nil
+}
+
+// IngestDirectoryAsync starts an async ingestion job and returns immediately.
+func (c *Client) IngestDirectoryAsync(ctx context.Context, dirPath string, opts *IngestOptions) (*Job, error) {
+	const query = `
+		mutation IngestDirectoryAsync($dirPath: String!, $input: IngestInput) {
+			ingestDirectoryAsync(dirPath: $dirPath, input: $input) {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	vars := map[string]any{"dirPath": dirPath}
+	if opts != nil {
+		input := map[string]any{}
+		if len(opts.Labels) > 0 {
+			input["labels"] = opts.Labels
+		}
+		if opts.ExtractGraph != nil {
+			input["extractGraph"] = *opts.ExtractGraph
+		}
+		if opts.DryRun != nil {
+			input["dryRun"] = *opts.DryRun
+		}
+		if opts.Recursive != nil {
+			input["recursive"] = *opts.Recursive
+		}
+		vars["input"] = input
+	}
+
+	var result struct {
+		IngestDirectoryAsync Job `json:"ingestDirectoryAsync"`
+	}
+	if err := c.Execute(ctx, query, vars, &result); err != nil {
+		return nil, err
+	}
+	return &result.IngestDirectoryAsync, nil
+}
+
+// =============================================================================
+// JOB OPERATIONS
+// =============================================================================
+
+// ListJobs returns all background jobs.
+func (c *Client) ListJobs(ctx context.Context) ([]Job, error) {
+	const query = `
+		query ListJobs {
+			jobs {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	var result struct {
+		Jobs []Job `json:"jobs"`
+	}
+	if err := c.Execute(ctx, query, nil, &result); err != nil {
+		return nil, err
+	}
+	return result.Jobs, nil
+}
+
+// GetJob retrieves a job by ID.
+func (c *Client) GetJob(ctx context.Context, id string) (*Job, error) {
+	const query = `
+		query GetJob($id: ID!) {
+			job(id: $id) {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	var result struct {
+		Job *Job `json:"job"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"id": id}, &result); err != nil {
+		return nil, err
+	}
+	return result.Job, nil
 }
 
 // =============================================================================

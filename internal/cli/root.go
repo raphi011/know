@@ -32,7 +32,8 @@ flexible schemas, Markdown templates, and semantic search.
 
 Note: The knowhow-server must be running for this CLI to work.
 Start it with: make dev`,
-	Version: Version,
+	Version:      Version,
+	SilenceUsage: true, // Don't print usage on errors
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip client initialization for version and help commands
 		if cmd.Name() == "version" || cmd.Name() == "help" {

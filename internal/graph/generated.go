@@ -86,20 +86,33 @@ type ComplexityRoot struct {
 		RelationsCreated func(childComplexity int) int
 	}
 
+	Job struct {
+		CompletedAt func(childComplexity int) int
+		Error       func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Progress    func(childComplexity int) int
+		Result      func(childComplexity int) int
+		StartedAt   func(childComplexity int) int
+		Status      func(childComplexity int) int
+		Total       func(childComplexity int) int
+		Type        func(childComplexity int) int
+	}
+
 	LabelCount struct {
 		Count func(childComplexity int) int
 		Label func(childComplexity int) int
 	}
 
 	Mutation struct {
-		CreateEntity    func(childComplexity int, input EntityInput) int
-		CreateRelation  func(childComplexity int, input RelationInput) int
-		CreateTemplate  func(childComplexity int, name string, description *string, content string) int
-		DeleteEntity    func(childComplexity int, id string) int
-		DeleteTemplate  func(childComplexity int, name string) int
-		IngestDirectory func(childComplexity int, dirPath string, input *IngestInput) int
-		IngestFile      func(childComplexity int, filePath string, input *IngestInput) int
-		UpdateEntity    func(childComplexity int, id string, input EntityUpdate) int
+		CreateEntity         func(childComplexity int, input EntityInput) int
+		CreateRelation       func(childComplexity int, input RelationInput) int
+		CreateTemplate       func(childComplexity int, name string, description *string, content string) int
+		DeleteEntity         func(childComplexity int, id string) int
+		DeleteTemplate       func(childComplexity int, name string) int
+		IngestDirectory      func(childComplexity int, dirPath string, input *IngestInput) int
+		IngestDirectoryAsync func(childComplexity int, dirPath string, input *IngestInput) int
+		IngestFile           func(childComplexity int, filePath string, input *IngestInput) int
+		UpdateEntity         func(childComplexity int, id string, input EntityUpdate) int
 	}
 
 	Query struct {
@@ -107,6 +120,8 @@ type ComplexityRoot struct {
 		Entities     func(childComplexity int, typeArg *string, labels []string, limit *int) int
 		Entity       func(childComplexity int, id string) int
 		EntityByName func(childComplexity int, name string) int
+		Job          func(childComplexity int, id string) int
+		Jobs         func(childComplexity int) int
 		Labels       func(childComplexity int) int
 		Search       func(childComplexity int, input SearchInput) int
 		Template     func(childComplexity int, name string) int
@@ -154,6 +169,7 @@ type MutationResolver interface {
 	CreateRelation(ctx context.Context, input RelationInput) (bool, error)
 	IngestFile(ctx context.Context, filePath string, input *IngestInput) (*Entity, error)
 	IngestDirectory(ctx context.Context, dirPath string, input *IngestInput) (*IngestResult, error)
+	IngestDirectoryAsync(ctx context.Context, dirPath string, input *IngestInput) (*Job, error)
 	CreateTemplate(ctx context.Context, name string, description *string, content string) (*Template, error)
 	DeleteTemplate(ctx context.Context, name string) (bool, error)
 }
@@ -168,6 +184,8 @@ type QueryResolver interface {
 	Template(ctx context.Context, name string) (*Template, error)
 	Templates(ctx context.Context) ([]*Template, error)
 	UsageSummary(ctx context.Context, since string) (*TokenUsageSummary, error)
+	Jobs(ctx context.Context) ([]*Job, error)
+	Job(ctx context.Context, id string) (*Job, error)
 }
 
 type executableSchema struct {
@@ -355,6 +373,61 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.IngestResult.RelationsCreated(childComplexity), true
 
+	case "Job.completedAt":
+		if e.complexity.Job.CompletedAt == nil {
+			break
+		}
+
+		return e.complexity.Job.CompletedAt(childComplexity), true
+	case "Job.error":
+		if e.complexity.Job.Error == nil {
+			break
+		}
+
+		return e.complexity.Job.Error(childComplexity), true
+	case "Job.id":
+		if e.complexity.Job.ID == nil {
+			break
+		}
+
+		return e.complexity.Job.ID(childComplexity), true
+	case "Job.progress":
+		if e.complexity.Job.Progress == nil {
+			break
+		}
+
+		return e.complexity.Job.Progress(childComplexity), true
+	case "Job.result":
+		if e.complexity.Job.Result == nil {
+			break
+		}
+
+		return e.complexity.Job.Result(childComplexity), true
+	case "Job.startedAt":
+		if e.complexity.Job.StartedAt == nil {
+			break
+		}
+
+		return e.complexity.Job.StartedAt(childComplexity), true
+	case "Job.status":
+		if e.complexity.Job.Status == nil {
+			break
+		}
+
+		return e.complexity.Job.Status(childComplexity), true
+	case "Job.total":
+		if e.complexity.Job.Total == nil {
+			break
+		}
+
+		return e.complexity.Job.Total(childComplexity), true
+	case "Job.type":
+		if e.complexity.Job.Type == nil {
+			break
+		}
+
+		return e.complexity.Job.Type(childComplexity), true
+
 	case "LabelCount.count":
 		if e.complexity.LabelCount.Count == nil {
 			break
@@ -434,6 +507,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.IngestDirectory(childComplexity, args["dirPath"].(string), args["input"].(*IngestInput)), true
+	case "Mutation.ingestDirectoryAsync":
+		if e.complexity.Mutation.IngestDirectoryAsync == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_ingestDirectoryAsync_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.IngestDirectoryAsync(childComplexity, args["dirPath"].(string), args["input"].(*IngestInput)), true
 	case "Mutation.ingestFile":
 		if e.complexity.Mutation.IngestFile == nil {
 			break
@@ -501,6 +585,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.EntityByName(childComplexity, args["name"].(string)), true
+	case "Query.job":
+		if e.complexity.Query.Job == nil {
+			break
+		}
+
+		args, err := ec.field_Query_job_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.Job(childComplexity, args["id"].(string)), true
+	case "Query.jobs":
+		if e.complexity.Query.Jobs == nil {
+			break
+		}
+
+		return e.complexity.Query.Jobs(childComplexity), true
 	case "Query.labels":
 		if e.complexity.Query.Labels == nil {
 			break
@@ -865,6 +966,22 @@ func (ec *executionContext) field_Mutation_deleteTemplate_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_ingestDirectoryAsync_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "dirPath", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["dirPath"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalOIngestInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_ingestDirectory_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -978,6 +1095,17 @@ func (ec *executionContext) field_Query_entityByName_args(ctx context.Context, r
 }
 
 func (ec *executionContext) field_Query_entity_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_job_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
@@ -1914,6 +2042,279 @@ func (ec *executionContext) fieldContext_IngestResult_errors(_ context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _Job_id(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_type(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_type,
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_status(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_progress(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_progress,
+		func(ctx context.Context) (any, error) {
+			return obj.Progress, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_progress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_total(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_total,
+		func(ctx context.Context) (any, error) {
+			return obj.Total, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_total(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_result(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_result,
+		func(ctx context.Context) (any, error) {
+			return obj.Result, nil
+		},
+		nil,
+		ec.marshalOIngestResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestResult,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_result(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "filesProcessed":
+				return ec.fieldContext_IngestResult_filesProcessed(ctx, field)
+			case "entitiesCreated":
+				return ec.fieldContext_IngestResult_entitiesCreated(ctx, field)
+			case "chunksCreated":
+				return ec.fieldContext_IngestResult_chunksCreated(ctx, field)
+			case "relationsCreated":
+				return ec.fieldContext_IngestResult_relationsCreated(ctx, field)
+			case "errors":
+				return ec.fieldContext_IngestResult_errors(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type IngestResult", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_error(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_error,
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_startedAt(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_startedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.StartedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_startedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_completedAt(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_completedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CompletedAt, nil
+		},
+		nil,
+		ec.marshalODateTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_completedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _LabelCount_label(ctx context.Context, field graphql.CollectedField, obj *LabelCount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2326,6 +2727,67 @@ func (ec *executionContext) fieldContext_Mutation_ingestDirectory(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_ingestDirectory_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_ingestDirectoryAsync(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_ingestDirectoryAsync,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().IngestDirectoryAsync(ctx, fc.Args["dirPath"].(string), fc.Args["input"].(*IngestInput))
+		},
+		nil,
+		ec.marshalNJob2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_ingestDirectoryAsync(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Job_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Job_type(ctx, field)
+			case "status":
+				return ec.fieldContext_Job_status(ctx, field)
+			case "progress":
+				return ec.fieldContext_Job_progress(ctx, field)
+			case "total":
+				return ec.fieldContext_Job_total(ctx, field)
+			case "result":
+				return ec.fieldContext_Job_result(ctx, field)
+			case "error":
+				return ec.fieldContext_Job_error(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Job_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Job_completedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_ingestDirectoryAsync_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -2956,6 +3418,116 @@ func (ec *executionContext) fieldContext_Query_usageSummary(ctx context.Context,
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_usageSummary_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_jobs(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_jobs,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().Jobs(ctx)
+		},
+		nil,
+		ec.marshalNJob2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJobᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_jobs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Job_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Job_type(ctx, field)
+			case "status":
+				return ec.fieldContext_Job_status(ctx, field)
+			case "progress":
+				return ec.fieldContext_Job_progress(ctx, field)
+			case "total":
+				return ec.fieldContext_Job_total(ctx, field)
+			case "result":
+				return ec.fieldContext_Job_result(ctx, field)
+			case "error":
+				return ec.fieldContext_Job_error(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Job_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Job_completedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_job(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_job,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().Job(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		ec.marshalOJob2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_job(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Job_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Job_type(ctx, field)
+			case "status":
+				return ec.fieldContext_Job_status(ctx, field)
+			case "progress":
+				return ec.fieldContext_Job_progress(ctx, field)
+			case "total":
+				return ec.fieldContext_Job_total(ctx, field)
+			case "result":
+				return ec.fieldContext_Job_result(ctx, field)
+			case "error":
+				return ec.fieldContext_Job_error(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Job_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Job_completedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_job_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -5641,6 +6213,76 @@ func (ec *executionContext) _IngestResult(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var jobImplementors = []string{"Job"}
+
+func (ec *executionContext) _Job(ctx context.Context, sel ast.SelectionSet, obj *Job) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, jobImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Job")
+		case "id":
+			out.Values[i] = ec._Job_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "type":
+			out.Values[i] = ec._Job_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "status":
+			out.Values[i] = ec._Job_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "progress":
+			out.Values[i] = ec._Job_progress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "total":
+			out.Values[i] = ec._Job_total(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "result":
+			out.Values[i] = ec._Job_result(ctx, field, obj)
+		case "error":
+			out.Values[i] = ec._Job_error(ctx, field, obj)
+		case "startedAt":
+			out.Values[i] = ec._Job_startedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "completedAt":
+			out.Values[i] = ec._Job_completedAt(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var labelCountImplementors = []string{"LabelCount"}
 
 func (ec *executionContext) _LabelCount(ctx context.Context, sel ast.SelectionSet, obj *LabelCount) graphql.Marshaler {
@@ -5742,6 +6384,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "ingestDirectory":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_ingestDirectory(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ingestDirectoryAsync":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_ingestDirectoryAsync(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -6004,6 +6653,47 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "jobs":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_jobs(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "job":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_job(ctx, field)
 				return res
 			}
 
@@ -6893,6 +7583,64 @@ func (ec *executionContext) marshalNJSON2map(ctx context.Context, sel ast.Select
 	return res
 }
 
+func (ec *executionContext) marshalNJob2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob(ctx context.Context, sel ast.SelectionSet, v Job) graphql.Marshaler {
+	return ec._Job(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNJob2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJobᚄ(ctx context.Context, sel ast.SelectionSet, v []*Job) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNJob2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNJob2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob(ctx context.Context, sel ast.SelectionSet, v *Job) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Job(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNLabelCount2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐLabelCountᚄ(ctx context.Context, sel ast.SelectionSet, v []*LabelCount) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -7460,6 +8208,24 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
+func (ec *executionContext) unmarshalODateTime2ᚖtimeᚐTime(ctx context.Context, v any) (*time.Time, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalTime(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalODateTime2ᚖtimeᚐTime(ctx context.Context, sel ast.SelectionSet, v *time.Time) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalTime(*v)
+	return res
+}
+
 func (ec *executionContext) marshalOEntity2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐEntity(ctx context.Context, sel ast.SelectionSet, v *Entity) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -7490,6 +8256,13 @@ func (ec *executionContext) unmarshalOIngestInput2ᚖgithubᚗcomᚋraphaelgrube
 	}
 	res, err := ec.unmarshalInputIngestInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOIngestResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestResult(ctx context.Context, sel ast.SelectionSet, v *IngestResult) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._IngestResult(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOInt2ᚖint(ctx context.Context, v any) (*int, error) {
@@ -7526,6 +8299,13 @@ func (ec *executionContext) marshalOJSON2map(ctx context.Context, sel ast.Select
 	_ = ctx
 	res := graphql.MarshalMap(v)
 	return res
+}
+
+func (ec *executionContext) marshalOJob2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob(ctx context.Context, sel ast.SelectionSet, v *Job) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._Job(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOSearchInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchInput(ctx context.Context, v any) (*SearchInput, error) {

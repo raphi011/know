@@ -18,6 +18,7 @@ type Resolver struct {
 	entityService *service.EntityService
 	searchService *service.SearchService
 	ingestService *service.IngestService
+	jobManager    *service.JobManager
 	cfg           config.Config
 }
 
@@ -62,6 +63,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		entityService: service.NewEntityService(dbClient, embedder, model),
 		searchService: service.NewSearchService(dbClient, embedder, model),
 		ingestService: service.NewIngestService(dbClient, embedder, model),
+		jobManager:    service.NewJobManager(cfg.IngestConcurrency),
 		cfg:           cfg,
 	}, nil
 }
@@ -72,4 +74,9 @@ func (r *Resolver) Close(ctx context.Context) error {
 		return r.db.Close(ctx)
 	}
 	return nil
+}
+
+// WipeData deletes all data from the database. Use for testing only.
+func (r *Resolver) WipeData(ctx context.Context) error {
+	return r.db.WipeData(ctx)
 }

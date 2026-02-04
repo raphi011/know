@@ -14,6 +14,7 @@ var (
 	scrapeLabels       []string
 	scrapeDryRun       bool
 	scrapeRecursive    bool
+	scrapeSync         bool
 )
 
 var scrapeCmd = &cobra.Command{
@@ -40,6 +41,7 @@ func init() {
 	scrapeCmd.Flags().StringSliceVarP(&scrapeLabels, "labels", "l", nil, "labels to apply to all ingested entities")
 	scrapeCmd.Flags().BoolVar(&scrapeDryRun, "dry-run", false, "show what would be ingested without making changes")
 	scrapeCmd.Flags().BoolVarP(&scrapeRecursive, "recursive", "r", true, "recursively process subdirectories")
+	scrapeCmd.Flags().BoolVar(&scrapeSync, "sync", false, "wait for completion (default: run async)")
 }
 
 func runScrape(cmd *cobra.Command, args []string) error {
@@ -62,12 +64,30 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		Recursive:    &scrapeRecursive,
 	}
 
-	result, err := gqlClient.IngestDirectory(ctx, path, opts)
-	if err != nil {
-		return fmt.Errorf("ingest: %w", err)
+	// Sync mode - wait for completion
+	if scrapeSync {
+		result, err := gqlClient.IngestDirectory(ctx, path, opts)
+		if err != nil {
+			return fmt.Errorf("ingest: %w", err)
+		}
+		printIngestResult(result)
+		return nil
 	}
 
-	// Report results
+	// Async mode (default) - start job and return immediately
+	job, err := gqlClient.IngestDirectoryAsync(ctx, path, opts)
+	if err != nil {
+		return fmt.Errorf("start ingest job: %w", err)
+	}
+
+	fmt.Printf("Started job %s\n", job.ID)
+	fmt.Printf("  Status: %s\n", job.Status)
+	fmt.Printf("  Use 'knowhow jobs %s' to check progress\n", job.ID)
+
+	return nil
+}
+
+func printIngestResult(result *client.IngestResult) {
 	if scrapeDryRun {
 		fmt.Printf("Dry run - would ingest %d files\n", result.FilesProcessed)
 	} else {
@@ -85,6 +105,4 @@ func runScrape(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  - %s\n", e)
 		}
 	}
-
-	return nil
 }

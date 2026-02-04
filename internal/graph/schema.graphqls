@@ -65,6 +65,18 @@ type IngestResult {
   errors: [String!]!
 }
 
+type Job {
+  id: ID!
+  type: String!
+  status: String!
+  progress: Int!
+  total: Int!
+  result: IngestResult
+  error: String
+  startedAt: DateTime!
+  completedAt: DateTime
+}
+
 type LabelCount {
   label: String!
   count: Int!
@@ -155,6 +167,10 @@ type Query {
 
   # Usage tracking
   usageSummary(since: String!): TokenUsageSummary!
+
+  # Job tracking
+  jobs: [Job!]!
+  job(id: ID!): Job
 }
 
 # =============================================================================
@@ -173,6 +189,7 @@ type Mutation {
   # Ingest operations (server-side file paths)
   ingestFile(filePath: String!, input: IngestInput): Entity!
   ingestDirectory(dirPath: String!, input: IngestInput): IngestResult!
+  ingestDirectoryAsync(dirPath: String!, input: IngestInput): Job!
 
   # Template operations
   createTemplate(name: String!, description: String, content: String!): Template!

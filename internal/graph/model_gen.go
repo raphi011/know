@@ -2,6 +2,22 @@
 
 package graph
 
+import (
+	"time"
+)
+
+type Job struct {
+	ID          string        `json:"id"`
+	Type        string        `json:"type"`
+	Status      string        `json:"status"`
+	Progress    int           `json:"progress"`
+	Total       int           `json:"total"`
+	Result      *IngestResult `json:"result,omitempty"`
+	Error       *string       `json:"error,omitempty"`
+	StartedAt   time.Time     `json:"startedAt"`
+	CompletedAt *time.Time    `json:"completedAt,omitempty"`
+}
+
 type Mutation struct {
 }
 
