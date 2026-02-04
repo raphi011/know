@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +17,8 @@ var (
 
 var usageCmd = &cobra.Command{
 	Use:   "usage",
-	Short: "Show token usage statistics",
-	Long: `Show LLM token usage statistics for cost monitoring.
+	Short: "Show usage statistics",
+	Long: `Show server runtime statistics and token usage for cost monitoring.
 
 Examples:
   knowhow usage
@@ -35,6 +36,14 @@ func init() {
 
 func runUsage(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+
+	// Show server runtime stats
+	stats, err := gqlClient.GetServerStats(ctx)
+	if err != nil {
+		return fmt.Errorf("get server stats: %w", err)
+	}
+	printServerStats(stats)
+	fmt.Println()
 
 	// Parse since duration
 	var since time.Time
@@ -99,4 +108,69 @@ func runUsage(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// printServerStats displays server runtime statistics.
+func printServerStats(stats *client.ServerStats) {
+	fmt.Printf("Server Statistics (in-memory, since restart)\n")
+	fmt.Printf("═══════════════════════════════════════════════\n")
+	fmt.Printf("Uptime: %.1f seconds\n", stats.UptimeSeconds)
+
+	if stats.Embedding != nil {
+		fmt.Printf("\nEmbeddings:\n")
+		printOpStats(stats.Embedding)
+	}
+
+	if stats.LLMGenerate != nil {
+		fmt.Printf("\nLLM Generate:\n")
+		printOpStats(stats.LLMGenerate)
+		printTokenStats(stats.LLMGenerate)
+	}
+
+	if stats.LLMStream != nil {
+		fmt.Printf("\nLLM Stream:\n")
+		printOpStats(stats.LLMStream)
+		printTokenStats(stats.LLMStream)
+	}
+
+	if stats.DBQuery != nil {
+		fmt.Printf("\nDB Query:\n")
+		printOpStats(stats.DBQuery)
+	}
+
+	if stats.DBSearch != nil {
+		fmt.Printf("\nDB Search:\n")
+		printOpStats(stats.DBSearch)
+	}
+}
+
+// printOpStats displays timing statistics for an operation.
+func printOpStats(op *client.OperationStats) {
+	fmt.Printf("  Calls: %d, Total: %dms\n", op.Count, op.TotalTimeMs)
+	fmt.Printf("  Time: avg %.1fms, min %dms, max %dms\n",
+		op.AvgTimeMs, op.MinTimeMs, op.MaxTimeMs)
+}
+
+// printTokenStats displays token statistics if available.
+func printTokenStats(op *client.OperationStats) {
+	if op.TotalInputTokens == nil || op.TotalOutputTokens == nil {
+		return
+	}
+	fmt.Printf("  Tokens In:  %d total", *op.TotalInputTokens)
+	if op.AvgInputTokens != nil {
+		fmt.Printf(", avg %.0f", *op.AvgInputTokens)
+	}
+	if op.MinInputTokens != nil && op.MaxInputTokens != nil {
+		fmt.Printf(", min %d, max %d", *op.MinInputTokens, *op.MaxInputTokens)
+	}
+	fmt.Println()
+
+	fmt.Printf("  Tokens Out: %d total", *op.TotalOutputTokens)
+	if op.AvgOutputTokens != nil {
+		fmt.Printf(", avg %.0f", *op.AvgOutputTokens)
+	}
+	if op.MinOutputTokens != nil && op.MaxOutputTokens != nil {
+		fmt.Printf(", min %d, max %d", *op.MinOutputTokens, *op.MaxOutputTokens)
+	}
+	fmt.Println()
 }

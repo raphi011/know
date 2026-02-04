@@ -193,6 +193,33 @@ type TokenUsageSummary struct {
 	ByModel      map[string]any `json:"byModel"`
 }
 
+// OperationStats holds metrics for a single operation type.
+type OperationStats struct {
+	Count             int      `json:"count"`
+	TotalTimeMs       int      `json:"totalTimeMs"`
+	AvgTimeMs         float64  `json:"avgTimeMs"`
+	MinTimeMs         int      `json:"minTimeMs"`
+	MaxTimeMs         int      `json:"maxTimeMs"`
+	TotalInputTokens  *int     `json:"totalInputTokens,omitempty"`
+	TotalOutputTokens *int     `json:"totalOutputTokens,omitempty"`
+	AvgInputTokens    *float64 `json:"avgInputTokens,omitempty"`
+	AvgOutputTokens   *float64 `json:"avgOutputTokens,omitempty"`
+	MinInputTokens    *int     `json:"minInputTokens,omitempty"`
+	MaxInputTokens    *int     `json:"maxInputTokens,omitempty"`
+	MinOutputTokens   *int     `json:"minOutputTokens,omitempty"`
+	MaxOutputTokens   *int     `json:"maxOutputTokens,omitempty"`
+}
+
+// ServerStats holds in-memory runtime statistics (resets on server restart).
+type ServerStats struct {
+	UptimeSeconds float64         `json:"uptimeSeconds"`
+	Embedding     *OperationStats `json:"embedding,omitempty"`
+	LLMGenerate   *OperationStats `json:"llmGenerate,omitempty"`
+	LLMStream     *OperationStats `json:"llmStream,omitempty"`
+	DBQuery       *OperationStats `json:"dbQuery,omitempty"`
+	DBSearch      *OperationStats `json:"dbSearch,omitempty"`
+}
+
 // =============================================================================
 // ENTITY OPERATIONS
 // =============================================================================
@@ -804,6 +831,48 @@ func (c *Client) GetUsageSummary(ctx context.Context, since string) (*TokenUsage
 		return nil, err
 	}
 	return &result.UsageSummary, nil
+}
+
+// GetServerStats returns in-memory runtime statistics.
+func (c *Client) GetServerStats(ctx context.Context) (*ServerStats, error) {
+	const query = `
+		query GetServerStats {
+			serverStats {
+				uptimeSeconds
+				embedding {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+				}
+				llmGenerate {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+					totalInputTokens totalOutputTokens
+					avgInputTokens avgOutputTokens
+					minInputTokens maxInputTokens
+					minOutputTokens maxOutputTokens
+				}
+				llmStream {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+					totalInputTokens totalOutputTokens
+					avgInputTokens avgOutputTokens
+					minInputTokens maxInputTokens
+					minOutputTokens maxOutputTokens
+				}
+				dbQuery {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+				}
+				dbSearch {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+				}
+			}
+		}
+	`
+
+	var result struct {
+		ServerStats ServerStats `json:"serverStats"`
+	}
+	if err := c.Execute(ctx, query, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result.ServerStats, nil
 }
 
 // =============================================================================

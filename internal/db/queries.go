@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -51,6 +53,9 @@ func optionalEmbedding(e []float32) any {
 // CreateEntity creates a new entity with a generated or specified ID.
 // Returns the created entity.
 func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*models.Entity, error) {
+	start := time.Now()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	// Generate ID from name if not provided
 	id := slugify(input.Name)
 
@@ -119,6 +124,9 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 // GetEntity retrieves an entity by ID.
 // Returns nil if not found.
 func (c *Client) GetEntity(ctx context.Context, id string) (*models.Entity, error) {
+	start := time.Now()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
 		SELECT * FROM type::record("entity", $id)
 	`, map[string]any{"id": id})
@@ -153,6 +161,9 @@ func (c *Client) GetEntityByName(ctx context.Context, name string) (*models.Enti
 // UpdateEntity updates an entity with partial data.
 // Only non-nil fields in the update are changed.
 func (c *Client) UpdateEntity(ctx context.Context, id string, update models.EntityUpdate) (*models.Entity, error) {
+	start := time.Now()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	// Build dynamic SET clause
 	setClauses := []string{}
 	vars := map[string]any{"id": id}
@@ -225,6 +236,9 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 // Cascade delete of chunks and relations is handled by SurrealDB events.
 // Returns true if entity was deleted.
 func (c *Client) DeleteEntity(ctx context.Context, id string) (bool, error) {
+	start := time.Now()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	sql := `DELETE type::record("entity", $id) RETURN BEFORE`
 
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{"id": id})
@@ -268,6 +282,9 @@ type SearchOptions struct {
 // HybridSearch performs RRF fusion of BM25 + vector search results.
 // Returns entities ranked by combined relevance score.
 func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models.Entity, error) {
+	start := time.Now()
+	defer c.recordTiming(metrics.OpDBSearch, start)
+
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 10
@@ -323,6 +340,9 @@ func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models
 // SearchWithChunks performs hybrid search including chunk matches.
 // Returns entities with their matching chunks for RAG context.
 func (c *Client) SearchWithChunks(ctx context.Context, opts SearchOptions) ([]models.EntitySearchResult, error) {
+	start := time.Now()
+	defer c.recordTiming(metrics.OpDBSearch, start)
+
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 10

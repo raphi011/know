@@ -391,6 +391,12 @@ func (r *queryResolver) Job(ctx context.Context, id string) (*Job, error) {
 	return serviceJobToGraphQL(job), nil
 }
 
+// ServerStats is the resolver for the serverStats field.
+func (r *queryResolver) ServerStats(ctx context.Context) (*ServerStats, error) {
+	snap := r.metrics.Snapshot()
+	return metricsSnapshotToGraphQL(snap), nil
+}
+
 // AskStream is the resolver for the askStream field.
 func (r *subscriptionResolver) AskStream(ctx context.Context, query string, input *SearchInput, templateName *string) (<-chan *AskStreamEvent, error) {
 	// Template-based streaming not yet implemented

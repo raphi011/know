@@ -61,7 +61,7 @@ func TestMain(m *testing.M) {
 		Username:  "root",
 		Password:  "root",
 		AuthLevel: "root",
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		log.Fatalf("Failed to connect to test database: %v", err)
 	}

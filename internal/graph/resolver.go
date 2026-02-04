@@ -10,6 +10,7 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/llm"
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/raphaelgruber/memcp-go/internal/service"
 )
 
@@ -21,10 +22,14 @@ type Resolver struct {
 	ingestService *service.IngestService
 	jobManager    *service.JobManager
 	cfg           config.Config
+	metrics       *metrics.Collector
 }
 
 // NewResolver creates a new resolver with all dependencies.
 func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
+	// Create metrics collector for runtime statistics
+	mc := metrics.NewCollector()
+
 	// Connect to database
 	dbCfg := db.Config{
 		URL:       cfg.SurrealDBURL,
@@ -35,7 +40,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		AuthLevel: cfg.SurrealDBAuthLevel,
 	}
 
-	dbClient, err := db.NewClient(ctx, dbCfg, nil)
+	dbClient, err := db.NewClient(ctx, dbCfg, nil, mc)
 	if err != nil {
 		return nil, err
 	}
@@ -47,13 +52,13 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	}
 
 	// Initialize LLM components
-	embedder, err := llm.NewEmbedder(cfg)
+	embedder, err := llm.NewEmbedder(cfg, mc)
 	if err != nil {
 		dbClient.Close(ctx)
 		return nil, err
 	}
 
-	model, err := llm.NewModel(cfg)
+	model, err := llm.NewModel(cfg, mc)
 	if err != nil {
 		dbClient.Close(ctx)
 		return nil, err
@@ -75,6 +80,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		ingestService: ingestService,
 		jobManager:    jobManager,
 		cfg:           cfg,
+		metrics:       mc,
 	}, nil
 }
 

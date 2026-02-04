@@ -96,6 +96,31 @@ type TokenUsageSummary {
   byModel: JSON!
 }
 
+type OperationStats {
+  count: Int!
+  totalTimeMs: Int!
+  avgTimeMs: Float!
+  minTimeMs: Int!
+  maxTimeMs: Int!
+  totalInputTokens: Int
+  totalOutputTokens: Int
+  avgInputTokens: Float
+  avgOutputTokens: Float
+  minInputTokens: Int
+  maxInputTokens: Int
+  minOutputTokens: Int
+  maxOutputTokens: Int
+}
+
+type ServerStats {
+  uptimeSeconds: Float!
+  embedding: OperationStats
+  llmGenerate: OperationStats
+  llmStream: OperationStats
+  dbQuery: OperationStats
+  dbSearch: OperationStats
+}
+
 # =============================================================================
 # INPUTS
 # =============================================================================
@@ -173,6 +198,9 @@ type Query {
   # Job tracking
   jobs: [Job!]!
   job(id: ID!): Job
+
+  # Server statistics (in-memory, resets on restart)
+  serverStats: ServerStats!
 }
 
 # =============================================================================

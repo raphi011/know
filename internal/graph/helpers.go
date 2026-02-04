@@ -4,6 +4,7 @@ package graph
 import (
 	"fmt"
 
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/service"
 )
@@ -124,5 +125,71 @@ func serviceJobToGraphQL(j *service.Job) *Job {
 		CompletedAt:  snapshot.CompletedAt,
 		DirPath:      dirPath,
 		PendingFiles: pendingFiles,
+	}
+}
+
+// intPtr returns a pointer to an int value.
+func intPtr(v int64) *int {
+	i := int(v)
+	return &i
+}
+
+// floatPtr returns a pointer to a float64 value.
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
+// operationSnapshotToGraphQL converts a metrics.OperationSnapshot to a GraphQL OperationStats.
+func operationSnapshotToGraphQL(s *metrics.OperationSnapshot) *OperationStats {
+	if s == nil {
+		return nil
+	}
+
+	stats := &OperationStats{
+		Count:       int(s.Count),
+		TotalTimeMs: int(s.TotalTimeMs),
+		AvgTimeMs:   s.AvgTimeMs,
+		MinTimeMs:   int(s.MinTimeMs),
+		MaxTimeMs:   int(s.MaxTimeMs),
+	}
+
+	// Add token stats if present
+	if s.TotalInputTokens != nil {
+		stats.TotalInputTokens = intPtr(*s.TotalInputTokens)
+	}
+	if s.TotalOutputTokens != nil {
+		stats.TotalOutputTokens = intPtr(*s.TotalOutputTokens)
+	}
+	if s.AvgInputTokens != nil {
+		stats.AvgInputTokens = floatPtr(*s.AvgInputTokens)
+	}
+	if s.AvgOutputTokens != nil {
+		stats.AvgOutputTokens = floatPtr(*s.AvgOutputTokens)
+	}
+	if s.MinInputTokens != nil {
+		stats.MinInputTokens = intPtr(*s.MinInputTokens)
+	}
+	if s.MaxInputTokens != nil {
+		stats.MaxInputTokens = intPtr(*s.MaxInputTokens)
+	}
+	if s.MinOutputTokens != nil {
+		stats.MinOutputTokens = intPtr(*s.MinOutputTokens)
+	}
+	if s.MaxOutputTokens != nil {
+		stats.MaxOutputTokens = intPtr(*s.MaxOutputTokens)
+	}
+
+	return stats
+}
+
+// metricsSnapshotToGraphQL converts a metrics.Snapshot to a GraphQL ServerStats.
+func metricsSnapshotToGraphQL(s metrics.Snapshot) *ServerStats {
+	return &ServerStats{
+		UptimeSeconds: s.UptimeSeconds,
+		Embedding:     operationSnapshotToGraphQL(s.Embedding),
+		LlmGenerate:   operationSnapshotToGraphQL(s.LLMGenerate),
+		LlmStream:     operationSnapshotToGraphQL(s.LLMStream),
+		DbQuery:       operationSnapshotToGraphQL(s.DBQuery),
+		DbSearch:      operationSnapshotToGraphQL(s.DBSearch),
 	}
 }

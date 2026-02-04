@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/contrib/rews"
 	"github.com/surrealdb/surrealdb.go/pkg/connection"
@@ -37,14 +38,16 @@ type Config struct {
 
 // Client wraps SurrealDB connection with auto-reconnect.
 type Client struct {
-	conn   *rews.Connection[*gorillaws.Connection]
-	db     *surrealdb.DB
-	cfg    Config
-	logger logger.Logger
+	conn    *rews.Connection[*gorillaws.Connection]
+	db      *surrealdb.DB
+	cfg     Config
+	logger  logger.Logger
+	metrics *metrics.Collector
 }
 
 // NewClient creates a new SurrealDB client with auto-reconnecting WebSocket.
-func NewClient(ctx context.Context, cfg Config, log *slog.Logger) (*Client, error) {
+// If mc is nil, metrics recording is disabled.
+func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Collector) (*Client, error) {
 	// Create logger adapter for SurrealDB SDK
 	var sdkLogger logger.Logger
 	if log != nil {
@@ -128,13 +131,20 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger) (*Client, erro
 	}
 
 	sdkLogger.Info("SurrealDB connection established")
-	return &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger}, nil
+	return &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc}, nil
 }
 
 // Close closes the SurrealDB connection.
 func (c *Client) Close(ctx context.Context) error {
 	c.logger.Info("closing SurrealDB connection")
 	return c.conn.Close(ctx)
+}
+
+// recordTiming records operation timing if metrics are enabled.
+func (c *Client) recordTiming(op string, start time.Time) {
+	if c.metrics != nil {
+		c.metrics.RecordTiming(op, time.Since(start))
+	}
 }
 
 // DB returns the underlying SurrealDB client for queries.

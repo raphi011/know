@@ -32,7 +32,32 @@ type Job struct {
 type Mutation struct {
 }
 
+type OperationStats struct {
+	Count             int      `json:"count"`
+	TotalTimeMs       int      `json:"totalTimeMs"`
+	AvgTimeMs         float64  `json:"avgTimeMs"`
+	MinTimeMs         int      `json:"minTimeMs"`
+	MaxTimeMs         int      `json:"maxTimeMs"`
+	TotalInputTokens  *int     `json:"totalInputTokens,omitempty"`
+	TotalOutputTokens *int     `json:"totalOutputTokens,omitempty"`
+	AvgInputTokens    *float64 `json:"avgInputTokens,omitempty"`
+	AvgOutputTokens   *float64 `json:"avgOutputTokens,omitempty"`
+	MinInputTokens    *int     `json:"minInputTokens,omitempty"`
+	MaxInputTokens    *int     `json:"maxInputTokens,omitempty"`
+	MinOutputTokens   *int     `json:"minOutputTokens,omitempty"`
+	MaxOutputTokens   *int     `json:"maxOutputTokens,omitempty"`
+}
+
 type Query struct {
+}
+
+type ServerStats struct {
+	UptimeSeconds float64         `json:"uptimeSeconds"`
+	Embedding     *OperationStats `json:"embedding,omitempty"`
+	LlmGenerate   *OperationStats `json:"llmGenerate,omitempty"`
+	LlmStream     *OperationStats `json:"llmStream,omitempty"`
+	DbQuery       *OperationStats `json:"dbQuery,omitempty"`
+	DbSearch      *OperationStats `json:"dbSearch,omitempty"`
 }
 
 type Subscription struct {

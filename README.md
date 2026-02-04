@@ -197,13 +197,13 @@ knowhow export ./backup --verified-only
 ### Usage Statistics
 
 ```bash
-# Show token usage
+# Show server stats and token usage
 knowhow usage
 
-# Last 7 days
+# Last 7 days of token usage
 knowhow usage --since "7d"
 
-# Detailed breakdown
+# Detailed breakdown with costs
 knowhow usage --detailed --costs
 ```
 

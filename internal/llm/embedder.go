@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -18,10 +19,12 @@ type Embedder struct {
 	model     embeddings.Embedder
 	dimension int
 	modelName string
+	metrics   *metrics.Collector
 }
 
 // NewEmbedder creates an embedder based on configuration.
-func NewEmbedder(cfg config.Config) (*Embedder, error) {
+// If mc is nil, metrics recording is disabled.
+func NewEmbedder(cfg config.Config, mc *metrics.Collector) (*Embedder, error) {
 	var model embeddings.Embedder
 	var err error
 
@@ -63,6 +66,7 @@ func NewEmbedder(cfg config.Config) (*Embedder, error) {
 		model:     model,
 		dimension: cfg.EmbedDimension,
 		modelName: cfg.EmbedModel,
+		metrics:   mc,
 	}, nil
 }
 
@@ -90,6 +94,11 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	}
 
 	slog.Debug("embedding complete", "model", e.modelName, "text_len", textLen, "duration_ms", duration.Milliseconds())
+
+	if e.metrics != nil {
+		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
+	}
+
 	return embedding, nil
 }
 
@@ -99,7 +108,10 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 		return [][]float32{}, nil
 	}
 
+	start := time.Now()
 	vectors, err := e.model.EmbedDocuments(ctx, texts)
+	duration := time.Since(start)
+
 	if err != nil {
 		return nil, fmt.Errorf("embed batch: %w", err)
 	}
@@ -113,6 +125,11 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 		if len(v) != e.dimension {
 			return nil, fmt.Errorf("embedding %d dimension mismatch: got %d, want %d", i, len(v), e.dimension)
 		}
+	}
+
+	// Record one timing entry per batch (not per text)
+	if e.metrics != nil {
+		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
 	}
 
 	return vectors, nil
