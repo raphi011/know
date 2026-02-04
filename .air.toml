@@ -1,0 +1,45 @@
+# Air configuration for knowhow-server live-reload
+# https://github.com/air-verse/air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Build command - must use -buildvcs=false (git subdir issue)
+cmd = "go build -buildvcs=false -o ./bin/knowhow-server ./cmd/knowhow-server"
+# Binary to run
+bin = "./bin/knowhow-server"
+# Watch these file extensions
+include_ext = ["go", "toml", "graphqls"]
+# Watch .env file explicitly
+include_file = [".env"]
+# Exclude directories
+exclude_dir = ["bin", "tmp", "vendor", ".git"]
+# Exclude generated files to avoid rebuild loops
+exclude_regex = ["_test\\.go$"]
+# Wait 10 seconds after last change before rebuilding
+delay = 10000
+# Stop old binary on build error
+stop_on_error = true
+# Send interrupt before kill for graceful shutdown
+send_interrupt = true
+# Time to wait after interrupt before kill (in nanoseconds, 5s)
+kill_delay = 5000000000
+# Log build info
+log = "build-errors.log"
+
+[log]
+# Show timestamps
+time = true
+# Main process log (shows rebuild triggers)
+main_only = false
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+# Clean tmp dir on exit
+clean_on_exit = true

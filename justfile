@@ -54,11 +54,12 @@ install:
 test:
     go test -v ./...
 
-# Start SurrealDB, Ollama, and run the server
-dev: db-up ollama-pull build-server
-    @echo "Starting knowhow-server on port $KNOWHOW_SERVER_PORT..."
+# Start SurrealDB, Ollama, and run the server with live-reload
+dev: db-up ollama-pull
+    @echo "Starting knowhow-server with Air (live-reload)..."
     @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
-    {{build_dir}}/{{server}}
+    @echo "Rebuild delay: 10s after last file change"
+    air
 
 # Run CLI command (ensures correct server URL)
 [positional-arguments]
@@ -91,4 +92,6 @@ ollama-pull:
 # Remove binaries and stop containers
 clean:
     rm -rf {{build_dir}}
+    rm -rf tmp
     docker-compose down -v
+
