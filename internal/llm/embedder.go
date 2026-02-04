@@ -4,6 +4,8 @@ package llm
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/tmc/langchaingo/embeddings"
@@ -66,8 +68,15 @@ func NewEmbedder(cfg config.Config) (*Embedder, error) {
 
 // Embed generates an embedding vector for text.
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	textLen := len(text)
+	slog.Debug("embedding text", "model", e.modelName, "text_len", textLen)
+
+	start := time.Now()
 	vectors, err := e.model.EmbedDocuments(ctx, []string{text})
+	duration := time.Since(start)
+
 	if err != nil {
+		slog.Warn("embedding failed", "model", e.modelName, "text_len", textLen, "duration_ms", duration.Milliseconds(), "error", err)
 		return nil, fmt.Errorf("embed: %w", err)
 	}
 
@@ -80,6 +89,7 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, fmt.Errorf("dimension mismatch: got %d, want %d", len(embedding), e.dimension)
 	}
 
+	slog.Debug("embedding complete", "model", e.modelName, "text_len", textLen, "duration_ms", duration.Milliseconds())
 	return embedding, nil
 }
 

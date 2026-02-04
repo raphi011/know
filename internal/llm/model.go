@@ -2,14 +2,55 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
+	"github.com/tmc/langchaingo/llms/bedrock"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
+
+// ErrFatalAPI indicates a non-recoverable API error (billing, auth, etc.)
+// that should stop all further LLM operations.
+var ErrFatalAPI = errors.New("fatal API error")
+
+// isFatalAPIError checks if an error indicates a non-recoverable API issue.
+func isFatalAPIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	// Billing/quota errors
+	if strings.Contains(msg, "credit balance") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "quota exceeded") ||
+		strings.Contains(msg, "billing") {
+		return true
+	}
+	// Auth errors
+	if strings.Contains(msg, "invalid api key") ||
+		strings.Contains(msg, "authentication") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "401") ||
+		strings.Contains(msg, "403") {
+		return true
+	}
+	return false
+}
+
+// wrapFatalError wraps an error with ErrFatalAPI if it's a fatal API error.
+func wrapFatalError(err error) error {
+	if isFatalAPIError(err) {
+		return fmt.Errorf("%w: %v", ErrFatalAPI, err)
+	}
+	return err
+}
 
 // Model wraps langchaingo LLM for text generation.
 type Model struct {
@@ -56,6 +97,19 @@ func NewModel(cfg config.Config) (*Model, error) {
 			return nil, fmt.Errorf("create anthropic model: %w", err)
 		}
 
+	case config.ProviderBedrock:
+		// AWS SDK automatically picks up env vars: AWS_ACCESS_KEY_ID,
+		// AWS_SECRET_ACCESS_KEY, AWS_REGION, HTTPS_PROXY, AWS_CA_BUNDLE
+		opts := []bedrock.Option{bedrock.WithModel(cfg.LLMModel)}
+		// For inference profiles, provider can't be auto-detected from ARN
+		if cfg.BedrockModelProvider != "" {
+			opts = append(opts, bedrock.WithModelProvider(cfg.BedrockModelProvider))
+		}
+		model, err = bedrock.New(opts...)
+		if err != nil {
+			return nil, fmt.Errorf("create bedrock model: %w", err)
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", cfg.LLMProvider)
 	}
@@ -70,26 +124,39 @@ func NewModel(cfg config.Config) (*Model, error) {
 func (m *Model) Generate(ctx context.Context, prompt string) (string, error) {
 	response, err := llms.GenerateFromSinglePrompt(ctx, m.llm, prompt)
 	if err != nil {
-		return "", fmt.Errorf("generate: %w", err)
+		return "", wrapFatalError(fmt.Errorf("generate: %w", err))
 	}
 	return response, nil
 }
 
 // GenerateWithSystem generates text with a system prompt.
 func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	systemLen := len(systemPrompt)
+	userLen := len(userPrompt)
+	totalLen := systemLen + userLen
+
+	slog.Debug("LLM generate starting", "model", m.modelName, "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
+
 	messages := []llms.MessageContent{
 		llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt),
 		llms.TextParts(llms.ChatMessageTypeHuman, userPrompt),
 	}
 
+	start := time.Now()
 	response, err := m.llm.GenerateContent(ctx, messages)
+	duration := time.Since(start)
+
 	if err != nil {
-		return "", fmt.Errorf("generate with system: %w", err)
+		slog.Warn("LLM generate failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
+		return "", wrapFatalError(fmt.Errorf("generate with system: %w", err))
 	}
 
 	if len(response.Choices) == 0 {
 		return "", fmt.Errorf("no response choices")
 	}
+
+	responseLen := len(response.Choices[0].Content)
+	slog.Debug("LLM generate complete", "model", m.modelName, "total_len", totalLen, "response_len", responseLen, "duration_ms", duration.Milliseconds())
 
 	return response.Choices[0].Content, nil
 }
