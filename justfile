@@ -14,8 +14,8 @@ export SURREALDB_PASS := env_var_or_default("SURREALDB_PASS", "root")
 export KNOWHOW_LLM_PROVIDER := env_var_or_default("KNOWHOW_LLM_PROVIDER", "anthropic")
 export KNOWHOW_LLM_MODEL := env_var_or_default("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514")
 export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "ollama")
-export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "all-minilm:l6-v2")
-export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "384")
+export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "bge-m3")
+export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "1024")
 
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
@@ -90,10 +90,15 @@ db-up:
 db-down:
     docker-compose down
 
-# Pull Ollama embedding model
+# Pull Ollama embedding model (only if using Ollama provider)
 ollama-pull:
-    @echo "Pulling embedding model $KNOWHOW_EMBED_MODEL..."
-    ollama pull $KNOWHOW_EMBED_MODEL
+    #!/usr/bin/env bash
+    if [ "$KNOWHOW_EMBED_PROVIDER" = "ollama" ]; then
+        echo "Pulling embedding model $KNOWHOW_EMBED_MODEL..."
+        ollama pull "$KNOWHOW_EMBED_MODEL"
+    else
+        echo "Skipping Ollama pull (using $KNOWHOW_EMBED_PROVIDER provider)"
+    fi
 
 # Remove binaries and stop containers
 clean:
