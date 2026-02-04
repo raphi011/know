@@ -44,9 +44,14 @@ func ShouldChunk(content string, config ChunkConfig) bool {
 
 // ChunkMarkdown splits Markdown content into semantic chunks.
 // Prioritizes section boundaries, then paragraph boundaries.
+// Returns empty slice if content has no semantic value for embedding.
 func ChunkMarkdown(doc *MarkdownDoc, config ChunkConfig) []ChunkResult {
-	// If content is short enough, return as single chunk
+	// If content is short enough, return as single chunk (only if non-empty)
 	if !ShouldChunk(doc.Content, config) {
+		trimmed := strings.TrimSpace(doc.Content)
+		if trimmed == "" {
+			return []ChunkResult{} // No content to chunk
+		}
 		return []ChunkResult{{
 			Content:     doc.Content,
 			Position:    0,
@@ -64,16 +69,23 @@ func ChunkMarkdown(doc *MarkdownDoc, config ChunkConfig) []ChunkResult {
 }
 
 // chunkBySections creates chunks from document sections.
+// Empty sections are skipped - they have no semantic value for RAG.
 func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 	var chunks []ChunkResult
 	position := 0
 
 	for _, section := range sections {
+		// Skip empty sections - they have no semantic value for RAG
+		trimmed := strings.TrimSpace(section.Content)
+		if trimmed == "" {
+			continue
+		}
+
 		// If section is small, add as single chunk
-		if len(section.Content) <= config.MaxSize {
-			if len(section.Content) >= config.MinSize || len(chunks) == 0 {
+		if len(trimmed) <= config.MaxSize {
+			if len(trimmed) >= config.MinSize || len(chunks) == 0 {
 				chunks = append(chunks, ChunkResult{
-					Content:     section.Content,
+					Content:     trimmed,
 					Position:    position,
 					HeadingPath: section.Path,
 				})
@@ -81,7 +93,7 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 			} else if len(chunks) > 0 {
 				// Merge tiny section with previous
 				lastChunk := &chunks[len(chunks)-1]
-				lastChunk.Content += "\n\n" + section.Content
+				lastChunk.Content += "\n\n" + trimmed
 			}
 			continue
 		}

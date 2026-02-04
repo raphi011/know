@@ -101,8 +101,13 @@ func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) 
 	}
 
 	chunks := parser.ChunkMarkdown(doc, parser.DefaultChunkConfig())
-	if len(chunks) <= 1 {
-		return nil // No need to chunk
+	if len(chunks) == 0 {
+		// No meaningful content to chunk (e.g., all-empty sections)
+		slog.Debug("no chunks produced - content may be empty sections only", "entity", entityID)
+		return nil
+	}
+	if len(chunks) == 1 {
+		return nil // No need to chunk - single chunk handled at entity level
 	}
 
 	chunkInputs := make([]models.ChunkInput, 0, len(chunks))

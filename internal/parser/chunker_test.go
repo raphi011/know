@@ -1,0 +1,156 @@
+package parser
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestChunkMarkdown_EmptyContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantLen  int
+		wantZero bool // expect zero chunks
+	}{
+		{
+			name:     "completely empty",
+			content:  "",
+			wantZero: true,
+		},
+		{
+			name:     "whitespace only",
+			content:  "   \n\n\t  ",
+			wantZero: true,
+		},
+		{
+			// Short content below threshold - raw markdown returned as-is
+			// Headings-only short content is passed through (not chunked)
+			name:    "heading only no content - below threshold",
+			content: "# Title\n\n## Section",
+			wantLen: 1, // Short content passed as single chunk
+		},
+		{
+			name:    "heading with content",
+			content: "# Title\n\nSome actual content here.",
+			wantLen: 1,
+		},
+		{
+			name:    "mixed empty and content sections",
+			content: "# Empty\n\n## Also Empty\n\n## Has Content\n\nThis section has content.",
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := ParseMarkdown(tt.content)
+			if err != nil {
+				t.Fatalf("ParseMarkdown() error = %v", err)
+			}
+
+			chunks := ChunkMarkdown(doc, DefaultChunkConfig())
+
+			if tt.wantZero {
+				if len(chunks) != 0 {
+					t.Errorf("ChunkMarkdown() got %d chunks, want 0", len(chunks))
+					for i, c := range chunks {
+						t.Errorf("  chunk[%d]: %q", i, c.Content)
+					}
+				}
+				return
+			}
+
+			if len(chunks) != tt.wantLen {
+				t.Errorf("ChunkMarkdown() got %d chunks, want %d", len(chunks), tt.wantLen)
+			}
+
+			// Verify no empty chunks
+			for i, chunk := range chunks {
+				if strings.TrimSpace(chunk.Content) == "" {
+					t.Errorf("chunk[%d] is empty", i)
+				}
+			}
+		})
+	}
+}
+
+func TestChunkBySections_SkipsEmptySections(t *testing.T) {
+	sections := []Section{
+		{Path: "Empty", Content: ""},
+		{Path: "Whitespace", Content: "   \n\t  "},
+		{Path: "HasContent", Content: "This has actual content that is meaningful."},
+		{Path: "AnotherEmpty", Content: ""},
+	}
+
+	config := DefaultChunkConfig()
+	// Lower min size for test
+	config.MinSize = 10
+
+	chunks := chunkBySections(sections, config)
+
+	if len(chunks) != 1 {
+		t.Errorf("chunkBySections() got %d chunks, want 1", len(chunks))
+		for i, c := range chunks {
+			t.Errorf("  chunk[%d] path=%q content=%q", i, c.HeadingPath, c.Content)
+		}
+		return
+	}
+
+	if chunks[0].HeadingPath != "HasContent" {
+		t.Errorf("chunk[0].HeadingPath = %q, want 'HasContent'", chunks[0].HeadingPath)
+	}
+}
+
+func TestChunkBySections_AllEmpty(t *testing.T) {
+	sections := []Section{
+		{Path: "Empty1", Content: ""},
+		{Path: "Empty2", Content: "   "},
+		{Path: "Empty3", Content: "\n\n"},
+	}
+
+	chunks := chunkBySections(sections, DefaultChunkConfig())
+
+	if len(chunks) != 0 {
+		t.Errorf("chunkBySections() with all empty sections got %d chunks, want 0", len(chunks))
+	}
+}
+
+// TestChunkMarkdown_LongContentWithEmptySections simulates the actual bug scenario:
+// a long document that exceeds threshold but has sections with empty content.
+func TestChunkMarkdown_LongContentWithEmptySections(t *testing.T) {
+	// Create content that exceeds threshold (1500 chars) but sections have empty content
+	// This would happen with a document full of headings but sparse content
+	var sb strings.Builder
+	sb.WriteString("# Decision Log\n\n")
+	// Add many empty sections to exceed threshold
+	for i := 1; i <= 50; i++ {
+		sb.WriteString("## Decision " + strings.Repeat("X", 20) + "\n\n")
+	}
+	// Add one section with actual content
+	sb.WriteString("## Decision with content\n\n")
+	sb.WriteString("This decision has actual meaningful content that should be chunked.\n\n")
+
+	content := sb.String()
+	if len(content) < 1500 {
+		t.Fatalf("test content too short: %d chars, need >1500", len(content))
+	}
+
+	doc, err := ParseMarkdown(content)
+	if err != nil {
+		t.Fatalf("ParseMarkdown() error = %v", err)
+	}
+
+	chunks := ChunkMarkdown(doc, DefaultChunkConfig())
+
+	// Should only have chunks from the section with content
+	for i, chunk := range chunks {
+		trimmed := strings.TrimSpace(chunk.Content)
+		if trimmed == "" {
+			t.Errorf("chunk[%d] is empty (text_len=0 would fail embedding)", i)
+		}
+	}
+
+	if len(chunks) == 0 {
+		t.Error("expected at least one chunk from section with content")
+	}
+}
