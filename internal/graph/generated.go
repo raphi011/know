@@ -87,15 +87,17 @@ type ComplexityRoot struct {
 	}
 
 	Job struct {
-		CompletedAt func(childComplexity int) int
-		Error       func(childComplexity int) int
-		ID          func(childComplexity int) int
-		Progress    func(childComplexity int) int
-		Result      func(childComplexity int) int
-		StartedAt   func(childComplexity int) int
-		Status      func(childComplexity int) int
-		Total       func(childComplexity int) int
-		Type        func(childComplexity int) int
+		CompletedAt  func(childComplexity int) int
+		DirPath      func(childComplexity int) int
+		Error        func(childComplexity int) int
+		ID           func(childComplexity int) int
+		PendingFiles func(childComplexity int) int
+		Progress     func(childComplexity int) int
+		Result       func(childComplexity int) int
+		StartedAt    func(childComplexity int) int
+		Status       func(childComplexity int) int
+		Total        func(childComplexity int) int
+		Type         func(childComplexity int) int
 	}
 
 	LabelCount struct {
@@ -379,6 +381,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Job.CompletedAt(childComplexity), true
+	case "Job.dirPath":
+		if e.complexity.Job.DirPath == nil {
+			break
+		}
+
+		return e.complexity.Job.DirPath(childComplexity), true
 	case "Job.error":
 		if e.complexity.Job.Error == nil {
 			break
@@ -391,6 +399,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Job.ID(childComplexity), true
+	case "Job.pendingFiles":
+		if e.complexity.Job.PendingFiles == nil {
+			break
+		}
+
+		return e.complexity.Job.PendingFiles(childComplexity), true
 	case "Job.progress":
 		if e.complexity.Job.Progress == nil {
 			break
@@ -2315,6 +2329,64 @@ func (ec *executionContext) fieldContext_Job_completedAt(_ context.Context, fiel
 	return fc, nil
 }
 
+func (ec *executionContext) _Job_dirPath(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_dirPath,
+		func(ctx context.Context) (any, error) {
+			return obj.DirPath, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_dirPath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Job_pendingFiles(ctx context.Context, field graphql.CollectedField, obj *Job) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Job_pendingFiles,
+		func(ctx context.Context) (any, error) {
+			return obj.PendingFiles, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Job_pendingFiles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Job",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _LabelCount_label(ctx context.Context, field graphql.CollectedField, obj *LabelCount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2776,6 +2848,10 @@ func (ec *executionContext) fieldContext_Mutation_ingestDirectoryAsync(ctx conte
 				return ec.fieldContext_Job_startedAt(ctx, field)
 			case "completedAt":
 				return ec.fieldContext_Job_completedAt(ctx, field)
+			case "dirPath":
+				return ec.fieldContext_Job_dirPath(ctx, field)
+			case "pendingFiles":
+				return ec.fieldContext_Job_pendingFiles(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
 		},
@@ -3466,6 +3542,10 @@ func (ec *executionContext) fieldContext_Query_jobs(_ context.Context, field gra
 				return ec.fieldContext_Job_startedAt(ctx, field)
 			case "completedAt":
 				return ec.fieldContext_Job_completedAt(ctx, field)
+			case "dirPath":
+				return ec.fieldContext_Job_dirPath(ctx, field)
+			case "pendingFiles":
+				return ec.fieldContext_Job_pendingFiles(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
 		},
@@ -3516,6 +3596,10 @@ func (ec *executionContext) fieldContext_Query_job(ctx context.Context, field gr
 				return ec.fieldContext_Job_startedAt(ctx, field)
 			case "completedAt":
 				return ec.fieldContext_Job_completedAt(ctx, field)
+			case "dirPath":
+				return ec.fieldContext_Job_dirPath(ctx, field)
+			case "pendingFiles":
+				return ec.fieldContext_Job_pendingFiles(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
 		},
@@ -6260,6 +6344,10 @@ func (ec *executionContext) _Job(ctx context.Context, sel ast.SelectionSet, obj 
 			}
 		case "completedAt":
 			out.Values[i] = ec._Job_completedAt(ctx, field, obj)
+		case "dirPath":
+			out.Values[i] = ec._Job_dirPath(ctx, field, obj)
+		case "pendingFiles":
+			out.Values[i] = ec._Job_pendingFiles(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

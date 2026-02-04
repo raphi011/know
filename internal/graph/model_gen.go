@@ -7,15 +7,17 @@ import (
 )
 
 type Job struct {
-	ID          string        `json:"id"`
-	Type        string        `json:"type"`
-	Status      string        `json:"status"`
-	Progress    int           `json:"progress"`
-	Total       int           `json:"total"`
-	Result      *IngestResult `json:"result,omitempty"`
-	Error       *string       `json:"error,omitempty"`
-	StartedAt   time.Time     `json:"startedAt"`
-	CompletedAt *time.Time    `json:"completedAt,omitempty"`
+	ID           string        `json:"id"`
+	Type         string        `json:"type"`
+	Status       string        `json:"status"`
+	Progress     int           `json:"progress"`
+	Total        int           `json:"total"`
+	Result       *IngestResult `json:"result,omitempty"`
+	Error        *string       `json:"error,omitempty"`
+	StartedAt    time.Time     `json:"startedAt"`
+	CompletedAt  *time.Time    `json:"completedAt,omitempty"`
+	DirPath      *string       `json:"dirPath,omitempty"`
+	PendingFiles *int          `json:"pendingFiles,omitempty"`
 }
 
 type Mutation struct {

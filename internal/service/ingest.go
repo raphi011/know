@@ -381,15 +381,14 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 	return nil
 }
 
-// IngestDirectory ingests all Markdown files from a directory.
-func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opts IngestOptions) (*IngestResult, error) {
-	// Find markdown files
+// CollectFiles walks a directory and returns all markdown files.
+func (s *IngestService) CollectFiles(dirPath string, recursive bool) ([]string, error) {
 	var files []string
 	walkFn := func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && !opts.Recursive && path != dirPath {
+		if d.IsDir() && !recursive && path != dirPath {
 			return filepath.SkipDir
 		}
 		ext := strings.ToLower(filepath.Ext(path))
@@ -402,15 +401,37 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 	if err := filepath.WalkDir(dirPath, walkFn); err != nil {
 		return nil, fmt.Errorf("scan directory: %w", err)
 	}
+	return files, nil
+}
 
-	totalFiles := len(files)
-	slog.Info("starting directory ingestion", "dir", dirPath, "files", totalFiles, "concurrency", opts.Concurrency, "extract_graph", opts.ExtractGraph)
+// IngestDirectory ingests all Markdown files from a directory (synchronous).
+func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opts IngestOptions) (*IngestResult, error) {
+	files, err := s.CollectFiles(dirPath, opts.Recursive)
+	if err != nil {
+		return nil, err
+	}
+	return s.processFilesInternal(ctx, nil, nil, files, len(files), opts)
+}
+
+// ProcessFiles processes a list of files with job manager integration.
+// Used for both new jobs and resumed jobs.
+func (s *IngestService) ProcessFiles(ctx context.Context, jobManager *JobManager, job *Job, files []string, opts IngestOptions) (*IngestResult, error) {
+	totalFiles := job.Total // Use original total for progress calculation
+	return s.processFilesInternal(ctx, jobManager, job, files, totalFiles, opts)
+}
+
+// processFilesInternal is the core file processing logic.
+func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *JobManager, job *Job, files []string, totalFiles int, opts IngestOptions) (*IngestResult, error) {
+	slog.Info("starting file processing", "files", len(files), "total", totalFiles, "concurrency", opts.Concurrency, "extract_graph", opts.ExtractGraph)
 
 	// Set default concurrency
 	concurrency := opts.Concurrency
 	if concurrency <= 0 {
 		concurrency = 4
 	}
+
+	// Calculate starting progress (for resumed jobs)
+	startProgress := totalFiles - len(files)
 
 	// Result aggregation with thread-safe counters
 	var (
@@ -436,11 +457,12 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 				}
 
 				processed := filesProcessed.Add(1)
-				slog.Info("processing file", "worker", workerID, "file", filepath.Base(file), "progress", fmt.Sprintf("%d/%d", processed, totalFiles))
+				currentProgress := startProgress + int(processed)
+				slog.Info("processing file", "worker", workerID, "file", filepath.Base(file), "progress", fmt.Sprintf("%d/%d", currentProgress, totalFiles))
 
-				// Update job progress if tracking
-				if opts.Job != nil {
-					opts.Job.UpdateProgress(int(processed), totalFiles)
+				// Update job progress via job manager (handles DB persistence)
+				if jobManager != nil && job != nil {
+					jobManager.UpdateProgress(ctx, job, currentProgress, totalFiles)
 				}
 
 				entity, err := s.IngestFile(ctx, file, opts)
@@ -477,7 +499,7 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 	// Wait for completion
 	wg.Wait()
 
-	slog.Info("directory ingestion complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+	slog.Info("file processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
 
 	return &IngestResult{
 		FilesProcessed:  int(filesProcessed.Load()),
@@ -485,4 +507,59 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 		ChunksCreated:   int(chunksCreated.Load()),
 		Errors:          errors,
 	}, nil
+}
+
+// IngestDirectoryAsync starts an async ingestion job with persistence.
+func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *JobManager, dirPath string, opts IngestOptions) (*Job, error) {
+	// Validate path exists before starting job
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("path must be a directory: %s", dirPath)
+	}
+
+	// Collect files upfront (deterministic list for resume)
+	files, err := s.CollectFiles(dirPath, opts.Recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no markdown files found in %s", dirPath)
+	}
+
+	// Prepare options for persistence
+	persistOpts := map[string]any{
+		"labels":        opts.Labels,
+		"extract_graph": opts.ExtractGraph,
+		"recursive":     opts.Recursive,
+	}
+
+	// Create job with persistence
+	job, err := jobManager.CreateJob(ctx, "ingest", dirPath, files, persistOpts)
+	if err != nil {
+		return nil, fmt.Errorf("create job: %w", err)
+	}
+
+	// Set concurrency from job manager
+	opts.Concurrency = jobManager.Concurrency()
+
+	// Start processing in background
+	go func() {
+		bgCtx := context.Background()
+
+		// Mark as running
+		jobManager.SetRunning(bgCtx, job)
+
+		result, err := s.ProcessFiles(bgCtx, jobManager, job, files, opts)
+		if err != nil {
+			jobManager.Fail(bgCtx, job, err)
+			return
+		}
+		jobManager.Complete(bgCtx, job, result)
+	}()
+
+	return job, nil
 }

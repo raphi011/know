@@ -5,6 +5,7 @@ package graph
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/db"
@@ -58,12 +59,21 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		return nil, err
 	}
 
+	ingestService := service.NewIngestService(dbClient, embedder, model)
+	jobManager := service.NewJobManager(cfg.IngestConcurrency, dbClient)
+
+	// Resume any incomplete jobs from previous server run
+	if err := jobManager.ResumeIncompleteJobs(ctx, ingestService); err != nil {
+		// Log warning but don't fail startup
+		slog.Warn("failed to resume incomplete jobs", "error", err)
+	}
+
 	return &Resolver{
 		db:            dbClient,
 		entityService: service.NewEntityService(dbClient, embedder, model),
 		searchService: service.NewSearchService(dbClient, embedder, model),
-		ingestService: service.NewIngestService(dbClient, embedder, model),
-		jobManager:    service.NewJobManager(cfg.IngestConcurrency),
+		ingestService: ingestService,
+		jobManager:    jobManager,
 		cfg:           cfg,
 	}, nil
 }

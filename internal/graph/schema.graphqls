@@ -75,6 +75,8 @@ type Job {
   error: String
   startedAt: DateTime!
   completedAt: DateTime
+  dirPath: String
+  pendingFiles: Int
 }
 
 type LabelCount {
