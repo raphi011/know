@@ -26,6 +26,8 @@ just dev        # Start full dev environment
 
 **IMPORTANT**: Before committing any changes, always run `just test`.
 
+**IMPORTANT**: Always use `just build` or `just build-all` instead of raw `go build ./...`. The justfile includes `-buildvcs=false` which is required because this project is in a subdirectory of the git repo. Raw `go build` will fail with `error obtaining VCS status: exit status 128`.
+
 ## SurrealDB Reference
 
 For SurrealDB-specific syntax, v3.0 breaking changes, and query patterns:
@@ -53,7 +55,25 @@ After modifying `internal/graph/schema.graphqls`, regenerate the GraphQL code:
 just generate
 ```
 
-**Note**: Helper functions in `schema.resolvers.go` (like `entityToGraphQL`, `serviceJobToGraphQL`) will be moved to a commented block at the end of the file during regeneration. Move them back above the comment block after regeneration.
+### Avoiding Generation Failures
+
+1. **Missing go.sum entries**: If `just generate` fails with "missing go.sum entry" errors, run:
+   ```bash
+   go mod tidy
+   ```
+   If that doesn't work, explicitly fetch gqlgen deps:
+   ```bash
+   go get github.com/99designs/gqlgen@v0.17.86
+   ```
+
+2. **Helper functions**: Conversion helpers (like `entityToGraphQL`, `serviceJobToGraphQL`) live in `internal/graph/helpers.go` - NOT in `schema.resolvers.go`. gqlgen will move any helper functions from resolvers to a commented block during regeneration.
+
+3. **Generation order**: When adding new GraphQL types that require new helper functions:
+   - First: Update `schema.graphqls` with new fields/types
+   - Second: Add/update helpers in `helpers.go`
+   - Third: Run `just generate`
+   - Fourth: Update resolver code in `schema.resolvers.go` to use the new helpers
+   - Fifth: Verify with `just build-all && just test`
 
 ## Documentation
 
