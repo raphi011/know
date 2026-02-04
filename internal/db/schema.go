@@ -1,104 +1,148 @@
 package db
 
-// SchemaSQL contains the database schema initialization SQL.
-// Matches Python memcp/db.py SCHEMA_SQL exactly.
+// SchemaSQL contains the database schema initialization SQL for Knowhow.
+// Personal knowledge RAG database with flexible entity model.
 const SchemaSQL = `
     -- ==========================================================================
-    -- ENTITY TABLE
+    -- ENTITY TABLE (Core - Flexible Knowledge Atom)
     -- ==========================================================================
+    -- Everything is an entity: documents, people, services, concepts, tasks.
+    -- Flexible schema allows storing any type of knowledge.
     DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
-    DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
-    -- TODO: Use set<string> when Go SDK supports CBOR tag 56 (v3.0 set type)
-    DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string>;
-    DEFINE FIELD IF NOT EXISTS content ON entity TYPE string;
-    DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
-    DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 1.0;
-    DEFINE FIELD IF NOT EXISTS source ON entity TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS decay_weight ON entity TYPE float DEFAULT 1.0;
-    DEFINE FIELD IF NOT EXISTS created ON entity TYPE datetime DEFAULT time::now();
+
+    -- Identity
+    DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;              -- "person", "service", "document", "concept", "task", etc.
+    DEFINE FIELD IF NOT EXISTS name ON entity TYPE string;              -- Display name/title
+
+    -- Content (optional - not all entities need long content)
+    DEFINE FIELD IF NOT EXISTS content ON entity TYPE option<string>;   -- Full text (Markdown)
+    DEFINE FIELD IF NOT EXISTS summary ON entity TYPE option<string>;   -- Short description
+
+    -- Organization
+    DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string> DEFAULT [];  -- Flexible tags ["work", "banking", "team-platform"]
+
+    -- Quality & Trust
+    DEFINE FIELD IF NOT EXISTS verified ON entity TYPE bool DEFAULT false;      -- Human-reviewed?
+    DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 0.5;     -- 0-1 certainty (for AI content)
+    DEFINE FIELD IF NOT EXISTS source ON entity TYPE string DEFAULT "manual";   -- "manual" | "mcp" | "scrape" | "ai_generated"
+    DEFINE FIELD IF NOT EXISTS source_path ON entity TYPE option<string>;       -- Original file path if scraped
+
+    -- Type-specific data
+    DEFINE FIELD IF NOT EXISTS metadata ON entity TYPE option<object> FLEXIBLE;
+
+    -- Search
+    DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE option<array<float>>;   -- Computed from content/summary
+
+    -- Timestamps
+    DEFINE FIELD IF NOT EXISTS created_at ON entity TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE datetime VALUE time::now();
     DEFINE FIELD IF NOT EXISTS accessed ON entity TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS access_count ON entity TYPE int DEFAULT 0;
-    -- Project namespacing: isolate memories by context
-    DEFINE FIELD IF NOT EXISTS context ON entity TYPE option<string>;
-    -- Importance scoring: heuristic-based salience
-    DEFINE FIELD IF NOT EXISTS importance ON entity TYPE float DEFAULT 0.5;
-    DEFINE FIELD IF NOT EXISTS user_importance ON entity TYPE option<float>;
 
-    DEFINE INDEX IF NOT EXISTS entity_labels ON entity FIELDS labels;
-    DEFINE INDEX IF NOT EXISTS entity_context ON entity FIELDS context;
-    DEFINE INDEX IF NOT EXISTS entity_embedding ON entity FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
+    -- Indexes
+    DEFINE INDEX IF NOT EXISTS idx_entity_type ON entity FIELDS type;
+    DEFINE INDEX IF NOT EXISTS idx_entity_labels ON entity FIELDS labels;
+    DEFINE INDEX IF NOT EXISTS idx_entity_verified ON entity FIELDS verified;
+    DEFINE INDEX IF NOT EXISTS idx_entity_source ON entity FIELDS source;
     DEFINE ANALYZER IF NOT EXISTS entity_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
-    DEFINE INDEX IF NOT EXISTS entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS idx_entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS idx_entity_name_ft ON entity FIELDS name FULLTEXT ANALYZER entity_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS idx_entity_embedding ON entity FIELDS embedding
+        HNSW DIMENSION 384 DIST COSINE TYPE F32 EFC 150 M 12;
 
     -- ==========================================================================
-    -- RELATIONS TABLE
+    -- CHUNK TABLE (RAG Pieces for Long Content)
     -- ==========================================================================
-    -- Relation table with unique constraint to prevent duplicate edges
-    -- Uses single table with rel_type field instead of dynamic table names
-    DEFINE TABLE IF NOT EXISTS relates TYPE RELATION IN entity OUT entity SCHEMAFULL;
-    DEFINE FIELD IF NOT EXISTS rel_type ON relates TYPE string;
-    DEFINE FIELD IF NOT EXISTS weight ON relates TYPE float DEFAULT 1.0;
-    DEFINE FIELD IF NOT EXISTS created ON relates TYPE datetime DEFAULT time::now();
-    -- Unique constraint: sorted [in, out, rel_type] prevents duplicate relations
-    DEFINE FIELD IF NOT EXISTS unique_key ON relates VALUE <string>string::concat(array::sort([<string>in, <string>out]), rel_type);
-    DEFINE INDEX IF NOT EXISTS unique_relation ON relates FIELDS unique_key UNIQUE;
+    -- Auto-generated for entities with long content (> threshold).
+    DEFINE TABLE IF NOT EXISTS chunk SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS entity ON chunk TYPE record<entity>;     -- Parent reference
+    DEFINE FIELD IF NOT EXISTS content ON chunk TYPE string;            -- Chunk text
+    DEFINE FIELD IF NOT EXISTS position ON chunk TYPE int;              -- Order within entity
+    DEFINE FIELD IF NOT EXISTS heading_path ON chunk TYPE option<string>; -- "## Setup > ### Install"
+    DEFINE FIELD IF NOT EXISTS labels ON chunk TYPE array<string> DEFAULT []; -- Inherited from parent
+    DEFINE FIELD IF NOT EXISTS embedding ON chunk TYPE array<float>;
+    DEFINE FIELD IF NOT EXISTS created_at ON chunk TYPE datetime DEFAULT time::now();
+
+    -- Indexes
+    DEFINE INDEX IF NOT EXISTS idx_chunk_entity ON chunk FIELDS entity;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_labels ON chunk FIELDS labels;
+    DEFINE ANALYZER IF NOT EXISTS chunk_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
+    DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER chunk_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_embedding ON chunk FIELDS embedding
+        HNSW DIMENSION 384 DIST COSINE TYPE F32 EFC 150 M 12;
+
+    -- Cascade delete when parent entity deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_chunks ON entity
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM chunk WHERE entity = $before.id
+    };
 
     -- ==========================================================================
-    -- EPISODE TABLE (Episodic Memory)
+    -- TEMPLATE TABLE (Output Rendering Templates)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS episode SCHEMAFULL;
-    DEFINE FIELD IF NOT EXISTS content ON episode TYPE string;
-    DEFINE FIELD IF NOT EXISTS summary ON episode TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS embedding ON episode TYPE array<float>;
-    DEFINE FIELD IF NOT EXISTS metadata ON episode TYPE option<object> FLEXIBLE;
-    DEFINE FIELD IF NOT EXISTS timestamp ON episode TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS context ON episode TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS created ON episode TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS accessed ON episode TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS access_count ON episode TYPE int DEFAULT 0;
+    -- Templates for synthesizing/rendering output from accumulated knowledge.
+    DEFINE TABLE IF NOT EXISTS template SCHEMAFULL;
 
-    DEFINE INDEX IF NOT EXISTS episode_timestamp ON episode FIELDS timestamp;
-    DEFINE INDEX IF NOT EXISTS episode_context ON episode FIELDS context;
-    DEFINE INDEX IF NOT EXISTS episode_embedding ON episode FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
-    DEFINE ANALYZER IF NOT EXISTS episode_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
-    DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content FULLTEXT ANALYZER episode_analyzer BM25;
+    DEFINE FIELD IF NOT EXISTS name ON template TYPE string;            -- "Peer Review", "Service Summary", "Weekly Report"
+    DEFINE FIELD IF NOT EXISTS description ON template TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS content ON template TYPE string;         -- Markdown template with sections to fill
+    DEFINE FIELD IF NOT EXISTS created_at ON template TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at ON template TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_template_name ON template FIELDS name UNIQUE;
 
     -- ==========================================================================
-    -- EXTRACTED_FROM RELATION (links entities to source episodes)
+    -- RELATES_TO RELATION (General Entity Relationships)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS extracted_from TYPE RELATION IN entity OUT episode SCHEMAFULL;
-    DEFINE FIELD IF NOT EXISTS position ON extracted_from TYPE option<int>;
-    DEFINE FIELD IF NOT EXISTS confidence ON extracted_from TYPE float DEFAULT 1.0;
-    DEFINE FIELD IF NOT EXISTS created ON extracted_from TYPE datetime DEFAULT time::now();
+    DEFINE TABLE IF NOT EXISTS relates_to SCHEMAFULL TYPE RELATION FROM entity TO entity;
+    DEFINE FIELD IF NOT EXISTS rel_type ON relates_to TYPE string;      -- "works_on", "owns", "references", etc.
+    DEFINE FIELD IF NOT EXISTS strength ON relates_to TYPE float DEFAULT 1.0;
+    DEFINE FIELD IF NOT EXISTS source ON relates_to TYPE string DEFAULT "manual"; -- "manual" | "inferred" | "ai_detected"
+    DEFINE FIELD IF NOT EXISTS metadata ON relates_to TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS created_at ON relates_to TYPE datetime DEFAULT time::now();
+
+    -- Unique constraint: prevent duplicate relations of same type between same entities
+    DEFINE FIELD IF NOT EXISTS unique_key ON relates_to VALUE <string>string::concat(array::sort([<string>in, <string>out]), rel_type);
+    DEFINE INDEX IF NOT EXISTS unique_relates_to ON relates_to FIELDS unique_key UNIQUE;
+
+    -- Cascade delete relations when entity deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_relations ON entity
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM relates_to WHERE in = $before.id OR out = $before.id
+    };
 
     -- ==========================================================================
-    -- PROCEDURE TABLE (Procedural Memory)
+    -- CONTRADICTS RELATION (Contradiction Detection)
     -- ==========================================================================
-    -- Stores step-by-step workflows/processes with ordered steps
-    DEFINE TABLE IF NOT EXISTS procedure SCHEMAFULL;
-    DEFINE FIELD IF NOT EXISTS name ON procedure TYPE string;
-    DEFINE FIELD IF NOT EXISTS description ON procedure TYPE string;
-    DEFINE FIELD IF NOT EXISTS steps ON procedure TYPE array<object> FLEXIBLE;  -- [{order, content, optional}]
-    -- Note: Must REMOVE then DEFINE to ensure FLEXIBLE is set (IF NOT EXISTS won't update existing field)
-    REMOVE FIELD IF EXISTS steps.* ON procedure;
-    DEFINE FIELD steps.* ON procedure TYPE object FLEXIBLE;  -- Allow nested object properties
-    DEFINE FIELD IF NOT EXISTS embedding ON procedure TYPE array<float>;
-    DEFINE FIELD IF NOT EXISTS context ON procedure TYPE option<string>;
-    -- TODO: Use set<string> when Go SDK supports CBOR tag 56 (v3.0 set type)
-    DEFINE FIELD IF NOT EXISTS labels ON procedure TYPE array<string>;
-    DEFINE FIELD IF NOT EXISTS created ON procedure TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS accessed ON procedure TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS access_count ON procedure TYPE int DEFAULT 0;
+    -- For AI-detected conflicts between entities.
+    DEFINE TABLE IF NOT EXISTS contradicts SCHEMAFULL TYPE RELATION FROM entity TO entity;
+    DEFINE FIELD IF NOT EXISTS explanation ON contradicts TYPE string;
+    DEFINE FIELD IF NOT EXISTS confidence ON contradicts TYPE float;
+    DEFINE FIELD IF NOT EXISTS resolved ON contradicts TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS detected_at ON contradicts TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS procedure_context ON procedure FIELDS context;
-    DEFINE INDEX IF NOT EXISTS procedure_labels ON procedure FIELDS labels;
-    DEFINE INDEX IF NOT EXISTS procedure_embedding ON procedure FIELDS embedding HNSW DIMENSION 384 DIST COSINE TYPE F32;
-    DEFINE ANALYZER IF NOT EXISTS procedure_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
-    DEFINE INDEX IF NOT EXISTS procedure_name_ft ON procedure FIELDS name FULLTEXT ANALYZER procedure_analyzer BM25;
-    DEFINE INDEX IF NOT EXISTS procedure_desc_ft ON procedure FIELDS description FULLTEXT ANALYZER procedure_analyzer BM25;
+    -- Cascade delete contradictions when entity deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_contradicts ON entity
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM contradicts WHERE in = $before.id OR out = $before.id
+    };
 
     -- ==========================================================================
-    -- TYPE INDEX (for entity type ontology queries)
+    -- TOKEN_USAGE TABLE (Cost Tracking)
     -- ==========================================================================
-    DEFINE INDEX IF NOT EXISTS entity_type ON entity FIELDS type;
+    -- Track all LLM token consumption for cost monitoring and optimization.
+    DEFINE TABLE IF NOT EXISTS token_usage SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS operation ON token_usage TYPE string;      -- "embed", "ask", "extract_graph", "render"
+    DEFINE FIELD IF NOT EXISTS model ON token_usage TYPE string;          -- "gpt-4", "claude-3", "ollama/llama3"
+    DEFINE FIELD IF NOT EXISTS input_tokens ON token_usage TYPE int;
+    DEFINE FIELD IF NOT EXISTS output_tokens ON token_usage TYPE int;
+    DEFINE FIELD IF NOT EXISTS total_tokens ON token_usage TYPE int;
+    DEFINE FIELD IF NOT EXISTS cost_usd ON token_usage TYPE option<float>; -- Estimated cost (if known)
+    DEFINE FIELD IF NOT EXISTS entity_id ON token_usage TYPE option<string>; -- Related entity if applicable
+    DEFINE FIELD IF NOT EXISTS created_at ON token_usage TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_usage_operation ON token_usage FIELDS operation;
+    DEFINE INDEX IF NOT EXISTS idx_usage_created ON token_usage FIELDS created_at;
 `

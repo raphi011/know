@@ -42,6 +42,20 @@ go build -o memcp ./cmd/memcp
 For SurrealDB-specific syntax, v3.0 breaking changes, and query patterns:
 - **Subagent**: Use the `surrealdb` subagent for complex query work (has built-in reference guide)
 
+## Error Handling
+
+**CRITICAL**: Never ignore errors with `_ =` assignments. All errors must be either:
+1. Returned to the caller with context: `return fmt.Errorf("operation: %w", err)`
+2. Logged with structured logging: `slog.Warn("operation failed", "key", value, "error", err)`
+3. Explicitly justified with a comment explaining why it's safe to ignore
+
+This applies to:
+- Database operations (`CreateEntity`, `UpdateEntityAccess`, `GetEntityByName`, etc.)
+- ID extraction (`models.RecordIDString`)
+- Any function that returns an error
+
+Silent failures make debugging impossible and degrade features without any indication.
+
 ## Documentation
 
 **IMPORTANT**: When adding or modifying features, always update `README.md` with example prompts showcasing what the feature can do. This helps users understand how to use each tool effectively.
