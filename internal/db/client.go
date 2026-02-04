@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/metrics"
@@ -38,11 +39,12 @@ type Config struct {
 
 // Client wraps SurrealDB connection with auto-reconnect.
 type Client struct {
-	conn    *rews.Connection[*gorillaws.Connection]
-	db      *surrealdb.DB
-	cfg     Config
-	logger  logger.Logger
-	metrics *metrics.Collector
+	conn       *rews.Connection[*gorillaws.Connection]
+	db         *surrealdb.DB
+	cfg        Config
+	logger     logger.Logger
+	metrics    *metrics.Collector
+	lastActive atomic.Int64 // Unix timestamp of last DB operation (for idle detection)
 }
 
 // NewClient creates a new SurrealDB client with auto-reconnecting WebSocket.
@@ -137,6 +139,7 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 
 	sdkLogger.Info("SurrealDB connection established")
 	client := &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc}
+	client.lastActive.Store(time.Now().Unix()) // Initialize to prevent immediate heartbeat
 
 	// Start connection health monitor
 	go client.monitorConnection()
@@ -153,9 +156,13 @@ func (c *Client) Close(ctx context.Context) error {
 // monitorConnection logs WebSocket connection state changes and sends periodic heartbeats.
 // Heartbeat queries keep the connection alive during long external operations (e.g., LLM calls)
 // that would otherwise let the WebSocket go idle and get closed by the server/network.
+// Heartbeats are only sent when the connection has been idle (no DB operations) for >5 seconds,
+// avoiding competition with actual queries under heavy concurrent load.
 func (c *Client) monitorConnection() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+
+	const idleThreshold = 5 * time.Second
 
 	wasConnected := true
 	for range ticker.C {
@@ -168,13 +175,18 @@ func (c *Client) monitorConnection() {
 		}
 		wasConnected = isConnected
 
-		// Send heartbeat query to keep connection alive
+		// Only send heartbeat if connection is idle (no recent DB operations)
+		// This prevents heartbeat from competing with actual queries under load
 		if isConnected {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, err := surrealdb.Query[any](ctx, c.db, "RETURN 1", nil)
-			cancel()
-			if err != nil {
-				c.logger.Warn("heartbeat query failed", "error", err)
+			lastActive := time.Unix(c.lastActive.Load(), 0)
+			idleDuration := time.Since(lastActive)
+			if idleDuration > idleThreshold {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, err := surrealdb.Query[any](ctx, c.db, "RETURN 1", nil)
+				cancel()
+				if err != nil {
+					c.logger.Warn("heartbeat query failed", "error", err, "idle_for", idleDuration.Round(time.Second))
+				}
 			}
 		}
 	}
@@ -185,6 +197,13 @@ func (c *Client) recordTiming(op string, start time.Time) {
 	if c.metrics != nil {
 		c.metrics.RecordTiming(op, time.Since(start))
 	}
+}
+
+// startOp marks connection active and returns start time for timing.
+// Usage: start := c.startOp(); defer c.recordTiming(metrics.OpDBQuery, start)
+func (c *Client) startOp() time.Time {
+	c.lastActive.Store(time.Now().Unix())
+	return time.Now()
 }
 
 // DB returns the underlying SurrealDB client for queries.

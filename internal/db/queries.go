@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/raphaelgruber/memcp-go/internal/models"
@@ -53,7 +52,7 @@ func optionalEmbedding(e []float32) any {
 // CreateEntity creates a new entity with a generated or specified ID.
 // Returns the created entity.
 func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*models.Entity, error) {
-	start := time.Now()
+	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBQuery, start)
 
 	// Generate ID from name if not provided
@@ -124,7 +123,7 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 // GetEntity retrieves an entity by ID.
 // Returns nil if not found.
 func (c *Client) GetEntity(ctx context.Context, id string) (*models.Entity, error) {
-	start := time.Now()
+	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBQuery, start)
 
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
@@ -161,7 +160,7 @@ func (c *Client) GetEntityByName(ctx context.Context, name string) (*models.Enti
 // UpdateEntity updates an entity with partial data.
 // Only non-nil fields in the update are changed.
 func (c *Client) UpdateEntity(ctx context.Context, id string, update models.EntityUpdate) (*models.Entity, error) {
-	start := time.Now()
+	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBQuery, start)
 
 	// Build dynamic SET clause
@@ -236,7 +235,7 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 // Cascade delete of chunks and relations is handled by SurrealDB events.
 // Returns true if entity was deleted.
 func (c *Client) DeleteEntity(ctx context.Context, id string) (bool, error) {
-	start := time.Now()
+	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBQuery, start)
 
 	sql := `DELETE type::record("entity", $id) RETURN BEFORE`
@@ -282,7 +281,7 @@ type SearchOptions struct {
 // HybridSearch performs RRF fusion of BM25 + vector search results.
 // Returns entities ranked by combined relevance score.
 func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models.Entity, error) {
-	start := time.Now()
+	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBSearch, start)
 
 	limit := opts.Limit
@@ -340,7 +339,7 @@ func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models
 // SearchWithChunks performs hybrid search including chunk matches.
 // Returns entities with their matching chunks for RAG context.
 func (c *Client) SearchWithChunks(ctx context.Context, opts SearchOptions) ([]models.EntitySearchResult, error) {
-	start := time.Now()
+	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBSearch, start)
 
 	limit := opts.Limit
@@ -419,6 +418,7 @@ func (c *Client) CreateChunks(ctx context.Context, entityID string, chunks []mod
 	if len(chunks) == 0 {
 		return nil
 	}
+	c.startOp() // Mark activity for heartbeat
 
 	for _, chunk := range chunks {
 		sql := `
@@ -486,6 +486,7 @@ func (c *Client) GetChunks(ctx context.Context, entityID string) ([]models.Chunk
 // CreateRelation creates a relation between two entities.
 // If a relation of the same type already exists, updates its strength.
 func (c *Client) CreateRelation(ctx context.Context, input models.RelationInput) error {
+	c.startOp() // Mark activity for heartbeat
 	strength := 1.0
 	if input.Strength != nil {
 		strength = *input.Strength
@@ -822,6 +823,7 @@ func (c *Client) ListEntities(ctx context.Context, entityType string, labels []s
 
 // CreateIngestJob creates a new ingest job record.
 func (c *Client) CreateIngestJob(ctx context.Context, id, dirPath string, files []string, opts map[string]any) error {
+	c.startOp() // Mark activity for heartbeat
 	sql := `
 		CREATE type::record("ingest_job", $id) SET
 			job_type = "ingest",
@@ -880,6 +882,7 @@ func (c *Client) GetIncompleteJobs(ctx context.Context) ([]models.IngestJob, err
 
 // UpdateJobStatus updates the status of a job.
 func (c *Client) UpdateJobStatus(ctx context.Context, id, status string) error {
+	c.startOp() // Mark activity for heartbeat
 	_, err := surrealdb.Query[any](ctx, c.db, `
 		UPDATE type::record("ingest_job", $id) SET status = $status
 	`, map[string]any{"id": id, "status": status})
@@ -891,6 +894,7 @@ func (c *Client) UpdateJobStatus(ctx context.Context, id, status string) error {
 
 // UpdateJobProgress updates the progress of a job.
 func (c *Client) UpdateJobProgress(ctx context.Context, id string, progress int) error {
+	c.startOp() // Mark activity for heartbeat
 	_, err := surrealdb.Query[any](ctx, c.db, `
 		UPDATE type::record("ingest_job", $id) SET progress = $progress
 	`, map[string]any{"id": id, "progress": progress})
@@ -902,6 +906,7 @@ func (c *Client) UpdateJobProgress(ctx context.Context, id string, progress int)
 
 // CompleteJob marks a job as completed with result.
 func (c *Client) CompleteJob(ctx context.Context, id string, result map[string]any) error {
+	c.startOp() // Mark activity for heartbeat
 	_, err := surrealdb.Query[any](ctx, c.db, `
 		UPDATE type::record("ingest_job", $id) SET
 			status = "completed",
@@ -916,6 +921,7 @@ func (c *Client) CompleteJob(ctx context.Context, id string, result map[string]a
 
 // FailJob marks a job as failed with error message.
 func (c *Client) FailJob(ctx context.Context, id string, errMsg string) error {
+	c.startOp() // Mark activity for heartbeat
 	_, err := surrealdb.Query[any](ctx, c.db, `
 		UPDATE type::record("ingest_job", $id) SET
 			status = "failed",
