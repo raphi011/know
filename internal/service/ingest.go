@@ -309,7 +309,12 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 					Confidence: &confidence,
 				})
 				if err != nil {
-					slog.Warn("failed to create entity from graph extraction", "name", name, "error", err)
+					// Race condition: entity may have been created by another worker
+					if strings.Contains(err.Error(), "already exists") {
+						slog.Debug("entity already exists, skipping extraction", "name", name)
+					} else {
+						slog.Warn("failed to create entity from graph extraction", "name", name, "error", err)
+					}
 				}
 			}
 		}

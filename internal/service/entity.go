@@ -70,8 +70,8 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 		return nil, err
 	}
 
-	// Check if content should be chunked
-	if input.Content != nil && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig()) {
+	// Check if content should be chunked (skip if content is empty)
+	if input.Content != nil && *input.Content != "" && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig()) {
 		idStr, idErr := models.RecordIDString(entity.ID)
 		if idErr != nil {
 			slog.Warn("failed to get entity ID for chunking", "error", idErr)

@@ -120,15 +120,6 @@ func NewModel(cfg config.Config) (*Model, error) {
 	}, nil
 }
 
-// Generate generates text based on a prompt.
-func (m *Model) Generate(ctx context.Context, prompt string) (string, error) {
-	response, err := llms.GenerateFromSinglePrompt(ctx, m.llm, prompt)
-	if err != nil {
-		return "", wrapFatalError(fmt.Errorf("generate: %w", err))
-	}
-	return response, nil
-}
-
 // GenerateWithSystem generates text with a system prompt.
 func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	systemLen := len(systemPrompt)
@@ -143,7 +134,7 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 	}
 
 	start := time.Now()
-	response, err := m.llm.GenerateContent(ctx, messages)
+	response, err := m.llm.GenerateContent(ctx, messages, llms.WithMaxTokens(8192))
 	duration := time.Since(start)
 
 	if err != nil {
@@ -226,7 +217,7 @@ func (m *Model) GenerateWithSystemStream(
 		return onToken(string(chunk))
 	}
 
-	_, err := m.llm.GenerateContent(ctx, messages, llms.WithStreamingFunc(streamingFunc))
+	_, err := m.llm.GenerateContent(ctx, messages, llms.WithMaxTokens(8192), llms.WithStreamingFunc(streamingFunc))
 	duration := time.Since(start)
 
 	if err != nil {
