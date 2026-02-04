@@ -145,4 +145,24 @@ const SchemaSQL = `
 
     DEFINE INDEX IF NOT EXISTS idx_usage_operation ON token_usage FIELDS operation;
     DEFINE INDEX IF NOT EXISTS idx_usage_created ON token_usage FIELDS created_at;
+
+    -- ==========================================================================
+    -- INGEST_JOB TABLE (Async Job Persistence)
+    -- ==========================================================================
+    -- Persists async ingestion jobs for restart resilience.
+    DEFINE TABLE IF NOT EXISTS ingest_job SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS job_type ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS status ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS dir_path ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS files ON ingest_job TYPE array<string>;
+    DEFINE FIELD IF NOT EXISTS options ON ingest_job TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS total ON ingest_job TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS progress ON ingest_job TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS result ON ingest_job TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS error ON ingest_job TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS started_at ON ingest_job TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS completed_at ON ingest_job TYPE option<datetime>;
+
+    DEFINE INDEX IF NOT EXISTS idx_job_status ON ingest_job FIELDS status;
 `
