@@ -1,5 +1,8 @@
 # Knowhow justfile
 
+# Load .env file if present
+set dotenv-load := true
+
 # SurrealDB defaults (matching docker-compose)
 export SURREALDB_URL := env_var_or_default("SURREALDB_URL", "ws://localhost:8000/rpc")
 export SURREALDB_NAMESPACE := env_var_or_default("SURREALDB_NAMESPACE", "knowledge")
@@ -15,8 +18,8 @@ export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "all-min
 export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "384")
 
 # Server defaults
-export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8080")
-export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8080/query")
+export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
+export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8484/query")
 
 # Build directories
 build_dir := "./bin"
@@ -32,11 +35,15 @@ build:
     go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/knowhow
 
 # Build server binary
-server:
+build-server:
     go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
 
 # Build both CLI and server
-build-all: build server
+build-all: build build-server
+
+# Run server with optional args (e.g., just server --wipe)
+server *ARGS: build-server
+    {{build_dir}}/{{server}} {{ARGS}}
 
 # Install both binaries to GOPATH/bin
 install:
@@ -48,9 +55,15 @@ test:
     go test -v ./...
 
 # Start SurrealDB, Ollama, and run the server
-dev: db-up ollama-pull server
-    @echo "Starting knowhow-server..."
+dev: db-up ollama-pull build-server
+    @echo "Starting knowhow-server on port $KNOWHOW_SERVER_PORT..."
+    @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
     {{build_dir}}/{{server}}
+
+# Run CLI command (ensures correct server URL)
+[positional-arguments]
+run *args: build
+    {{build_dir}}/{{binary}} "$@"
 
 # Start development environment without running the server
 dev-setup: db-up ollama-pull

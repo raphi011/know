@@ -12,30 +12,19 @@ This server enables AI agents to store and retrieve knowledge across sessions, p
 - **Protocol**: MCP (Model Context Protocol)
 - **Database**: SurrealDB
 
-## Development Workflow
-
-**IMPORTANT**: Before committing any changes, always run tests:
-
-```bash
-# Run all tests
-go test ./...
-
-# Run with verbose output
-go test -v ./...
-
-# Run specific package tests
-go test -v ./internal/db/...
-```
-
 ## Building
 
-```bash
-# Build the binary
-go build -o memcp ./cmd/memcp
+Use `just` for all build and test commands:
 
-# Run the server
-./memcp
+```bash
+just build      # Build CLI binary
+just server     # Build server binary
+just build-all  # Build both
+just test       # Run tests
+just dev        # Start full dev environment
 ```
+
+**IMPORTANT**: Before committing any changes, always run `just test`.
 
 ## SurrealDB Reference
 
@@ -55,6 +44,16 @@ This applies to:
 - Any function that returns an error
 
 Silent failures make debugging impossible and degrade features without any indication.
+
+## GraphQL Code Generation
+
+After modifying `internal/graph/schema.graphqls`, regenerate the GraphQL code:
+
+```bash
+just generate
+```
+
+**Note**: Helper functions in `schema.resolvers.go` (like `entityToGraphQL`, `serviceJobToGraphQL`) will be moved to a commented block at the end of the file during regeneration. Move them back above the comment block after regeneration.
 
 ## Documentation
 
