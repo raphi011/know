@@ -1,8 +1,12 @@
 package db
 
-// SchemaSQL contains the database schema initialization SQL for Knowhow.
+import "fmt"
+
+// SchemaSQL returns the database schema initialization SQL for Knowhow.
 // Personal knowledge RAG database with flexible entity model.
-const SchemaSQL = `
+// The dimension parameter configures HNSW vector index dimensions.
+func SchemaSQL(dimension int) string {
+	return fmt.Sprintf(`
     -- ==========================================================================
     -- ENTITY TABLE (Core - Flexible Knowledge Atom)
     -- ==========================================================================
@@ -48,7 +52,7 @@ const SchemaSQL = `
     DEFINE INDEX IF NOT EXISTS idx_entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_entity_name_ft ON entity FIELDS name FULLTEXT ANALYZER entity_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_entity_embedding ON entity FIELDS embedding
-        HNSW DIMENSION 384 DIST COSINE TYPE F32 EFC 150 M 12;
+        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;
 
     -- ==========================================================================
     -- CHUNK TABLE (RAG Pieces for Long Content)
@@ -70,7 +74,7 @@ const SchemaSQL = `
     DEFINE ANALYZER IF NOT EXISTS chunk_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
     DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER chunk_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding ON chunk FIELDS embedding
-        HNSW DIMENSION 384 DIST COSINE TYPE F32 EFC 150 M 12;
+        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;
 
     -- Cascade delete when parent entity deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_chunks ON entity
@@ -165,4 +169,5 @@ const SchemaSQL = `
     DEFINE FIELD IF NOT EXISTS completed_at ON ingest_job TYPE option<datetime>;
 
     DEFINE INDEX IF NOT EXISTS idx_job_status ON ingest_job FIELDS status;
-`
+`, dimension, dimension)
+}

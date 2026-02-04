@@ -45,14 +45,14 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		return nil, err
 	}
 
-	// Initialize schema
-	if err := dbClient.InitSchema(ctx); err != nil {
+	// Initialize schema with configured embedding dimension
+	if err := dbClient.InitSchema(ctx, cfg.EmbedDimension); err != nil {
 		dbClient.Close(ctx)
 		return nil, err
 	}
 
 	// Initialize LLM components
-	embedder, err := llm.NewEmbedder(cfg, mc)
+	embedder, err := llm.NewEmbedder(ctx, cfg, mc)
 	if err != nil {
 		dbClient.Close(ctx)
 		return nil, err

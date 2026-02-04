@@ -66,8 +66,8 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to connect to test database: %v", err)
 	}
 
-	// Initialize schema
-	if err := testDB.InitSchema(ctx); err != nil {
+	// Initialize schema with test embedding dimension (384)
+	if err := testDB.InitSchema(ctx, 384); err != nil {
 		log.Fatalf("Failed to initialize schema: %v", err)
 	}
 

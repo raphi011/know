@@ -5,11 +5,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/tmc/langchaingo/embeddings"
+	bedrockembed "github.com/tmc/langchaingo/embeddings/bedrock"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
@@ -24,7 +28,7 @@ type Embedder struct {
 
 // NewEmbedder creates an embedder based on configuration.
 // If mc is nil, metrics recording is disabled.
-func NewEmbedder(cfg config.Config, mc *metrics.Collector) (*Embedder, error) {
+func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*Embedder, error) {
 	var model embeddings.Embedder
 	var err error
 
@@ -56,6 +60,14 @@ func NewEmbedder(cfg config.Config, mc *metrics.Collector) (*Embedder, error) {
 		model, err = embeddings.NewEmbedder(llm)
 		if err != nil {
 			return nil, fmt.Errorf("create openai embedder: %w", err)
+		}
+
+	case config.ProviderBedrock:
+		// AWS SDK picks up env vars: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+		// AWS_REGION, HTTPS_PROXY, AWS_CA_BUNDLE
+		model, err = newBedrockEmbedder(ctx, cfg.EmbedModel, cfg.BedrockEmbedModelProvider)
+		if err != nil {
+			return nil, fmt.Errorf("create bedrock embedder: %w", err)
 		}
 
 	default:
@@ -143,4 +155,84 @@ func (e *Embedder) Model() string {
 // Dimension returns the expected embedding dimension.
 func (e *Embedder) Dimension() int {
 	return e.dimension
+}
+
+// bedrockEmbedder wraps langchaingo's bedrock embedder with ARN support.
+// The standard bedrock embedder can't detect provider from ARN-based model IDs.
+type bedrockEmbedder struct {
+	client   *bedrockruntime.Client
+	modelID  string
+	provider string // "amazon" or "cohere"
+}
+
+// newBedrockEmbedder creates a Bedrock embedder that supports inference profile ARNs.
+// If providerHint is empty and modelID is an ARN, returns error.
+func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (embeddings.Embedder, error) {
+	// Determine provider
+	provider := providerHint
+	if provider == "" {
+		// Try to detect from model ID (works for standard IDs like "amazon.titan-embed-text-v2")
+		if strings.HasPrefix(modelID, "amazon.") {
+			provider = "amazon"
+		} else if strings.HasPrefix(modelID, "cohere.") {
+			provider = "cohere"
+		} else if strings.HasPrefix(modelID, "arn:") {
+			return nil, fmt.Errorf("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER required for ARN-based model: %s", modelID)
+		} else {
+			provider = strings.Split(modelID, ".")[0]
+		}
+	}
+
+	if provider != "amazon" && provider != "cohere" {
+		return nil, fmt.Errorf("unsupported bedrock embedding provider: %s (use 'amazon' or 'cohere')", provider)
+	}
+
+	// Create AWS client
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load AWS config: %w", err)
+	}
+
+	client := bedrockruntime.NewFromConfig(awsCfg)
+
+	return &bedrockEmbedder{
+		client:   client,
+		modelID:  modelID,
+		provider: provider,
+	}, nil
+}
+
+// EmbedDocuments implements embeddings.Embedder.
+func (b *bedrockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	switch b.provider {
+	case "amazon":
+		return bedrockembed.FetchAmazonTextEmbeddings(ctx, b.client, b.modelID, texts)
+	case "cohere":
+		return bedrockembed.FetchCohereTextEmbeddings(ctx, b.client, b.modelID, texts, bedrockembed.CohereInputTypeText)
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", b.provider)
+	}
+}
+
+// EmbedQuery implements embeddings.Embedder.
+func (b *bedrockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	var vecs [][]float32
+	var err error
+
+	switch b.provider {
+	case "amazon":
+		vecs, err = bedrockembed.FetchAmazonTextEmbeddings(ctx, b.client, b.modelID, []string{text})
+	case "cohere":
+		vecs, err = bedrockembed.FetchCohereTextEmbeddings(ctx, b.client, b.modelID, []string{text}, bedrockembed.CohereInputTypeQuery)
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", b.provider)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("no embedding returned")
+	}
+	return vecs[0], nil
 }

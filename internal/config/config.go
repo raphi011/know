@@ -29,9 +29,10 @@ type Config struct {
 	SurrealDBAuthLevel string
 
 	// Embedding configuration
-	EmbedProvider   LLMProvider
-	EmbedModel      string
-	EmbedDimension  int
+	EmbedProvider            LLMProvider
+	EmbedModel               string
+	EmbedDimension           int
+	BedrockEmbedModelProvider string // e.g., "amazon" for Titan, "cohere" for Cohere
 
 	// LLM configuration (for ask, extract-graph, render)
 	LLMProvider LLMProvider
@@ -62,10 +63,11 @@ func Load() Config {
 		SurrealDBPass:      getEnv("SURREALDB_PASS", "root"),
 		SurrealDBAuthLevel: getEnv("SURREALDB_AUTH_LEVEL", "root"),
 
-		// Embedding (default to local Ollama)
-		EmbedProvider:  LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "ollama")),
-		EmbedModel:     getEnv("KNOWHOW_EMBED_MODEL", "all-minilm:l6-v2"),
-		EmbedDimension: getEnvInt("KNOWHOW_EMBED_DIMENSION", 384),
+		// Embedding (default to local Ollama with bge-m3)
+		EmbedProvider:            LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "ollama")),
+		EmbedModel:               getEnv("KNOWHOW_EMBED_MODEL", "bge-m3"),
+		EmbedDimension:           getEnvInt("KNOWHOW_EMBED_DIMENSION", 1024),
+		BedrockEmbedModelProvider: getEnv("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
 
 		// LLM (default to local Ollama)
 		LLMProvider: LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "ollama")),

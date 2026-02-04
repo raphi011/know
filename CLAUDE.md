@@ -69,3 +69,18 @@ just generate
 ## Documentation
 
 **IMPORTANT**: When adding or modifying features, always update `README.md` with example prompts showcasing what the feature can do. This helps users understand how to use each tool effectively.
+
+### Technical Learnings (`docs/`)
+
+When learning something new about embeddings, SurrealDB, RAG, LLMs, or the tech stack:
+1. Add learnings to the appropriate file in `docs/`
+2. Keep entries concise and practical
+3. Include code examples where helpful
+
+Available docs:
+- `docs/embeddings.md` - Vector embeddings, models, dimensions
+- `docs/surrealdb.md` - SurrealDB patterns, HNSW indexes, v3 syntax
+- `docs/rag.md` - RAG architecture, chunking, hybrid search
+- `docs/llm.md` - LLM integration patterns
+- `docs/langchaingo.md` - Go LLM library usage
+- `docs/bedrock.md` - AWS Bedrock + Teleport setup

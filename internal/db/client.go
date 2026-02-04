@@ -152,10 +152,10 @@ func (c *Client) DB() *surrealdb.DB {
 	return c.db
 }
 
-// InitSchema initializes the database schema.
-func (c *Client) InitSchema(ctx context.Context) error {
-	c.logger.Info("initializing database schema")
-	_, err := surrealdb.Query[any](ctx, c.db, SchemaSQL, nil)
+// InitSchema initializes the database schema with the given embedding dimension.
+func (c *Client) InitSchema(ctx context.Context, embedDimension int) error {
+	c.logger.Info("initializing database schema", "embed_dimension", embedDimension)
+	_, err := surrealdb.Query[any](ctx, c.db, SchemaSQL(embedDimension), nil)
 	if err != nil {
 		return fmt.Errorf("init schema: %w", err)
 	}
