@@ -58,8 +58,14 @@ test:
 dev: db-up ollama-pull
     @echo "Starting knowhow-server with Air (live-reload)..."
     @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
-    @echo "Rebuild delay: 10s after last file change"
+    @echo "Rebuild delay: 20s after last file change"
     air
+
+# Start dev environment and wipe database on first start
+dev-reset: db-up ollama-pull
+    @echo "Starting knowhow-server with Air (live-reload) - WIPING DATABASE..."
+    @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
+    KNOWHOW_WIPE_DB=true air
 
 # Run CLI command (ensures correct server URL)
 [positional-arguments]

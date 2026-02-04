@@ -56,8 +56,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Wipe database if requested
-	if *wipeDB {
+	// Wipe database if requested (via flag or env var)
+	if *wipeDB || os.Getenv("KNOWHOW_WIPE_DB") == "true" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		if err := resolver.WipeData(ctx); err != nil {
 			cancel()
