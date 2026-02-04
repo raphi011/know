@@ -6,7 +6,8 @@ tmp_dir = "tmp"
 
 [build]
 # Build command - must use -buildvcs=false (git subdir issue)
-cmd = "go build -buildvcs=false -o ./bin/knowhow-server ./cmd/knowhow-server"
+# Builds both server and CLI so knowhow commands work immediately after changes
+cmd = "go build -buildvcs=false -o ./bin/knowhow-server ./cmd/knowhow-server && go build -buildvcs=false -o ./bin/knowhow ./cmd/knowhow"
 # Binary to run
 bin = "./bin/knowhow-server"
 # Watch these file extensions
