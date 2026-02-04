@@ -29,9 +29,14 @@ func NewEntityService(db *db.Client, embedder *llm.Embedder, model *llm.Model) *
 }
 
 // Create creates a new entity with automatic embedding generation.
+// For large content that will be chunked, we skip entity-level embedding
+// and rely on chunk embeddings for search (chunks link back to entity).
 func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*models.Entity, error) {
-	// Generate embedding from content/summary
-	if s.embedder != nil {
+	// Check if content will be chunked - if so, skip entity-level embedding
+	willChunk := input.Content != nil && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig())
+
+	// Generate embedding from content/summary (skip if content will be chunked)
+	if s.embedder != nil && !willChunk {
 		text := ""
 		if input.Summary != nil {
 			text = *input.Summary
@@ -53,6 +58,8 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 			}
 			input.Embedding = embedding
 		}
+	} else if willChunk {
+		slog.Debug("skipping entity embedding - content will be chunked", "name", input.Name)
 	} else {
 		slog.Debug("creating entity without embedding - embedder not configured", "name", input.Name)
 	}
