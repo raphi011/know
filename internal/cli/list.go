@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -72,7 +73,15 @@ func runList(cmd *cobra.Command, args []string) error {
 func runListEntities(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	entities, err := dbClient.ListEntities(ctx, listType, listLabels, listLimit)
+	opts := client.ListEntitiesOptions{
+		Labels: listLabels,
+		Limit:  &listLimit,
+	}
+	if listType != "" {
+		opts.Type = &listType
+	}
+
+	entities, err := gqlClient.ListEntities(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("list entities: %w", err)
 	}
@@ -105,7 +114,7 @@ func runListEntities(cmd *cobra.Command, args []string) error {
 func runListLabels(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	labels, err := dbClient.ListLabels(ctx)
+	labels, err := gqlClient.ListLabels(ctx)
 	if err != nil {
 		return fmt.Errorf("list labels: %w", err)
 	}
@@ -126,7 +135,7 @@ func runListLabels(cmd *cobra.Command, args []string) error {
 func runListTypes(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	types, err := dbClient.ListTypes(ctx)
+	types, err := gqlClient.ListTypes(ctx)
 	if err != nil {
 		return fmt.Errorf("list types: %w", err)
 	}

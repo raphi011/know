@@ -1,0 +1,180 @@
+# GraphQL Schema for Knowhow Knowledge Database
+
+scalar DateTime
+scalar JSON
+
+# =============================================================================
+# TYPES
+# =============================================================================
+
+type Entity {
+  id: ID!
+  type: String!
+  name: String!
+  content: String
+  summary: String
+  labels: [String!]!
+  verified: Boolean!
+  confidence: Float!
+  source: String!
+  sourcePath: String
+  metadata: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  accessedAt: DateTime!
+  accessCount: Int!
+  relations: [Relation!]!
+}
+
+type Relation {
+  id: ID!
+  fromId: ID!
+  toId: ID!
+  relType: String!
+  strength: Float!
+  source: String!
+  createdAt: DateTime!
+}
+
+type Template {
+  id: ID!
+  name: String!
+  description: String
+  content: String!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type EntitySearchResult {
+  entity: Entity!
+  matchedChunks: [ChunkMatch!]!
+  score: Float!
+}
+
+type ChunkMatch {
+  content: String!
+  headingPath: String
+  position: Int!
+}
+
+type IngestResult {
+  filesProcessed: Int!
+  entitiesCreated: Int!
+  chunksCreated: Int!
+  relationsCreated: Int!
+  errors: [String!]!
+}
+
+type LabelCount {
+  label: String!
+  count: Int!
+}
+
+type TypeCount {
+  type: String!
+  count: Int!
+}
+
+type TokenUsageSummary {
+  totalTokens: Int!
+  totalCostUSD: Float!
+  byOperation: JSON!
+  byModel: JSON!
+}
+
+# =============================================================================
+# INPUTS
+# =============================================================================
+
+input EntityInput {
+  type: String!
+  name: String!
+  content: String
+  summary: String
+  labels: [String!]
+  verified: Boolean
+  source: String
+  sourcePath: String
+  metadata: JSON
+}
+
+input EntityUpdate {
+  name: String
+  content: String
+  summary: String
+  labels: [String!]
+  addLabels: [String!]
+  delLabels: [String!]
+  verified: Boolean
+  metadata: JSON
+}
+
+input RelationInput {
+  fromId: ID!
+  toId: ID!
+  relType: String!
+  strength: Float
+}
+
+input SearchInput {
+  query: String!
+  labels: [String!]
+  types: [String!]
+  verifiedOnly: Boolean
+  limit: Int
+}
+
+input IngestInput {
+  labels: [String!]
+  extractGraph: Boolean
+  dryRun: Boolean
+  recursive: Boolean
+}
+
+# =============================================================================
+# QUERIES
+# =============================================================================
+
+type Query {
+  # Entity operations
+  entity(id: ID!): Entity
+  entityByName(name: String!): Entity
+  entities(type: String, labels: [String!], limit: Int): [Entity!]!
+
+  # Search operations
+  search(input: SearchInput!): [EntitySearchResult!]!
+  ask(query: String!, input: SearchInput, templateName: String): String!
+
+  # List operations
+  labels: [LabelCount!]!
+  types: [TypeCount!]!
+
+  # Template operations
+  template(name: String!): Template
+  templates: [Template!]!
+
+  # Usage tracking
+  usageSummary(since: String!): TokenUsageSummary!
+}
+
+# =============================================================================
+# MUTATIONS
+# =============================================================================
+
+type Mutation {
+  # Entity CRUD
+  createEntity(input: EntityInput!): Entity!
+  updateEntity(id: ID!, input: EntityUpdate!): Entity!
+  deleteEntity(id: ID!): Boolean!
+
+  # Relations
+  createRelation(input: RelationInput!): Boolean!
+
+  # Ingest operations (server-side file paths)
+  ingestFile(filePath: String!, input: IngestInput): Entity!
+  ingestDirectory(dirPath: String!, input: IngestInput): IngestResult!
+
+  # Template operations
+  createTemplate(name: String!, description: String, content: String!): Template!
+  deleteTemplate(name: String!): Boolean!
+}

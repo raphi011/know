@@ -3,20 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
-// sourceManual is the default source for CLI-created entities.
-var sourceManual = models.SourceManual
-
 var (
-	addType     string
-	addLabels   []string
-	addSummary  string
+	addType      string
+	addLabels    []string
+	addSummary   string
 	addRelatesTo []string
 )
 
@@ -56,36 +52,27 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 
-	// Get services (with LLM for embedding generation)
-	entitySvc, _, _, err := getServices(ctx, true)
-	if err != nil {
-		return fmt.Errorf("init services: %w", err)
-	}
-
 	// Create entity input
-	input := models.EntityInput{
+	source := "manual"
+	input := client.CreateEntityInput{
 		Type:    addType,
 		Name:    name,
 		Content: &content,
 		Labels:  addLabels,
-		Source:  &sourceManual,
+		Source:  &source,
 	}
 	if addSummary != "" {
 		input.Summary = &addSummary
 	}
 
-	// Create entity (service handles embedding generation)
-	entity, err := entitySvc.Create(ctx, input)
+	// Create entity via GraphQL
+	entity, err := gqlClient.CreateEntity(ctx, input)
 	if err != nil {
 		return fmt.Errorf("create entity: %w", err)
 	}
 
 	// Create relations if specified
 	if len(addRelatesTo) > 0 {
-		entityID, err := models.RecordIDString(entity.ID)
-		if err != nil {
-			return fmt.Errorf("get entity ID: %w", err)
-		}
 		for _, rel := range addRelatesTo {
 			parts := strings.SplitN(rel, ":", 2)
 			if len(parts) != 2 {
@@ -94,8 +81,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 			targetID, relType := parts[0], parts[1]
 
-			err := entitySvc.CreateRelation(ctx, models.RelationInput{
-				FromID:  entityID,
+			_, err := gqlClient.CreateRelation(ctx, client.CreateRelationInput{
+				FromID:  entity.ID,
 				ToID:    targetID,
 				RelType: relType,
 			})
@@ -105,12 +92,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	entityID, err := models.RecordIDString(entity.ID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to extract entity ID for display: %v\n", err)
-		entityID = "<unknown>"
-	}
-	fmt.Printf("Created entity: %s (%s)\n", entity.Name, entityID)
+	fmt.Printf("Created entity: %s (%s)\n", entity.Name, entity.ID)
 	if verbose {
 		fmt.Printf("  Type: %s\n", entity.Type)
 		fmt.Printf("  Labels: %v\n", entity.Labels)

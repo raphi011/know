@@ -1,0 +1,75 @@
+// Package graph provides GraphQL resolvers for Knowhow.
+// This file will not be regenerated automatically.
+// It serves as dependency injection for your app.
+package graph
+
+import (
+	"context"
+
+	"github.com/raphaelgruber/memcp-go/internal/config"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/llm"
+	"github.com/raphaelgruber/memcp-go/internal/service"
+)
+
+// Resolver is the root resolver with all dependencies.
+type Resolver struct {
+	db            *db.Client
+	entityService *service.EntityService
+	searchService *service.SearchService
+	ingestService *service.IngestService
+	cfg           config.Config
+}
+
+// NewResolver creates a new resolver with all dependencies.
+func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
+	// Connect to database
+	dbCfg := db.Config{
+		URL:       cfg.SurrealDBURL,
+		Namespace: cfg.SurrealDBNamespace,
+		Database:  cfg.SurrealDBDatabase,
+		Username:  cfg.SurrealDBUser,
+		Password:  cfg.SurrealDBPass,
+		AuthLevel: cfg.SurrealDBAuthLevel,
+	}
+
+	dbClient, err := db.NewClient(ctx, dbCfg, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize schema
+	if err := dbClient.InitSchema(ctx); err != nil {
+		dbClient.Close(ctx)
+		return nil, err
+	}
+
+	// Initialize LLM components
+	embedder, err := llm.NewEmbedder(cfg)
+	if err != nil {
+		dbClient.Close(ctx)
+		return nil, err
+	}
+
+	model, err := llm.NewModel(cfg)
+	if err != nil {
+		dbClient.Close(ctx)
+		return nil, err
+	}
+
+	return &Resolver{
+		db:            dbClient,
+		entityService: service.NewEntityService(dbClient, embedder, model),
+		searchService: service.NewSearchService(dbClient, embedder, model),
+		ingestService: service.NewIngestService(dbClient, embedder, model),
+		cfg:           cfg,
+	}, nil
+}
+
+// Close closes all connections.
+func (r *Resolver) Close(ctx context.Context) error {
+	if r.db != nil {
+		return r.db.Close(ctx)
+	}
+	return nil
+}

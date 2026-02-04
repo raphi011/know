@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raphaelgruber/memcp-go/internal/service"
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -43,21 +43,15 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	query := args[0]
 	ctx := context.Background()
 
-	// Get services (with LLM for query embedding)
-	_, searchSvc, _, err := getServices(ctx, true)
-	if err != nil {
-		return fmt.Errorf("init services: %w", err)
-	}
-
-	opts := service.SearchOptions{
+	opts := client.SearchOptions{
 		Query:        query,
 		Labels:       searchLabels,
 		Types:        searchTypes,
-		VerifiedOnly: searchVerified,
-		Limit:        searchLimit,
+		VerifiedOnly: &searchVerified,
+		Limit:        &searchLimit,
 	}
 
-	results, err := searchSvc.Search(ctx, opts)
+	results, err := gqlClient.Search(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("search: %w", err)
 	}
@@ -68,7 +62,8 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Found %d results:\n\n", len(results))
-	for i, entity := range results {
+	for i, result := range results {
+		entity := result.Entity
 		fmt.Printf("%d. %s [%s]\n", i+1, entity.Name, entity.Type)
 		if entity.Summary != nil && *entity.Summary != "" {
 			fmt.Printf("   %s\n", *entity.Summary)

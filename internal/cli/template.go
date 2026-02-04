@@ -82,7 +82,7 @@ func init() {
 func runTemplateList(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	templates, err := dbClient.ListTemplates(ctx)
+	templates, err := gqlClient.ListTemplates(ctx)
 	if err != nil {
 		return fmt.Errorf("list templates: %w", err)
 	}
@@ -108,7 +108,7 @@ func runTemplateShow(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	ctx := context.Background()
 
-	template, err := dbClient.GetTemplate(ctx, name)
+	template, err := gqlClient.GetTemplate(ctx, name)
 	if err != nil {
 		return fmt.Errorf("get template: %w", err)
 	}
@@ -137,15 +137,12 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create template
-	input := models.TemplateInput{
-		Name:    templateName,
-		Content: string(content),
-	}
+	var desc *string
 	if templateDescription != "" {
-		input.Description = &templateDescription
+		desc = &templateDescription
 	}
 
-	template, err := dbClient.CreateTemplate(ctx, input)
+	template, err := gqlClient.CreateTemplate(ctx, templateName, desc, string(content))
 	if err != nil {
 		return fmt.Errorf("create template: %w", err)
 	}
@@ -158,7 +155,7 @@ func runTemplateDelete(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	ctx := context.Background()
 
-	deleted, err := dbClient.DeleteTemplate(ctx, name)
+	deleted, err := gqlClient.DeleteTemplate(ctx, name)
 	if err != nil {
 		return fmt.Errorf("delete template: %w", err)
 	}
@@ -178,7 +175,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 
 	for _, t := range defaults {
 		// Check if already exists
-		existing, _ := dbClient.GetTemplate(ctx, t.Name)
+		existing, _ := gqlClient.GetTemplate(ctx, t.Name)
 		if existing != nil {
 			if verbose {
 				fmt.Printf("  Skipping existing: %s\n", t.Name)
@@ -186,7 +183,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		_, err := dbClient.CreateTemplate(ctx, t)
+		_, err := gqlClient.CreateTemplate(ctx, t.Name, t.Description, t.Content)
 		if err != nil {
 			fmt.Printf("Warning: failed to create %s: %v\n", t.Name, err)
 			continue

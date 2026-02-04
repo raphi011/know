@@ -6,16 +6,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
 var (
-	updateContent    string
+	updateContent     string
 	updateContentFile string
-	updateSummary    string
-	updateLabels     string // "add:label1,label2" or "remove:label1" or "set:label1,label2"
-	updateVerified   bool
+	updateSummary     string
+	updateLabels      string // "add:label1,label2" or "remove:label1" or "set:label1,label2"
+	updateVerified    bool
 	updateSetVerified bool
 )
 
@@ -49,19 +49,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	entityRef := args[0]
 	ctx := context.Background()
 
-	// Get services (with LLM for re-embedding if content changes)
-	entitySvc, _, _, err := getServices(ctx, true)
-	if err != nil {
-		return fmt.Errorf("init services: %w", err)
-	}
-
 	// Find entity
-	entity, err := dbClient.GetEntity(ctx, entityRef)
+	entity, err := gqlClient.GetEntity(ctx, entityRef)
 	if err != nil {
 		return fmt.Errorf("get entity: %w", err)
 	}
 	if entity == nil {
-		entity, err = dbClient.GetEntityByName(ctx, entityRef)
+		entity, err = gqlClient.GetEntityByName(ctx, entityRef)
 		if err != nil {
 			return fmt.Errorf("get entity by name: %w", err)
 		}
@@ -71,7 +65,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build update
-	update := models.EntityUpdate{}
+	update := client.UpdateEntityInput{}
 	hasUpdate := false
 
 	// Content from file or flag
@@ -124,12 +118,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Apply update (service handles re-embedding if content changed)
-	entityID, err := models.RecordIDString(entity.ID)
-	if err != nil {
-		return fmt.Errorf("get entity ID: %w", err)
-	}
-	updated, err := entitySvc.Update(ctx, entityID, update)
+	// Apply update
+	updated, err := gqlClient.UpdateEntity(ctx, entity.ID, update)
 	if err != nil {
 		return fmt.Errorf("update entity: %w", err)
 	}

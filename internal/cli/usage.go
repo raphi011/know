@@ -55,7 +55,7 @@ func runUsage(cmd *cobra.Command, args []string) error {
 	}
 
 	sinceStr := since.Format(time.RFC3339)
-	summary, err := dbClient.GetTokenUsageSummary(ctx, sinceStr)
+	summary, err := gqlClient.GetUsageSummary(ctx, sinceStr)
 	if err != nil {
 		return fmt.Errorf("get token usage: %w", err)
 	}
@@ -70,23 +70,31 @@ func runUsage(cmd *cobra.Command, args []string) error {
 
 	if usageDetailed && len(summary.ByOperation) > 0 {
 		fmt.Printf("\nBy Operation:\n")
-		for op, tokens := range summary.ByOperation {
+		for op, tokensAny := range summary.ByOperation {
+			tokens, ok := tokensAny.(float64)
+			if !ok {
+				continue
+			}
 			pct := 0.0
 			if summary.TotalTokens > 0 {
-				pct = float64(tokens) / float64(summary.TotalTokens) * 100
+				pct = tokens / float64(summary.TotalTokens) * 100
 			}
-			fmt.Printf("  %-15s %10d (%5.1f%%)\n", op, tokens, pct)
+			fmt.Printf("  %-15s %10.0f (%5.1f%%)\n", op, tokens, pct)
 		}
 	}
 
 	if usageDetailed && len(summary.ByModel) > 0 {
 		fmt.Printf("\nBy Model:\n")
-		for model, tokens := range summary.ByModel {
+		for model, tokensAny := range summary.ByModel {
+			tokens, ok := tokensAny.(float64)
+			if !ok {
+				continue
+			}
 			pct := 0.0
 			if summary.TotalTokens > 0 {
-				pct = float64(tokens) / float64(summary.TotalTokens) * 100
+				pct = tokens / float64(summary.TotalTokens) * 100
 			}
-			fmt.Printf("  %-25s %10d (%5.1f%%)\n", model, tokens, pct)
+			fmt.Printf("  %-25s %10.0f (%5.1f%%)\n", model, tokens, pct)
 		}
 	}
 

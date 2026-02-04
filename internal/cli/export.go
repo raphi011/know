@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +52,16 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get entities to export
-	entities, err := dbClient.ListEntities(ctx, exportType, exportLabels, 0) // 0 = no limit
+	noLimit := 0 // 0 = no limit
+	opts := client.ListEntitiesOptions{
+		Labels: exportLabels,
+		Limit:  &noLimit,
+	}
+	if exportType != "" {
+		opts.Type = &exportType
+	}
+
+	entities, err := gqlClient.ListEntities(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("list entities: %w", err)
 	}
@@ -65,8 +75,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 	if exportEntity != "" {
 		filtered := entities[:0]
 		for _, e := range entities {
-			id := e.ID.ID.(string)
-			if id == exportEntity || e.Name == exportEntity {
+			if e.ID == exportEntity || e.Name == exportEntity {
 				filtered = append(filtered, e)
 			}
 		}
@@ -96,8 +105,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 		}
 
 		// Generate filename from ID
-		id := entity.ID.ID.(string)
-		filename := filepath.Join(typeDir, id+".md")
+		filename := filepath.Join(typeDir, entity.ID+".md")
 
 		// Build frontmatter
 		frontmatter := fmt.Sprintf(`---
@@ -110,7 +118,7 @@ confidence: %.2f
 source: %s
 created_at: %s
 updated_at: %s
-`, id, entity.Type, entity.Name, entity.Labels, entity.Verified,
+`, entity.ID, entity.Type, entity.Name, entity.Labels, entity.Verified,
 			entity.Confidence, entity.Source, entity.CreatedAt, entity.UpdatedAt)
 
 		if entity.SourcePath != nil {

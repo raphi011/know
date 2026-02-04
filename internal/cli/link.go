@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -37,20 +37,14 @@ func runLink(cmd *cobra.Command, args []string) error {
 	fromRef, toRef := args[0], args[1]
 	ctx := context.Background()
 
-	// Get entity service for relation creation
-	entitySvc, _, _, err := getServices(ctx, false)
-	if err != nil {
-		return fmt.Errorf("init services: %w", err)
-	}
-
-	// Verify both entities exist
-	from, err := dbClient.GetEntity(ctx, fromRef)
+	// Verify both entities exist and get their IDs
+	from, err := gqlClient.GetEntity(ctx, fromRef)
 	if err != nil {
 		return fmt.Errorf("get source entity: %w", err)
 	}
 	if from == nil {
 		// Try by name
-		from, err = dbClient.GetEntityByName(ctx, fromRef)
+		from, err = gqlClient.GetEntityByName(ctx, fromRef)
 		if err != nil {
 			return fmt.Errorf("get source entity by name: %w", err)
 		}
@@ -58,18 +52,14 @@ func runLink(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("source entity not found: %s", fromRef)
 		}
 	}
-	fromID, err := models.RecordIDString(from.ID)
-	if err != nil {
-		return fmt.Errorf("get source entity ID: %w", err)
-	}
 
-	to, err := dbClient.GetEntity(ctx, toRef)
+	to, err := gqlClient.GetEntity(ctx, toRef)
 	if err != nil {
 		return fmt.Errorf("get target entity: %w", err)
 	}
 	if to == nil {
 		// Try by name
-		to, err = dbClient.GetEntityByName(ctx, toRef)
+		to, err = gqlClient.GetEntityByName(ctx, toRef)
 		if err != nil {
 			return fmt.Errorf("get target entity by name: %w", err)
 		}
@@ -77,15 +67,11 @@ func runLink(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("target entity not found: %s", toRef)
 		}
 	}
-	toID, err := models.RecordIDString(to.ID)
-	if err != nil {
-		return fmt.Errorf("get target entity ID: %w", err)
-	}
 
 	// Create relation
-	err = entitySvc.CreateRelation(ctx, models.RelationInput{
-		FromID:   fromID,
-		ToID:     toID,
+	_, err = gqlClient.CreateRelation(ctx, client.CreateRelationInput{
+		FromID:   from.ID,
+		ToID:     to.ID,
 		RelType:  linkType,
 		Strength: &linkStrength,
 	})

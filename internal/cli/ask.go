@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/raphaelgruber/memcp-go/internal/service"
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
 var (
-	askTemplate    string
-	askLabels      []string
-	askTypes       []string
-	askVerified    bool
-	askLimit       int
-	askOutputFile  string
+	askTemplate   string
+	askLabels     []string
+	askTypes      []string
+	askVerified   bool
+	askLimit      int
+	askOutputFile string
 )
 
 var askCmd = &cobra.Command{
@@ -50,27 +50,20 @@ func runAsk(cmd *cobra.Command, args []string) error {
 	query := args[0]
 	ctx := context.Background()
 
-	// Get services (with LLM for embedding and synthesis)
-	_, searchSvc, _, err := getServices(ctx, true)
-	if err != nil {
-		return fmt.Errorf("init services: %w", err)
-	}
-
-	opts := service.SearchOptions{
+	opts := &client.SearchOptions{
+		Query:        query,
 		Labels:       askLabels,
 		Types:        askTypes,
-		VerifiedOnly: askVerified,
-		Limit:        askLimit,
+		VerifiedOnly: &askVerified,
+		Limit:        &askLimit,
 	}
 
-	var answer string
+	var templateName *string
 	if askTemplate != "" {
-		// Use template for structured output
-		answer, err = searchSvc.AskWithTemplate(ctx, query, askTemplate, opts)
-	} else {
-		// Free-form answer synthesis
-		answer, err = searchSvc.Ask(ctx, query, opts)
+		templateName = &askTemplate
 	}
+
+	answer, err := gqlClient.Ask(ctx, query, opts, templateName)
 	if err != nil {
 		return fmt.Errorf("ask: %w", err)
 	}

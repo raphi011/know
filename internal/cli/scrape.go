@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/raphaelgruber/memcp-go/internal/service"
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -55,20 +55,14 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path must be a directory: %s", path)
 	}
 
-	// Get services (with LLM for embedding and optional graph extraction)
-	_, _, ingestSvc, err := getServices(ctx, true)
-	if err != nil {
-		return fmt.Errorf("init services: %w", err)
-	}
-
-	opts := service.IngestOptions{
+	opts := &client.IngestOptions{
 		Labels:       scrapeLabels,
-		ExtractGraph: scrapeExtractGraph,
-		DryRun:       scrapeDryRun,
-		Recursive:    scrapeRecursive,
+		ExtractGraph: &scrapeExtractGraph,
+		DryRun:       &scrapeDryRun,
+		Recursive:    &scrapeRecursive,
 	}
 
-	result, err := ingestSvc.IngestDirectory(ctx, path, opts)
+	result, err := gqlClient.IngestDirectory(ctx, path, opts)
 	if err != nil {
 		return fmt.Errorf("ingest: %w", err)
 	}

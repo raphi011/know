@@ -1,0 +1,111 @@
+// Package main provides the GraphQL server for Knowhow.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/raphaelgruber/memcp-go/internal/config"
+	"github.com/raphaelgruber/memcp-go/internal/graph"
+)
+
+func main() {
+	// Load configuration
+	cfg := config.Load()
+
+	// Get server port from environment or default
+	port := os.Getenv("KNOWHOW_SERVER_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	// Initialize logging
+	level := slog.LevelInfo
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		level = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
+
+	slog.Info("starting knowhow-server", "port", port)
+
+	// Create resolver with all dependencies
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	resolver, err := graph.NewResolver(ctx, cfg)
+	cancel()
+	if err != nil {
+		slog.Error("failed to create resolver", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := resolver.Close(context.Background()); err != nil {
+			slog.Error("failed to close resolver", "error", err)
+		}
+	}()
+
+	// Create GraphQL server
+	srv := handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{
+		Resolvers: resolver,
+	}))
+
+	// Setup routes
+	mux := http.NewServeMux()
+
+	// GraphQL playground at root
+	mux.Handle("/", playground.Handler("Knowhow GraphQL", "/query"))
+
+	// GraphQL endpoint
+	mux.Handle("/query", srv)
+
+	// Health check endpoint
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	})
+
+	// Create HTTP server
+	httpServer := &http.Server{
+		Addr:         ":" + port,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 60 * time.Second, // Long for LLM responses
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Start server in goroutine
+	go func() {
+		slog.Info("GraphQL playground available", "url", fmt.Sprintf("http://localhost:%s/", port))
+		slog.Info("GraphQL endpoint available", "url", fmt.Sprintf("http://localhost:%s/query", port))
+
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down server...")
+
+	// Graceful shutdown with timeout
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := httpServer.Shutdown(ctx); err != nil {
+		slog.Error("server forced to shutdown", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("server stopped")
+}

@@ -38,12 +38,12 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	// Find entity
-	entity, err := dbClient.GetEntity(ctx, entityRef)
+	entity, err := gqlClient.GetEntity(ctx, entityRef)
 	if err != nil {
 		return fmt.Errorf("get entity: %w", err)
 	}
 	if entity == nil {
-		entity, err = dbClient.GetEntityByName(ctx, entityRef)
+		entity, err = gqlClient.GetEntityByName(ctx, entityRef)
 		if err != nil {
 			return fmt.Errorf("get entity by name: %w", err)
 		}
@@ -52,27 +52,9 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	entityID := entity.ID.ID.(string)
-
-	// Get related counts for warning
-	chunks, err := dbClient.GetChunks(ctx, entityID)
-	if err != nil {
-		return fmt.Errorf("get chunks: %w", err)
-	}
-	relations, err := dbClient.GetRelations(ctx, entityID)
-	if err != nil {
-		return fmt.Errorf("get relations: %w", err)
-	}
-
 	// Confirm deletion
 	if !deleteForce {
-		fmt.Printf("About to delete: %s (%s)\n", entity.Name, entityID)
-		if len(chunks) > 0 {
-			fmt.Printf("  - %d chunks will be deleted\n", len(chunks))
-		}
-		if len(relations) > 0 {
-			fmt.Printf("  - %d relations will be deleted\n", len(relations))
-		}
+		fmt.Printf("About to delete: %s (%s)\n", entity.Name, entity.ID)
 		fmt.Print("\nContinue? [y/N]: ")
 
 		reader := bufio.NewReader(os.Stdin)
@@ -86,7 +68,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Delete entity
-	deleted, err := dbClient.DeleteEntity(ctx, entityID)
+	deleted, err := gqlClient.DeleteEntity(ctx, entity.ID)
 	if err != nil {
 		return fmt.Errorf("delete entity: %w", err)
 	}
