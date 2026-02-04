@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -43,10 +43,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	query := args[0]
 	ctx := context.Background()
 
-	// TODO: Generate embedding with LLM service
-	// For now, do text-only search
+	// Get services (with LLM for query embedding)
+	_, searchSvc, _, err := getServices(ctx, true)
+	if err != nil {
+		return fmt.Errorf("init services: %w", err)
+	}
 
-	opts := db.SearchOptions{
+	opts := service.SearchOptions{
 		Query:        query,
 		Labels:       searchLabels,
 		Types:        searchTypes,
@@ -54,7 +57,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Limit:        searchLimit,
 	}
 
-	results, err := dbClient.HybridSearch(ctx, opts)
+	results, err := searchSvc.Search(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("search: %w", err)
 	}

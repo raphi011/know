@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// sourceManual is the default source for CLI-created entities.
+var sourceManual = models.SourceManual
+
 var (
 	addType     string
 	addLabels   []string
@@ -50,28 +53,38 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		name = name[:47] + "..."
 	}
 
-	// Create entity
 	ctx := context.Background()
+
+	// Get services (with LLM for embedding generation)
+	entitySvc, _, _, err := getServices(ctx, true)
+	if err != nil {
+		return fmt.Errorf("init services: %w", err)
+	}
+
+	// Create entity input
 	input := models.EntityInput{
 		Type:    addType,
 		Name:    name,
 		Content: &content,
 		Labels:  addLabels,
+		Source:  &sourceManual,
 	}
 	if addSummary != "" {
 		input.Summary = &addSummary
 	}
 
-	// TODO: Generate embedding with LLM service
-
-	entity, err := dbClient.CreateEntity(ctx, input)
+	// Create entity (service handles embedding generation)
+	entity, err := entitySvc.Create(ctx, input)
 	if err != nil {
 		return fmt.Errorf("create entity: %w", err)
 	}
 
 	// Create relations if specified
 	if len(addRelatesTo) > 0 {
-		entityID := entity.ID.ID.(string)
+		entityID, err := models.RecordIDString(entity.ID)
+		if err != nil {
+			return fmt.Errorf("get entity ID: %w", err)
+		}
 		for _, rel := range addRelatesTo {
 			parts := strings.SplitN(rel, ":", 2)
 			if len(parts) != 2 {
@@ -80,7 +93,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 			targetID, relType := parts[0], parts[1]
 
-			err := dbClient.CreateRelation(ctx, models.RelationInput{
+			err := entitySvc.CreateRelation(ctx, models.RelationInput{
 				FromID:  entityID,
 				ToID:    targetID,
 				RelType: relType,
@@ -91,7 +104,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Created entity: %s (%s)\n", entity.Name, entity.ID.ID)
+	entityID, _ := models.RecordIDString(entity.ID)
+	fmt.Printf("Created entity: %s (%s)\n", entity.Name, entityID)
 	if verbose {
 		fmt.Printf("  Type: %s\n", entity.Type)
 		fmt.Printf("  Labels: %v\n", entity.Labels)

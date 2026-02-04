@@ -28,6 +28,22 @@ func optionalFloat(f *float64) any {
 	return *f
 }
 
+// optionalObject returns models.None for nil maps, otherwise returns the map.
+func optionalObject(m map[string]any) any {
+	if m == nil {
+		return surrealmodels.None
+	}
+	return m
+}
+
+// optionalEmbedding returns models.None for nil/empty slices, otherwise returns the slice.
+func optionalEmbedding(e []float32) any {
+	if e == nil || len(e) == 0 {
+		return surrealmodels.None
+	}
+	return e
+}
+
 // =============================================================================
 // ENTITY QUERIES
 // =============================================================================
@@ -45,7 +61,7 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 	}
 
 	// Set defaults
-	source := "manual"
+	source := models.SourceManual
 	if input.Source != nil {
 		source = *input.Source
 	}
@@ -86,8 +102,8 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 		"confidence":  confidence,
 		"source":      source,
 		"source_path": optionalString(input.SourcePath),
-		"metadata":    input.Metadata,
-		"embedding":   input.Embedding,
+		"metadata":    optionalObject(input.Metadata),
+		"embedding":   optionalEmbedding(input.Embedding),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create entity: %w", err)
@@ -283,12 +299,13 @@ func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models
 	}
 
 	// RRF fusion query - combines vector (2x limit for variety) with BM25
+	// Note: parentheses around OR clause ensure filter applies correctly
 	sql := fmt.Sprintf(`
 		SELECT * FROM search::rrf([
 			(SELECT * FROM entity
 			 WHERE embedding <|%d,60|> $emb %s),
 			(SELECT * FROM entity
-			 WHERE content @0@ $q OR name @1@ $q %s)
+			 WHERE (content @0@ $q OR name @1@ $q) %s)
 		], $limit, 60)
 	`, limit*2, filterClause, filterClause)
 
@@ -394,13 +411,17 @@ func (c *Client) CreateChunks(ctx context.Context, entityID string, chunks []mod
 				labels = $labels,
 				embedding = $embedding
 		`
+		labels := chunk.Labels
+		if labels == nil {
+			labels = []string{}
+		}
 		_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
 			"entity_id":    entityID,
 			"content":      chunk.Content,
 			"position":     chunk.Position,
 			"heading_path": optionalString(chunk.HeadingPath),
-			"labels":       chunk.Labels,
-			"embedding":    chunk.Embedding,
+			"labels":       labels,
+			"embedding":    optionalEmbedding(chunk.Embedding),
 		})
 		if err != nil {
 			return fmt.Errorf("create chunk %d: %w", chunk.Position, err)
@@ -479,7 +500,7 @@ func (c *Client) CreateRelation(ctx context.Context, input models.RelationInput)
 		"rel_type": input.RelType,
 		"strength": strength,
 		"source":   source,
-		"metadata": input.Metadata,
+		"metadata": optionalObject(input.Metadata),
 	})
 	if err != nil {
 		return fmt.Errorf("create relation: %w", err)
@@ -641,21 +662,29 @@ func (c *Client) RecordTokenUsage(ctx context.Context, input models.TokenUsageIn
 func (c *Client) GetTokenUsageSummary(ctx context.Context, since string) (*models.TokenUsageSummary, error) {
 	sql := `
 		LET $usage = (SELECT * FROM token_usage WHERE created_at >= <datetime>$since);
-		LET $total = math::sum($usage.total_tokens) ?? 0;
-		LET $cost = math::sum($usage.cost_usd) ?? 0.0;
-		LET $by_op = $usage.group(|$u| $u.operation).map(|$g| {
-			key: $g[0].operation,
-			value: math::sum($g.total_tokens)
-		});
-		LET $by_model = $usage.group(|$u| $u.model).map(|$g| {
-			key: $g[0].model,
-			value: math::sum($g.total_tokens)
-		});
+		LET $total = IF array::len($usage) > 0 THEN <int>math::sum($usage.total_tokens) ELSE 0 END;
+		LET $cost = IF array::len($usage) > 0 THEN <float>math::sum($usage[WHERE cost_usd != NONE].cost_usd) ELSE 0.0 END;
+		LET $by_op = (
+			SELECT
+				operation AS key,
+				<int>math::sum(total_tokens) AS value
+			FROM token_usage
+			WHERE created_at >= <datetime>$since
+			GROUP BY operation
+		);
+		LET $by_model = (
+			SELECT
+				model AS key,
+				<int>math::sum(total_tokens) AS value
+			FROM token_usage
+			WHERE created_at >= <datetime>$since
+			GROUP BY model
+		);
 		RETURN {
 			total_tokens: $total,
 			total_cost_usd: $cost,
-			by_operation: object::from_entries($by_op),
-			by_model: object::from_entries($by_model)
+			by_operation: object::from_entries($by_op.map(|$o| [$o.key, $o.value])),
+			by_model: object::from_entries($by_model.map(|$m| [$m.key, $m.value]))
 		}
 	`
 

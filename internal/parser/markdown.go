@@ -3,6 +3,7 @@ package parser
 
 import (
 	"bufio"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -49,7 +50,8 @@ func ParseMarkdown(content string) (*MarkdownDoc, error) {
 			remaining = strings.TrimPrefix(content[4+endIdx+4:], "\n")
 
 			if err := yaml.Unmarshal([]byte(frontmatterYAML), &doc.Frontmatter); err != nil {
-				// Ignore YAML errors, just use empty frontmatter
+				// Log YAML parse error but continue with empty frontmatter
+				slog.Warn("failed to parse frontmatter YAML", "error", err)
 				doc.Frontmatter = make(map[string]any)
 			}
 		}

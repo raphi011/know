@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,7 +104,7 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	}
 
 	// Set source
-	source := string(models.SourceScrape)
+	source := models.SourceScrape
 	input.Source = &source
 
 	// Check confidence/verified from frontmatter
@@ -134,7 +135,7 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	for _, rel := range relations {
 		if err := s.db.CreateRelation(ctx, rel); err != nil {
 			// Log but don't fail
-			fmt.Printf("Warning: failed to create relation: %v\n", err)
+			slog.Warn("failed to create inferred relation", "from", rel.FromID, "to", rel.ToID, "error", err)
 		}
 	}
 
@@ -142,7 +143,7 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	if opts.ExtractGraph && s.model != nil {
 		if err := s.extractGraphRelations(ctx, entity); err != nil {
 			// Log but don't fail
-			fmt.Printf("Warning: graph extraction failed: %v\n", err)
+			slog.Warn("graph extraction failed", "file", filePath, "error", err)
 		}
 	}
 
@@ -152,7 +153,11 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 // extractInferredRelations finds [[wiki-links]] and @mentions.
 func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parser.MarkdownDoc, entity *models.Entity) []models.RelationInput {
 	var relations []models.RelationInput
-	entityID := entity.ID.ID.(string)
+	entityID, err := models.RecordIDString(entity.ID)
+	if err != nil {
+		slog.Warn("failed to get entity ID for relation extraction", "error", err)
+		return relations
+	}
 
 	// Extract wiki links
 	links := parser.ExtractWikiLinks(doc.Content)
@@ -160,13 +165,16 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 		// Try to find matching entity
 		target, _ := s.db.GetEntityByName(ctx, link)
 		if target != nil {
-			targetID := target.ID.ID.(string)
-			source := string(models.RelationSourceInferred)
+			targetID, err := models.RecordIDString(target.ID)
+			if err != nil {
+				continue
+			}
+			relSource := string(models.RelationSourceInferred)
 			relations = append(relations, models.RelationInput{
 				FromID:  entityID,
 				ToID:    targetID,
 				RelType: "references",
-				Source:  &source,
+				Source:  &relSource,
 			})
 		}
 	}
@@ -177,13 +185,16 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 		// Try to find matching person entity
 		target, _ := s.db.GetEntityByName(ctx, mention)
 		if target != nil && target.Type == "person" {
-			targetID := target.ID.ID.(string)
-			source := string(models.RelationSourceInferred)
+			targetID, err := models.RecordIDString(target.ID)
+			if err != nil {
+				continue
+			}
+			relSource := string(models.RelationSourceInferred)
 			relations = append(relations, models.RelationInput{
 				FromID:  entityID,
 				ToID:    targetID,
 				RelType: "mentions",
-				Source:  &source,
+				Source:  &relSource,
 			})
 		}
 	}
@@ -193,13 +204,16 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 		for _, targetName := range relatesTo {
 			target, _ := s.db.GetEntityByName(ctx, targetName)
 			if target != nil {
-				targetID := target.ID.ID.(string)
-				source := string(models.RelationSourceInferred)
+				targetID, err := models.RecordIDString(target.ID)
+				if err != nil {
+					continue
+				}
+				relSource := string(models.RelationSourceInferred)
 				relations = append(relations, models.RelationInput{
 					FromID:  entityID,
 					ToID:    targetID,
 					RelType: "relates_to",
-					Source:  &source,
+					Source:  &relSource,
 				})
 			}
 		}
@@ -212,6 +226,11 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 func (s *IngestService) extractGraphRelations(ctx context.Context, entity *models.Entity) error {
 	if entity.Content == nil || s.model == nil {
 		return nil
+	}
+
+	entityID, err := models.RecordIDString(entity.ID)
+	if err != nil {
+		return fmt.Errorf("get entity ID: %w", err)
 	}
 
 	// Get existing entity names for context
@@ -229,7 +248,6 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 
 	// Parse LLM output
 	lines := strings.Split(result, "\n")
-	entityID := entity.ID.ID.(string)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -242,7 +260,7 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 			if existing == nil {
 				entityType := strings.TrimSpace(parts[2])
 				description := strings.TrimSpace(parts[3])
-				source := string(models.SourceAIGenerated)
+				aiSource := models.SourceAIGenerated
 				verified := false
 				confidence := 0.7
 
@@ -250,12 +268,12 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 					Type:       entityType,
 					Name:       name,
 					Summary:    &description,
-					Source:     &source,
+					Source:     &aiSource,
 					Verified:   &verified,
 					Confidence: &confidence,
 				})
 				if err != nil {
-					fmt.Printf("Warning: failed to create entity %s: %v\n", name, err)
+					slog.Warn("failed to create entity from graph extraction", "name", name, "error", err)
 				}
 			}
 		}
@@ -270,18 +288,20 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 			targetEntity, _ := s.db.GetEntityByName(ctx, targetName)
 
 			if sourceEntity != nil && targetEntity != nil {
-				sourceID := sourceEntity.ID.ID.(string)
-				targetID := targetEntity.ID.ID.(string)
-				relSource := string(models.RelationSourceAIDetected)
+				sourceID, srcErr := models.RecordIDString(sourceEntity.ID)
+				targetID, tgtErr := models.RecordIDString(targetEntity.ID)
+				if srcErr == nil && tgtErr == nil {
+					relSource := string(models.RelationSourceAIDetected)
 
-				err := s.db.CreateRelation(ctx, models.RelationInput{
-					FromID:  sourceID,
-					ToID:    targetID,
-					RelType: relType,
-					Source:  &relSource,
-				})
-				if err != nil {
-					fmt.Printf("Warning: failed to create relation %s->%s: %v\n", sourceName, targetName, err)
+					err := s.db.CreateRelation(ctx, models.RelationInput{
+						FromID:  sourceID,
+						ToID:    targetID,
+						RelType: relType,
+						Source:  &relSource,
+					})
+					if err != nil {
+						slog.Warn("failed to create relation from graph extraction", "source", sourceName, "target", targetName, "error", err)
+					}
 				}
 			}
 		}
@@ -291,15 +311,17 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 			name := strings.TrimSpace(parts[1])
 			targetEntity, _ := s.db.GetEntityByName(ctx, name)
 			if targetEntity != nil {
-				targetID := targetEntity.ID.ID.(string)
-				relSource := string(models.RelationSourceAIDetected)
+				targetID, err := models.RecordIDString(targetEntity.ID)
+				if err == nil {
+					relSource := string(models.RelationSourceAIDetected)
 
-				_ = s.db.CreateRelation(ctx, models.RelationInput{
-					FromID:  entityID,
-					ToID:    targetID,
-					RelType: "mentions",
-					Source:  &relSource,
-				})
+					_ = s.db.CreateRelation(ctx, models.RelationInput{
+						FromID:  entityID,
+						ToID:    targetID,
+						RelType: "mentions",
+						Source:  &relSource,
+					})
+				}
 			}
 		}
 	}
@@ -345,8 +367,10 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 
 		// Count chunks
 		if entity != nil && !opts.DryRun {
-			chunks, _ := s.db.GetChunks(ctx, entity.ID.ID.(string))
-			result.ChunksCreated += len(chunks)
+			if entityID, err := models.RecordIDString(entity.ID); err == nil {
+				chunks, _ := s.db.GetChunks(ctx, entityID)
+				result.ChunksCreated += len(chunks)
+			}
 		}
 	}
 

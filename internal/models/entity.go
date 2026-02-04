@@ -34,10 +34,10 @@ type Entity struct {
 	Labels []string `json:"labels"` // Flexible tags ["work", "banking", "team-platform"]
 
 	// Quality & Trust
-	Verified   bool    `json:"verified"`   // Human-reviewed?
-	Confidence float64 `json:"confidence"` // 0-1 certainty (for AI content)
-	Source     string  `json:"source"`     // "manual" | "mcp" | "scrape" | "ai_generated"
-	SourcePath *string `json:"source_path,omitempty"` // Original file path if scraped
+	Verified   bool         `json:"verified"`   // Human-reviewed?
+	Confidence float64      `json:"confidence"` // 0-1 certainty (for AI content)
+	Source     EntitySource `json:"source"`     // "manual" | "mcp" | "scrape" | "ai_generated"
+	SourcePath *string      `json:"source_path,omitempty"` // Original file path if scraped
 
 	// Type-specific data
 	Metadata map[string]any `json:"metadata,omitempty"`
@@ -62,7 +62,7 @@ type EntityInput struct {
 	Labels     []string          `json:"labels,omitempty"`
 	Verified   *bool             `json:"verified,omitempty"`
 	Confidence *float64          `json:"confidence,omitempty"`
-	Source     *string           `json:"source,omitempty"`
+	Source     *EntitySource     `json:"source,omitempty"`
 	SourcePath *string           `json:"source_path,omitempty"`
 	Metadata   map[string]any    `json:"metadata,omitempty"`
 	Embedding  []float32         `json:"embedding,omitempty"`

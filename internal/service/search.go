@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/raphaelgruber/memcp-go/internal/db"
@@ -63,7 +64,11 @@ func (s *SearchService) Search(ctx context.Context, opts SearchOptions) ([]model
 
 	// Update access for returned entities
 	for _, entity := range results {
-		_ = s.db.UpdateEntityAccess(ctx, entity.ID.ID.(string))
+		if idStr, err := models.RecordIDString(entity.ID); err == nil {
+			_ = s.db.UpdateEntityAccess(ctx, idStr)
+		} else {
+			slog.Warn("failed to get entity ID for access tracking", "error", err)
+		}
 	}
 
 	return results, nil
@@ -97,7 +102,11 @@ func (s *SearchService) SearchWithChunks(ctx context.Context, opts SearchOptions
 
 	// Update access for returned entities
 	for _, result := range results {
-		_ = s.db.UpdateEntityAccess(ctx, result.ID.ID.(string))
+		if idStr, err := models.RecordIDString(result.ID); err == nil {
+			_ = s.db.UpdateEntityAccess(ctx, idStr)
+		} else {
+			slog.Warn("failed to get entity ID for access tracking", "error", err)
+		}
 	}
 
 	return results, nil

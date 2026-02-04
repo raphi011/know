@@ -34,44 +34,56 @@ func init() {
 }
 
 func runLink(cmd *cobra.Command, args []string) error {
-	fromID, toID := args[0], args[1]
+	fromRef, toRef := args[0], args[1]
 	ctx := context.Background()
 
+	// Get entity service for relation creation
+	entitySvc, _, _, err := getServices(ctx, false)
+	if err != nil {
+		return fmt.Errorf("init services: %w", err)
+	}
+
 	// Verify both entities exist
-	from, err := dbClient.GetEntity(ctx, fromID)
+	from, err := dbClient.GetEntity(ctx, fromRef)
 	if err != nil {
 		return fmt.Errorf("get source entity: %w", err)
 	}
 	if from == nil {
 		// Try by name
-		from, err = dbClient.GetEntityByName(ctx, fromID)
+		from, err = dbClient.GetEntityByName(ctx, fromRef)
 		if err != nil {
 			return fmt.Errorf("get source entity by name: %w", err)
 		}
 		if from == nil {
-			return fmt.Errorf("source entity not found: %s", fromID)
+			return fmt.Errorf("source entity not found: %s", fromRef)
 		}
-		fromID = from.ID.ID.(string)
+	}
+	fromID, err := models.RecordIDString(from.ID)
+	if err != nil {
+		return fmt.Errorf("get source entity ID: %w", err)
 	}
 
-	to, err := dbClient.GetEntity(ctx, toID)
+	to, err := dbClient.GetEntity(ctx, toRef)
 	if err != nil {
 		return fmt.Errorf("get target entity: %w", err)
 	}
 	if to == nil {
 		// Try by name
-		to, err = dbClient.GetEntityByName(ctx, toID)
+		to, err = dbClient.GetEntityByName(ctx, toRef)
 		if err != nil {
 			return fmt.Errorf("get target entity by name: %w", err)
 		}
 		if to == nil {
-			return fmt.Errorf("target entity not found: %s", toID)
+			return fmt.Errorf("target entity not found: %s", toRef)
 		}
-		toID = to.ID.ID.(string)
+	}
+	toID, err := models.RecordIDString(to.ID)
+	if err != nil {
+		return fmt.Errorf("get target entity ID: %w", err)
 	}
 
 	// Create relation
-	err = dbClient.CreateRelation(ctx, models.RelationInput{
+	err = entitySvc.CreateRelation(ctx, models.RelationInput{
 		FromID:   fromID,
 		ToID:     toID,
 		RelType:  linkType,

@@ -49,6 +49,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	entityRef := args[0]
 	ctx := context.Background()
 
+	// Get services (with LLM for re-embedding if content changes)
+	entitySvc, _, _, err := getServices(ctx, true)
+	if err != nil {
+		return fmt.Errorf("init services: %w", err)
+	}
+
 	// Find entity
 	entity, err := dbClient.GetEntity(ctx, entityRef)
 	if err != nil {
@@ -118,11 +124,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// TODO: Re-generate embedding if content changed
-
-	// Apply update
-	entityID := entity.ID.ID.(string)
-	updated, err := dbClient.UpdateEntity(ctx, entityID, update)
+	// Apply update (service handles re-embedding if content changed)
+	entityID, err := models.RecordIDString(entity.ID)
+	if err != nil {
+		return fmt.Errorf("get entity ID: %w", err)
+	}
+	updated, err := entitySvc.Update(ctx, entityID, update)
 	if err != nil {
 		return fmt.Errorf("update entity: %w", err)
 	}

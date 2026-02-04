@@ -3,8 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -49,44 +50,39 @@ func runAsk(cmd *cobra.Command, args []string) error {
 	query := args[0]
 	ctx := context.Background()
 
-	// TODO: Generate embedding with LLM service
+	// Get services (with LLM for embedding and synthesis)
+	_, searchSvc, _, err := getServices(ctx, true)
+	if err != nil {
+		return fmt.Errorf("init services: %w", err)
+	}
 
-	opts := db.SearchOptions{
-		Query:        query,
+	opts := service.SearchOptions{
 		Labels:       askLabels,
 		Types:        askTypes,
 		VerifiedOnly: askVerified,
 		Limit:        askLimit,
 	}
 
-	results, err := dbClient.SearchWithChunks(ctx, opts)
+	var answer string
+	if askTemplate != "" {
+		// Use template for structured output
+		answer, err = searchSvc.AskWithTemplate(ctx, query, askTemplate, opts)
+	} else {
+		// Free-form answer synthesis
+		answer, err = searchSvc.Ask(ctx, query, opts)
+	}
 	if err != nil {
-		return fmt.Errorf("search: %w", err)
+		return fmt.Errorf("ask: %w", err)
 	}
 
-	if len(results) == 0 {
-		fmt.Println("No relevant knowledge found for this query.")
-		return nil
-	}
-
-	// TODO: If template specified, fetch it and use for structured output
-	// TODO: Synthesize answer using LLM service
-
-	// For now, just show what we found
-	fmt.Printf("Found %d relevant entities. LLM synthesis not yet implemented.\n\n", len(results))
-	for i, result := range results {
-		if i >= 5 {
-			fmt.Printf("... and %d more\n", len(results)-5)
-			break
+	// Output the answer
+	if askOutputFile != "" {
+		if err := os.WriteFile(askOutputFile, []byte(answer), 0644); err != nil {
+			return fmt.Errorf("write output file: %w", err)
 		}
-		fmt.Printf("- %s [%s]\n", result.Name, result.Type)
-		if len(result.MatchedChunks) > 0 {
-			for _, chunk := range result.MatchedChunks {
-				if chunk.HeadingPath != nil {
-					fmt.Printf("  @ %s\n", *chunk.HeadingPath)
-				}
-			}
-		}
+		fmt.Printf("Answer written to %s\n", askOutputFile)
+	} else {
+		fmt.Println(answer)
 	}
 
 	return nil

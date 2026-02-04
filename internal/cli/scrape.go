@@ -1,10 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
+	"github.com/raphaelgruber/memcp-go/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -43,6 +44,7 @@ func init() {
 
 func runScrape(cmd *cobra.Command, args []string) error {
 	path := args[0]
+	ctx := context.Background()
 
 	// Verify path exists
 	info, err := os.Stat(path)
@@ -53,50 +55,41 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path must be a directory: %s", path)
 	}
 
-	// Find markdown files
-	var files []string
-	walkFn := func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && !scrapeRecursive && p != path {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() && (filepath.Ext(p) == ".md" || filepath.Ext(p) == ".markdown") {
-			files = append(files, p)
-		}
-		return nil
+	// Get services (with LLM for embedding and optional graph extraction)
+	_, _, ingestSvc, err := getServices(ctx, true)
+	if err != nil {
+		return fmt.Errorf("init services: %w", err)
 	}
 
-	if err := filepath.WalkDir(path, walkFn); err != nil {
-		return fmt.Errorf("scan directory: %w", err)
+	opts := service.IngestOptions{
+		Labels:       scrapeLabels,
+		ExtractGraph: scrapeExtractGraph,
+		DryRun:       scrapeDryRun,
+		Recursive:    scrapeRecursive,
 	}
 
-	if len(files) == 0 {
-		fmt.Println("No Markdown files found.")
-		return nil
+	result, err := ingestSvc.IngestDirectory(ctx, path, opts)
+	if err != nil {
+		return fmt.Errorf("ingest: %w", err)
 	}
 
-	fmt.Printf("Found %d Markdown files\n", len(files))
-
+	// Report results
 	if scrapeDryRun {
-		fmt.Println("\nDry run - would ingest:")
-		for _, f := range files {
-			fmt.Printf("  %s\n", f)
+		fmt.Printf("Dry run - would ingest %d files\n", result.FilesProcessed)
+	} else {
+		fmt.Printf("Ingested %d files\n", result.FilesProcessed)
+		fmt.Printf("  Entities created: %d\n", result.EntitiesCreated)
+		fmt.Printf("  Chunks created: %d\n", result.ChunksCreated)
+		if result.RelationsCreated > 0 {
+			fmt.Printf("  Relations created: %d\n", result.RelationsCreated)
 		}
-		return nil
 	}
 
-	// TODO: Implement actual ingestion with:
-	// - Markdown parsing (frontmatter, headings)
-	// - Chunking for long content
-	// - Embedding generation
-	// - Entity creation
-	// - Optional graph extraction
-
-	fmt.Println("\nIngestion not yet implemented. Files found:")
-	for _, f := range files {
-		fmt.Printf("  %s\n", f)
+	if len(result.Errors) > 0 {
+		fmt.Printf("\nErrors (%d):\n", len(result.Errors))
+		for _, e := range result.Errors {
+			fmt.Printf("  - %s\n", e)
+		}
 	}
 
 	return nil

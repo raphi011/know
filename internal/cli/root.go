@@ -8,6 +8,8 @@ import (
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/llm"
+	"github.com/raphaelgruber/memcp-go/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +23,10 @@ var (
 	// Global config and db client
 	cfg      config.Config
 	dbClient *db.Client
+
+	// Lazy-initialized LLM components
+	embedder *llm.Embedder
+	model    *llm.Model
 )
 
 // rootCmd represents the base command when called without any subcommands.
@@ -69,9 +75,31 @@ flexible schemas, Markdown templates, and semantic search.`,
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		// Close database connection
 		if dbClient != nil {
-			_ = dbClient.Close(context.Background())
+			if err := dbClient.Close(context.Background()); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close database: %v\n", err)
+			}
 		}
 	},
+}
+
+// getServices creates services with lazy LLM initialization.
+// Commands that need embeddings pass requireLLM=true.
+func getServices(ctx context.Context, requireLLM bool) (*service.EntityService, *service.SearchService, *service.IngestService, error) {
+	if requireLLM && embedder == nil {
+		var err error
+		embedder, err = llm.NewEmbedder(cfg)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("init embedder: %w", err)
+		}
+		model, err = llm.NewModel(cfg)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("init model: %w", err)
+		}
+	}
+
+	return service.NewEntityService(dbClient, embedder, model),
+		service.NewSearchService(dbClient, embedder, model),
+		service.NewIngestService(dbClient, embedder, model), nil
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

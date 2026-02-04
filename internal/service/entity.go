@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/llm"
@@ -52,6 +53,8 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 			}
 			input.Embedding = embedding
 		}
+	} else {
+		slog.Debug("creating entity without embedding - embedder not configured", "name", input.Name)
 	}
 
 	// Create entity
@@ -62,9 +65,12 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 
 	// Check if content should be chunked
 	if input.Content != nil && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig()) {
-		if err := s.chunkEntity(ctx, entity); err != nil {
+		idStr, idErr := models.RecordIDString(entity.ID)
+		if idErr != nil {
+			slog.Warn("failed to get entity ID for chunking", "error", idErr)
+		} else if err := s.chunkEntity(ctx, entity); err != nil {
 			// Log but don't fail - entity was created successfully
-			fmt.Printf("Warning: failed to chunk entity: %v\n", err)
+			slog.Warn("failed to chunk entity", "entity", idStr, "error", err)
 		}
 	}
 
@@ -75,6 +81,11 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) error {
 	if entity.Content == nil {
 		return nil
+	}
+
+	entityID, err := models.RecordIDString(entity.ID)
+	if err != nil {
+		return fmt.Errorf("get entity ID: %w", err)
 	}
 
 	doc, err := parser.ParseMarkdown(*entity.Content)
@@ -92,7 +103,6 @@ func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) 
 		// Generate embedding for chunk
 		var embedding []float32
 		if s.embedder != nil {
-			var err error
 			embedding, err = s.embedder.Embed(ctx, chunk.Content)
 			if err != nil {
 				return fmt.Errorf("embed chunk %d: %w", chunk.Position, err)
@@ -101,7 +111,7 @@ func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) 
 
 		headingPath := chunk.HeadingPath
 		chunkInputs = append(chunkInputs, models.ChunkInput{
-			EntityID:    entity.ID.ID.(string),
+			EntityID:    entityID,
 			Content:     chunk.Content,
 			Position:    chunk.Position,
 			HeadingPath: &headingPath,
@@ -110,7 +120,7 @@ func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) 
 		})
 	}
 
-	return s.db.CreateChunks(ctx, entity.ID.ID.(string), chunkInputs)
+	return s.db.CreateChunks(ctx, entityID, chunkInputs)
 }
 
 // Update updates an entity with re-chunking if content changed.
@@ -161,7 +171,7 @@ func (s *EntityService) Update(ctx context.Context, id string, update models.Ent
 		// Create new chunks if content is long
 		if parser.ShouldChunk(*update.Content, parser.DefaultChunkConfig()) {
 			if err := s.chunkEntity(ctx, entity); err != nil {
-				fmt.Printf("Warning: failed to re-chunk entity: %v\n", err)
+				slog.Warn("failed to re-chunk entity", "entity", id, "error", err)
 			}
 		}
 	}
