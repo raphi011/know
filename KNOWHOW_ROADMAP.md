@@ -6,30 +6,32 @@
 
 ## Phase Overview
 
-| Phase | Focus | Deliverables |
-|-------|-------|--------------|
-| **Phase 1** | Foundation | Schema, models, DB client, basic CLI scaffold |
-| **Phase 2** | Core CRUD | Entity/chunk services, scrape command, embeddings |
-| **Phase 3** | Search & Ask | Hybrid search, LLM integration, ask command |
-| **Phase 4** | Relations | Manual linking, inferred relations during scrape |
-| **Phase 5** | AI Features | Graph extraction, templates, token tracking |
-| **Phase 6** | Polish | Export, multi-provider config, testing, docs |
+| Phase | Focus | Status |
+|-------|-------|--------|
+| **Phase 1** | Foundation | ✅ Complete |
+| **Phase 2** | Core CRUD | ✅ Complete |
+| **Phase 3** | Search & Ask | ✅ Complete |
+| **Phase 4** | Relations | ✅ Complete |
+| **Phase 5** | AI Features | ✅ Complete |
+| **Phase 6** | Polish | ✅ Mostly Complete |
 
 ---
 
 ## Phase 1: Foundation
 
-**Goal:** Set up project structure, schema, and basic infrastructure.
+**Goal:** Set up project structure, schema, GraphQL server, and basic infrastructure.
 
 ### Tasks
 
-- [ ] Create new `knowhow` directory structure
-- [ ] Upgrade SurrealDB Go SDK v1.2.0 → v1.3.0
-- [ ] Define SurrealDB schema (entity, chunk, template, relations, token_usage)
-- [ ] Create Go models (Entity, Chunk, Template, Relation, TokenUsage)
-- [ ] Reuse DB client from memcp (WebSocket, reconnect, CBOR)
-- [ ] Reuse config loader from memcp (env-based)
-- [ ] Scaffold CLI with cobra (no commands yet)
+- [x] Create new `knowhow` directory structure
+- [x] Upgrade SurrealDB Go SDK v1.2.0 → v1.3.0
+- [x] Define SurrealDB schema (entity, chunk, template, relations, token_usage)
+- [x] Create Go models (Entity, Chunk, Template, Relation, TokenUsage)
+- [x] Reuse DB client from memcp (WebSocket, reconnect, CBOR)
+- [x] Reuse config loader from memcp (env-based)
+- [x] Set up GraphQL server with gqlgen (`cmd/knowhow-server`)
+- [x] Define GraphQL schema (queries, mutations, subscriptions)
+- [x] Scaffold CLI as GraphQL client (`cmd/knowhow`)
 
 ### Schema
 
@@ -122,27 +124,35 @@ DEFINE INDEX idx_usage_created ON token_usage FIELDS created_at;
 
 ```
 knowhow/
-├── cmd/knowhow/
-│   └── main.go
+├── cmd/
+│   ├── knowhow/              # CLI (GraphQL client)
+│   │   └── main.go
+│   └── knowhow-server/       # GraphQL server
+│       └── main.go
 ├── internal/
-│   ├── config/           # Reuse from memcp
-│   ├── db/
-│   │   ├── client.go     # Reuse from memcp
-│   │   ├── schema.go     # New schema
-│   │   └── queries.go    # Entity/chunk queries
-│   └── models/
-│       ├── entity.go
-│       ├── chunk.go
-│       └── template.go
+│   ├── config/               # Shared config (env-based)
+│   ├── db/                   # Server-side only
+│   │   ├── client.go
+│   │   ├── schema.go
+│   │   └── queries.go
+│   ├── models/               # Shared between server & CLI
+│   │   ├── entity.go
+│   │   ├── chunk.go
+│   │   └── template.go
+│   ├── graph/                # gqlgen generated + resolvers
+│   │   ├── schema.graphqls   # GraphQL schema
+│   │   ├── generated.go      # gqlgen output
+│   │   └── resolver.go       # Query/mutation implementations
+│   ├── service/              # Server-side business logic
+│   │   ├── entity.go
+│   │   ├── search.go
+│   │   └── ingest.go
+│   ├── llm/                  # Server-side LLM integration
+│   │   ├── embedder.go
+│   │   └── model.go
+│   └── client/               # CLI GraphQL client
+│       └── client.go
 └── go.mod
-```
-
-### Verification
-
-```bash
-go build ./cmd/knowhow
-surreal start --user root --pass root
-go test ./internal/db/... -v
 ```
 
 ---
@@ -153,30 +163,13 @@ go test ./internal/db/... -v
 
 ### Tasks
 
-- [ ] Integrate langchaingo for embeddings (Ollama default)
-- [ ] Implement Markdown parser (frontmatter extraction)
-- [ ] Implement semantic chunker (heading-aware, 500-1000 chars)
-- [ ] Create EntityService (Create, Get, Update, Delete, List)
-- [ ] Create IngestService (scrape files → entities + chunks)
-- [ ] Implement `knowhow scrape <path>` command
-- [ ] Implement `knowhow add "<content>"` command
-
-### Chunking Strategy
-
-```go
-const (
-    ChunkThreshold = 1500  // Only chunk if content > this
-    ChunkTargetSize = 750  // Target chunk size
-    ChunkOverlap = 100     // Overlap between chunks
-)
-
-func chunkMarkdown(content string) []Chunk {
-    // 1. Split on heading boundaries (h1-h6)
-    // 2. If chunk > 1000 chars, split on paragraphs
-    // 3. Add 100 char overlap
-    // 4. Track heading_path for each chunk
-}
-```
+- [x] Integrate langchaingo for embeddings (Ollama default)
+- [x] Implement Markdown parser (frontmatter extraction)
+- [x] Implement semantic chunker (heading-aware, 500-1000 chars)
+- [x] Create EntityService (Create, Get, Update, Delete, List)
+- [x] Create IngestService (scrape files → entities + chunks)
+- [x] Implement `knowhow scrape <path>` command
+- [x] Implement `knowhow add "<content>"` command
 
 ### CLI Commands
 
@@ -184,14 +177,6 @@ func chunkMarkdown(content string) []Chunk {
 knowhow scrape ./docs/           # Ingest Markdown files
 knowhow scrape ./docs/ --dry-run # Preview what would be created
 knowhow add "Quick note" --type concept --labels "tech,note"
-```
-
-### Verification
-
-```bash
-knowhow scrape ./testdata/docs/
-surreal sql --ns knowledge --db graph "SELECT count() FROM entity"
-surreal sql --ns knowledge --db graph "SELECT count() FROM chunk"
 ```
 
 ---
@@ -202,36 +187,12 @@ surreal sql --ns knowledge --db graph "SELECT count() FROM chunk"
 
 ### Tasks
 
-- [ ] Integrate langchaingo for LLM completions
-- [ ] Implement SearchService (hybrid RRF search)
-- [ ] Implement LLMService (context assembly, generation)
-- [ ] Implement `knowhow search "<query>"` command
-- [ ] Implement `knowhow ask "<query>"` command
-- [ ] Add `--template` flag to ask command
-
-### Hybrid Search (RRF)
-
-```surql
-SELECT
-    id, type, name, summary, labels, verified,
-    array::group(matched_chunks) AS matched_chunks,
-    count() AS relevance
-FROM (
-    SELECT id, type, name, summary, labels, verified,
-           [] AS matched_chunks
-    FROM entity WHERE embedding <|10,60|> $emb
-
-    UNION ALL
-
-    SELECT entity.id, entity.type, entity.name, entity.summary,
-           entity.labels, entity.verified,
-           [{ content: content, heading_path: heading_path }] AS matched_chunks
-    FROM chunk WHERE embedding <|20,60|> $emb
-)
-GROUP BY id
-ORDER BY relevance DESC
-LIMIT $limit;
-```
+- [x] Integrate langchaingo for LLM completions
+- [x] Implement SearchService (hybrid RRF search)
+- [x] Implement LLMService (context assembly, generation)
+- [x] Implement `knowhow search "<query>"` command
+- [x] Implement `knowhow ask "<query>"` command
+- [x] Add `--template` flag to ask command
 
 ### CLI Commands
 
@@ -242,13 +203,6 @@ knowhow ask "How does auth work?"            # Search + LLM synthesis
 knowhow ask "John Doe" --template "Peer Review"  # With template
 ```
 
-### Verification
-
-```bash
-knowhow search "test" --count
-knowhow ask "What services exist?"
-```
-
 ---
 
 ## Phase 4: Relations
@@ -257,12 +211,11 @@ knowhow ask "What services exist?"
 
 ### Tasks
 
-- [ ] Implement `knowhow link` command
-- [ ] Add `--relates-to` flag to add command
-- [ ] Detect [[wiki-links]] during scrape
-- [ ] Detect @mentions during scrape
-- [ ] Parse frontmatter `relates_to:` field
-- [ ] Implement relation queries (get related entities)
+- [x] Implement `knowhow link` command
+- [x] Add `--relates-to` flag to add command
+- [x] Detect [[wiki-links]] during scrape
+- [x] Parse frontmatter `relates_to:` field
+- [x] Implement relation queries (get related entities)
 
 ### Relation Creation Methods
 
@@ -271,7 +224,6 @@ knowhow ask "What services exist?"
 | Manual CLI | `"manual"` | `knowhow link A B --type works_on` |
 | Add flag | `"manual"` | `knowhow add --relates-to "A:about"` |
 | Wiki-links | `"inferred"` | `[[entity-name]]` in content |
-| Mentions | `"inferred"` | `@person-name` in content |
 | Frontmatter | `"inferred"` | `relates_to: [a, b]` in YAML |
 
 ### CLI Commands
@@ -282,12 +234,6 @@ knowhow link "auth-service" "user-service" --type "depends_on"
 knowhow add "Note about auth" --relates-to "auth-service:about,john-doe:mentioned"
 ```
 
-### Verification
-
-```bash
-surreal sql "SELECT ->relates_to->entity FROM entity:john_doe"
-```
-
 ---
 
 ## Phase 5: AI Features
@@ -296,32 +242,11 @@ surreal sql "SELECT ->relates_to->entity FROM entity:john_doe"
 
 ### Tasks
 
-- [ ] Implement GraphRAG-style entity/relation extraction
-- [ ] Add `--extract-graph` flag to scrape command
-- [ ] Implement template CRUD (`knowhow template` commands)
-- [ ] Implement token usage tracking
-- [ ] Implement `knowhow usage` command
-- [ ] Display token usage after operations
-
-### Graph Extraction Prompt
-
-```
-You are a Knowledge Graph Specialist. Given the text below and these entity types
-[person, service, concept, project, task], extract:
-
-1. ENTITIES: All meaningful entities with name, type, and brief description
-2. RELATIONS: Connections between entities with source, target, relation_type, description
-
-Output format:
-ENTITY|name|type|description
-RELATION|source|target|rel_type|description
-
-Text:
-{chunk_content}
-
-Existing entities that may be referenced:
-{nearby_entity_names}
-```
+- [x] Implement GraphRAG-style entity/relation extraction
+- [x] Add `--extract-graph` flag to scrape command
+- [x] Implement template CRUD (`knowhow template` commands)
+- [x] Implement token usage tracking
+- [x] Implement `knowhow usage` command
 
 ### CLI Commands
 
@@ -333,14 +258,6 @@ knowhow usage                              # Token usage summary
 knowhow usage --detailed --since "7 days"
 ```
 
-### Verification
-
-```bash
-knowhow scrape ./testdata/ --extract-graph
-surreal sql "SELECT count() FROM relates_to WHERE source = 'ai_detected'"
-knowhow usage
-```
-
 ---
 
 ## Phase 6: Polish
@@ -349,13 +266,13 @@ knowhow usage
 
 ### Tasks
 
-- [ ] Implement `knowhow export` command
-- [ ] Implement `knowhow update` command
-- [ ] Implement `knowhow delete` command (with confirmation)
+- [x] Implement `knowhow export` command
+- [x] Implement `knowhow update` command
+- [x] Implement `knowhow delete` command (with confirmation)
 - [ ] Add config file support (~/.config/knowhow/config.yaml)
-- [ ] Support multiple LLM providers (Ollama, OpenAI, Anthropic)
-- [ ] Write unit tests for services
-- [ ] Write integration tests for DB queries
+- [x] Support multiple LLM providers (Ollama, OpenAI, Anthropic)
+- [x] Write unit tests for services
+- [x] Write integration tests for DB queries
 - [ ] Write e2e test script
 - [ ] Update README with examples
 
@@ -374,24 +291,6 @@ backup/
 └── metadata.json
 ```
 
-### Multi-Provider Config
-
-```yaml
-# ~/.config/knowhow/config.yaml
-embedding:
-  provider: ollama
-  model: all-minilm:l6-v2
-
-llm:
-  provider: anthropic
-  model: claude-3-haiku-20240307
-
-database:
-  url: ws://localhost:8000/rpc
-  namespace: knowledge
-  database: graph
-```
-
 ### CLI Commands
 
 ```bash
@@ -401,19 +300,14 @@ knowhow update "auth-service" --verified
 knowhow delete "old-entity" --force
 ```
 
-### Verification
-
-```bash
-go test ./... -v
-./scripts/e2e-test.sh
-```
-
 ---
 
 ## Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
+| Architecture | Client-server via GraphQL | CLI is thin client; server owns DB/LLM connections |
+| API | gqlgen (GraphQL) | Type-safe, code-gen, supports subscriptions for future TUI |
 | Core model | Flexible entity | Store anything: people, services, tasks, documents |
 | Embeddings | 384-dim Ollama | Local-first, can migrate later |
 | Search | Hybrid RRF | Combines semantic + keyword |
@@ -426,29 +320,48 @@ go test ./... -v
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Transports                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│  │   CLI    │  │   TUI    │  │   MCP    │              │
-│  │ (cobra)  │  │ (future) │  │ (future) │              │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘              │
-│       └─────────────┼─────────────┘                     │
-│                     │                                    │
-├─────────────────────┼────────────────────────────────────┤
-│              Service Layer (transport-agnostic)          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   Entity    │  │   Search    │  │    LLM      │     │
-│  │  Service    │  │   Service   │  │   Service   │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-│                                                          │
-├──────────────────────────────────────────────────────────┤
-│                    Infrastructure                         │
-│  ┌─────────────┐  ┌─────────────┐                       │
-│  │  SurrealDB  │  │ langchaingo │                       │
-│  │  (storage)  │  │ (LLM/embed) │                       │
-│  └─────────────┘  └─────────────┘                       │
-└──────────────────────────────────────────────────────────┘
+                    ┌──────────┐  ┌──────────┐
+                    │   CLI    │  │   TUI    │
+                    │ (cobra)  │  │ (future) │
+                    └────┬─────┘  └────┬─────┘
+                         └──────┬──────┘
+                                │ HTTP/GraphQL
+┌───────────────────────────────┼─────────────────────────────────────┐
+│                               ▼                                      │
+│                        knowhow-server                                │
+│  ┌────────────────────────────────────────────┐  ┌──────────────┐  │
+│  │           GraphQL Resolvers (gqlgen)       │  │     MCP      │  │
+│  │  - queries (search, get, list)             │  │   (future)   │  │
+│  │  - mutations (add, update, delete, scrape) │  │   (stdio)    │  │
+│  └────────────────────┬───────────────────────┘  └───────┬──────┘  │
+│                       │                                   │         │
+│                       └─────────────┬─────────────────────┘         │
+│                                     ▼                                │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │              Service Layer (transport-agnostic)               │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │  │
+│  │  │   Entity    │  │   Search    │  │   Ingest    │          │  │
+│  │  │  Service    │  │   Service   │  │   Service   │          │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘          │  │
+│  └────────────────────────────┬─────────────────────────────────┘  │
+│                               │                                      │
+│  ┌────────────────────────────▼─────────────────────────────────┐  │
+│  │                    Infrastructure                             │  │
+│  │  ┌─────────────┐  ┌─────────────┐                            │  │
+│  │  │  SurrealDB  │  │ langchaingo │                            │  │
+│  │  │  (storage)  │  │ (LLM/embed) │                            │  │
+│  │  └─────────────┘  └─────────────┘                            │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Remaining Work
+
+- [ ] Config file support (~/.config/knowhow/config.yaml)
+- [ ] E2E test script
+- [ ] README with usage examples
 
 ---
 
@@ -457,7 +370,6 @@ go test ./... -v
 - [ ] TUI (bubbletea) - document browser, search UI
 - [ ] Folder/path hierarchy for navigation
 - [ ] Review system (human-in-the-loop approval)
-- [ ] GraphQL API layer
 - [ ] MCP transport (reconnect existing tools)
 - [ ] Contradiction detection between entities
 - [ ] External integrations (calendar, email, todoist)
