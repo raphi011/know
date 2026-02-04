@@ -8,8 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 // Client is a GraphQL client for the Knowhow server.
@@ -798,4 +804,227 @@ func (c *Client) GetUsageSummary(ctx context.Context, since string) (*TokenUsage
 		return nil, err
 	}
 	return &result.UsageSummary, nil
+}
+
+// =============================================================================
+// STREAMING OPERATIONS
+// =============================================================================
+
+// AskStreamEvent represents a streaming token event.
+type AskStreamEvent struct {
+	Token string  `json:"token"`
+	Done  bool    `json:"done"`
+	Error *string `json:"error,omitempty"`
+}
+
+// graphql-transport-ws protocol message types
+const (
+	gqlConnectionInit      = "connection_init"
+	gqlConnectionAck       = "connection_ack"
+	gqlSubscribe           = "subscribe"
+	gqlNext                = "next"
+	gqlError               = "error"
+	gqlComplete            = "complete"
+	gqlConnectionKeepAlive = "ka"
+)
+
+// wsMessage represents a graphql-transport-ws protocol message.
+type wsMessage struct {
+	ID      string          `json:"id,omitempty"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// wsSubscribePayload is the payload for subscribe messages.
+type wsSubscribePayload struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables,omitempty"`
+}
+
+// AskStream performs search and streams the LLM-synthesized answer token by token.
+// The onToken callback is invoked for each token. Return an error from onToken to abort.
+func (c *Client) AskStream(
+	ctx context.Context,
+	question string,
+	opts *SearchOptions,
+	templateName *string,
+	onToken func(token string) error,
+) error {
+	// Convert HTTP endpoint to WebSocket endpoint
+	wsEndpoint := c.endpoint
+	wsEndpoint = strings.Replace(wsEndpoint, "http://", "ws://", 1)
+	wsEndpoint = strings.Replace(wsEndpoint, "https://", "wss://", 1)
+
+	u, err := url.Parse(wsEndpoint)
+	if err != nil {
+		return fmt.Errorf("parse endpoint: %w", err)
+	}
+
+	// Connect with graphql-transport-ws subprotocol
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+		Subprotocols:     []string{"graphql-transport-ws"},
+	}
+
+	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("websocket connect: %w", err)
+	}
+	defer conn.Close()
+
+	// Track connection state for proper cleanup
+	var mu sync.Mutex
+	closed := false
+	closeConn := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if !closed {
+			closed = true
+			conn.Close()
+		}
+	}
+	defer closeConn()
+
+	// Send connection_init
+	initMsg := wsMessage{Type: gqlConnectionInit}
+	if err := conn.WriteJSON(initMsg); err != nil {
+		return fmt.Errorf("send connection_init: %w", err)
+	}
+
+	// Wait for connection_ack
+	var ackMsg wsMessage
+	if err := conn.ReadJSON(&ackMsg); err != nil {
+		return fmt.Errorf("read connection_ack: %w", err)
+	}
+	if ackMsg.Type != gqlConnectionAck {
+		return fmt.Errorf("expected connection_ack, got %s", ackMsg.Type)
+	}
+
+	// Build subscription query
+	const subscriptionQuery = `
+		subscription AskStream($query: String!, $input: SearchInput, $templateName: String) {
+			askStream(query: $query, input: $input, templateName: $templateName) {
+				token
+				done
+				error
+			}
+		}
+	`
+
+	vars := map[string]any{"query": question}
+	if opts != nil {
+		input := map[string]any{}
+		if opts.Query != "" {
+			input["query"] = opts.Query
+		} else {
+			input["query"] = question
+		}
+		if len(opts.Labels) > 0 {
+			input["labels"] = opts.Labels
+		}
+		if len(opts.Types) > 0 {
+			input["types"] = opts.Types
+		}
+		if opts.VerifiedOnly != nil {
+			input["verifiedOnly"] = *opts.VerifiedOnly
+		}
+		if opts.Limit != nil {
+			input["limit"] = *opts.Limit
+		}
+		vars["input"] = input
+	}
+	if templateName != nil {
+		vars["templateName"] = *templateName
+	}
+
+	// Send subscribe message
+	subscriptionID := uuid.New().String()
+	payload, _ := json.Marshal(wsSubscribePayload{
+		Query:     subscriptionQuery,
+		Variables: vars,
+	})
+	subMsg := wsMessage{
+		ID:      subscriptionID,
+		Type:    gqlSubscribe,
+		Payload: payload,
+	}
+	if err := conn.WriteJSON(subMsg); err != nil {
+		return fmt.Errorf("send subscribe: %w", err)
+	}
+
+	// Handle context cancellation in a separate goroutine
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			closeConn()
+		case <-done:
+		}
+	}()
+
+	// Read messages until complete or error
+	for {
+		var msg wsMessage
+		if err := conn.ReadJSON(&msg); err != nil {
+			// Check if this was due to context cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("read message: %w", err)
+		}
+
+		switch msg.Type {
+		case gqlNext:
+			// Parse the data payload
+			var data struct {
+				Data struct {
+					AskStream AskStreamEvent `json:"askStream"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(msg.Payload, &data); err != nil {
+				return fmt.Errorf("unmarshal next payload: %w", err)
+			}
+
+			event := data.Data.AskStream
+
+			// Check for error in event
+			if event.Error != nil {
+				return fmt.Errorf("stream error: %s", *event.Error)
+			}
+
+			// Send token to callback (if not empty)
+			if event.Token != "" {
+				if err := onToken(event.Token); err != nil {
+					return err
+				}
+			}
+
+			// Check if done
+			if event.Done {
+				return nil
+			}
+
+		case gqlError:
+			var errors []graphQLError
+			if err := json.Unmarshal(msg.Payload, &errors); err != nil {
+				return fmt.Errorf("subscription error: %s", string(msg.Payload))
+			}
+			if len(errors) > 0 {
+				return fmt.Errorf("subscription error: %s", errors[0].Message)
+			}
+			return fmt.Errorf("subscription error: unknown")
+
+		case gqlComplete:
+			return nil
+
+		case gqlConnectionKeepAlive:
+			// Ignore keep-alive messages
+			continue
+
+		default:
+			// Ignore unknown message types
+			continue
+		}
+	}
 }

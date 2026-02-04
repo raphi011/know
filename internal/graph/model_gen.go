@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+type AskStreamEvent struct {
+	// Token content from the LLM stream
+	Token string `json:"token"`
+	// True when the stream is complete
+	Done bool `json:"done"`
+	// Error message if streaming failed
+	Error *string `json:"error,omitempty"`
+}
+
 type Job struct {
 	ID           string        `json:"id"`
 	Type         string        `json:"type"`
@@ -24,4 +33,7 @@ type Mutation struct {
 }
 
 type Query struct {
+}
+
+type Subscription struct {
 }

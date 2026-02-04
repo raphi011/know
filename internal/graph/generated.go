@@ -41,12 +41,19 @@ type Config struct {
 type ResolverRoot interface {
 	Mutation() MutationResolver
 	Query() QueryResolver
+	Subscription() SubscriptionResolver
 }
 
 type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	AskStreamEvent struct {
+		Done  func(childComplexity int) int
+		Error func(childComplexity int) int
+		Token func(childComplexity int) int
+	}
+
 	ChunkMatch struct {
 		Content     func(childComplexity int) int
 		HeadingPath func(childComplexity int) int
@@ -142,6 +149,10 @@ type ComplexityRoot struct {
 		ToID      func(childComplexity int) int
 	}
 
+	Subscription struct {
+		AskStream func(childComplexity int, query string, input *SearchInput, templateName *string) int
+	}
+
 	Template struct {
 		Content     func(childComplexity int) int
 		CreatedAt   func(childComplexity int) int
@@ -189,6 +200,9 @@ type QueryResolver interface {
 	Jobs(ctx context.Context) ([]*Job, error)
 	Job(ctx context.Context, id string) (*Job, error)
 }
+type SubscriptionResolver interface {
+	AskStream(ctx context.Context, query string, input *SearchInput, templateName *string) (<-chan *AskStreamEvent, error)
+}
 
 type executableSchema struct {
 	schema     *ast.Schema
@@ -208,6 +222,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := executionContext{nil, e, 0, 0, nil}
 	_ = ec
 	switch typeName + "." + field {
+
+	case "AskStreamEvent.done":
+		if e.complexity.AskStreamEvent.Done == nil {
+			break
+		}
+
+		return e.complexity.AskStreamEvent.Done(childComplexity), true
+	case "AskStreamEvent.error":
+		if e.complexity.AskStreamEvent.Error == nil {
+			break
+		}
+
+		return e.complexity.AskStreamEvent.Error(childComplexity), true
+	case "AskStreamEvent.token":
+		if e.complexity.AskStreamEvent.Token == nil {
+			break
+		}
+
+		return e.complexity.AskStreamEvent.Token(childComplexity), true
 
 	case "ChunkMatch.content":
 		if e.complexity.ChunkMatch.Content == nil {
@@ -711,6 +744,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Relation.ToID(childComplexity), true
 
+	case "Subscription.askStream":
+		if e.complexity.Subscription.AskStream == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_askStream_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Subscription.AskStream(childComplexity, args["query"].(string), args["input"].(*SearchInput), args["templateName"].(*string)), true
+
 	case "Template.content":
 		if e.complexity.Template.Content == nil {
 			break
@@ -842,6 +887,23 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
 			data := ec._Mutation(ctx, opCtx.Operation.SelectionSet)
 			var buf bytes.Buffer
+			data.MarshalGQL(&buf)
+
+			return &graphql.Response{
+				Data: buf.Bytes(),
+			}
+		}
+	case ast.Subscription:
+		next := ec._Subscription(ctx, opCtx.Operation.SelectionSet)
+
+		var buf bytes.Buffer
+		return func(ctx context.Context) *graphql.Response {
+			buf.Reset()
+			data := next(ctx)
+
+			if data == nil {
+				return nil
+			}
 			data.MarshalGQL(&buf)
 
 			return &graphql.Response{
@@ -1163,6 +1225,27 @@ func (ec *executionContext) field_Query_usageSummary_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Subscription_askStream_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "query", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalOSearchInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "templateName", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["templateName"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field___Directive_args_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1214,6 +1297,93 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 // endregion ************************** directives.gotpl **************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _AskStreamEvent_token(ctx context.Context, field graphql.CollectedField, obj *AskStreamEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_AskStreamEvent_token,
+		func(ctx context.Context) (any, error) {
+			return obj.Token, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_AskStreamEvent_token(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AskStreamEvent",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AskStreamEvent_done(ctx context.Context, field graphql.CollectedField, obj *AskStreamEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_AskStreamEvent_done,
+		func(ctx context.Context) (any, error) {
+			return obj.Done, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_AskStreamEvent_done(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AskStreamEvent",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AskStreamEvent_error(ctx context.Context, field graphql.CollectedField, obj *AskStreamEvent) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_AskStreamEvent_error,
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_AskStreamEvent_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AskStreamEvent",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
 
 func (ec *executionContext) _ChunkMatch_content(ctx context.Context, field graphql.CollectedField, obj *ChunkMatch) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -3929,6 +4099,55 @@ func (ec *executionContext) fieldContext_Relation_createdAt(_ context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _Subscription_askStream(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Subscription_askStream,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Subscription().AskStream(ctx, fc.Args["query"].(string), fc.Args["input"].(*SearchInput), fc.Args["templateName"].(*string))
+		},
+		nil,
+		ec.marshalNAskStreamEvent2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐAskStreamEvent,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Subscription_askStream(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "token":
+				return ec.fieldContext_AskStreamEvent_token(ctx, field)
+			case "done":
+				return ec.fieldContext_AskStreamEvent_done(ctx, field)
+			case "error":
+				return ec.fieldContext_AskStreamEvent_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type AskStreamEvent", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_askStream_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Template_id(ctx context.Context, field graphql.CollectedField, obj *Template) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6041,6 +6260,52 @@ func (ec *executionContext) unmarshalInputSearchInput(ctx context.Context, obj a
 
 // region    **************************** object.gotpl ****************************
 
+var askStreamEventImplementors = []string{"AskStreamEvent"}
+
+func (ec *executionContext) _AskStreamEvent(ctx context.Context, sel ast.SelectionSet, obj *AskStreamEvent) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, askStreamEventImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("AskStreamEvent")
+		case "token":
+			out.Values[i] = ec._AskStreamEvent_token(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "done":
+			out.Values[i] = ec._AskStreamEvent_done(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._AskStreamEvent_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var chunkMatchImplementors = []string{"ChunkMatch"}
 
 func (ec *executionContext) _ChunkMatch(ctx context.Context, sel ast.SelectionSet, obj *ChunkMatch) graphql.Marshaler {
@@ -6891,6 +7156,26 @@ func (ec *executionContext) _Relation(ctx context.Context, sel ast.SelectionSet,
 	return out
 }
 
+var subscriptionImplementors = []string{"Subscription"}
+
+func (ec *executionContext) _Subscription(ctx context.Context, sel ast.SelectionSet) func(ctx context.Context) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, subscriptionImplementors)
+	ctx = graphql.WithFieldContext(ctx, &graphql.FieldContext{
+		Object: "Subscription",
+	})
+	if len(fields) != 1 {
+		graphql.AddErrorf(ctx, "must subscribe to exactly one stream")
+		return nil
+	}
+
+	switch fields[0].Name {
+	case "askStream":
+		return ec._Subscription_askStream(ctx, fields[0])
+	default:
+		panic("unknown field " + strconv.Quote(fields[0].Name))
+	}
+}
+
 var templateImplementors = []string{"Template"}
 
 func (ec *executionContext) _Template(ctx context.Context, sel ast.SelectionSet, obj *Template) graphql.Marshaler {
@@ -7384,6 +7669,20 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 // endregion **************************** object.gotpl ****************************
 
 // region    ***************************** type.gotpl *****************************
+
+func (ec *executionContext) marshalNAskStreamEvent2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐAskStreamEvent(ctx context.Context, sel ast.SelectionSet, v AskStreamEvent) graphql.Marshaler {
+	return ec._AskStreamEvent(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNAskStreamEvent2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐAskStreamEvent(ctx context.Context, sel ast.SelectionSet, v *AskStreamEvent) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._AskStreamEvent(ctx, sel, v)
+}
 
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)

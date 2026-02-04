@@ -201,6 +201,60 @@ Filled Template:`, templateContent, knowledge)
 	return m.GenerateWithSystem(ctx, systemPrompt, userPrompt)
 }
 
+// GenerateWithSystemStream generates text with a system prompt, streaming tokens via callback.
+// The onToken callback is invoked for each token/chunk. Return an error from onToken to abort.
+func (m *Model) GenerateWithSystemStream(
+	ctx context.Context,
+	systemPrompt, userPrompt string,
+	onToken func(token string) error,
+) error {
+	systemLen := len(systemPrompt)
+	userLen := len(userPrompt)
+	totalLen := systemLen + userLen
+
+	slog.Debug("LLM streaming generate starting", "model", m.modelName, "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
+
+	messages := []llms.MessageContent{
+		llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt),
+		llms.TextParts(llms.ChatMessageTypeHuman, userPrompt),
+	}
+
+	start := time.Now()
+
+	// Use streaming callback option - supported by all langchaingo providers
+	streamingFunc := func(ctx context.Context, chunk []byte) error {
+		return onToken(string(chunk))
+	}
+
+	_, err := m.llm.GenerateContent(ctx, messages, llms.WithStreamingFunc(streamingFunc))
+	duration := time.Since(start)
+
+	if err != nil {
+		slog.Warn("LLM streaming generate failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
+		return wrapFatalError(fmt.Errorf("generate with system stream: %w", err))
+	}
+
+	slog.Debug("LLM streaming generate complete", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds())
+
+	return nil
+}
+
+// SynthesizeAnswerStream generates an answer from context and query, streaming tokens.
+func (m *Model) SynthesizeAnswerStream(ctx context.Context, query string, context string, onToken func(token string) error) error {
+	systemPrompt := `You are a helpful knowledge assistant. Answer the user's question based ONLY on the provided context.
+If the context doesn't contain enough information to answer the question, say so.
+Be concise and cite specific information from the context where relevant.`
+
+	userPrompt := fmt.Sprintf(`Context:
+%s
+
+Question: %s
+
+Answer:`, context, query)
+
+	return m.GenerateWithSystemStream(ctx, systemPrompt, userPrompt, onToken)
+}
+
 // ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).
 func (m *Model) ExtractEntitiesAndRelations(ctx context.Context, text string, existingEntities []string) (string, error) {
 	entitiesStr := ""

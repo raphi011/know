@@ -176,6 +176,24 @@ type Query {
 }
 
 # =============================================================================
+# SUBSCRIPTIONS
+# =============================================================================
+
+type AskStreamEvent {
+  """Token content from the LLM stream"""
+  token: String!
+  """True when the stream is complete"""
+  done: Boolean!
+  """Error message if streaming failed"""
+  error: String
+}
+
+type Subscription {
+  """Stream LLM-synthesized answer token by token"""
+  askStream(query: String!, input: SearchInput, templateName: String): AskStreamEvent!
+}
+
+# =============================================================================
 # MUTATIONS
 # =============================================================================
 

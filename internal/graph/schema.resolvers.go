@@ -7,6 +7,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/service"
@@ -390,11 +391,81 @@ func (r *queryResolver) Job(ctx context.Context, id string) (*Job, error) {
 	return serviceJobToGraphQL(job), nil
 }
 
+// AskStream is the resolver for the askStream field.
+func (r *subscriptionResolver) AskStream(ctx context.Context, query string, input *SearchInput, templateName *string) (<-chan *AskStreamEvent, error) {
+	// Template-based streaming not yet implemented
+	if templateName != nil {
+		return nil, fmt.Errorf("streaming with templates not yet supported, use regular ask query")
+	}
+
+	// Convert GraphQL input to service options
+	opts := service.SearchOptions{Query: query}
+	if input != nil {
+		if len(input.Labels) > 0 {
+			opts.Labels = input.Labels
+		}
+		if len(input.Types) > 0 {
+			opts.Types = input.Types
+		}
+		if input.VerifiedOnly != nil {
+			opts.VerifiedOnly = *input.VerifiedOnly
+		}
+		if input.Limit != nil {
+			opts.Limit = *input.Limit
+		}
+	}
+
+	// Create channel for streaming events (buffered to avoid blocking LLM)
+	eventChan := make(chan *AskStreamEvent, 100)
+
+	// Start streaming in goroutine
+	go func() {
+		defer close(eventChan)
+
+		err := r.searchService.AskStream(ctx, query, opts, func(token string) error {
+			// Check if context was canceled (client disconnected)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			// Send token event
+			select {
+			case eventChan <- &AskStreamEvent{Token: token, Done: false}:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+
+		// Send completion event
+		if err != nil {
+			errMsg := err.Error()
+			select {
+			case eventChan <- &AskStreamEvent{Token: "", Done: true, Error: &errMsg}:
+			case <-ctx.Done():
+			}
+		} else {
+			select {
+			case eventChan <- &AskStreamEvent{Token: "", Done: true}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+
+	return eventChan, nil
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
+// Subscription returns SubscriptionResolver implementation.
+func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionResolver{r} }
+
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
+type subscriptionResolver struct{ *Resolver }

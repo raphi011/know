@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -16,6 +18,7 @@ var (
 	askVerified   bool
 	askLimit      int
 	askOutputFile string
+	askNoStream   bool
 )
 
 var askCmd = &cobra.Command{
@@ -44,6 +47,7 @@ func init() {
 	askCmd.Flags().BoolVar(&askVerified, "verified", false, "only use verified knowledge")
 	askCmd.Flags().IntVarP(&askLimit, "limit", "n", 20, "max context entities")
 	askCmd.Flags().StringVarP(&askOutputFile, "output", "o", "", "write output to file")
+	askCmd.Flags().BoolVar(&askNoStream, "no-stream", false, "disable streaming output")
 }
 
 func runAsk(cmd *cobra.Command, args []string) error {
@@ -63,6 +67,30 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		templateName = &askTemplate
 	}
 
+	// Auto-detect: stream unless writing to file, not a TTY, or explicitly disabled
+	// Templates don't support streaming yet
+	shouldStream := !askNoStream &&
+		askOutputFile == "" &&
+		askTemplate == "" &&
+		term.IsTerminal(int(os.Stdout.Fd()))
+
+	if shouldStream {
+		// Streaming mode - tokens printed as they arrive
+		var fullAnswer strings.Builder
+		err := gqlClient.AskStream(ctx, query, opts, templateName, func(token string) error {
+			fmt.Print(token)
+			fullAnswer.WriteString(token)
+			return nil
+		})
+		fmt.Println() // Final newline after stream completes
+
+		if err != nil {
+			return fmt.Errorf("ask stream: %w", err)
+		}
+		return nil
+	}
+
+	// Non-streaming mode - wait for complete response
 	answer, err := gqlClient.Ask(ctx, query, opts, templateName)
 	if err != nil {
 		return fmt.Errorf("ask: %w", err)

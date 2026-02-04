@@ -13,9 +13,14 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/gorilla/websocket"
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/graph"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 func main() {
@@ -67,10 +72,33 @@ func main() {
 		}
 	}()
 
-	// Create GraphQL server
-	srv := handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{
+	// Create GraphQL server with explicit transports for WebSocket subscription support
+	srv := handler.New(graph.NewExecutableSchema(graph.Config{
 		Resolvers: resolver,
 	}))
+
+	// Add transports - order matters: WebSocket first for subscription upgrades
+	srv.AddTransport(transport.Websocket{
+		Upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins for local dev
+			},
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		},
+		KeepAlivePingInterval: 10 * time.Second,
+	})
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+	srv.AddTransport(transport.MultipartForm{})
+
+	// Add standard extensions
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+	srv.Use(extension.Introspection{})
+	srv.Use(extension.AutomaticPersistedQuery{
+		Cache: lru.New[string](100),
+	})
 
 	// Setup routes
 	mux := http.NewServeMux()
