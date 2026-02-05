@@ -1008,33 +1008,53 @@ func (c *Client) ListEntities(ctx context.Context, entityType string, labels []s
 // CreateIngestJob creates a new ingest job record.
 func (c *Client) CreateIngestJob(ctx context.Context, id, name, dirPath string, files, labels []string, opts map[string]any) error {
 	c.startOp() // Mark activity for heartbeat
-	sql := `
-		CREATE type::record("ingest_job", $id) SET
-			job_type = "ingest",
-			status = "pending",
-			name = $name,
-			labels = $labels,
-			dir_path = $dir_path,
-			files = $files,
-			options = $options,
-			total = $total,
-			progress = 0
-	`
 
-	var namePtr any
-	if name != "" {
-		namePtr = name
+	// SurrealDB requires non-nil arrays for array<string> fields
+	if labels == nil {
+		labels = []string{}
 	}
 
-	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+	// Build SQL dynamically to handle optional name field
+	// SurrealDB option<T> doesn't accept NULL, must omit field entirely
+	var sql string
+	params := map[string]any{
 		"id":       id,
-		"name":     namePtr,
 		"labels":   labels,
 		"dir_path": dirPath,
 		"files":    files,
 		"options":  optionalObject(opts),
 		"total":    len(files),
-	})
+	}
+
+	if name != "" {
+		sql = `
+			CREATE type::record("ingest_job", $id) SET
+				job_type = "ingest",
+				status = "pending",
+				name = $name,
+				labels = $labels,
+				dir_path = $dir_path,
+				files = $files,
+				options = $options,
+				total = $total,
+				progress = 0
+		`
+		params["name"] = name
+	} else {
+		sql = `
+			CREATE type::record("ingest_job", $id) SET
+				job_type = "ingest",
+				status = "pending",
+				labels = $labels,
+				dir_path = $dir_path,
+				files = $files,
+				options = $options,
+				total = $total,
+				progress = 0
+		`
+	}
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, params)
 	if err != nil {
 		return fmt.Errorf("create ingest job: %w", err)
 	}

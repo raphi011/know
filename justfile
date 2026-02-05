@@ -66,18 +66,47 @@ install:
 test:
     go test -v ./...
 
-# Start SurrealDB, Ollama, and run the server with live-reload
-dev: db-up ollama-pull
+# Start full dev environment (Go + Vite servers in parallel)
+dev: db-up ollama-pull web-install
+    #!/usr/bin/env bash
+    set -e
+    cleanup() {
+        echo ""
+        echo "Shutting down dev servers..."
+        kill 0 2>/dev/null
+    }
+    trap cleanup EXIT INT TERM
+    echo "Starting development servers..."
+    echo "  Go server (air):  http://localhost:$KNOWHOW_SERVER_PORT"
+    echo "  Vite dev server:  http://localhost:5173"
+    echo ""
+    air &
+    cd web && npm run dev &
+    wait
+
+# Start Go server only with live-reload (no Vite)
+dev-go: db-up ollama-pull
     @echo "Starting knowhow-server with Air (live-reload)..."
     @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
     @echo "Rebuild delay: 20s after last file change"
     air
 
 # Start dev environment and wipe database on first start
-dev-reset: db-up ollama-pull
-    @echo "Starting knowhow-server with Air (live-reload) - WIPING DATABASE..."
-    @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
-    KNOWHOW_WIPE_DB=true air
+dev-reset: db-up ollama-pull web-install
+    #!/usr/bin/env bash
+    set -e
+    cleanup() {
+        echo ""
+        echo "Shutting down dev servers..."
+        kill 0 2>/dev/null
+    }
+    trap cleanup EXIT INT TERM
+    echo "Starting dev servers (WIPING DATABASE)..."
+    echo "  Go server (air):  http://localhost:$KNOWHOW_SERVER_PORT"
+    echo "  Vite dev server:  http://localhost:5173"
+    KNOWHOW_WIPE_DB=true air &
+    cd web && npm run dev &
+    wait
 
 # Run CLI command (ensures correct server URL)
 [positional-arguments]

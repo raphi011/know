@@ -1,3 +1,8 @@
 import { GraphQLClient } from 'graphql-request'
 
-export const client = new GraphQLClient('/query')
+// graphql-request v7 requires absolute URLs
+const endpoint = typeof window !== 'undefined'
+  ? `${window.location.origin}/query`
+  : '/query'
+
+export const client = new GraphQLClient(endpoint)
