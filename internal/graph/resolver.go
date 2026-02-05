@@ -64,6 +64,11 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		return nil, err
 	}
 
+	// Log configuration
+	slog.Info("embedding settings", "provider", cfg.EmbedProvider, "model", cfg.EmbedModel, "dimension", cfg.EmbedDimension)
+	slog.Info("llm settings", "provider", cfg.LLMProvider, "model", cfg.LLMModel)
+	slog.Info("ingest settings", "workers", cfg.IngestConcurrency)
+
 	ingestService := service.NewIngestService(dbClient, embedder, model)
 	jobManager := service.NewJobManager(cfg.IngestConcurrency, dbClient)
 
