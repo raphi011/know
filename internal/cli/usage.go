@@ -110,11 +110,63 @@ func runUsage(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// formatDuration formats milliseconds into human-readable units.
+// Uses the most appropriate unit: ms, s, m, or h.
+func formatDuration(ms int) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	secs := float64(ms) / 1000
+	if secs < 60 {
+		return fmt.Sprintf("%.2fs", secs)
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return fmt.Sprintf("%.2fm", mins)
+	}
+	hours := mins / 60
+	return fmt.Sprintf("%.2fh", hours)
+}
+
+// formatDurationFloat formats milliseconds (as float64) into human-readable units.
+func formatDurationFloat(ms float64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	secs := ms / 1000
+	if secs < 60 {
+		return fmt.Sprintf("%.2fs", secs)
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return fmt.Sprintf("%.2fm", mins)
+	}
+	hours := mins / 60
+	return fmt.Sprintf("%.2fh", hours)
+}
+
+// formatUptime formats seconds into human-readable uptime.
+func formatUptime(secs float64) string {
+	if secs < 60 {
+		return fmt.Sprintf("%.0fs", secs)
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return fmt.Sprintf("%.1fm", mins)
+	}
+	hours := mins / 60
+	if hours < 24 {
+		return fmt.Sprintf("%.1fh", hours)
+	}
+	days := hours / 24
+	return fmt.Sprintf("%.1fd", days)
+}
+
 // printServerStats displays server runtime statistics.
 func printServerStats(stats *client.ServerStats) {
 	fmt.Printf("Server Statistics (in-memory, since restart)\n")
 	fmt.Printf("═══════════════════════════════════════════════\n")
-	fmt.Printf("Uptime: %.1f seconds\n", stats.UptimeSeconds)
+	fmt.Printf("Uptime: %s\n", formatUptime(stats.UptimeSeconds))
 
 	if stats.Embedding != nil {
 		fmt.Printf("\nEmbeddings:\n")
@@ -146,9 +198,11 @@ func printServerStats(stats *client.ServerStats) {
 
 // printOpStats displays timing statistics for an operation.
 func printOpStats(op *client.OperationStats) {
-	fmt.Printf("  Calls: %d, Total: %dms\n", op.Count, op.TotalTimeMs)
-	fmt.Printf("  Time: avg %.1fms, min %dms, max %dms\n",
-		op.AvgTimeMs, op.MinTimeMs, op.MaxTimeMs)
+	fmt.Printf("  Calls: %d, Total: %s\n", op.Count, formatDuration(op.TotalTimeMs))
+	fmt.Printf("  Time: avg %s, min %s, max %s\n",
+		formatDurationFloat(op.AvgTimeMs),
+		formatDuration(op.MinTimeMs),
+		formatDuration(op.MaxTimeMs))
 }
 
 // printTokenStats displays token statistics if available.
