@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/llm"
@@ -12,11 +13,23 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/parser"
 )
 
+// reindexState tracks an in-flight background re-index goroutine.
+type reindexState struct {
+	cancel context.CancelFunc
+	gen    uint64 // generation counter to identify the active goroutine
+}
+
 // EntityService handles entity operations with LLM integration.
 type EntityService struct {
 	db       *db.Client
 	embedder *llm.Embedder
 	model    *llm.Model
+
+	// reindexMu protects reindexCancel from concurrent access.
+	reindexMu sync.Mutex
+	// reindexCancel tracks in-flight background re-index goroutines per entity.
+	// A new save cancels any previous in-flight re-index for the same entity.
+	reindexCancel map[string]reindexState
 }
 
 // CreateResult contains the result of entity creation.
@@ -28,9 +41,10 @@ type CreateResult struct {
 // NewEntityService creates a new entity service.
 func NewEntityService(db *db.Client, embedder *llm.Embedder, model *llm.Model) *EntityService {
 	return &EntityService{
-		db:       db,
-		embedder: embedder,
-		model:    model,
+		db:            db,
+		embedder:      embedder,
+		model:         model,
+		reindexCancel: make(map[string]reindexState),
 	}
 }
 
@@ -254,14 +268,31 @@ func (s *EntityService) UpdateContent(ctx context.Context, id string, content st
 
 	// Delete old chunks (sync) so stale chunks aren't returned during re-indexing
 	if err := s.db.DeleteChunks(ctx, id); err != nil {
-		slog.Warn("failed to delete old chunks", "entity", id, "error", err)
+		return nil, fmt.Errorf("delete old chunks: %w", err)
 	}
+
+	// Cancel any in-flight re-index for this entity to prevent stale goroutines
+	s.reindexMu.Lock()
+	if prev, ok := s.reindexCancel[id]; ok {
+		prev.cancel()
+	}
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	gen := s.reindexCancel[id].gen + 1
+	s.reindexCancel[id] = reindexState{cancel: bgCancel, gen: gen}
+	s.reindexMu.Unlock()
 
 	// Re-embed + re-chunk in background goroutine
 	go func() {
-		bgCtx := context.Background()
+		defer func() {
+			s.reindexMu.Lock()
+			// Only clean up if we're still the active goroutine for this entity
+			if s.reindexCancel[id].gen == gen {
+				delete(s.reindexCancel, id)
+			}
+			s.reindexMu.Unlock()
+		}()
 
-		// Re-generate embedding
+		// Re-generate embedding (only if embedder configured)
 		if s.embedder != nil {
 			text := entity.Name
 			if entity.Summary != nil {
@@ -271,27 +302,39 @@ func (s *EntityService) UpdateContent(ctx context.Context, id string, content st
 
 			embedding, err := s.embedder.Embed(bgCtx, text)
 			if err != nil {
+				if bgCtx.Err() != nil {
+					return // superseded by newer save
+				}
 				slog.Warn("background re-embed failed", "entity", id, "error", err)
 			} else {
 				embUpdate := models.EntityUpdate{Embedding: embedding}
 				if _, err := s.db.UpdateEntity(bgCtx, id, embUpdate); err != nil {
+					if bgCtx.Err() != nil {
+						return
+					}
 					slog.Warn("failed to save new embedding", "entity", id, "error", err)
 				}
 			}
 		}
 
-		// Re-chunk if content is large enough
-		if s.embedder != nil {
-			// Refresh entity to get latest state
-			updated, err := s.db.GetEntity(bgCtx, id)
-			if err != nil {
-				slog.Warn("failed to get entity for rechunk", "entity", id, "error", err)
+		// Re-chunk: refresh entity to get latest state (works with or without embedder)
+		if bgCtx.Err() != nil {
+			return // superseded by newer save
+		}
+		updated, err := s.db.GetEntity(bgCtx, id)
+		if err != nil {
+			if bgCtx.Err() != nil {
 				return
 			}
-			if updated != nil && updated.Content != nil {
-				if _, err := s.chunkEntity(bgCtx, updated); err != nil {
-					slog.Warn("background re-chunk failed", "entity", id, "error", err)
+			slog.Warn("failed to get entity for rechunk", "entity", id, "error", err)
+			return
+		}
+		if updated != nil && updated.Content != nil {
+			if _, err := s.chunkEntity(bgCtx, updated); err != nil {
+				if bgCtx.Err() != nil {
+					return
 				}
+				slog.Warn("background re-chunk failed", "entity", id, "error", err)
 			}
 		}
 	}()

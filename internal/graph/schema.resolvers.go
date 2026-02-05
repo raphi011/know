@@ -8,6 +8,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
@@ -291,9 +292,11 @@ func (r *queryResolver) EntityByName(ctx context.Context, name string) (*Entity,
 		return nil, nil
 	}
 
-	// Update access tracking
+	// Update access tracking (best-effort)
 	if idStr, err := models.RecordIDString(entity.ID); err == nil {
-		_ = r.db.UpdateEntityAccess(ctx, idStr) // Best-effort access tracking
+		if err := r.db.UpdateEntityAccess(ctx, idStr); err != nil {
+			slog.Warn("failed to update entity access", "entity", idStr, "error", err)
+		}
 	}
 
 	return entityToGraphQL(entity), nil

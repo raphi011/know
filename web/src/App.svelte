@@ -27,6 +27,7 @@
   let saveStatus = $state<'idle' | 'saving' | 'saved' | 'error'>('idle')
   let saveTimeout: ReturnType<typeof setTimeout> | undefined
   let loading = $state(false)
+  let loadError = $state<string | null>(null)
 
   let isDirty = $derived(editorContent !== lastSavedContent)
 
@@ -45,29 +46,54 @@
   })
 
   async function loadDocuments() {
-    const data: { entities: EntityListItem[] } = await client.request(LIST_DOCUMENTS)
-    entities = data.entities
+    try {
+      loadError = null
+      const data: { entities: EntityListItem[] } = await client.request(LIST_DOCUMENTS)
+      entities = data.entities
+    } catch (e) {
+      console.error('Failed to load documents:', e)
+      loadError = 'Failed to load documents. Is the server running?'
+    }
   }
 
   async function selectEntity(id: string) {
     if (id === selectedId) return
+
+    // Warn if unsaved changes would be lost
+    if (isDirty && !confirm('You have unsaved changes. Discard them?')) {
+      return
+    }
+
     selectedId = id
     loading = true
-    const data: { entity: EntityFull } = await client.request(GET_ENTITY, { id })
-    selectedEntity = data.entity
-    const content = data.entity.content ?? ''
-    editorContent = content
-    lastSavedContent = content
-    saveStatus = 'idle'
-    loading = false
-  }
-
-  function handleEditorChange(content: string) {
-    editorContent = content
+    try {
+      const data: { entity: EntityFull } = await client.request(GET_ENTITY, { id })
+      if (!data.entity) {
+        selectedEntity = null
+        editorContent = ''
+        lastSavedContent = ''
+        return
+      }
+      selectedEntity = data.entity
+      const content = data.entity.content ?? ''
+      editorContent = content
+      lastSavedContent = content
+      saveStatus = 'idle'
+    } catch (e) {
+      console.error('Failed to load entity:', e)
+      selectedId = null
+      selectedEntity = null
+    } finally {
+      loading = false
+    }
   }
 
   async function save() {
     if (!selectedId || !isDirty) return
+
+    // Snapshot before async boundary to avoid race with continued edits
+    const contentToSave = editorContent
+    const entityId = selectedId
 
     saveStatus = 'saving'
     if (saveTimeout) clearTimeout(saveTimeout)
@@ -75,9 +101,9 @@
     try {
       const data: { updateEntityContent: EntityFull } = await client.request(
         UPDATE_CONTENT,
-        { id: selectedId, content: editorContent },
+        { id: entityId, content: contentToSave },
       )
-      lastSavedContent = editorContent
+      lastSavedContent = contentToSave
       selectedEntity = data.updateEntityContent
       saveStatus = 'saved'
       saveTimeout = setTimeout(() => {
@@ -110,13 +136,15 @@
       </div>
       <Editor
         content={editorContent}
-        onChange={handleEditorChange}
+        onChange={(c: string) => editorContent = c}
         onSave={save}
       />
     {:else}
       <div class="empty-state">
         {#if loading}
           Loading...
+        {:else if loadError}
+          <span class="error-text">{loadError}</span>
         {:else}
           Select a document to edit
         {/if}
@@ -191,5 +219,9 @@
     justify-content: center;
     color: var(--text-dim);
     font-size: 15px;
+  }
+
+  .error-text {
+    color: var(--error);
   }
 </style>

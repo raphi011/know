@@ -3,15 +3,15 @@
 </script>
 
 {#if status !== 'idle'}
-  <div class="save-status" class:saving={status === 'saving'} class:saved={status === 'saved'} class:error={status === 'error'}>
+  <span class="save-status {status}">
     {#if status === 'saving'}
       Saving...
     {:else if status === 'saved'}
       Saved
-    {:else if status === 'error'}
+    {:else}
       Save failed
     {/if}
-  </div>
+  </span>
 {/if}
 
 <style>

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -108,17 +109,8 @@ func main() {
 	// GraphQL playground moved to /playground
 	mux.Handle("/playground", playground.Handler("Knowhow GraphQL", "/query"))
 
-	// GraphQL endpoint with CORS for Vite dev server
-	mux.HandleFunc("/query", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		srv.ServeHTTP(w, r)
-	})
+	// GraphQL endpoint (no CORS needed: Vite proxy handles dev, same-origin handles prod)
+	mux.Handle("/query", srv)
 
 	// Health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -135,20 +127,16 @@ func main() {
 	fileServer := http.FileServer(http.FS(distFS))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Try serving the file directly; fall back to index.html for SPA routing
-		path := r.URL.Path
-		if path == "/" {
-			fileServer.ServeHTTP(w, r)
-			return
+		if r.URL.Path != "/" {
+			_, err := distFS.Open(r.URL.Path[1:])
+			if errors.Is(err, fs.ErrNotExist) {
+				r.URL.Path = "/"
+			} else if err != nil {
+				slog.Warn("unexpected error opening embedded file", "path", r.URL.Path, "error", err)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
 		}
-		// Check if the file exists in the embedded FS
-		f, err := distFS.Open(path[1:]) // strip leading /
-		if err != nil {
-			// File not found — serve index.html for SPA client-side routing
-			r.URL.Path = "/"
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-		f.Close()
 		fileServer.ServeHTTP(w, r)
 	})
 
