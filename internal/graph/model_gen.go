@@ -2,8 +2,95 @@
 
 package graph
 
+import (
+	"time"
+)
+
+type AskStreamEvent struct {
+	// Token content from the LLM stream
+	Token string `json:"token"`
+	// True when the stream is complete
+	Done bool `json:"done"`
+	// Error message if streaming failed
+	Error *string `json:"error,omitempty"`
+}
+
+type CheckHashesInput struct {
+	Files []*FileHashInput `json:"files"`
+}
+
+type CheckHashesResult struct {
+	// Paths that need uploading (new or changed content)
+	Needed []string `json:"needed"`
+}
+
+type FileContentInput struct {
+	// File path (used for entity name derivation)
+	Path string `json:"path"`
+	// Raw file content
+	Content string `json:"content"`
+	// SHA256 hash of content
+	Hash string `json:"hash"`
+}
+
+type FileHashInput struct {
+	// Relative or absolute file path
+	Path string `json:"path"`
+	// SHA256 hash of raw file bytes
+	Hash string `json:"hash"`
+}
+
+type IngestFilesInput struct {
+	Files []*FileContentInput `json:"files"`
+	// Base directory name for entity ID derivation (e.g., 'insights' from ~/.claude/insights)
+	BaseDir string       `json:"baseDir"`
+	Options *IngestInput `json:"options,omitempty"`
+}
+
+type Job struct {
+	ID           string        `json:"id"`
+	Type         string        `json:"type"`
+	Status       string        `json:"status"`
+	Progress     int           `json:"progress"`
+	Total        int           `json:"total"`
+	Result       *IngestResult `json:"result,omitempty"`
+	Error        *string       `json:"error,omitempty"`
+	StartedAt    time.Time     `json:"startedAt"`
+	CompletedAt  *time.Time    `json:"completedAt,omitempty"`
+	DirPath      *string       `json:"dirPath,omitempty"`
+	PendingFiles *int          `json:"pendingFiles,omitempty"`
+}
+
 type Mutation struct {
 }
 
+type OperationStats struct {
+	Count             int      `json:"count"`
+	TotalTimeMs       int      `json:"totalTimeMs"`
+	AvgTimeMs         float64  `json:"avgTimeMs"`
+	MinTimeMs         int      `json:"minTimeMs"`
+	MaxTimeMs         int      `json:"maxTimeMs"`
+	TotalInputTokens  *int     `json:"totalInputTokens,omitempty"`
+	TotalOutputTokens *int     `json:"totalOutputTokens,omitempty"`
+	AvgInputTokens    *float64 `json:"avgInputTokens,omitempty"`
+	AvgOutputTokens   *float64 `json:"avgOutputTokens,omitempty"`
+	MinInputTokens    *int     `json:"minInputTokens,omitempty"`
+	MaxInputTokens    *int     `json:"maxInputTokens,omitempty"`
+	MinOutputTokens   *int     `json:"minOutputTokens,omitempty"`
+	MaxOutputTokens   *int     `json:"maxOutputTokens,omitempty"`
+}
+
 type Query struct {
+}
+
+type ServerStats struct {
+	UptimeSeconds float64         `json:"uptimeSeconds"`
+	Embedding     *OperationStats `json:"embedding,omitempty"`
+	LlmGenerate   *OperationStats `json:"llmGenerate,omitempty"`
+	LlmStream     *OperationStats `json:"llmStream,omitempty"`
+	DbQuery       *OperationStats `json:"dbQuery,omitempty"`
+	DbSearch      *OperationStats `json:"dbSearch,omitempty"`
+}
+
+type Subscription struct {
 }

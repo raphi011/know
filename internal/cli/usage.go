@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/raphaelgruber/memcp-go/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +17,8 @@ var (
 
 var usageCmd = &cobra.Command{
 	Use:   "usage",
-	Short: "Show token usage statistics",
-	Long: `Show LLM token usage statistics for cost monitoring.
+	Short: "Show usage statistics",
+	Long: `Show server runtime statistics and token usage for cost monitoring.
 
 Examples:
   knowhow usage
@@ -35,6 +36,14 @@ func init() {
 
 func runUsage(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+
+	// Show server runtime stats
+	stats, err := gqlClient.GetServerStats(ctx)
+	if err != nil {
+		return fmt.Errorf("get server stats: %w", err)
+	}
+	printServerStats(stats)
+	fmt.Println()
 
 	// Parse since duration
 	var since time.Time
@@ -99,4 +108,123 @@ func runUsage(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// formatDuration formats milliseconds into human-readable units.
+// Uses the most appropriate unit: ms, s, m, or h.
+func formatDuration(ms int) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	secs := float64(ms) / 1000
+	if secs < 60 {
+		return fmt.Sprintf("%.2fs", secs)
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return fmt.Sprintf("%.2fm", mins)
+	}
+	hours := mins / 60
+	return fmt.Sprintf("%.2fh", hours)
+}
+
+// formatDurationFloat formats milliseconds (as float64) into human-readable units.
+func formatDurationFloat(ms float64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	secs := ms / 1000
+	if secs < 60 {
+		return fmt.Sprintf("%.2fs", secs)
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return fmt.Sprintf("%.2fm", mins)
+	}
+	hours := mins / 60
+	return fmt.Sprintf("%.2fh", hours)
+}
+
+// formatUptime formats seconds into human-readable uptime.
+func formatUptime(secs float64) string {
+	if secs < 60 {
+		return fmt.Sprintf("%.0fs", secs)
+	}
+	mins := secs / 60
+	if mins < 60 {
+		return fmt.Sprintf("%.1fm", mins)
+	}
+	hours := mins / 60
+	if hours < 24 {
+		return fmt.Sprintf("%.1fh", hours)
+	}
+	days := hours / 24
+	return fmt.Sprintf("%.1fd", days)
+}
+
+// printServerStats displays server runtime statistics.
+func printServerStats(stats *client.ServerStats) {
+	fmt.Printf("Server Statistics (in-memory, since restart)\n")
+	fmt.Printf("═══════════════════════════════════════════════\n")
+	fmt.Printf("Uptime: %s\n", formatUptime(stats.UptimeSeconds))
+
+	if stats.Embedding != nil {
+		fmt.Printf("\nEmbeddings:\n")
+		printOpStats(stats.Embedding)
+	}
+
+	if stats.LLMGenerate != nil {
+		fmt.Printf("\nLLM Generate:\n")
+		printOpStats(stats.LLMGenerate)
+		printTokenStats(stats.LLMGenerate)
+	}
+
+	if stats.LLMStream != nil {
+		fmt.Printf("\nLLM Stream:\n")
+		printOpStats(stats.LLMStream)
+		printTokenStats(stats.LLMStream)
+	}
+
+	if stats.DBQuery != nil {
+		fmt.Printf("\nDB Query:\n")
+		printOpStats(stats.DBQuery)
+	}
+
+	if stats.DBSearch != nil {
+		fmt.Printf("\nDB Search:\n")
+		printOpStats(stats.DBSearch)
+	}
+}
+
+// printOpStats displays timing statistics for an operation.
+func printOpStats(op *client.OperationStats) {
+	fmt.Printf("  Calls: %d, Total: %s\n", op.Count, formatDuration(op.TotalTimeMs))
+	fmt.Printf("  Time: avg %s, min %s, max %s\n",
+		formatDurationFloat(op.AvgTimeMs),
+		formatDuration(op.MinTimeMs),
+		formatDuration(op.MaxTimeMs))
+}
+
+// printTokenStats displays token statistics if available.
+func printTokenStats(op *client.OperationStats) {
+	if op.TotalInputTokens == nil || op.TotalOutputTokens == nil {
+		return
+	}
+	fmt.Printf("  Tokens In:  %d total", *op.TotalInputTokens)
+	if op.AvgInputTokens != nil {
+		fmt.Printf(", avg %.0f", *op.AvgInputTokens)
+	}
+	if op.MinInputTokens != nil && op.MaxInputTokens != nil {
+		fmt.Printf(", min %d, max %d", *op.MinInputTokens, *op.MaxInputTokens)
+	}
+	fmt.Println()
+
+	fmt.Printf("  Tokens Out: %d total", *op.TotalOutputTokens)
+	if op.AvgOutputTokens != nil {
+		fmt.Printf(", avg %.0f", *op.AvgOutputTokens)
+	}
+	if op.MinOutputTokens != nil && op.MaxOutputTokens != nil {
+		fmt.Printf(", min %d, max %d", *op.MinOutputTokens, *op.MaxOutputTokens)
+	}
+	fmt.Println()
 }

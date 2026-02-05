@@ -8,8 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 // Client is a GraphQL client for the Knowhow server.
@@ -19,19 +25,27 @@ type Client struct {
 }
 
 // New creates a new GraphQL client.
-// If endpoint is empty, uses KNOWHOW_SERVER_URL env var or defaults to localhost:8080.
+// If endpoint is empty, uses KNOWHOW_SERVER_URL env var or defaults to localhost:8484.
+// Timeout can be configured via KNOWHOW_CLIENT_TIMEOUT env var (default 10m for batch operations).
 func New(endpoint string) *Client {
 	if endpoint == "" {
 		endpoint = os.Getenv("KNOWHOW_SERVER_URL")
 	}
 	if endpoint == "" {
-		endpoint = "http://localhost:8080/query"
+		endpoint = "http://localhost:8484/query"
+	}
+
+	timeout := 10 * time.Minute // Default: 10 minutes for batch LLM operations
+	if t := os.Getenv("KNOWHOW_CLIENT_TIMEOUT"); t != "" {
+		if d, err := time.ParseDuration(t); err == nil {
+			timeout = d
+		}
 	}
 
 	return &Client{
 		endpoint: endpoint,
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second, // Long timeout for LLM operations
+			Timeout: timeout,
 		},
 	}
 }
@@ -115,6 +129,7 @@ type Entity struct {
 	Content     *string        `json:"content,omitempty"`
 	Summary     *string        `json:"summary,omitempty"`
 	Labels      []string       `json:"labels"`
+	ContentHash *string        `json:"contentHash,omitempty"`
 	Verified    bool           `json:"verified"`
 	Confidence  float64        `json:"confidence"`
 	Source      string         `json:"source"`
@@ -153,10 +168,29 @@ type ChunkMatch struct {
 // IngestResult summarizes an ingestion operation.
 type IngestResult struct {
 	FilesProcessed   int      `json:"filesProcessed"`
+	FilesSkipped     int      `json:"filesSkipped"`
 	EntitiesCreated  int      `json:"entitiesCreated"`
 	ChunksCreated    int      `json:"chunksCreated"`
 	RelationsCreated int      `json:"relationsCreated"`
 	Errors           []string `json:"errors"`
+}
+
+// FileHashInput represents a file with its content hash for deduplication.
+type FileHashInput struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+}
+
+// CheckHashesResult contains the paths that need uploading.
+type CheckHashesResult struct {
+	Needed []string `json:"needed"`
+}
+
+// FileContentInput represents a file with its content for ingestion.
+type FileContentInput struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Hash    string `json:"hash"`
 }
 
 // LabelCount represents a label with its entity count.
@@ -177,6 +211,33 @@ type TokenUsageSummary struct {
 	TotalCostUSD float64        `json:"totalCostUSD"`
 	ByOperation  map[string]any `json:"byOperation"`
 	ByModel      map[string]any `json:"byModel"`
+}
+
+// OperationStats holds metrics for a single operation type.
+type OperationStats struct {
+	Count             int      `json:"count"`
+	TotalTimeMs       int      `json:"totalTimeMs"`
+	AvgTimeMs         float64  `json:"avgTimeMs"`
+	MinTimeMs         int      `json:"minTimeMs"`
+	MaxTimeMs         int      `json:"maxTimeMs"`
+	TotalInputTokens  *int     `json:"totalInputTokens,omitempty"`
+	TotalOutputTokens *int     `json:"totalOutputTokens,omitempty"`
+	AvgInputTokens    *float64 `json:"avgInputTokens,omitempty"`
+	AvgOutputTokens   *float64 `json:"avgOutputTokens,omitempty"`
+	MinInputTokens    *int     `json:"minInputTokens,omitempty"`
+	MaxInputTokens    *int     `json:"maxInputTokens,omitempty"`
+	MinOutputTokens   *int     `json:"minOutputTokens,omitempty"`
+	MaxOutputTokens   *int     `json:"maxOutputTokens,omitempty"`
+}
+
+// ServerStats holds in-memory runtime statistics (resets on server restart).
+type ServerStats struct {
+	UptimeSeconds float64         `json:"uptimeSeconds"`
+	Embedding     *OperationStats `json:"embedding,omitempty"`
+	LLMGenerate   *OperationStats `json:"llmGenerate,omitempty"`
+	LLMStream     *OperationStats `json:"llmStream,omitempty"`
+	DBQuery       *OperationStats `json:"dbQuery,omitempty"`
+	DBSearch      *OperationStats `json:"dbSearch,omitempty"`
 }
 
 // =============================================================================
@@ -478,6 +539,19 @@ type IngestOptions struct {
 	Recursive    *bool
 }
 
+// Job represents a background processing job.
+type Job struct {
+	ID          string        `json:"id"`
+	Type        string        `json:"type"`
+	Status      string        `json:"status"`
+	Progress    int           `json:"progress"`
+	Total       int           `json:"total"`
+	Result      *IngestResult `json:"result,omitempty"`
+	Error       *string       `json:"error,omitempty"`
+	StartedAt   time.Time     `json:"startedAt"`
+	CompletedAt *time.Time    `json:"completedAt,omitempty"`
+}
+
 // IngestFile ingests a single file.
 func (c *Client) IngestFile(ctx context.Context, filePath string, opts *IngestOptions) (*Entity, error) {
 	const query = `
@@ -551,6 +625,194 @@ func (c *Client) IngestDirectory(ctx context.Context, dirPath string, opts *Inge
 		return nil, err
 	}
 	return &result.IngestDirectory, nil
+}
+
+// IngestDirectoryAsync starts an async ingestion job and returns immediately.
+func (c *Client) IngestDirectoryAsync(ctx context.Context, dirPath string, opts *IngestOptions) (*Job, error) {
+	const query = `
+		mutation IngestDirectoryAsync($dirPath: String!, $input: IngestInput) {
+			ingestDirectoryAsync(dirPath: $dirPath, input: $input) {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	vars := map[string]any{"dirPath": dirPath}
+	if opts != nil {
+		input := map[string]any{}
+		if len(opts.Labels) > 0 {
+			input["labels"] = opts.Labels
+		}
+		if opts.ExtractGraph != nil {
+			input["extractGraph"] = *opts.ExtractGraph
+		}
+		if opts.DryRun != nil {
+			input["dryRun"] = *opts.DryRun
+		}
+		if opts.Recursive != nil {
+			input["recursive"] = *opts.Recursive
+		}
+		vars["input"] = input
+	}
+
+	var result struct {
+		IngestDirectoryAsync Job `json:"ingestDirectoryAsync"`
+	}
+	if err := c.Execute(ctx, query, vars, &result); err != nil {
+		return nil, err
+	}
+	return &result.IngestDirectoryAsync, nil
+}
+
+// CheckHashes queries which files need uploading based on content hashes.
+// Returns paths that are NOT in the database (new or changed content).
+func (c *Client) CheckHashes(ctx context.Context, files []FileHashInput) (*CheckHashesResult, error) {
+	const query = `
+		query CheckHashes($input: CheckHashesInput!) {
+			checkHashes(input: $input) {
+				needed
+			}
+		}
+	`
+
+	input := map[string]any{
+		"files": files,
+	}
+
+	var result struct {
+		CheckHashes CheckHashesResult `json:"checkHashes"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"input": input}, &result); err != nil {
+		return nil, err
+	}
+	return &result.CheckHashes, nil
+}
+
+// IngestFiles ingests multiple files with provided content.
+// Used after CheckHashes to upload only changed files.
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, baseDir string, opts *IngestOptions) (*IngestResult, error) {
+	const query = `
+		mutation IngestFiles($input: IngestFilesInput!) {
+			ingestFiles(input: $input) {
+				filesProcessed filesSkipped entitiesCreated chunksCreated relationsCreated errors
+			}
+		}
+	`
+
+	input := map[string]any{
+		"files":   files,
+		"baseDir": baseDir,
+	}
+
+	if opts != nil {
+		options := map[string]any{}
+		if len(opts.Labels) > 0 {
+			options["labels"] = opts.Labels
+		}
+		if opts.ExtractGraph != nil {
+			options["extractGraph"] = *opts.ExtractGraph
+		}
+		if opts.DryRun != nil {
+			options["dryRun"] = *opts.DryRun
+		}
+		input["options"] = options
+	}
+
+	var result struct {
+		IngestFiles IngestResult `json:"ingestFiles"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"input": input}, &result); err != nil {
+		return nil, err
+	}
+	return &result.IngestFiles, nil
+}
+
+// IngestFilesAsync starts an async job for content-based file ingestion.
+// Returns a Job immediately; processing happens in background on the server.
+// Used after CheckHashes to upload only changed files with progress tracking.
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (c *Client) IngestFilesAsync(ctx context.Context, files []FileContentInput, baseDir string, opts *IngestOptions) (*Job, error) {
+	const query = `
+		mutation IngestFilesAsync($input: IngestFilesInput!) {
+			ingestFilesAsync(input: $input) {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	input := map[string]any{
+		"files":   files,
+		"baseDir": baseDir,
+	}
+
+	if opts != nil {
+		options := map[string]any{}
+		if len(opts.Labels) > 0 {
+			options["labels"] = opts.Labels
+		}
+		if opts.ExtractGraph != nil {
+			options["extractGraph"] = *opts.ExtractGraph
+		}
+		if opts.DryRun != nil {
+			options["dryRun"] = *opts.DryRun
+		}
+		input["options"] = options
+	}
+
+	var result struct {
+		IngestFilesAsync Job `json:"ingestFilesAsync"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"input": input}, &result); err != nil {
+		return nil, err
+	}
+	return &result.IngestFilesAsync, nil
+}
+
+// =============================================================================
+// JOB OPERATIONS
+// =============================================================================
+
+// ListJobs returns all background jobs.
+func (c *Client) ListJobs(ctx context.Context) ([]Job, error) {
+	const query = `
+		query ListJobs {
+			jobs {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	var result struct {
+		Jobs []Job `json:"jobs"`
+	}
+	if err := c.Execute(ctx, query, nil, &result); err != nil {
+		return nil, err
+	}
+	return result.Jobs, nil
+}
+
+// GetJob retrieves a job by ID.
+func (c *Client) GetJob(ctx context.Context, id string) (*Job, error) {
+	const query = `
+		query GetJob($id: ID!) {
+			job(id: $id) {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	var result struct {
+		Job *Job `json:"job"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"id": id}, &result); err != nil {
+		return nil, err
+	}
+	return result.Job, nil
 }
 
 // =============================================================================
@@ -695,4 +957,269 @@ func (c *Client) GetUsageSummary(ctx context.Context, since string) (*TokenUsage
 		return nil, err
 	}
 	return &result.UsageSummary, nil
+}
+
+// GetServerStats returns in-memory runtime statistics.
+func (c *Client) GetServerStats(ctx context.Context) (*ServerStats, error) {
+	const query = `
+		query GetServerStats {
+			serverStats {
+				uptimeSeconds
+				embedding {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+				}
+				llmGenerate {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+					totalInputTokens totalOutputTokens
+					avgInputTokens avgOutputTokens
+					minInputTokens maxInputTokens
+					minOutputTokens maxOutputTokens
+				}
+				llmStream {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+					totalInputTokens totalOutputTokens
+					avgInputTokens avgOutputTokens
+					minInputTokens maxInputTokens
+					minOutputTokens maxOutputTokens
+				}
+				dbQuery {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+				}
+				dbSearch {
+					count totalTimeMs avgTimeMs minTimeMs maxTimeMs
+				}
+			}
+		}
+	`
+
+	var result struct {
+		ServerStats ServerStats `json:"serverStats"`
+	}
+	if err := c.Execute(ctx, query, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result.ServerStats, nil
+}
+
+// =============================================================================
+// STREAMING OPERATIONS
+// =============================================================================
+
+// AskStreamEvent represents a streaming token event.
+type AskStreamEvent struct {
+	Token string  `json:"token"`
+	Done  bool    `json:"done"`
+	Error *string `json:"error,omitempty"`
+}
+
+// graphql-transport-ws protocol message types
+const (
+	gqlConnectionInit      = "connection_init"
+	gqlConnectionAck       = "connection_ack"
+	gqlSubscribe           = "subscribe"
+	gqlNext                = "next"
+	gqlError               = "error"
+	gqlComplete            = "complete"
+	gqlConnectionKeepAlive = "ka"
+)
+
+// wsMessage represents a graphql-transport-ws protocol message.
+type wsMessage struct {
+	ID      string          `json:"id,omitempty"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// wsSubscribePayload is the payload for subscribe messages.
+type wsSubscribePayload struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables,omitempty"`
+}
+
+// AskStream performs search and streams the LLM-synthesized answer token by token.
+// The onToken callback is invoked for each token. Return an error from onToken to abort.
+func (c *Client) AskStream(
+	ctx context.Context,
+	question string,
+	opts *SearchOptions,
+	templateName *string,
+	onToken func(token string) error,
+) error {
+	// Convert HTTP endpoint to WebSocket endpoint
+	wsEndpoint := c.endpoint
+	wsEndpoint = strings.Replace(wsEndpoint, "http://", "ws://", 1)
+	wsEndpoint = strings.Replace(wsEndpoint, "https://", "wss://", 1)
+
+	u, err := url.Parse(wsEndpoint)
+	if err != nil {
+		return fmt.Errorf("parse endpoint: %w", err)
+	}
+
+	// Connect with graphql-transport-ws subprotocol
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+		Subprotocols:     []string{"graphql-transport-ws"},
+	}
+
+	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("websocket connect: %w", err)
+	}
+	defer conn.Close()
+
+	// Track connection state for proper cleanup
+	var mu sync.Mutex
+	closed := false
+	closeConn := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if !closed {
+			closed = true
+			conn.Close()
+		}
+	}
+	defer closeConn()
+
+	// Send connection_init
+	initMsg := wsMessage{Type: gqlConnectionInit}
+	if err := conn.WriteJSON(initMsg); err != nil {
+		return fmt.Errorf("send connection_init: %w", err)
+	}
+
+	// Wait for connection_ack
+	var ackMsg wsMessage
+	if err := conn.ReadJSON(&ackMsg); err != nil {
+		return fmt.Errorf("read connection_ack: %w", err)
+	}
+	if ackMsg.Type != gqlConnectionAck {
+		return fmt.Errorf("expected connection_ack, got %s", ackMsg.Type)
+	}
+
+	// Build subscription query
+	const subscriptionQuery = `
+		subscription AskStream($query: String!, $input: SearchInput, $templateName: String) {
+			askStream(query: $query, input: $input, templateName: $templateName) {
+				token
+				done
+				error
+			}
+		}
+	`
+
+	vars := map[string]any{"query": question}
+	if opts != nil {
+		input := map[string]any{}
+		if opts.Query != "" {
+			input["query"] = opts.Query
+		} else {
+			input["query"] = question
+		}
+		if len(opts.Labels) > 0 {
+			input["labels"] = opts.Labels
+		}
+		if len(opts.Types) > 0 {
+			input["types"] = opts.Types
+		}
+		if opts.VerifiedOnly != nil {
+			input["verifiedOnly"] = *opts.VerifiedOnly
+		}
+		if opts.Limit != nil {
+			input["limit"] = *opts.Limit
+		}
+		vars["input"] = input
+	}
+	if templateName != nil {
+		vars["templateName"] = *templateName
+	}
+
+	// Send subscribe message
+	subscriptionID := uuid.New().String()
+	payload, _ := json.Marshal(wsSubscribePayload{
+		Query:     subscriptionQuery,
+		Variables: vars,
+	})
+	subMsg := wsMessage{
+		ID:      subscriptionID,
+		Type:    gqlSubscribe,
+		Payload: payload,
+	}
+	if err := conn.WriteJSON(subMsg); err != nil {
+		return fmt.Errorf("send subscribe: %w", err)
+	}
+
+	// Handle context cancellation in a separate goroutine
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			closeConn()
+		case <-done:
+		}
+	}()
+
+	// Read messages until complete or error
+	for {
+		var msg wsMessage
+		if err := conn.ReadJSON(&msg); err != nil {
+			// Check if this was due to context cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("read message: %w", err)
+		}
+
+		switch msg.Type {
+		case gqlNext:
+			// Parse the data payload
+			var data struct {
+				Data struct {
+					AskStream AskStreamEvent `json:"askStream"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(msg.Payload, &data); err != nil {
+				return fmt.Errorf("unmarshal next payload: %w", err)
+			}
+
+			event := data.Data.AskStream
+
+			// Check for error in event
+			if event.Error != nil {
+				return fmt.Errorf("stream error: %s", *event.Error)
+			}
+
+			// Send token to callback (if not empty)
+			if event.Token != "" {
+				if err := onToken(event.Token); err != nil {
+					return err
+				}
+			}
+
+			// Check if done
+			if event.Done {
+				return nil
+			}
+
+		case gqlError:
+			var errors []graphQLError
+			if err := json.Unmarshal(msg.Payload, &errors); err != nil {
+				return fmt.Errorf("subscription error: %s", string(msg.Payload))
+			}
+			if len(errors) > 0 {
+				return fmt.Errorf("subscription error: %s", errors[0].Message)
+			}
+			return fmt.Errorf("subscription error: unknown")
+
+		case gqlComplete:
+			return nil
+
+		case gqlConnectionKeepAlive:
+			// Ignore keep-alive messages
+			continue
+
+		default:
+			// Ignore unknown message types
+			continue
+		}
+	}
 }

@@ -61,13 +61,13 @@ func TestMain(m *testing.M) {
 		Username:  "root",
 		Password:  "root",
 		AuthLevel: "root",
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		log.Fatalf("Failed to connect to test database: %v", err)
 	}
 
-	// Initialize schema
-	if err := testDB.InitSchema(ctx); err != nil {
+	// Initialize schema with test embedding dimension (384)
+	if err := testDB.InitSchema(ctx, 384); err != nil {
 		log.Fatalf("Failed to initialize schema: %v", err)
 	}
 
@@ -214,6 +214,63 @@ func TestGetEntityByName(t *testing.T) {
 	}
 }
 
+func TestGetEntitiesByNames(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test entities
+	entities := []models.EntityInput{
+		{Type: "concept", Name: "Batch Test Alpha", Embedding: dummyEmbedding()},
+		{Type: "concept", Name: "Batch Test Beta", Embedding: dummyEmbedding()},
+		{Type: "concept", Name: "Batch Test Gamma", Embedding: dummyEmbedding()},
+	}
+
+	var createdIDs []string
+	for _, input := range entities {
+		created, err := testDB.CreateEntity(ctx, input)
+		if err != nil {
+			t.Fatalf("Failed to create test entity %s: %v", input.Name, err)
+		}
+		createdIDs = append(createdIDs, models.MustRecordIDString(created.ID))
+	}
+	defer func() {
+		for _, id := range createdIDs {
+			_, _ = testDB.DeleteEntity(ctx, id)
+		}
+	}()
+
+	// Test batch lookup with mixed existing and non-existing names
+	names := []string{"Batch Test Alpha", "batch test beta", "Nonexistent Entity", "Batch Test Gamma"}
+	result, err := testDB.GetEntitiesByNames(ctx, names)
+	if err != nil {
+		t.Fatalf("GetEntitiesByNames failed: %v", err)
+	}
+
+	// Should find 3 entities (case-insensitive)
+	if len(result) != 3 {
+		t.Errorf("Expected 3 entities, got %d", len(result))
+	}
+
+	// Check case-insensitive lookup
+	if _, ok := result["batch test alpha"]; !ok {
+		t.Error("Expected to find 'batch test alpha' (lowercase key)")
+	}
+	if _, ok := result["batch test beta"]; !ok {
+		t.Error("Expected to find 'batch test beta' (lowercase key)")
+	}
+	if _, ok := result["nonexistent entity"]; ok {
+		t.Error("Should not find 'nonexistent entity'")
+	}
+
+	// Test empty input
+	emptyResult, err := testDB.GetEntitiesByNames(ctx, []string{})
+	if err != nil {
+		t.Fatalf("GetEntitiesByNames with empty input failed: %v", err)
+	}
+	if len(emptyResult) != 0 {
+		t.Errorf("Expected empty result for empty input, got %d", len(emptyResult))
+	}
+}
+
 func TestUpdateEntity(t *testing.T) {
 	ctx := context.Background()
 
@@ -294,6 +351,71 @@ func TestDeleteEntity(t *testing.T) {
 	if deleted {
 		t.Error("DeleteEntity with non-existent ID should return false")
 	}
+}
+
+func TestUpsertEntity(t *testing.T) {
+	ctx := context.Background()
+
+	// Test 1: Create new entity via upsert
+	explicitID := "upsert-test-entity"
+	content1 := "Original content"
+	entity, wasCreated, err := testDB.UpsertEntity(ctx, models.EntityInput{
+		ID:        &explicitID,
+		Type:      "document",
+		Name:      "Upsert Test",
+		Content:   &content1,
+		Embedding: dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("First UpsertEntity failed: %v", err)
+	}
+	if !wasCreated {
+		t.Error("First upsert should report wasCreated=true")
+	}
+	if entity.Name != "Upsert Test" {
+		t.Errorf("Name mismatch: got %q, want %q", entity.Name, "Upsert Test")
+	}
+	if entity.Content == nil || *entity.Content != "Original content" {
+		t.Errorf("Content mismatch after first upsert")
+	}
+
+	// Test 2: Update existing entity via upsert (same ID, new content)
+	content2 := "Updated content"
+	entity2, wasCreated2, err := testDB.UpsertEntity(ctx, models.EntityInput{
+		ID:        &explicitID,
+		Type:      "document",
+		Name:      "Upsert Test Updated",
+		Content:   &content2,
+		Embedding: dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("Second UpsertEntity failed: %v", err)
+	}
+	if wasCreated2 {
+		t.Error("Second upsert should report wasCreated=false (update)")
+	}
+	if entity2.Name != "Upsert Test Updated" {
+		t.Errorf("Name not updated: got %q, want %q", entity2.Name, "Upsert Test Updated")
+	}
+	if entity2.Content == nil || *entity2.Content != "Updated content" {
+		t.Errorf("Content not updated")
+	}
+
+	// Verify via direct get
+	entityID := models.MustRecordIDString(entity2.ID)
+	fetched, err := testDB.GetEntity(ctx, entityID)
+	if err != nil {
+		t.Fatalf("GetEntity after upsert failed: %v", err)
+	}
+	if fetched == nil {
+		t.Fatal("Entity should exist after upsert")
+	}
+	if fetched.Content == nil || *fetched.Content != "Updated content" {
+		t.Error("GetEntity content should reflect upsert update")
+	}
+
+	// Cleanup
+	_, _ = testDB.DeleteEntity(ctx, entityID)
 }
 
 // =============================================================================
@@ -659,5 +781,71 @@ func TestTokenUsage(t *testing.T) {
 	}
 	if summary.TotalTokens < 150 {
 		t.Errorf("Expected at least 150 total tokens, got %d", summary.TotalTokens)
+	}
+}
+
+func TestGetExistingHashes(t *testing.T) {
+	ctx := context.Background()
+
+	// Create entities with content hashes
+	hash1 := "abc123def456"
+	hash2 := "xyz789ghi012"
+	content := "test content"
+
+	entity1, err := testDB.CreateEntity(ctx, models.EntityInput{
+		Type:        "document",
+		Name:        "Hash Test 1",
+		Content:     &content,
+		ContentHash: &hash1,
+		Embedding:   dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("CreateEntity 1 failed: %v", err)
+	}
+	defer func() {
+		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity1.ID))
+	}()
+
+	entity2, err := testDB.CreateEntity(ctx, models.EntityInput{
+		Type:        "document",
+		Name:        "Hash Test 2",
+		Content:     &content,
+		ContentHash: &hash2,
+		Embedding:   dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("CreateEntity 2 failed: %v", err)
+	}
+	defer func() {
+		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity2.ID))
+	}()
+
+	// Query with mix of existing and non-existing hashes
+	hashes := []string{hash1, "nonexistent", hash2, "alsonotexist"}
+	existing, err := testDB.GetExistingHashes(ctx, hashes)
+	if err != nil {
+		t.Fatalf("GetExistingHashes failed: %v", err)
+	}
+
+	if len(existing) != 2 {
+		t.Errorf("Expected 2 existing hashes, got %d: %v", len(existing), existing)
+	}
+
+	// Verify the correct hashes were returned
+	found := make(map[string]bool)
+	for _, h := range existing {
+		found[h] = true
+	}
+	if !found[hash1] || !found[hash2] {
+		t.Errorf("Expected hashes %s and %s, got %v", hash1, hash2, existing)
+	}
+
+	// Empty input should return empty result
+	empty, err := testDB.GetExistingHashes(ctx, []string{})
+	if err != nil {
+		t.Fatalf("GetExistingHashes with empty input failed: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("Expected empty result, got %v", empty)
 	}
 }

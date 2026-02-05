@@ -15,6 +15,7 @@ const (
 	ProviderOllama    LLMProvider = "ollama"
 	ProviderOpenAI    LLMProvider = "openai"
 	ProviderAnthropic LLMProvider = "anthropic"
+	ProviderBedrock   LLMProvider = "bedrock"
 )
 
 // Config holds all configuration values.
@@ -28,22 +29,27 @@ type Config struct {
 	SurrealDBAuthLevel string
 
 	// Embedding configuration
-	EmbedProvider   LLMProvider
-	EmbedModel      string
-	EmbedDimension  int
+	EmbedProvider            LLMProvider
+	EmbedModel               string
+	EmbedDimension           int
+	BedrockEmbedModelProvider string // e.g., "amazon" for Titan, "cohere" for Cohere
 
 	// LLM configuration (for ask, extract-graph, render)
 	LLMProvider LLMProvider
 	LLMModel    string
 
 	// Provider-specific settings
-	OllamaHost     string
-	OpenAIAPIKey   string
-	AnthropicAPIKey string
+	OllamaHost           string
+	OpenAIAPIKey         string
+	AnthropicAPIKey      string
+	BedrockModelProvider string // e.g., "anthropic" for inference profiles
 
 	// Logging
 	LogFile  string
 	LogLevel slog.Level
+
+	// Server settings
+	IngestConcurrency int
 }
 
 // Load reads configuration from environment variables.
@@ -57,23 +63,28 @@ func Load() Config {
 		SurrealDBPass:      getEnv("SURREALDB_PASS", "root"),
 		SurrealDBAuthLevel: getEnv("SURREALDB_AUTH_LEVEL", "root"),
 
-		// Embedding (default to local Ollama)
-		EmbedProvider:  LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "ollama")),
-		EmbedModel:     getEnv("KNOWHOW_EMBED_MODEL", "all-minilm:l6-v2"),
-		EmbedDimension: getEnvInt("KNOWHOW_EMBED_DIMENSION", 384),
+		// Embedding (default to local Ollama with bge-m3)
+		EmbedProvider:            LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "ollama")),
+		EmbedModel:               getEnv("KNOWHOW_EMBED_MODEL", "bge-m3"),
+		EmbedDimension:           getEnvInt("KNOWHOW_EMBED_DIMENSION", 1024),
+		BedrockEmbedModelProvider: getEnv("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
 
 		// LLM (default to local Ollama)
 		LLMProvider: LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "ollama")),
 		LLMModel:    getEnv("KNOWHOW_LLM_MODEL", "llama3.2"),
 
 		// Provider hosts/keys
-		OllamaHost:      getEnv("OLLAMA_HOST", "http://localhost:11434"),
-		OpenAIAPIKey:    getEnv("OPENAI_API_KEY", ""),
-		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
+		OllamaHost:           getEnv("OLLAMA_HOST", "http://localhost:11434"),
+		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
+		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
+		BedrockModelProvider: getEnv("KNOWHOW_BEDROCK_MODEL_PROVIDER", ""),
 
 		// Logging
 		LogFile:  getEnv("KNOWHOW_LOG_FILE", "/tmp/knowhow.log"),
 		LogLevel: parseLogLevel(getEnv("KNOWHOW_LOG_LEVEL", "INFO")),
+
+		// Server settings
+		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
 	}
 }
 

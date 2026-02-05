@@ -1,8 +1,12 @@
 package db
 
-// SchemaSQL contains the database schema initialization SQL for Knowhow.
+import "fmt"
+
+// SchemaSQL returns the database schema initialization SQL for Knowhow.
 // Personal knowledge RAG database with flexible entity model.
-const SchemaSQL = `
+// The dimension parameter configures HNSW vector index dimensions.
+func SchemaSQL(dimension int) string {
+	return fmt.Sprintf(`
     -- ==========================================================================
     -- ENTITY TABLE (Core - Flexible Knowledge Atom)
     -- ==========================================================================
@@ -26,6 +30,7 @@ const SchemaSQL = `
     DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 0.5;     -- 0-1 certainty (for AI content)
     DEFINE FIELD IF NOT EXISTS source ON entity TYPE string DEFAULT "manual";   -- "manual" | "mcp" | "scrape" | "ai_generated"
     DEFINE FIELD IF NOT EXISTS source_path ON entity TYPE option<string>;       -- Original file path if scraped
+    DEFINE FIELD IF NOT EXISTS content_hash ON entity TYPE option<string>;     -- SHA256 hash for skip-unchanged
 
     -- Type-specific data
     DEFINE FIELD IF NOT EXISTS metadata ON entity TYPE option<object> FLEXIBLE;
@@ -48,7 +53,7 @@ const SchemaSQL = `
     DEFINE INDEX IF NOT EXISTS idx_entity_content_ft ON entity FIELDS content FULLTEXT ANALYZER entity_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_entity_name_ft ON entity FIELDS name FULLTEXT ANALYZER entity_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_entity_embedding ON entity FIELDS embedding
-        HNSW DIMENSION 384 DIST COSINE TYPE F32 EFC 150 M 12;
+        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;
 
     -- ==========================================================================
     -- CHUNK TABLE (RAG Pieces for Long Content)
@@ -70,7 +75,7 @@ const SchemaSQL = `
     DEFINE ANALYZER IF NOT EXISTS chunk_analyzer TOKENIZERS class FILTERS lowercase, ascii, snowball(english);
     DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER chunk_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding ON chunk FIELDS embedding
-        HNSW DIMENSION 384 DIST COSINE TYPE F32 EFC 150 M 12;
+        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;
 
     -- Cascade delete when parent entity deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_chunks ON entity
@@ -145,4 +150,25 @@ const SchemaSQL = `
 
     DEFINE INDEX IF NOT EXISTS idx_usage_operation ON token_usage FIELDS operation;
     DEFINE INDEX IF NOT EXISTS idx_usage_created ON token_usage FIELDS created_at;
-`
+
+    -- ==========================================================================
+    -- INGEST_JOB TABLE (Async Job Persistence)
+    -- ==========================================================================
+    -- Persists async ingestion jobs for restart resilience.
+    DEFINE TABLE IF NOT EXISTS ingest_job SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS job_type ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS status ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS dir_path ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS files ON ingest_job TYPE array<string>;
+    DEFINE FIELD IF NOT EXISTS options ON ingest_job TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS total ON ingest_job TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS progress ON ingest_job TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS result ON ingest_job TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS error ON ingest_job TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS started_at ON ingest_job TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS completed_at ON ingest_job TYPE option<datetime>;
+
+    DEFINE INDEX IF NOT EXISTS idx_job_status ON ingest_job FIELDS status;
+`, dimension, dimension)
+}

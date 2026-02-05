@@ -19,6 +19,12 @@ type EntityService struct {
 	model    *llm.Model
 }
 
+// CreateResult contains the result of entity creation.
+type CreateResult struct {
+	Entity        *models.Entity
+	ChunksCreated int
+}
+
 // NewEntityService creates a new entity service.
 func NewEntityService(db *db.Client, embedder *llm.Embedder, model *llm.Model) *EntityService {
 	return &EntityService{
@@ -29,9 +35,16 @@ func NewEntityService(db *db.Client, embedder *llm.Embedder, model *llm.Model) *
 }
 
 // Create creates a new entity with automatic embedding generation.
-func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*models.Entity, error) {
-	// Generate embedding from content/summary
-	if s.embedder != nil {
+// For large content that will be chunked, we skip entity-level embedding
+// and rely on chunk embeddings for search (chunks link back to entity).
+// If input.ID is provided, uses upsert to update existing entity (makes scrape idempotent).
+// Returns CreateResult with entity and chunk count.
+func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*CreateResult, error) {
+	// Check if content will be chunked - if so, skip entity-level embedding
+	willChunk := input.Content != nil && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig())
+
+	// Generate embedding from content/summary (skip if content will be chunked)
+	if s.embedder != nil && !willChunk {
 		text := ""
 		if input.Summary != nil {
 			text = *input.Summary
@@ -53,60 +66,105 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 			}
 			input.Embedding = embedding
 		}
+	} else if willChunk {
+		slog.Debug("skipping entity embedding - content will be chunked", "name", input.Name)
 	} else {
 		slog.Debug("creating entity without embedding - embedder not configured", "name", input.Name)
 	}
 
-	// Create entity
-	entity, err := s.db.CreateEntity(ctx, input)
-	if err != nil {
-		return nil, err
-	}
+	var entity *models.Entity
+	var wasCreated bool
+	var err error
 
-	// Check if content should be chunked
-	if input.Content != nil && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig()) {
-		idStr, idErr := models.RecordIDString(entity.ID)
-		if idErr != nil {
-			slog.Warn("failed to get entity ID for chunking", "error", idErr)
-		} else if err := s.chunkEntity(ctx, entity); err != nil {
-			// Log but don't fail - entity was created successfully
-			slog.Warn("failed to chunk entity", "entity", idStr, "error", err)
+	// Use upsert when explicit ID is provided (for scrape idempotency)
+	if input.ID != nil && *input.ID != "" {
+		entity, wasCreated, err = s.db.UpsertEntity(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		if !wasCreated {
+			slog.Debug("updated existing entity", "id", *input.ID, "name", input.Name)
+			// Delete old chunks before re-chunking for updated entity
+			if idStr, idErr := models.RecordIDString(entity.ID); idErr == nil {
+				if delErr := s.db.DeleteChunks(ctx, idStr); delErr != nil {
+					slog.Warn("failed to delete old chunks for update", "entity", idStr, "error", delErr)
+				}
+			}
+		}
+	} else {
+		// Standard create for manual entity creation
+		entity, err = s.db.CreateEntity(ctx, input)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	return entity, nil
+	result := &CreateResult{Entity: entity}
+
+	// Check if content should be chunked (skip if content is empty)
+	if input.Content != nil && *input.Content != "" && parser.ShouldChunk(*input.Content, parser.DefaultChunkConfig()) {
+		idStr, idErr := models.RecordIDString(entity.ID)
+		if idErr != nil {
+			slog.Warn("failed to get entity ID for chunking", "error", idErr)
+		} else if chunksCreated, err := s.chunkEntity(ctx, entity); err != nil {
+			// Log but don't fail - entity was created successfully
+			slog.Warn("failed to chunk entity", "entity", idStr, "error", err)
+		} else {
+			result.ChunksCreated = chunksCreated
+			if chunksCreated > 0 {
+				slog.Debug("chunked entity", "entity", idStr, "chunks", chunksCreated)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // chunkEntity creates chunks for an entity with long content.
-func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) error {
+// Returns the number of chunks created.
+func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) (int, error) {
 	if entity.Content == nil {
-		return nil
+		return 0, nil
 	}
 
 	entityID, err := models.RecordIDString(entity.ID)
 	if err != nil {
-		return fmt.Errorf("get entity ID: %w", err)
+		return 0, fmt.Errorf("get entity ID: %w", err)
 	}
 
 	doc, err := parser.ParseMarkdown(*entity.Content)
 	if err != nil {
-		return fmt.Errorf("parse markdown: %w", err)
+		return 0, fmt.Errorf("parse markdown: %w", err)
 	}
 
 	chunks := parser.ChunkMarkdown(doc, parser.DefaultChunkConfig())
-	if len(chunks) <= 1 {
-		return nil // No need to chunk
+	if len(chunks) == 0 {
+		// No meaningful content to chunk (e.g., all-empty sections)
+		slog.Debug("no chunks produced - content may be empty sections only", "entity", entityID)
+		return 0, nil
+	}
+	if len(chunks) == 1 {
+		return 0, nil // No need to chunk - single chunk handled at entity level
+	}
+
+	// Batch embed all chunks at once
+	var embeddings [][]float32
+	if s.embedder != nil {
+		texts := make([]string, len(chunks))
+		for i, chunk := range chunks {
+			texts[i] = chunk.Content
+		}
+		embeddings, err = s.embedder.EmbedBatch(ctx, texts)
+		if err != nil {
+			return 0, fmt.Errorf("batch embed chunks: %w", err)
+		}
 	}
 
 	chunkInputs := make([]models.ChunkInput, 0, len(chunks))
-	for _, chunk := range chunks {
-		// Generate embedding for chunk
+	for i, chunk := range chunks {
 		var embedding []float32
-		if s.embedder != nil {
-			embedding, err = s.embedder.Embed(ctx, chunk.Content)
-			if err != nil {
-				return fmt.Errorf("embed chunk %d: %w", chunk.Position, err)
-			}
+		if embeddings != nil {
+			embedding = embeddings[i]
 		}
 
 		headingPath := chunk.HeadingPath
@@ -120,7 +178,10 @@ func (s *EntityService) chunkEntity(ctx context.Context, entity *models.Entity) 
 		})
 	}
 
-	return s.db.CreateChunks(ctx, entityID, chunkInputs)
+	if err := s.db.CreateChunks(ctx, entityID, chunkInputs); err != nil {
+		return 0, err
+	}
+	return len(chunkInputs), nil
 }
 
 // Update updates an entity with re-chunking if content changed.
@@ -170,7 +231,7 @@ func (s *EntityService) Update(ctx context.Context, id string, update models.Ent
 
 		// Create new chunks if content is long
 		if parser.ShouldChunk(*update.Content, parser.DefaultChunkConfig()) {
-			if err := s.chunkEntity(ctx, entity); err != nil {
+			if _, err := s.chunkEntity(ctx, entity); err != nil {
 				slog.Warn("failed to re-chunk entity", "entity", id, "error", err)
 			}
 		}

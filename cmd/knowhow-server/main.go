@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,19 +13,28 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/gorilla/websocket"
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/graph"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 func main() {
+	// Parse flags
+	wipeDB := flag.Bool("wipe", false, "wipe all data from database on startup (testing only)")
+	flag.Parse()
+
 	// Load configuration
 	cfg := config.Load()
 
 	// Get server port from environment or default
 	port := os.Getenv("KNOWHOW_SERVER_PORT")
 	if port == "" {
-		port = "8080"
+		port = "8484"
 	}
 
 	// Initialize logging
@@ -45,16 +55,50 @@ func main() {
 		slog.Error("failed to create resolver", "error", err)
 		os.Exit(1)
 	}
+
+	// Wipe database if requested (via flag or env var)
+	if *wipeDB || os.Getenv("KNOWHOW_WIPE_DB") == "true" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := resolver.WipeData(ctx); err != nil {
+			cancel()
+			slog.Error("failed to wipe database", "error", err)
+			os.Exit(1)
+		}
+		cancel()
+	}
 	defer func() {
 		if err := resolver.Close(context.Background()); err != nil {
 			slog.Error("failed to close resolver", "error", err)
 		}
 	}()
 
-	// Create GraphQL server
-	srv := handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{
+	// Create GraphQL server with explicit transports for WebSocket subscription support
+	srv := handler.New(graph.NewExecutableSchema(graph.Config{
 		Resolvers: resolver,
 	}))
+
+	// Add transports - order matters: WebSocket first for subscription upgrades
+	srv.AddTransport(transport.Websocket{
+		Upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins for local dev
+			},
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		},
+		KeepAlivePingInterval: 10 * time.Second,
+	})
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+	srv.AddTransport(transport.MultipartForm{})
+
+	// Add standard extensions
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+	srv.Use(extension.Introspection{})
+	srv.Use(extension.AutomaticPersistedQuery{
+		Cache: lru.New[string](100),
+	})
 
 	// Setup routes
 	mux := http.NewServeMux()

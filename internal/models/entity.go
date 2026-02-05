@@ -33,6 +33,9 @@ type Entity struct {
 	// Organization
 	Labels []string `json:"labels"` // Flexible tags ["work", "banking", "team-platform"]
 
+	// Content Hash (for skip-unchanged deduplication)
+	ContentHash *string `json:"content_hash,omitempty"` // SHA256 of raw file bytes
+
 	// Quality & Trust
 	Verified   bool         `json:"verified"`   // Human-reviewed?
 	Confidence float64      `json:"confidence"` // 0-1 certainty (for AI content)
@@ -55,17 +58,21 @@ type Entity struct {
 // EntityInput is the input structure for creating/updating entities.
 // Uses pointers for optional fields to distinguish between unset and empty.
 type EntityInput struct {
-	Type       string            `json:"type"`
-	Name       string            `json:"name"`
-	Content    *string           `json:"content,omitempty"`
-	Summary    *string           `json:"summary,omitempty"`
-	Labels     []string          `json:"labels,omitempty"`
-	Verified   *bool             `json:"verified,omitempty"`
-	Confidence *float64          `json:"confidence,omitempty"`
-	Source     *EntitySource     `json:"source,omitempty"`
-	SourcePath *string           `json:"source_path,omitempty"`
-	Metadata   map[string]any    `json:"metadata,omitempty"`
-	Embedding  []float32         `json:"embedding,omitempty"`
+	// ID is an optional explicit entity ID. If provided, used instead of slugified name.
+	// Useful for ensuring unique IDs when scraping files (e.g., from relative path).
+	ID          *string        `json:"id,omitempty"`
+	Type        string         `json:"type"`
+	Name        string         `json:"name"`
+	Content     *string        `json:"content,omitempty"`
+	Summary     *string        `json:"summary,omitempty"`
+	Labels      []string       `json:"labels,omitempty"`
+	ContentHash *string        `json:"content_hash,omitempty"`
+	Verified    *bool          `json:"verified,omitempty"`
+	Confidence  *float64       `json:"confidence,omitempty"`
+	Source      *EntitySource  `json:"source,omitempty"`
+	SourcePath  *string        `json:"source_path,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	Embedding   []float32      `json:"embedding,omitempty"`
 }
 
 // EntityUpdate is the input structure for partial entity updates.

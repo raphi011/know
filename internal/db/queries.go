@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -51,8 +52,14 @@ func optionalEmbedding(e []float32) any {
 // CreateEntity creates a new entity with a generated or specified ID.
 // Returns the created entity.
 func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*models.Entity, error) {
-	// Generate ID from name if not provided
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	// Use explicit ID if provided, otherwise generate from name
 	id := slugify(input.Name)
+	if input.ID != nil && *input.ID != "" {
+		id = *input.ID
+	}
 
 	// Ensure labels is not nil
 	labels := input.Labels
@@ -81,6 +88,7 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 			content = $content,
 			summary = $summary,
 			labels = $labels,
+			content_hash = $content_hash,
 			verified = $verified,
 			confidence = $confidence,
 			source = $source,
@@ -92,21 +100,22 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 	`
 
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
-		"id":          id,
-		"type":        input.Type,
-		"name":        input.Name,
-		"content":     optionalString(input.Content),
-		"summary":     optionalString(input.Summary),
-		"labels":      labels,
-		"verified":    verified,
-		"confidence":  confidence,
-		"source":      source,
-		"source_path": optionalString(input.SourcePath),
-		"metadata":    optionalObject(input.Metadata),
-		"embedding":   optionalEmbedding(input.Embedding),
+		"id":           id,
+		"type":         input.Type,
+		"name":         input.Name,
+		"content":      optionalString(input.Content),
+		"summary":      optionalString(input.Summary),
+		"labels":       labels,
+		"content_hash": optionalString(input.ContentHash),
+		"verified":     verified,
+		"confidence":   confidence,
+		"source":       source,
+		"source_path":  optionalString(input.SourcePath),
+		"metadata":     optionalObject(input.Metadata),
+		"embedding":    optionalEmbedding(input.Embedding),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create entity: %w", err)
+		return nil, fmt.Errorf("create entity: %w", wrapQueryError(err))
 	}
 
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
@@ -116,9 +125,99 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 	return &(*results)[0].Result[0], nil
 }
 
+// UpsertEntity creates a new entity or updates an existing one by ID.
+// If entity with the ID exists, updates content, hash, summary, labels, source_path.
+// If not, creates a new entity. Returns the entity and whether it was created (vs updated).
+func (c *Client) UpsertEntity(ctx context.Context, input models.EntityInput) (*models.Entity, bool, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	// Use explicit ID if provided, otherwise generate from name
+	id := slugify(input.Name)
+	if input.ID != nil && *input.ID != "" {
+		id = *input.ID
+	}
+
+	// Check if entity exists before upsert to determine if this is a create or update
+	existing, err := c.GetEntity(ctx, id)
+	if err != nil {
+		return nil, false, fmt.Errorf("check existing entity: %w", err)
+	}
+	wasCreated := existing == nil
+
+	// Ensure labels is not nil
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	// Set defaults
+	source := models.SourceManual
+	if input.Source != nil {
+		source = *input.Source
+	}
+	confidence := 0.5
+	if input.Confidence != nil {
+		confidence = *input.Confidence
+	}
+	verified := false
+	if input.Verified != nil {
+		verified = *input.Verified
+	}
+
+	// Use SurrealDB UPSERT - creates if not exists, updates if exists
+	sql := `
+		UPSERT type::record("entity", $id) SET
+			type = $type,
+			name = $name,
+			content = $content,
+			summary = $summary,
+			labels = $labels,
+			content_hash = $content_hash,
+			verified = $verified,
+			confidence = $confidence,
+			source = $source,
+			source_path = $source_path,
+			metadata = $metadata,
+			embedding = $embedding,
+			access_count = IF access_count THEN access_count ELSE 0 END
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"id":           id,
+		"type":         input.Type,
+		"name":         input.Name,
+		"content":      optionalString(input.Content),
+		"summary":      optionalString(input.Summary),
+		"labels":       labels,
+		"content_hash": optionalString(input.ContentHash),
+		"verified":     verified,
+		"confidence":   confidence,
+		"source":       source,
+		"source_path":  optionalString(input.SourcePath),
+		"metadata":     optionalObject(input.Metadata),
+		"embedding":    optionalEmbedding(input.Embedding),
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("upsert entity: %w", wrapQueryError(err))
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, false, fmt.Errorf("upsert entity: no result returned")
+	}
+
+	entity := &(*results)[0].Result[0]
+
+	return entity, wasCreated, nil
+}
+
 // GetEntity retrieves an entity by ID.
 // Returns nil if not found.
 func (c *Client) GetEntity(ctx context.Context, id string) (*models.Entity, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
 		SELECT * FROM type::record("entity", $id)
 	`, map[string]any{"id": id})
@@ -150,9 +249,44 @@ func (c *Client) GetEntityByName(ctx context.Context, name string) (*models.Enti
 	return &(*results)[0].Result[0], nil
 }
 
+// GetEntitiesByNames retrieves multiple entities by name (case-insensitive).
+// Returns a map of lowercase(name) -> entity for efficient lookup.
+// Names not found are simply not in the returned map.
+func (c *Client) GetEntitiesByNames(ctx context.Context, names []string) (map[string]*models.Entity, error) {
+	if len(names) == 0 {
+		return map[string]*models.Entity{}, nil
+	}
+
+	// Lowercase names for query and result mapping
+	lowerNames := make([]string, len(names))
+	for i, n := range names {
+		lowerNames[i] = strings.ToLower(n)
+	}
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
+		SELECT * FROM entity WHERE string::lowercase(name) IN $names
+	`, map[string]any{"names": lowerNames})
+
+	if err != nil {
+		return nil, fmt.Errorf("get entities by names: %w", err)
+	}
+
+	entityMap := make(map[string]*models.Entity, len(names))
+	if results != nil && len(*results) > 0 {
+		for i := range (*results)[0].Result {
+			entity := &(*results)[0].Result[i]
+			entityMap[strings.ToLower(entity.Name)] = entity
+		}
+	}
+	return entityMap, nil
+}
+
 // UpdateEntity updates an entity with partial data.
 // Only non-nil fields in the update are changed.
 func (c *Client) UpdateEntity(ctx context.Context, id string, update models.EntityUpdate) (*models.Entity, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	// Build dynamic SET clause
 	setClauses := []string{}
 	vars := map[string]any{"id": id}
@@ -215,7 +349,7 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 	}
 
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("entity not found")
+		return nil, ErrNotFound
 	}
 
 	return &(*results)[0].Result[0], nil
@@ -225,6 +359,9 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 // Cascade delete of chunks and relations is handled by SurrealDB events.
 // Returns true if entity was deleted.
 func (c *Client) DeleteEntity(ctx context.Context, id string) (bool, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
 	sql := `DELETE type::record("entity", $id) RETURN BEFORE`
 
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{"id": id})
@@ -251,6 +388,36 @@ func (c *Client) UpdateEntityAccess(ctx context.Context, id string) error {
 	return nil
 }
 
+// GetExistingHashes returns content hashes that already exist in the database.
+// Used to determine which files need uploading (those NOT in the result).
+func (c *Client) GetExistingHashes(ctx context.Context, hashes []string) ([]string, error) {
+	if len(hashes) == 0 {
+		return []string{}, nil
+	}
+
+	results, err := surrealdb.Query[[]struct {
+		ContentHash *string `json:"content_hash"`
+	}](ctx, c.db, `
+		SELECT content_hash FROM entity WHERE content_hash IN $hashes
+	`, map[string]any{"hashes": hashes})
+
+	if err != nil {
+		return nil, fmt.Errorf("get existing hashes: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []string{}, nil
+	}
+
+	existing := make([]string, 0, len((*results)[0].Result))
+	for _, r := range (*results)[0].Result {
+		if r.ContentHash != nil {
+			existing = append(existing, *r.ContentHash)
+		}
+	}
+	return existing, nil
+}
+
 // =============================================================================
 // SEARCH QUERIES
 // =============================================================================
@@ -268,6 +435,9 @@ type SearchOptions struct {
 // HybridSearch performs RRF fusion of BM25 + vector search results.
 // Returns entities ranked by combined relevance score.
 func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models.Entity, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBSearch, start)
+
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 10
@@ -323,6 +493,9 @@ func (c *Client) HybridSearch(ctx context.Context, opts SearchOptions) ([]models
 // SearchWithChunks performs hybrid search including chunk matches.
 // Returns entities with their matching chunks for RAG context.
 func (c *Client) SearchWithChunks(ctx context.Context, opts SearchOptions) ([]models.EntitySearchResult, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBSearch, start)
+
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 10
@@ -372,10 +545,9 @@ func (c *Client) SearchWithChunks(ctx context.Context, opts SearchOptions) ([]mo
 		);
 
 		-- Merge entity hits with chunk hits
-		RETURN array::distinct(array::concat($entity_hits, $chunk_hits.map(|$c| {
-			...$c.entity,
-			matched_chunks: $c.matched_chunks
-		}))).slice(0, $limit)
+		RETURN array::distinct(array::concat($entity_hits, $chunk_hits.map(|$c|
+			object::extend($c.entity, { matched_chunks: $c.matched_chunks })
+		))).slice(0, $limit)
 	`, limit*2, filterClause, filterClause, limit*2, limit*3, chunkFilterClause)
 
 	results, err := surrealdb.Query[[]models.EntitySearchResult](ctx, c.db, sql, vars)
@@ -400,6 +572,7 @@ func (c *Client) CreateChunks(ctx context.Context, entityID string, chunks []mod
 	if len(chunks) == 0 {
 		return nil
 	}
+	c.startOp() // Mark activity for heartbeat
 
 	for _, chunk := range chunks {
 		sql := `
@@ -467,6 +640,7 @@ func (c *Client) GetChunks(ctx context.Context, entityID string) ([]models.Chunk
 // CreateRelation creates a relation between two entities.
 // If a relation of the same type already exists, updates its strength.
 func (c *Client) CreateRelation(ctx context.Context, input models.RelationInput) error {
+	c.startOp() // Mark activity for heartbeat
 	strength := 1.0
 	if input.Strength != nil {
 		strength = *input.Strength
@@ -659,47 +833,81 @@ func (c *Client) RecordTokenUsage(ctx context.Context, input models.TokenUsageIn
 }
 
 // GetTokenUsageSummary returns aggregated token usage statistics.
+// Uses separate simple queries instead of complex multi-statement query for better
+// concurrency behavior with the WebSocket connection.
 func (c *Client) GetTokenUsageSummary(ctx context.Context, since string) (*models.TokenUsageSummary, error) {
-	sql := `
-		LET $usage = (SELECT * FROM token_usage WHERE created_at >= <datetime>$since);
-		LET $total = IF array::len($usage) > 0 THEN <int>math::sum($usage.total_tokens) ELSE 0 END;
-		LET $cost = IF array::len($usage) > 0 THEN <float>math::sum($usage[WHERE cost_usd != NONE].cost_usd) ELSE 0.0 END;
-		LET $by_op = (
-			SELECT
-				operation AS key,
-				<int>math::sum(total_tokens) AS value
-			FROM token_usage
-			WHERE created_at >= <datetime>$since
-			GROUP BY operation
-		);
-		LET $by_model = (
-			SELECT
-				model AS key,
-				<int>math::sum(total_tokens) AS value
-			FROM token_usage
-			WHERE created_at >= <datetime>$since
-			GROUP BY model
-		);
-		RETURN {
-			total_tokens: $total,
-			total_cost_usd: $cost,
-			by_operation: object::from_entries($by_op.map(|$o| [$o.key, $o.value])),
-			by_model: object::from_entries($by_model.map(|$m| [$m.key, $m.value]))
-		}
-	`
+	c.startOp() // Mark activity for heartbeat
 
-	results, err := surrealdb.Query[models.TokenUsageSummary](ctx, c.db, sql, map[string]any{
-		"since": since,
-	})
+	vars := map[string]any{"since": since}
+
+	// Query 1: Get all usage records and sum client-side (simpler than complex GROUP ALL)
+	usageSQL := `SELECT total_tokens, cost_usd FROM token_usage WHERE created_at >= <datetime>$since`
+	type usageRow struct {
+		TotalTokens int      `json:"total_tokens"`
+		CostUSD     *float64 `json:"cost_usd"`
+	}
+	usageResults, err := surrealdb.Query[[]usageRow](ctx, c.db, usageSQL, vars)
 	if err != nil {
-		return nil, fmt.Errorf("get token usage summary: %w", err)
+		return nil, fmt.Errorf("get token usage: %w", err)
 	}
 
-	if results != nil && len(*results) > 0 {
-		lastIdx := len(*results) - 1
-		return &(*results)[lastIdx].Result, nil
+	summary := &models.TokenUsageSummary{
+		ByOperation: make(map[string]int),
+		ByModel:     make(map[string]int),
 	}
-	return &models.TokenUsageSummary{}, nil
+
+	if usageResults != nil && len(*usageResults) > 0 {
+		for _, row := range (*usageResults)[len(*usageResults)-1].Result {
+			summary.TotalTokens += row.TotalTokens
+			if row.CostUSD != nil {
+				summary.TotalCostUSD += *row.CostUSD
+			}
+		}
+	}
+
+	// Query 2: Group by operation (math::sum returns float in SurrealDB v3)
+	byOpSQL := `
+		SELECT operation, math::sum(total_tokens) AS tokens
+		FROM token_usage
+		WHERE created_at >= <datetime>$since
+		GROUP BY operation
+	`
+	type opResult struct {
+		Operation string  `json:"operation"`
+		Tokens    float64 `json:"tokens"`
+	}
+	opResults, err := surrealdb.Query[[]opResult](ctx, c.db, byOpSQL, vars)
+	if err != nil {
+		return nil, fmt.Errorf("get tokens by operation: %w", err)
+	}
+	if opResults != nil && len(*opResults) > 0 {
+		for _, r := range (*opResults)[len(*opResults)-1].Result {
+			summary.ByOperation[r.Operation] = int(r.Tokens)
+		}
+	}
+
+	// Query 3: Group by model (math::sum returns float in SurrealDB v3)
+	byModelSQL := `
+		SELECT model, math::sum(total_tokens) AS tokens
+		FROM token_usage
+		WHERE created_at >= <datetime>$since
+		GROUP BY model
+	`
+	type modelResult struct {
+		Model  string  `json:"model"`
+		Tokens float64 `json:"tokens"`
+	}
+	modelResults, err := surrealdb.Query[[]modelResult](ctx, c.db, byModelSQL, vars)
+	if err != nil {
+		return nil, fmt.Errorf("get tokens by model: %w", err)
+	}
+	if modelResults != nil && len(*modelResults) > 0 {
+		for _, r := range (*modelResults)[len(*modelResults)-1].Result {
+			summary.ByModel[r.Model] = int(r.Tokens)
+		}
+	}
+
+	return summary, nil
 }
 
 // =============================================================================
@@ -795,6 +1003,152 @@ func (c *Client) ListEntities(ctx context.Context, entityType string, labels []s
 		return []models.Entity{}, nil
 	}
 	return (*results)[0].Result, nil
+}
+
+// =============================================================================
+// INGEST JOB QUERIES
+// =============================================================================
+
+// CreateIngestJob creates a new ingest job record.
+func (c *Client) CreateIngestJob(ctx context.Context, id, dirPath string, files []string, opts map[string]any) error {
+	c.startOp() // Mark activity for heartbeat
+	sql := `
+		CREATE type::record("ingest_job", $id) SET
+			job_type = "ingest",
+			status = "pending",
+			dir_path = $dir_path,
+			files = $files,
+			options = $options,
+			total = $total,
+			progress = 0
+	`
+
+	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
+		"id":       id,
+		"dir_path": dirPath,
+		"files":    files,
+		"options":  optionalObject(opts),
+		"total":    len(files),
+	})
+	if err != nil {
+		return fmt.Errorf("create ingest job: %w", err)
+	}
+	return nil
+}
+
+// GetIngestJob retrieves an ingest job by ID.
+func (c *Client) GetIngestJob(ctx context.Context, id string) (*models.IngestJob, error) {
+	results, err := surrealdb.Query[[]models.IngestJob](ctx, c.db, `
+		SELECT * FROM type::record("ingest_job", $id)
+	`, map[string]any{"id": id})
+
+	if err != nil {
+		return nil, fmt.Errorf("get ingest job: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// GetIncompleteJobs returns all pending or running jobs.
+func (c *Client) GetIncompleteJobs(ctx context.Context) ([]models.IngestJob, error) {
+	results, err := surrealdb.Query[[]models.IngestJob](ctx, c.db, `
+		SELECT * FROM ingest_job WHERE status IN ["pending", "running"] ORDER BY started_at ASC
+	`, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("get incomplete jobs: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.IngestJob{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// UpdateJobStatus updates the status of a job.
+func (c *Client) UpdateJobStatus(ctx context.Context, id, status string) error {
+	c.startOp() // Mark activity for heartbeat
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET status = $status
+	`, map[string]any{"id": id, "status": status})
+	if err != nil {
+		return fmt.Errorf("update job status: %w", err)
+	}
+	return nil
+}
+
+// UpdateJobProgress updates the progress of a job.
+func (c *Client) UpdateJobProgress(ctx context.Context, id string, progress int) error {
+	c.startOp() // Mark activity for heartbeat
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET progress = $progress
+	`, map[string]any{"id": id, "progress": progress})
+	if err != nil {
+		return fmt.Errorf("update job progress: %w", err)
+	}
+	return nil
+}
+
+// CompleteJob marks a job as completed with result.
+func (c *Client) CompleteJob(ctx context.Context, id string, result map[string]any) error {
+	c.startOp() // Mark activity for heartbeat
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET
+			status = "completed",
+			result = $result,
+			completed_at = time::now()
+	`, map[string]any{"id": id, "result": result})
+	if err != nil {
+		return fmt.Errorf("complete job: %w", err)
+	}
+	return nil
+}
+
+// FailJob marks a job as failed with error message.
+func (c *Client) FailJob(ctx context.Context, id string, errMsg string) error {
+	c.startOp() // Mark activity for heartbeat
+	_, err := surrealdb.Query[any](ctx, c.db, `
+		UPDATE type::record("ingest_job", $id) SET
+			status = "failed",
+			error = $error,
+			completed_at = time::now()
+	`, map[string]any{"id": id, "error": errMsg})
+	if err != nil {
+		return fmt.Errorf("fail job: %w", err)
+	}
+	return nil
+}
+
+// GetEntitiesBySourcePaths returns source_path values for entities that exist with given paths.
+func (c *Client) GetEntitiesBySourcePaths(ctx context.Context, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return []string{}, nil
+	}
+
+	results, err := surrealdb.Query[[]struct {
+		SourcePath *string `json:"source_path"`
+	}](ctx, c.db, `
+		SELECT source_path FROM entity WHERE source_path IN $paths
+	`, map[string]any{"paths": paths})
+
+	if err != nil {
+		return nil, fmt.Errorf("get entities by source paths: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []string{}, nil
+	}
+
+	existingPaths := make([]string, 0, len((*results)[0].Result))
+	for _, r := range (*results)[0].Result {
+		if r.SourcePath != nil {
+			existingPaths = append(existingPaths, *r.SourcePath)
+		}
+	}
+	return existingPaths, nil
 }
 
 // slugify converts a name to a URL-safe ID.

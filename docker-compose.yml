@@ -1,6 +1,6 @@
 services:
   surrealdb:
-    image: surrealdb/surrealdb:v3.0.0-beta.1
+    image: surrealdb/surrealdb:v3.0.0-beta.2
     container_name: memcp-surrealdb
     command: start --user root --pass root memory
     ports:
@@ -11,7 +11,7 @@ services:
     build: .
     container_name: memcp-server
     ports:
-      - "8080:8080"
+      - "8484:8484"
     environment:
       - SURREALDB_URL=ws://surrealdb:8000/rpc
       - SURREALDB_NAMESPACE=knowledge

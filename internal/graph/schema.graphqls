@@ -14,6 +14,7 @@ type Entity {
   content: String
   summary: String
   labels: [String!]!
+  contentHash: String
   verified: Boolean!
   confidence: Float!
   source: String!
@@ -59,10 +60,30 @@ type ChunkMatch {
 
 type IngestResult {
   filesProcessed: Int!
+  filesSkipped: Int!
   entitiesCreated: Int!
   chunksCreated: Int!
   relationsCreated: Int!
   errors: [String!]!
+}
+
+type CheckHashesResult {
+  """Paths that need uploading (new or changed content)"""
+  needed: [String!]!
+}
+
+type Job {
+  id: ID!
+  type: String!
+  status: String!
+  progress: Int!
+  total: Int!
+  result: IngestResult
+  error: String
+  startedAt: DateTime!
+  completedAt: DateTime
+  dirPath: String
+  pendingFiles: Int
 }
 
 type LabelCount {
@@ -80,6 +101,31 @@ type TokenUsageSummary {
   totalCostUSD: Float!
   byOperation: JSON!
   byModel: JSON!
+}
+
+type OperationStats {
+  count: Int!
+  totalTimeMs: Int!
+  avgTimeMs: Float!
+  minTimeMs: Int!
+  maxTimeMs: Int!
+  totalInputTokens: Int
+  totalOutputTokens: Int
+  avgInputTokens: Float
+  avgOutputTokens: Float
+  minInputTokens: Int
+  maxInputTokens: Int
+  minOutputTokens: Int
+  maxOutputTokens: Int
+}
+
+type ServerStats {
+  uptimeSeconds: Float!
+  embedding: OperationStats
+  llmGenerate: OperationStats
+  llmStream: OperationStats
+  dbQuery: OperationStats
+  dbSearch: OperationStats
 }
 
 # =============================================================================
@@ -131,6 +177,33 @@ input IngestInput {
   recursive: Boolean
 }
 
+input FileHashInput {
+  """Relative or absolute file path"""
+  path: String!
+  """SHA256 hash of raw file bytes"""
+  hash: String!
+}
+
+input CheckHashesInput {
+  files: [FileHashInput!]!
+}
+
+input FileContentInput {
+  """File path (used for entity name derivation)"""
+  path: String!
+  """Raw file content"""
+  content: String!
+  """SHA256 hash of content"""
+  hash: String!
+}
+
+input IngestFilesInput {
+  files: [FileContentInput!]!
+  """Base directory name for entity ID derivation (e.g., 'insights' from ~/.claude/insights)"""
+  baseDir: String!
+  options: IngestInput
+}
+
 # =============================================================================
 # QUERIES
 # =============================================================================
@@ -155,6 +228,35 @@ type Query {
 
   # Usage tracking
   usageSummary(since: String!): TokenUsageSummary!
+
+  # Job tracking
+  jobs: [Job!]!
+  job(id: ID!): Job
+
+  # Server statistics (in-memory, resets on restart)
+  serverStats: ServerStats!
+
+  # Hash checking for skip-unchanged optimization
+  """Check which files need uploading based on content hashes"""
+  checkHashes(input: CheckHashesInput!): CheckHashesResult!
+}
+
+# =============================================================================
+# SUBSCRIPTIONS
+# =============================================================================
+
+type AskStreamEvent {
+  """Token content from the LLM stream"""
+  token: String!
+  """True when the stream is complete"""
+  done: Boolean!
+  """Error message if streaming failed"""
+  error: String
+}
+
+type Subscription {
+  """Stream LLM-synthesized answer token by token"""
+  askStream(query: String!, input: SearchInput, templateName: String): AskStreamEvent!
 }
 
 # =============================================================================
@@ -173,8 +275,16 @@ type Mutation {
   # Ingest operations (server-side file paths)
   ingestFile(filePath: String!, input: IngestInput): Entity!
   ingestDirectory(dirPath: String!, input: IngestInput): IngestResult!
+  ingestDirectoryAsync(dirPath: String!, input: IngestInput): Job!
 
   # Template operations
   createTemplate(name: String!, description: String, content: String!): Template!
   deleteTemplate(name: String!): Boolean!
+
+  # Content-based ingest (for skip-unchanged optimization)
+  """Ingest files with content provided directly (used after checkHashes)"""
+  ingestFiles(input: IngestFilesInput!): IngestResult!
+
+  """Async version of ingestFiles - returns job immediately, processes in background"""
+  ingestFilesAsync(input: IngestFilesInput!): Job!
 }

@@ -171,6 +171,62 @@ func (s *SearchService) Ask(ctx context.Context, query string, opts SearchOption
 	return s.model.SynthesizeAnswer(ctx, query, searchContext)
 }
 
+// AskStream performs search and streams the LLM-synthesized answer token by token.
+func (s *SearchService) AskStream(ctx context.Context, query string, opts SearchOptions, onToken func(token string) error) error {
+	if s.model == nil {
+		return fmt.Errorf("LLM model not configured")
+	}
+
+	// Search for relevant context
+	opts.Query = query
+	if opts.Limit == 0 {
+		opts.Limit = 20
+	}
+
+	results, err := s.SearchWithChunks(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("search: %w", err)
+	}
+
+	if len(results) == 0 {
+		// No results - send single message and return
+		return onToken("No relevant knowledge found for this query.")
+	}
+
+	// Build context from results (same logic as Ask)
+	contextParts := make([]string, 0, len(results))
+	for _, result := range results {
+		part := fmt.Sprintf("## %s (%s)\n", result.Name, result.Type)
+		if result.Summary != nil {
+			part += *result.Summary + "\n"
+		}
+
+		// Add matched chunks
+		if len(result.MatchedChunks) > 0 {
+			for _, chunk := range result.MatchedChunks {
+				if chunk.HeadingPath != nil {
+					part += fmt.Sprintf("\n### %s\n", *chunk.HeadingPath)
+				}
+				part += chunk.Content + "\n"
+			}
+		} else if result.Content != nil {
+			// Use full content if no chunks
+			content := *result.Content
+			if len(content) > 500 {
+				content = content[:500] + "..."
+			}
+			part += content + "\n"
+		}
+
+		contextParts = append(contextParts, part)
+	}
+
+	searchContext := strings.Join(contextParts, "\n---\n")
+
+	// Stream the synthesized answer
+	return s.model.SynthesizeAnswerStream(ctx, query, searchContext, onToken)
+}
+
 // AskWithTemplate fills a template with knowledge from search.
 func (s *SearchService) AskWithTemplate(ctx context.Context, query string, templateName string, opts SearchOptions) (string, error) {
 	if s.model == nil {

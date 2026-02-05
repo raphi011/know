@@ -1,5 +1,8 @@
 # Knowhow justfile
 
+# Load .env file if present
+set dotenv-load := true
+
 # SurrealDB defaults (matching docker-compose)
 export SURREALDB_URL := env_var_or_default("SURREALDB_URL", "ws://localhost:8000/rpc")
 export SURREALDB_NAMESPACE := env_var_or_default("SURREALDB_NAMESPACE", "knowledge")
@@ -11,12 +14,12 @@ export SURREALDB_PASS := env_var_or_default("SURREALDB_PASS", "root")
 export KNOWHOW_LLM_PROVIDER := env_var_or_default("KNOWHOW_LLM_PROVIDER", "anthropic")
 export KNOWHOW_LLM_MODEL := env_var_or_default("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514")
 export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "ollama")
-export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "all-minilm:l6-v2")
-export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "384")
+export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "bge-m3")
+export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "1024")
 
 # Server defaults
-export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8080")
-export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8080/query")
+export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
+export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8484/query")
 
 # Build directories
 build_dir := "./bin"
@@ -32,11 +35,15 @@ build:
     go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/knowhow
 
 # Build server binary
-server:
+build-server:
     go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
 
 # Build both CLI and server
-build-all: build server
+build-all: build build-server
+
+# Run server with optional args (e.g., just server --wipe)
+server *ARGS: build-server
+    {{build_dir}}/{{server}} {{ARGS}}
 
 # Install both binaries to GOPATH/bin
 install:
@@ -47,10 +54,23 @@ install:
 test:
     go test -v ./...
 
-# Start SurrealDB, Ollama, and run the server
-dev: db-up ollama-pull server
-    @echo "Starting knowhow-server..."
-    {{build_dir}}/{{server}}
+# Start SurrealDB, Ollama, and run the server with live-reload
+dev: db-up ollama-pull
+    @echo "Starting knowhow-server with Air (live-reload)..."
+    @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
+    @echo "Rebuild delay: 20s after last file change"
+    air
+
+# Start dev environment and wipe database on first start
+dev-reset: db-up ollama-pull
+    @echo "Starting knowhow-server with Air (live-reload) - WIPING DATABASE..."
+    @echo "CLI should use: KNOWHOW_SERVER_URL=$KNOWHOW_SERVER_URL"
+    KNOWHOW_WIPE_DB=true air
+
+# Run CLI command (ensures correct server URL)
+[positional-arguments]
+run *args: build
+    {{build_dir}}/{{binary}} "$@"
 
 # Start development environment without running the server
 dev-setup: db-up ollama-pull
@@ -70,12 +90,19 @@ db-up:
 db-down:
     docker-compose down
 
-# Pull Ollama embedding model
+# Pull Ollama embedding model (only if using Ollama provider)
 ollama-pull:
-    @echo "Pulling embedding model $KNOWHOW_EMBED_MODEL..."
-    ollama pull $KNOWHOW_EMBED_MODEL
+    #!/usr/bin/env bash
+    if [ "$KNOWHOW_EMBED_PROVIDER" = "ollama" ]; then
+        echo "Pulling embedding model $KNOWHOW_EMBED_MODEL..."
+        ollama pull "$KNOWHOW_EMBED_MODEL"
+    else
+        echo "Skipping Ollama pull (using $KNOWHOW_EMBED_PROVIDER provider)"
+    fi
 
 # Remove binaries and stop containers
 clean:
     rm -rf {{build_dir}}
+    rm -rf tmp
     docker-compose down -v
+

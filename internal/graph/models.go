@@ -13,6 +13,7 @@ type Entity struct {
 	Content     *string        `json:"content,omitempty"`
 	Summary     *string        `json:"summary,omitempty"`
 	Labels      []string       `json:"labels"`
+	ContentHash *string        `json:"contentHash,omitempty"`
 	Verified    bool           `json:"verified"`
 	Confidence  float64        `json:"confidence"`
 	Source      string         `json:"source"`
@@ -63,6 +64,7 @@ type ChunkMatch struct {
 // IngestResult summarizes an ingestion operation.
 type IngestResult struct {
 	FilesProcessed   int      `json:"filesProcessed"`
+	FilesSkipped     int      `json:"filesSkipped"`
 	EntitiesCreated  int      `json:"entitiesCreated"`
 	ChunksCreated    int      `json:"chunksCreated"`
 	RelationsCreated int      `json:"relationsCreated"`

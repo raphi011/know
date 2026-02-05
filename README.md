@@ -81,21 +81,32 @@ knowhow search "kubernetes" --verified
 ### Ask Questions (LLM Synthesis)
 
 ```bash
-# Free-form question
+# Free-form question (streams response token by token)
 knowhow ask "What do I know about John Doe?"
 
 # Ask about a service
 knowhow ask "How does the auth service work?"
 
-# Use a template for structured output
+# Disable streaming for scripting/piping
+knowhow ask "How does auth work?" --no-stream | head -5
+
+# Use a template for structured output (non-streaming)
 knowhow ask "John Doe" --template "Peer Review" -o review.md
 knowhow ask "auth-service" --template "Service Summary"
+
+# Filter context during ask
+knowhow ask "What are John's responsibilities?" --labels "work" --type person
 ```
+
+**Streaming behavior:**
+- Default: Streams tokens in real-time for interactive use
+- Auto-disables when: writing to file (`-o`), piping output, or using templates
+- Override with `--no-stream` flag
 
 ### Ingest Markdown Files
 
 ```bash
-# Scrape a directory
+# Scrape a directory (unchanged files are automatically skipped)
 knowhow scrape ./docs
 
 # With labels
@@ -104,8 +115,11 @@ knowhow scrape ./notes --labels "personal"
 # Extract entity relations using LLM
 knowhow scrape ./specs --extract-graph
 
-# Dry run (preview)
+# Dry run (preview which files would be ingested)
 knowhow scrape ./wiki --dry-run
+
+# Force re-ingest all files (skip change detection)
+knowhow scrape ./docs --force
 ```
 
 ### Manage Relations
@@ -186,13 +200,13 @@ knowhow export ./backup --verified-only
 ### Usage Statistics
 
 ```bash
-# Show token usage
+# Show server stats and token usage
 knowhow usage
 
-# Last 7 days
+# Last 7 days of token usage
 knowhow usage --since "7d"
 
-# Detailed breakdown
+# Detailed breakdown with costs
 knowhow usage --detailed --costs
 ```
 

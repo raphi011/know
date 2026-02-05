@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/contrib/rews"
 	"github.com/surrealdb/surrealdb.go/pkg/connection"
@@ -37,14 +39,17 @@ type Config struct {
 
 // Client wraps SurrealDB connection with auto-reconnect.
 type Client struct {
-	conn   *rews.Connection[*gorillaws.Connection]
-	db     *surrealdb.DB
-	cfg    Config
-	logger logger.Logger
+	conn       *rews.Connection[*gorillaws.Connection]
+	db         *surrealdb.DB
+	cfg        Config
+	logger     logger.Logger
+	metrics    *metrics.Collector
+	lastActive atomic.Int64 // Unix timestamp of last DB operation (for idle detection)
 }
 
 // NewClient creates a new SurrealDB client with auto-reconnecting WebSocket.
-func NewClient(ctx context.Context, cfg Config, log *slog.Logger) (*Client, error) {
+// If mc is nil, metrics recording is disabled.
+func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Collector) (*Client, error) {
 	// Create logger adapter for SurrealDB SDK
 	var sdkLogger logger.Logger
 	if log != nil {
@@ -63,8 +68,13 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger) (*Client, erro
 		baseURL = strings.TrimSuffix(baseURL, "/rpc")
 	}
 
+	var connAttempt int
 	conn := rews.New(
 		func(ctx context.Context) (*gorillaws.Connection, error) {
+			connAttempt++
+			if connAttempt > 1 {
+				sdkLogger.Warn("rews reconnecting", "attempt", connAttempt)
+			}
 			ws := gorillaws.New(&connection.Config{
 				BaseURL:     baseURL,
 				Marshaler:   codec,
@@ -128,7 +138,13 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger) (*Client, erro
 	}
 
 	sdkLogger.Info("SurrealDB connection established")
-	return &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger}, nil
+	client := &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc}
+	client.lastActive.Store(time.Now().Unix()) // Initialize to prevent immediate heartbeat
+
+	// Start connection health monitor
+	go client.monitorConnection()
+
+	return client, nil
 }
 
 // Close closes the SurrealDB connection.
@@ -137,15 +153,87 @@ func (c *Client) Close(ctx context.Context) error {
 	return c.conn.Close(ctx)
 }
 
+// monitorConnection logs WebSocket connection state changes and sends periodic heartbeats.
+// Heartbeat queries keep the connection alive during long external operations (e.g., LLM calls)
+// that would otherwise let the WebSocket go idle and get closed by the server/network.
+// Following NATS pattern: 2 consecutive failures trigger connection close to force reconnect.
+func (c *Client) monitorConnection() {
+	const (
+		heartbeatInterval = 30 * time.Second // Check every 30s (was 10s)
+		idleThreshold     = 10 * time.Second // Only ping if idle >10s (was 5s)
+		heartbeatTimeout  = 10 * time.Second // Query timeout (was 5s)
+		maxFailures       = 2                // NATS-style: 2 failures → reconnect
+	)
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	var consecutiveFailures int
+	wasConnected := true
+
+	for range ticker.C {
+		isConnected := !c.conn.IsClosed()
+
+		// Log connection state changes
+		if !isConnected && wasConnected {
+			c.logger.Error("SurrealDB WebSocket disconnected")
+		} else if isConnected && !wasConnected {
+			c.logger.Info("SurrealDB WebSocket reconnected")
+			consecutiveFailures = 0
+		}
+		wasConnected = isConnected
+
+		// Send heartbeat only when idle (no recent DB operations)
+		if isConnected {
+			lastActive := time.Unix(c.lastActive.Load(), 0)
+			idleDuration := time.Since(lastActive)
+
+			if idleDuration > idleThreshold {
+				ctx, cancel := context.WithTimeout(context.Background(), heartbeatTimeout)
+				_, err := surrealdb.Query[any](ctx, c.db, "RETURN 1", nil)
+				cancel()
+
+				if err != nil {
+					consecutiveFailures++
+					if consecutiveFailures >= maxFailures {
+						c.logger.Warn("heartbeat failed repeatedly, forcing reconnect",
+							"consecutive", consecutiveFailures,
+							"idle_for", idleDuration.Round(time.Second))
+						_ = c.conn.Close(context.Background()) // rews will auto-reconnect on next operation
+						consecutiveFailures = 0
+					}
+					// Silent on first failure - transient issues are common under load
+				} else {
+					consecutiveFailures = 0
+				}
+			}
+		}
+	}
+}
+
+// recordTiming records operation timing if metrics are enabled.
+func (c *Client) recordTiming(op string, start time.Time) {
+	if c.metrics != nil {
+		c.metrics.RecordTiming(op, time.Since(start))
+	}
+}
+
+// startOp marks connection active and returns start time for timing.
+// Usage: start := c.startOp(); defer c.recordTiming(metrics.OpDBQuery, start)
+func (c *Client) startOp() time.Time {
+	c.lastActive.Store(time.Now().Unix())
+	return time.Now()
+}
+
 // DB returns the underlying SurrealDB client for queries.
 func (c *Client) DB() *surrealdb.DB {
 	return c.db
 }
 
-// InitSchema initializes the database schema.
-func (c *Client) InitSchema(ctx context.Context) error {
-	c.logger.Info("initializing database schema")
-	_, err := surrealdb.Query[any](ctx, c.db, SchemaSQL, nil)
+// InitSchema initializes the database schema with the given embedding dimension.
+func (c *Client) InitSchema(ctx context.Context, embedDimension int) error {
+	c.logger.Info("initializing database schema", "embed_dimension", embedDimension)
+	_, err := surrealdb.Query[any](ctx, c.db, SchemaSQL(embedDimension), nil)
 	if err != nil {
 		return fmt.Errorf("init schema: %w", err)
 	}
@@ -157,4 +245,25 @@ func (c *Client) InitSchema(ctx context.Context) error {
 // Returns the raw query results as []surrealdb.QueryResult[any].
 func (c *Client) Query(ctx context.Context, sql string, vars map[string]any) (*[]surrealdb.QueryResult[any], error) {
 	return surrealdb.Query[any](ctx, c.db, sql, vars)
+}
+
+// WipeData deletes all data from the database while preserving schema.
+// Use for testing only.
+func (c *Client) WipeData(ctx context.Context) error {
+	c.logger.Warn("wiping all data from database")
+
+	// Delete all records from each table
+	// Order matters due to relations referencing entities
+	tables := []string{"relates_to", "chunk", "template", "token_usage", "ingest_job", "entity"}
+
+	for _, table := range tables {
+		query := fmt.Sprintf("DELETE %s", table)
+		if _, err := surrealdb.Query[any](ctx, c.db, query, nil); err != nil {
+			return fmt.Errorf("delete %s: %w", table, err)
+		}
+		c.logger.Info("deleted table data", "table", table)
+	}
+
+	c.logger.Info("database wipe complete")
+	return nil
 }
