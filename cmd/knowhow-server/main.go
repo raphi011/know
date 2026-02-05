@@ -128,13 +128,15 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Try serving the file directly; fall back to index.html for SPA routing
 		if r.URL.Path != "/" {
-			_, err := distFS.Open(r.URL.Path[1:])
+			f, err := distFS.Open(r.URL.Path[1:])
 			if errors.Is(err, fs.ErrNotExist) {
 				r.URL.Path = "/"
 			} else if err != nil {
 				slog.Warn("unexpected error opening embedded file", "path", r.URL.Path, "error", err)
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
+			} else {
+				f.Close()
 			}
 		}
 		fileServer.ServeHTTP(w, r)

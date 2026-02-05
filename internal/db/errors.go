@@ -3,6 +3,7 @@ package db
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/surrealdb/surrealdb.go"
@@ -38,10 +39,10 @@ func wrapQueryError(err error) error {
 	if errors.As(err, &queryErr) {
 		msg := queryErr.Message
 		if strings.Contains(msg, "already exists") {
-			return ErrEntityAlreadyExists
+			return fmt.Errorf("%w: %s", ErrEntityAlreadyExists, msg)
 		}
 		if strings.Contains(msg, "Transaction conflict") {
-			return ErrTransactionConflict
+			return fmt.Errorf("%w: %s", ErrTransactionConflict, msg)
 		}
 	}
 

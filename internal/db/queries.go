@@ -39,7 +39,7 @@ func optionalObject(m map[string]any) any {
 
 // optionalEmbedding returns models.None for nil/empty slices, otherwise returns the slice.
 func optionalEmbedding(e []float32) any {
-	if e == nil || len(e) == 0 {
+	if len(e) == 0 {
 		return surrealmodels.None
 	}
 	return e
@@ -334,10 +334,6 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 
 	// Always update accessed time
 	setClauses = append(setClauses, "accessed = time::now()")
-
-	if len(setClauses) == 1 { // Only accessed time update
-		// No real updates, just touch the record
-	}
 
 	sql := fmt.Sprintf(`
 		UPDATE type::record("entity", $id) SET %s RETURN AFTER
@@ -1323,18 +1319,7 @@ func (c *Client) GetMessages(ctx context.Context, conversationID string) ([]mode
 	return (*results)[0].Result, nil
 }
 
-// slugify converts a name to a URL-safe ID.
+// slugify delegates to the shared models.Slugify function.
 func slugify(name string) string {
-	// Simple slugification: lowercase, replace spaces with hyphens
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	// Remove non-alphanumeric except hyphens
-	result := strings.Builder{}
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
+	return models.Slugify(name)
 }

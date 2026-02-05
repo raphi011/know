@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,7 +38,10 @@ func New(endpoint string) *Client {
 
 	timeout := 10 * time.Minute // Default: 10 minutes for batch LLM operations
 	if t := os.Getenv("KNOWHOW_CLIENT_TIMEOUT"); t != "" {
-		if d, err := time.ParseDuration(t); err == nil {
+		if d, err := time.ParseDuration(t); err != nil {
+			slog.Warn("invalid KNOWHOW_CLIENT_TIMEOUT, using default",
+				"value", t, "default", timeout, "error", err)
+		} else {
 			timeout = d
 		}
 	}
@@ -1154,10 +1158,13 @@ func (c *Client) AskStream(
 
 	// Send subscribe message
 	subscriptionID := uuid.New().String()
-	payload, _ := json.Marshal(wsSubscribePayload{
+	payload, err := json.Marshal(wsSubscribePayload{
 		Query:     subscriptionQuery,
 		Variables: vars,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal subscribe payload: %w", err)
+	}
 	subMsg := wsMessage{
 		ID:      subscriptionID,
 		Type:    gqlSubscribe,

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
@@ -175,7 +176,10 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 
 	for _, t := range defaults {
 		// Check if already exists
-		existing, _ := gqlClient.GetTemplate(ctx, t.Name)
+		existing, err := gqlClient.GetTemplate(ctx, t.Name)
+		if err != nil {
+			slog.Warn("failed to check existing template", "name", t.Name, "error", err)
+		}
 		if existing != nil {
 			if verbose {
 				fmt.Printf("  Skipping existing: %s\n", t.Name)
@@ -183,7 +187,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		_, err := gqlClient.CreateTemplate(ctx, t.Name, t.Description, t.Content)
+		_, err = gqlClient.CreateTemplate(ctx, t.Name, t.Description, t.Content)
 		if err != nil {
 			fmt.Printf("Warning: failed to create %s: %v\n", t.Name, err)
 			continue

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/llm"
 	"github.com/raphaelgruber/memcp-go/internal/models"
@@ -325,6 +326,8 @@ func (r *queryResolver) EntityByName(ctx context.Context, name string) (*Entity,
 		if err := r.db.UpdateEntityAccess(ctx, idStr); err != nil {
 			slog.Warn("failed to update entity access", "entity", idStr, "error", err)
 		}
+	} else {
+		slog.Warn("failed to extract entity ID for access tracking", "error", err)
 	}
 
 	return entityToGraphQL(entity), nil
@@ -725,11 +728,14 @@ func (r *subscriptionResolver) ChatStream(ctx context.Context, conversationID st
 			}
 		})
 
-		// Save assistant response to DB (best-effort)
+		// Save assistant response to DB (best-effort, use detached context
+		// since the streaming ctx may already be Done after client received all tokens)
 		if err == nil && fullResponse.Len() > 0 {
-			if _, dbErr := r.db.CreateMessage(ctx, conversationID, "assistant", fullResponse.String()); dbErr != nil {
+			saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if _, dbErr := r.db.CreateMessage(saveCtx, conversationID, "assistant", fullResponse.String()); dbErr != nil {
 				slog.Warn("failed to save assistant message", "conversation", conversationID, "error", dbErr)
 			}
+			saveCancel()
 		}
 
 		// Send completion event

@@ -58,7 +58,10 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		fmt.Print("\nContinue? [y/N]: ")
 
 		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read input: %w", err)
+		}
 		response = strings.TrimSpace(strings.ToLower(response))
 
 		if response != "y" && response != "yes" {
