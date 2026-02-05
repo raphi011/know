@@ -130,6 +130,22 @@ type ServerStats {
   dbSearch: OperationStats
 }
 
+type Conversation {
+  id: ID!
+  title: String!
+  entityId: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  messages: [Message!]!
+}
+
+type Message {
+  id: ID!
+  role: String!
+  content: String!
+  createdAt: DateTime!
+}
+
 # =============================================================================
 # INPUTS
 # =============================================================================
@@ -180,6 +196,11 @@ input IngestInput {
   extractGraph: Boolean
   dryRun: Boolean
   recursive: Boolean
+}
+
+input ChatMessageInput {
+  role: String!
+  content: String!
 }
 
 input FileHashInput {
@@ -246,6 +267,10 @@ type Query {
   # Hash checking for skip-unchanged optimization
   """Check which files need uploading based on content hashes"""
   checkHashes(input: CheckHashesInput!): CheckHashesResult!
+
+  # Conversation operations
+  conversations(limit: Int): [Conversation!]!
+  conversation(id: ID!): Conversation
 }
 
 # =============================================================================
@@ -264,6 +289,9 @@ type AskStreamEvent {
 type Subscription {
   """Stream LLM-synthesized answer token by token"""
   askStream(query: String!, input: SearchInput, templateName: String): AskStreamEvent!
+
+  """Stream LLM answer in a multi-turn conversation with persistent history"""
+  chatStream(conversationId: ID!, message: String!, history: [ChatMessageInput!]!, input: SearchInput): AskStreamEvent!
 }
 
 # =============================================================================
@@ -297,4 +325,8 @@ type Mutation {
 
   """Update entity content. Saves immediately, re-indexes in background."""
   updateEntityContent(id: ID!, content: String!): Entity!
+
+  # Conversation operations
+  createConversation(title: String, entityId: String): Conversation!
+  deleteConversation(id: ID!): Boolean!
 }

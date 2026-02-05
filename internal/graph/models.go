@@ -91,6 +91,30 @@ type TokenUsageSummary struct {
 	ByModel      map[string]any `json:"byModel"`
 }
 
+// Conversation represents a chat session in the GraphQL schema.
+type Conversation struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	EntityID  *string   `json:"entityId,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Messages  []Message `json:"messages"`
+}
+
+// Message represents a chat message in the GraphQL schema.
+type Message struct {
+	ID        string    `json:"id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ChatMessageInput is the input for multi-turn chat history.
+type ChatMessageInput struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // EntityInput is the input for creating entities.
 type EntityInput struct {
 	Type       string         `json:"type"`

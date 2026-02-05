@@ -54,3 +54,9 @@ models:
     model: github.com/raphaelgruber/memcp-go/internal/graph.SearchInput
   IngestInput:
     model: github.com/raphaelgruber/memcp-go/internal/graph.IngestInput
+  Conversation:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Conversation
+  Message:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Message
+  ChatMessageInput:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ChatMessageInput

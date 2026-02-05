@@ -254,7 +254,7 @@ func (c *Client) WipeData(ctx context.Context) error {
 
 	// Delete all records from each table
 	// Order matters due to relations referencing entities
-	tables := []string{"relates_to", "chunk", "template", "token_usage", "ingest_job", "entity"}
+	tables := []string{"message", "conversation", "relates_to", "chunk", "template", "token_usage", "ingest_job", "entity"}
 
 	for _, table := range tables {
 		query := fmt.Sprintf("DELETE %s", table)

@@ -198,6 +198,46 @@ func dbJobToGraphQL(j *models.IngestJob) *Job {
 	}
 }
 
+// conversationToGraphQL converts a models.Conversation to a GraphQL Conversation.
+func conversationToGraphQL(c *models.Conversation, messages []Message) *Conversation {
+	if c == nil {
+		return nil
+	}
+
+	idStr, err := models.RecordIDString(c.ID)
+	if err != nil {
+		idStr = fmt.Sprintf("%v", c.ID.ID)
+	}
+
+	if messages == nil {
+		messages = []Message{}
+	}
+
+	return &Conversation{
+		ID:        idStr,
+		Title:     c.Title,
+		EntityID:  c.EntityID,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+		Messages:  messages,
+	}
+}
+
+// messageToGraphQL converts a models.Message to a GraphQL Message.
+func messageToGraphQL(m *models.Message) Message {
+	idStr, err := models.RecordIDString(m.ID)
+	if err != nil {
+		idStr = fmt.Sprintf("%v", m.ID.ID)
+	}
+
+	return Message{
+		ID:        idStr,
+		Role:      m.Role,
+		Content:   m.Content,
+		CreatedAt: m.CreatedAt,
+	}
+}
+
 // intFromMap extracts an int from a map[string]any.
 func intFromMap(m map[string]any, key string) int {
 	if v, ok := m[key]; ok {

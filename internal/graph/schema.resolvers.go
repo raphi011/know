@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 
+	"github.com/raphaelgruber/memcp-go/internal/llm"
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/service"
 )
@@ -276,6 +278,26 @@ func (r *mutationResolver) UpdateEntityContent(ctx context.Context, id string, c
 	return entityToGraphQL(entity), nil
 }
 
+// CreateConversation is the resolver for the createConversation field.
+func (r *mutationResolver) CreateConversation(ctx context.Context, title *string, entityID *string) (*Conversation, error) {
+	t := "New conversation"
+	if title != nil && *title != "" {
+		t = *title
+	}
+
+	conv, err := r.db.CreateConversation(ctx, t, entityID)
+	if err != nil {
+		return nil, err
+	}
+
+	return conversationToGraphQL(conv, nil), nil
+}
+
+// DeleteConversation is the resolver for the deleteConversation field.
+func (r *mutationResolver) DeleteConversation(ctx context.Context, id string) (bool, error) {
+	return r.db.DeleteConversation(ctx, id)
+}
+
 // Entity is the resolver for the entity field.
 func (r *queryResolver) Entity(ctx context.Context, id string) (*Entity, error) {
 	entity, err := r.entityService.Get(ctx, id)
@@ -536,6 +558,48 @@ func (r *queryResolver) CheckHashes(ctx context.Context, input CheckHashesInput)
 	}, nil
 }
 
+// Conversations is the resolver for the conversations field.
+func (r *queryResolver) Conversations(ctx context.Context, limit *int) ([]*Conversation, error) {
+	lim := 50
+	if limit != nil {
+		lim = *limit
+	}
+
+	convs, err := r.db.ListConversations(ctx, lim)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*Conversation, len(convs))
+	for i := range convs {
+		result[i] = conversationToGraphQL(&convs[i], nil)
+	}
+	return result, nil
+}
+
+// Conversation is the resolver for the conversation field.
+func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversation, error) {
+	conv, err := r.db.GetConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, nil
+	}
+
+	msgs, err := r.db.GetMessages(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	gqlMsgs := make([]Message, len(msgs))
+	for i := range msgs {
+		gqlMsgs[i] = messageToGraphQL(&msgs[i])
+	}
+
+	return conversationToGraphQL(conv, gqlMsgs), nil
+}
+
 // AskStream is the resolver for the askStream field.
 func (r *subscriptionResolver) AskStream(ctx context.Context, query string, input *SearchInput, templateName *string) (<-chan *AskStreamEvent, error) {
 	// Template-based streaming not yet implemented
@@ -583,6 +647,90 @@ func (r *subscriptionResolver) AskStream(ctx context.Context, query string, inpu
 				return ctx.Err()
 			}
 		})
+
+		// Send completion event
+		if err != nil {
+			errMsg := err.Error()
+			select {
+			case eventChan <- &AskStreamEvent{Token: "", Done: true, Error: &errMsg}:
+			case <-ctx.Done():
+			}
+		} else {
+			select {
+			case eventChan <- &AskStreamEvent{Token: "", Done: true}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+
+	return eventChan, nil
+}
+
+// ChatStream is the resolver for the chatStream field.
+func (r *subscriptionResolver) ChatStream(ctx context.Context, conversationID string, message string, history []*ChatMessageInput, input *SearchInput) (<-chan *AskStreamEvent, error) {
+	// Save user message to DB
+	if _, err := r.db.CreateMessage(ctx, conversationID, "user", message); err != nil {
+		return nil, fmt.Errorf("save user message: %w", err)
+	}
+
+	// Convert history to LLM format
+	llmHistory := make([]llm.ChatMessage, 0, len(history))
+	for _, h := range history {
+		if h != nil {
+			llmHistory = append(llmHistory, llm.ChatMessage{
+				Role:    h.Role,
+				Content: h.Content,
+			})
+		}
+	}
+
+	// Build search options
+	opts := service.SearchOptions{Query: message}
+	if input != nil {
+		if len(input.Labels) > 0 {
+			opts.Labels = input.Labels
+		}
+		if len(input.Types) > 0 {
+			opts.Types = input.Types
+		}
+		if input.VerifiedOnly != nil {
+			opts.VerifiedOnly = *input.VerifiedOnly
+		}
+		if input.Limit != nil {
+			opts.Limit = *input.Limit
+		}
+	}
+
+	eventChan := make(chan *AskStreamEvent, 100)
+
+	go func() {
+		defer close(eventChan)
+
+		var fullResponse strings.Builder
+
+		err := r.searchService.AskStreamMultiTurn(ctx, message, llmHistory, opts, func(token string) error {
+			fullResponse.WriteString(token)
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			select {
+			case eventChan <- &AskStreamEvent{Token: token, Done: false}:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+
+		// Save assistant response to DB (best-effort)
+		if err == nil && fullResponse.Len() > 0 {
+			if _, dbErr := r.db.CreateMessage(ctx, conversationID, "assistant", fullResponse.String()); dbErr != nil {
+				slog.Warn("failed to save assistant message", "conversation", conversationID, "error", dbErr)
+			}
+		}
 
 		// Send completion event
 		if err != nil {
