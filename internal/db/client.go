@@ -156,36 +156,55 @@ func (c *Client) Close(ctx context.Context) error {
 // monitorConnection logs WebSocket connection state changes and sends periodic heartbeats.
 // Heartbeat queries keep the connection alive during long external operations (e.g., LLM calls)
 // that would otherwise let the WebSocket go idle and get closed by the server/network.
-// Heartbeats are only sent when the connection has been idle (no DB operations) for >5 seconds,
-// avoiding competition with actual queries under heavy concurrent load.
+// Following NATS pattern: 2 consecutive failures trigger connection close to force reconnect.
 func (c *Client) monitorConnection() {
-	ticker := time.NewTicker(10 * time.Second)
+	const (
+		heartbeatInterval = 30 * time.Second // Check every 30s (was 10s)
+		idleThreshold     = 10 * time.Second // Only ping if idle >10s (was 5s)
+		heartbeatTimeout  = 10 * time.Second // Query timeout (was 5s)
+		maxFailures       = 2                // NATS-style: 2 failures → reconnect
+	)
+
+	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
-	const idleThreshold = 5 * time.Second
-
+	var consecutiveFailures int
 	wasConnected := true
+
 	for range ticker.C {
 		isConnected := !c.conn.IsClosed()
 
+		// Log connection state changes
 		if !isConnected && wasConnected {
 			c.logger.Error("SurrealDB WebSocket disconnected")
 		} else if isConnected && !wasConnected {
 			c.logger.Info("SurrealDB WebSocket reconnected")
+			consecutiveFailures = 0
 		}
 		wasConnected = isConnected
 
-		// Only send heartbeat if connection is idle (no recent DB operations)
-		// This prevents heartbeat from competing with actual queries under load
+		// Send heartbeat only when idle (no recent DB operations)
 		if isConnected {
 			lastActive := time.Unix(c.lastActive.Load(), 0)
 			idleDuration := time.Since(lastActive)
+
 			if idleDuration > idleThreshold {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), heartbeatTimeout)
 				_, err := surrealdb.Query[any](ctx, c.db, "RETURN 1", nil)
 				cancel()
+
 				if err != nil {
-					c.logger.Warn("heartbeat query failed", "error", err, "idle_for", idleDuration.Round(time.Second))
+					consecutiveFailures++
+					if consecutiveFailures >= maxFailures {
+						c.logger.Warn("heartbeat failed repeatedly, forcing reconnect",
+							"consecutive", consecutiveFailures,
+							"idle_for", idleDuration.Round(time.Second))
+						_ = c.conn.Close(context.Background()) // rews will auto-reconnect on next operation
+						consecutiveFailures = 0
+					}
+					// Silent on first failure - transient issues are common under load
+				} else {
+					consecutiveFailures = 0
 				}
 			}
 		}
