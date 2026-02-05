@@ -85,6 +85,49 @@ Available docs:
 - `docs/langchaingo.md` - Go LLM library usage
 - `docs/bedrock.md` - AWS Bedrock + Teleport setup
 
+## Web UI (Svelte + Vite)
+
+The `web/` directory contains a Svelte 5 SPA that serves as a document editor.
+
+### Development
+
+```bash
+just web-dev    # Start Vite dev server on :5173
+just web-build  # Build production bundle to web/dist/
+```
+
+The Vite dev server proxies `/query` to the Go API on `:8484`. In production, the built assets are embedded via `go:embed` in `web/embed.go`.
+
+### Key Details
+
+- **Svelte 5 runes**: Uses `$state`, `$derived`, `$effect` (not old `$:` syntax or stores)
+- **CodeMirror 6**: Editor wrapped as `Editor.svelte` — `lineWrapping` is `EditorView.lineWrapping`
+- **GraphQL client**: `graphql-request` (lightweight, not Apollo) — queries in `src/lib/graphql/queries.ts`
+- **Build**: `just build-server` runs `web-build` first, then `go build` with embedded dist/
+
+### File Structure
+
+```
+web/
+├── embed.go                      # go:embed all:dist
+├── dist/                         # Built assets (gitignored content, stub checked in)
+├── src/
+│   ├── App.svelte                # Root: layout + state + save logic
+│   ├── app.css                   # Global styles (dark/light theme via CSS vars)
+│   ├── main.ts                   # Svelte mount
+│   └── lib/
+│       ├── graphql/
+│       │   ├── client.ts         # GraphQLClient → /query
+│       │   └── queries.ts        # LIST_DOCUMENTS, GET_ENTITY, UPDATE_CONTENT
+│       └── components/
+│           ├── Sidebar.svelte    # Document list + search filter
+│           ├── Editor.svelte     # CodeMirror wrapper
+│           └── SaveStatus.svelte # Save indicator
+├── package.json
+├── vite.config.ts                # Proxy /query → :8484
+└── tsconfig.json
+```
+
 ## Bubbletea v2 TUI
 
 This project uses **bubbletea v2** for terminal UIs. Use the `bubbletea` subagent for TUI implementation.

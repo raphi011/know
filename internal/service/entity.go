@@ -240,6 +240,65 @@ func (s *EntityService) Update(ctx context.Context, id string, update models.Ent
 	return entity, nil
 }
 
+// UpdateContent updates entity content synchronously and re-indexes in the background.
+// Returns the updated entity immediately without waiting for embedding/chunking.
+func (s *EntityService) UpdateContent(ctx context.Context, id string, content string) (*models.Entity, error) {
+	// Update content in DB (sync)
+	update := models.EntityUpdate{
+		Content: &content,
+	}
+	entity, err := s.db.UpdateEntity(ctx, id, update)
+	if err != nil {
+		return nil, fmt.Errorf("update content: %w", err)
+	}
+
+	// Delete old chunks (sync) so stale chunks aren't returned during re-indexing
+	if err := s.db.DeleteChunks(ctx, id); err != nil {
+		slog.Warn("failed to delete old chunks", "entity", id, "error", err)
+	}
+
+	// Re-embed + re-chunk in background goroutine
+	go func() {
+		bgCtx := context.Background()
+
+		// Re-generate embedding
+		if s.embedder != nil {
+			text := entity.Name
+			if entity.Summary != nil {
+				text += " " + *entity.Summary
+			}
+			text += " " + content
+
+			embedding, err := s.embedder.Embed(bgCtx, text)
+			if err != nil {
+				slog.Warn("background re-embed failed", "entity", id, "error", err)
+			} else {
+				embUpdate := models.EntityUpdate{Embedding: embedding}
+				if _, err := s.db.UpdateEntity(bgCtx, id, embUpdate); err != nil {
+					slog.Warn("failed to save new embedding", "entity", id, "error", err)
+				}
+			}
+		}
+
+		// Re-chunk if content is large enough
+		if s.embedder != nil {
+			// Refresh entity to get latest state
+			updated, err := s.db.GetEntity(bgCtx, id)
+			if err != nil {
+				slog.Warn("failed to get entity for rechunk", "entity", id, "error", err)
+				return
+			}
+			if updated != nil && updated.Content != nil {
+				if _, err := s.chunkEntity(bgCtx, updated); err != nil {
+					slog.Warn("background re-chunk failed", "entity", id, "error", err)
+				}
+			}
+		}
+	}()
+
+	return entity, nil
+}
+
 // Get retrieves an entity by ID and updates access tracking.
 func (s *EntityService) Get(ctx context.Context, id string) (*models.Entity, error) {
 	entity, err := s.db.GetEntity(ctx, id)

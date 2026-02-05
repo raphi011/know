@@ -13,6 +13,7 @@ Store any type of knowledge (people, services, concepts, documents) with flexibl
 - **LLM Synthesis**: Ask questions and get synthesized answers from your knowledge
 - **Templates**: Generate structured output (peer reviews, service summaries)
 - **Multi-Provider**: Supports Ollama (local), OpenAI, Anthropic for embeddings and LLM
+- **Web UI**: Svelte-based document editor with CodeMirror — edit markdown documents in the browser
 
 ## Installation
 
@@ -266,6 +267,43 @@ relates_to:
   - user-service
   - john-doe
 ---
+```
+
+## Web UI
+
+The web UI provides a document editor for browsing and editing `document`-type entities.
+
+### Production
+
+The frontend is embedded in the Go binary. Build and run:
+
+```bash
+just build-server
+./bin/knowhow-server
+# Open http://localhost:8484
+```
+
+### Development
+
+Run the Go server and Vite dev server side by side:
+
+```bash
+# Terminal 1: Go API server
+just dev
+
+# Terminal 2: Vite dev server with hot reload
+just web-dev
+# Open http://localhost:5173
+```
+
+The Vite dev server proxies `/query` requests to the Go server on port 8484.
+
+### Example Prompts
+
+```bash
+# Browse all documents in the sidebar, click to open in editor
+# Edit markdown content with syntax highlighting
+# Save with Cmd/Ctrl+S — content saves instantly, re-indexing runs in background
 ```
 
 ## Architecture

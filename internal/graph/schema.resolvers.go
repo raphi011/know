@@ -260,6 +260,15 @@ func (r *mutationResolver) IngestFilesAsync(ctx context.Context, input IngestFil
 	return serviceJobToGraphQL(job), nil
 }
 
+// UpdateEntityContent is the resolver for the updateEntityContent field.
+func (r *mutationResolver) UpdateEntityContent(ctx context.Context, id string, content string) (*Entity, error) {
+	entity, err := r.entityService.UpdateContent(ctx, id, content)
+	if err != nil {
+		return nil, err
+	}
+	return entityToGraphQL(entity), nil
+}
+
 // Entity is the resolver for the entity field.
 func (r *queryResolver) Entity(ctx context.Context, id string) (*Entity, error) {
 	entity, err := r.entityService.Get(ctx, id)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/graph"
+	"github.com/raphaelgruber/memcp-go/web"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -103,16 +105,51 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// GraphQL playground at root
-	mux.Handle("/", playground.Handler("Knowhow GraphQL", "/query"))
+	// GraphQL playground moved to /playground
+	mux.Handle("/playground", playground.Handler("Knowhow GraphQL", "/query"))
 
-	// GraphQL endpoint
-	mux.Handle("/query", srv)
+	// GraphQL endpoint with CORS for Vite dev server
+	mux.HandleFunc("/query", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		srv.ServeHTTP(w, r)
+	})
 
 	// Health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
+	})
+
+	// Serve embedded SPA from web/dist
+	distFS, err := fs.Sub(web.Dist, "dist")
+	if err != nil {
+		slog.Error("failed to create sub filesystem", "error", err)
+		os.Exit(1)
+	}
+	fileServer := http.FileServer(http.FS(distFS))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Try serving the file directly; fall back to index.html for SPA routing
+		path := r.URL.Path
+		if path == "/" {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Check if the file exists in the embedded FS
+		f, err := distFS.Open(path[1:]) // strip leading /
+		if err != nil {
+			// File not found — serve index.html for SPA client-side routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		f.Close()
+		fileServer.ServeHTTP(w, r)
 	})
 
 	// Create HTTP server
@@ -126,7 +163,8 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		slog.Info("GraphQL playground available", "url", fmt.Sprintf("http://localhost:%s/", port))
+		slog.Info("Web UI available", "url", fmt.Sprintf("http://localhost:%s/", port))
+		slog.Info("GraphQL playground available", "url", fmt.Sprintf("http://localhost:%s/playground", port))
 		slog.Info("GraphQL endpoint available", "url", fmt.Sprintf("http://localhost:%s/query", port))
 
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
