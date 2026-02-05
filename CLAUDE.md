@@ -84,3 +84,23 @@ Available docs:
 - `docs/llm.md` - LLM integration patterns
 - `docs/langchaingo.md` - Go LLM library usage
 - `docs/bedrock.md` - AWS Bedrock + Teleport setup
+
+## Bubbletea v2 TUI
+
+This project uses **bubbletea v2** for terminal UIs. Use the `bubbletea` subagent for TUI implementation.
+
+### Import Paths (v2)
+
+```go
+import (
+    "charm.land/bubbles/v2/progress"
+    tea "charm.land/bubbletea/v2"
+    "github.com/charmbracelet/lipgloss"  // lipgloss stays at v1
+)
+```
+
+### Key v2 API Changes
+
+- `View()` returns `tea.View`, use `tea.NewView(content)` wrapper
+- `tea.KeyMsg` → `tea.KeyPressMsg`
+- `Init()` returns `tea.Cmd` only (not `(Model, Cmd)`)
