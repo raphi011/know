@@ -74,6 +74,12 @@ type FileContent struct {
 	Hash    string
 }
 
+// IngestFileResult contains the result of ingesting a single file.
+type IngestFileResult struct {
+	Entity        *models.Entity
+	ChunksCreated int
+}
+
 // CheckHashes determines which files need uploading based on their content hashes.
 // Returns paths that are NOT in the database (new or changed content).
 func (s *IngestService) CheckHashes(ctx context.Context, files []FileHash) ([]string, error) {
@@ -114,12 +120,12 @@ func (s *IngestService) CheckHashes(ctx context.Context, files []FileHash) ([]st
 
 // IngestFileWithContent ingests a file from provided content (not from disk).
 // Used by the two-phase hash-based ingestion flow.
-func (s *IngestService) IngestFileWithContent(ctx context.Context, filePath, content, contentHash string, opts IngestOptions) (*models.Entity, error) {
+func (s *IngestService) IngestFileWithContent(ctx context.Context, filePath, content, contentHash string, opts IngestOptions) (*IngestFileResult, error) {
 	return s.ingestFileInternal(ctx, filePath, []byte(content), &contentHash, opts)
 }
 
 // IngestFile ingests a single Markdown file.
-func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts IngestOptions) (*models.Entity, error) {
+func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts IngestOptions) (*IngestFileResult, error) {
 	// Read file
 	content, err := os.ReadFile(filePath)
 	if err != nil {
@@ -130,7 +136,7 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 
 // ingestFileInternal handles the core ingestion logic for both IngestFile and IngestFileWithContent.
 // If contentHash is nil, no hash is stored; if provided, it's stored for skip-unchanged deduplication.
-func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string, content []byte, contentHash *string, opts IngestOptions) (*models.Entity, error) {
+func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string, content []byte, contentHash *string, opts IngestOptions) (*IngestFileResult, error) {
 	// Parse markdown
 	doc, err := parser.ParseMarkdown(string(content))
 	if err != nil {
@@ -185,25 +191,27 @@ func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string,
 
 	// Dry run - just return what would be created
 	if opts.DryRun {
-		return &models.Entity{
-			Type:        input.Type,
-			Name:        name,
-			Content:     &fullContent,
-			Labels:      labels,
-			SourcePath:  &filePath,
-			ContentHash: contentHash,
-			Source:      source,
+		return &IngestFileResult{
+			Entity: &models.Entity{
+				Type:        input.Type,
+				Name:        name,
+				Content:     &fullContent,
+				Labels:      labels,
+				SourcePath:  &filePath,
+				ContentHash: contentHash,
+				Source:      source,
+			},
 		}, nil
 	}
 
 	// Create entity
-	entity, err := s.entityService.Create(ctx, input)
+	createResult, err := s.entityService.Create(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("create entity: %w", err)
 	}
 
 	// Extract relations from content
-	relations := s.extractInferredRelations(ctx, doc, entity)
+	relations := s.extractInferredRelations(ctx, doc, createResult.Entity)
 	for _, rel := range relations {
 		if err := s.db.CreateRelation(ctx, rel); err != nil {
 			// Log but don't fail
@@ -213,7 +221,7 @@ func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string,
 
 	// Extract graph relations using LLM if requested
 	if opts.ExtractGraph && s.model != nil {
-		if err := s.extractGraphRelations(ctx, entity); err != nil {
+		if err := s.extractGraphRelations(ctx, createResult.Entity); err != nil {
 			// Fatal API errors (billing, auth) should stop everything
 			if errors.Is(err, llm.ErrFatalAPI) {
 				return nil, fmt.Errorf("graph extraction: %w", err)
@@ -223,7 +231,10 @@ func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string,
 		}
 	}
 
-	return entity, nil
+	return &IngestFileResult{
+		Entity:        createResult.Entity,
+		ChunksCreated: createResult.ChunksCreated,
+	}, nil
 }
 
 // extractInferredRelations finds [[wiki-links]] and @mentions.
@@ -235,79 +246,85 @@ func (s *IngestService) extractInferredRelations(ctx context.Context, doc *parse
 		return relations
 	}
 
-	// Extract wiki links
+	// Extract all target names from various sources
 	links := parser.ExtractWikiLinks(doc.Content)
-	for _, link := range links {
-		// Try to find matching entity
-		target, err := s.db.GetEntityByName(ctx, link)
-		if err != nil {
-			slog.Debug("failed to lookup entity for wiki link", "link", link, "error", err)
-			continue
-		}
-		if target != nil {
-			targetID, err := models.RecordIDString(target.ID)
-			if err != nil {
-				slog.Debug("failed to get target ID for wiki link", "link", link, "error", err)
-				continue
-			}
-			relSource := string(models.RelationSourceInferred)
-			relations = append(relations, models.RelationInput{
-				FromID:  entityID,
-				ToID:    targetID,
-				RelType: "references",
-				Source:  &relSource,
-			})
-		}
-	}
-
-	// Extract mentions
 	mentions := parser.ExtractMentions(doc.Content)
-	for _, mention := range mentions {
-		// Try to find matching person entity
-		target, err := s.db.GetEntityByName(ctx, mention)
-		if err != nil {
-			slog.Debug("failed to lookup entity for mention", "mention", mention, "error", err)
-			continue
-		}
-		if target != nil && target.Type == "person" {
-			targetID, err := models.RecordIDString(target.ID)
-			if err != nil {
-				slog.Debug("failed to get target ID for mention", "mention", mention, "error", err)
-				continue
-			}
-			relSource := string(models.RelationSourceInferred)
-			relations = append(relations, models.RelationInput{
-				FromID:  entityID,
-				ToID:    targetID,
-				RelType: "mentions",
-				Source:  &relSource,
-			})
-		}
+	relatesTo := doc.GetFrontmatterStringSlice("relates_to")
+
+	// Collect all unique names for batch lookup
+	allNames := make([]string, 0, len(links)+len(mentions)+len(relatesTo))
+	allNames = append(allNames, links...)
+	allNames = append(allNames, mentions...)
+	allNames = append(allNames, relatesTo...)
+
+	if len(allNames) == 0 {
+		return relations
 	}
 
-	// Extract relations from frontmatter
-	if relatesTo := doc.GetFrontmatterStringSlice("relates_to"); len(relatesTo) > 0 {
-		for _, targetName := range relatesTo {
-			target, err := s.db.GetEntityByName(ctx, targetName)
-			if err != nil {
-				slog.Debug("failed to lookup entity for frontmatter relation", "target", targetName, "error", err)
-				continue
-			}
-			if target != nil {
-				targetID, err := models.RecordIDString(target.ID)
-				if err != nil {
-					slog.Debug("failed to get target ID for frontmatter relation", "target", targetName, "error", err)
-					continue
-				}
-				relSource := string(models.RelationSourceInferred)
-				relations = append(relations, models.RelationInput{
-					FromID:  entityID,
-					ToID:    targetID,
-					RelType: "relates_to",
-					Source:  &relSource,
-				})
-			}
+	// Single batch lookup for all entity names
+	entityMap, err := s.db.GetEntitiesByNames(ctx, allNames)
+	if err != nil {
+		slog.Warn("failed to batch lookup entities for relations", "error", err)
+		return relations
+	}
+
+	relSource := string(models.RelationSourceInferred)
+
+	// Process wiki links
+	for _, link := range links {
+		target := entityMap[strings.ToLower(link)]
+		if target == nil {
+			continue
 		}
+		targetID, err := models.RecordIDString(target.ID)
+		if err != nil {
+			slog.Debug("failed to get target ID for wiki link", "link", link, "error", err)
+			continue
+		}
+		relations = append(relations, models.RelationInput{
+			FromID:  entityID,
+			ToID:    targetID,
+			RelType: "references",
+			Source:  &relSource,
+		})
+	}
+
+	// Process mentions (only person entities)
+	for _, mention := range mentions {
+		target := entityMap[strings.ToLower(mention)]
+		if target == nil || target.Type != "person" {
+			continue
+		}
+		targetID, err := models.RecordIDString(target.ID)
+		if err != nil {
+			slog.Debug("failed to get target ID for mention", "mention", mention, "error", err)
+			continue
+		}
+		relations = append(relations, models.RelationInput{
+			FromID:  entityID,
+			ToID:    targetID,
+			RelType: "mentions",
+			Source:  &relSource,
+		})
+	}
+
+	// Process frontmatter relates_to
+	for _, targetName := range relatesTo {
+		target := entityMap[strings.ToLower(targetName)]
+		if target == nil {
+			continue
+		}
+		targetID, err := models.RecordIDString(target.ID)
+		if err != nil {
+			slog.Debug("failed to get target ID for frontmatter relation", "target", targetName, "error", err)
+			continue
+		}
+		relations = append(relations, models.RelationInput{
+			FromID:  entityID,
+			ToID:    targetID,
+			RelType: "relates_to",
+			Source:  &relSource,
+		})
 	}
 
 	return relations
@@ -529,7 +546,7 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 				processed := filesProcessed.Add(1)
 				slog.Info("processing file", "worker", workerID, "file", filepath.Base(item.path), "progress", fmt.Sprintf("%d/%d", processed, len(files)))
 
-				entity, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
+				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
 				if err != nil {
 					errorsMu.Lock()
 					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
@@ -539,16 +556,9 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 
 				entitiesCreated.Add(1)
 
-				// Count chunks
-				if entity != nil && !opts.DryRun {
-					if entityID, err := models.RecordIDString(entity.ID); err == nil {
-						chunks, err := s.db.GetChunks(ctx, entityID)
-						if err != nil {
-							slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
-						} else {
-							chunksCreated.Add(int32(len(chunks)))
-						}
-					}
+				// Use chunk count from result (no extra DB query needed)
+				if result != nil && !opts.DryRun {
+					chunksCreated.Add(int32(result.ChunksCreated))
 				}
 			}
 		}(i)
@@ -625,7 +635,7 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 					jobManager.UpdateProgress(ctx, job, currentProgress, totalFiles)
 				}
 
-				entity, err := s.IngestFile(ctx, file, opts)
+				result, err := s.IngestFile(ctx, file, opts)
 				if err != nil {
 					errorsMu.Lock()
 					errors = append(errors, fmt.Sprintf("%s: %v", file, err))
@@ -635,16 +645,9 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 
 				entitiesCreated.Add(1)
 
-				// Count chunks
-				if entity != nil && !opts.DryRun {
-					if entityID, err := models.RecordIDString(entity.ID); err == nil {
-						chunks, err := s.db.GetChunks(ctx, entityID)
-						if err != nil {
-							slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
-						} else {
-							chunksCreated.Add(int32(len(chunks)))
-						}
-					}
+				// Use chunk count from result (no extra DB query needed)
+				if result != nil && !opts.DryRun {
+					chunksCreated.Add(int32(result.ChunksCreated))
 				}
 			}
 		}(i)
@@ -767,7 +770,7 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 					jobManager.UpdateProgress(ctx, job, int(processed), totalFiles)
 				}
 
-				entity, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
+				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
 				if err != nil {
 					errorsMu.Lock()
 					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
@@ -777,16 +780,9 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 
 				entitiesCreated.Add(1)
 
-				// Count chunks
-				if entity != nil && !opts.DryRun {
-					if entityID, err := models.RecordIDString(entity.ID); err == nil {
-						chunks, err := s.db.GetChunks(ctx, entityID)
-						if err != nil {
-							slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
-						} else {
-							chunksCreated.Add(int32(len(chunks)))
-						}
-					}
+				// Use chunk count from result (no extra DB query needed)
+				if result != nil && !opts.DryRun {
+					chunksCreated.Add(int32(result.ChunksCreated))
 				}
 			}
 		}(i)

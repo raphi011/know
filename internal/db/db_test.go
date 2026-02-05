@@ -214,6 +214,63 @@ func TestGetEntityByName(t *testing.T) {
 	}
 }
 
+func TestGetEntitiesByNames(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test entities
+	entities := []models.EntityInput{
+		{Type: "concept", Name: "Batch Test Alpha", Embedding: dummyEmbedding()},
+		{Type: "concept", Name: "Batch Test Beta", Embedding: dummyEmbedding()},
+		{Type: "concept", Name: "Batch Test Gamma", Embedding: dummyEmbedding()},
+	}
+
+	var createdIDs []string
+	for _, input := range entities {
+		created, err := testDB.CreateEntity(ctx, input)
+		if err != nil {
+			t.Fatalf("Failed to create test entity %s: %v", input.Name, err)
+		}
+		createdIDs = append(createdIDs, models.MustRecordIDString(created.ID))
+	}
+	defer func() {
+		for _, id := range createdIDs {
+			_, _ = testDB.DeleteEntity(ctx, id)
+		}
+	}()
+
+	// Test batch lookup with mixed existing and non-existing names
+	names := []string{"Batch Test Alpha", "batch test beta", "Nonexistent Entity", "Batch Test Gamma"}
+	result, err := testDB.GetEntitiesByNames(ctx, names)
+	if err != nil {
+		t.Fatalf("GetEntitiesByNames failed: %v", err)
+	}
+
+	// Should find 3 entities (case-insensitive)
+	if len(result) != 3 {
+		t.Errorf("Expected 3 entities, got %d", len(result))
+	}
+
+	// Check case-insensitive lookup
+	if _, ok := result["batch test alpha"]; !ok {
+		t.Error("Expected to find 'batch test alpha' (lowercase key)")
+	}
+	if _, ok := result["batch test beta"]; !ok {
+		t.Error("Expected to find 'batch test beta' (lowercase key)")
+	}
+	if _, ok := result["nonexistent entity"]; ok {
+		t.Error("Should not find 'nonexistent entity'")
+	}
+
+	// Test empty input
+	emptyResult, err := testDB.GetEntitiesByNames(ctx, []string{})
+	if err != nil {
+		t.Fatalf("GetEntitiesByNames with empty input failed: %v", err)
+	}
+	if len(emptyResult) != 0 {
+		t.Errorf("Expected empty result for empty input, got %d", len(emptyResult))
+	}
+}
+
 func TestUpdateEntity(t *testing.T) {
 	ctx := context.Background()
 

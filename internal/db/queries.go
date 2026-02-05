@@ -159,6 +159,38 @@ func (c *Client) GetEntityByName(ctx context.Context, name string) (*models.Enti
 	return &(*results)[0].Result[0], nil
 }
 
+// GetEntitiesByNames retrieves multiple entities by name (case-insensitive).
+// Returns a map of lowercase(name) -> entity for efficient lookup.
+// Names not found are simply not in the returned map.
+func (c *Client) GetEntitiesByNames(ctx context.Context, names []string) (map[string]*models.Entity, error) {
+	if len(names) == 0 {
+		return map[string]*models.Entity{}, nil
+	}
+
+	// Lowercase names for query and result mapping
+	lowerNames := make([]string, len(names))
+	for i, n := range names {
+		lowerNames[i] = strings.ToLower(n)
+	}
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, `
+		SELECT * FROM entity WHERE string::lowercase(name) IN $names
+	`, map[string]any{"names": lowerNames})
+
+	if err != nil {
+		return nil, fmt.Errorf("get entities by names: %w", err)
+	}
+
+	entityMap := make(map[string]*models.Entity, len(names))
+	if results != nil && len(*results) > 0 {
+		for i := range (*results)[0].Result {
+			entity := &(*results)[0].Result[i]
+			entityMap[strings.ToLower(entity.Name)] = entity
+		}
+	}
+	return entityMap, nil
+}
+
 // UpdateEntity updates an entity with partial data.
 // Only non-nil fields in the update are changed.
 func (c *Client) UpdateEntity(ctx context.Context, id string, update models.EntityUpdate) (*models.Entity, error) {

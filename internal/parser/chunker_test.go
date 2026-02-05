@@ -154,3 +154,100 @@ func TestChunkMarkdown_LongContentWithEmptySections(t *testing.T) {
 		t.Error("expected at least one chunk from section with content")
 	}
 }
+
+func TestApplyOverlap_SemanticBoundaries(t *testing.T) {
+	tests := []struct {
+		name           string
+		chunks         []ChunkResult
+		overlap        int
+		wantContains   []string // strings that should appear in second chunk
+		wantNotPrefix  []string // strings that should NOT be at the start of second chunk
+	}{
+		{
+			name: "prefers sentence boundary over word boundary",
+			chunks: []ChunkResult{
+				{Content: "First chunk with some content. This is the last sentence.", Position: 0},
+				{Content: "Second chunk content here.", Position: 1},
+			},
+			overlap:       40,
+			wantContains:  []string{"This is the last sentence."},
+			wantNotPrefix: []string{"sentence."}, // should not cut mid-sentence
+		},
+		{
+			name: "handles exclamation marks",
+			chunks: []ChunkResult{
+				{Content: "Something important! Remember this part.", Position: 0},
+				{Content: "Next section.", Position: 1},
+			},
+			overlap:      30,
+			wantContains: []string{"Remember this part."},
+		},
+		{
+			name: "handles question marks",
+			chunks: []ChunkResult{
+				{Content: "What is the answer? The answer is here.", Position: 0},
+				{Content: "More content.", Position: 1},
+			},
+			overlap:      30,
+			wantContains: []string{"The answer is here."},
+		},
+		{
+			name: "falls back to word boundary when no sentence boundary",
+			chunks: []ChunkResult{
+				{Content: "No sentence endings here, just words and more words", Position: 0},
+				{Content: "Second chunk.", Position: 1},
+			},
+			overlap:       20,
+			wantNotPrefix: []string{"rds"}, // should not cut mid-word
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := applyOverlap(tt.chunks, tt.overlap)
+
+			if len(result) < 2 {
+				t.Fatalf("expected at least 2 chunks, got %d", len(result))
+			}
+
+			secondChunk := result[1].Content
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(secondChunk, want) {
+					t.Errorf("second chunk should contain %q\ngot: %q", want, secondChunk)
+				}
+			}
+
+			for _, notWant := range tt.wantNotPrefix {
+				if strings.HasPrefix(secondChunk, notWant) {
+					t.Errorf("second chunk should not start with %q\ngot: %q", notWant, secondChunk)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyOverlap_EdgeCases(t *testing.T) {
+	// Empty chunks
+	result := applyOverlap([]ChunkResult{}, 100)
+	if len(result) != 0 {
+		t.Error("empty input should return empty output")
+	}
+
+	// Single chunk
+	single := []ChunkResult{{Content: "Only one chunk.", Position: 0}}
+	result = applyOverlap(single, 100)
+	if len(result) != 1 || result[0].Content != "Only one chunk." {
+		t.Error("single chunk should be unchanged")
+	}
+
+	// Zero overlap
+	two := []ChunkResult{
+		{Content: "First chunk.", Position: 0},
+		{Content: "Second chunk.", Position: 1},
+	}
+	result = applyOverlap(two, 0)
+	if result[1].Content != "Second chunk." {
+		t.Errorf("zero overlap should not modify chunks, got %q", result[1].Content)
+	}
+}

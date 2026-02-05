@@ -242,7 +242,8 @@ func splitSentences(text string) []string {
 	return sentences
 }
 
-// applyOverlap adds overlap between adjacent chunks.
+// applyOverlap adds overlap between adjacent chunks using semantic boundaries.
+// Prefers sentence boundaries (.!?) over word boundaries for better context.
 func applyOverlap(chunks []ChunkResult, overlap int) []ChunkResult {
 	if overlap <= 0 || len(chunks) <= 1 {
 		return chunks
@@ -256,12 +257,29 @@ func applyOverlap(chunks []ChunkResult, overlap int) []ChunkResult {
 		if len(prevContent) > overlap {
 			// Take last `overlap` characters from previous chunk
 			overlapText := prevContent[len(prevContent)-overlap:]
-			// Find word boundary
-			spaceIdx := strings.LastIndex(overlapText, " ")
-			if spaceIdx > 0 {
-				overlapText = overlapText[spaceIdx+1:]
+
+			// Try to find a sentence boundary (. ! ?) followed by space
+			bestIdx := -1
+			for _, ending := range []string{". ", "! ", "? "} {
+				if idx := strings.LastIndex(overlapText, ending); idx > bestIdx {
+					bestIdx = idx + len(ending) // Start after the sentence ending
+				}
 			}
-			result[i].Content = overlapText + " " + result[i].Content
+
+			if bestIdx > 0 && bestIdx < len(overlapText) {
+				// Found sentence boundary - use text from there
+				overlapText = overlapText[bestIdx:]
+			} else {
+				// Fallback: find word boundary
+				spaceIdx := strings.LastIndex(overlapText, " ")
+				if spaceIdx > 0 {
+					overlapText = overlapText[spaceIdx+1:]
+				}
+			}
+
+			if len(overlapText) > 0 {
+				result[i].Content = overlapText + " " + result[i].Content
+			}
 		}
 	}
 

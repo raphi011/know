@@ -33,12 +33,12 @@ func (r *mutationResolver) CreateEntity(ctx context.Context, input EntityInput) 
 		modelInput.Source = &source
 	}
 
-	entity, err := r.entityService.Create(ctx, modelInput)
+	result, err := r.entityService.Create(ctx, modelInput)
 	if err != nil {
 		return nil, err
 	}
 
-	return entityToGraphQL(entity), nil
+	return entityToGraphQL(result.Entity), nil
 }
 
 // UpdateEntity is the resolver for the updateEntity field.
@@ -99,12 +99,12 @@ func (r *mutationResolver) IngestFile(ctx context.Context, filePath string, inpu
 		}
 	}
 
-	entity, err := r.ingestService.IngestFile(ctx, filePath, opts)
+	result, err := r.ingestService.IngestFile(ctx, filePath, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	return entityToGraphQL(entity), nil
+	return entityToGraphQL(result.Entity), nil
 }
 
 // IngestDirectory is the resolver for the ingestDirectory field.
