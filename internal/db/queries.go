@@ -711,47 +711,81 @@ func (c *Client) RecordTokenUsage(ctx context.Context, input models.TokenUsageIn
 }
 
 // GetTokenUsageSummary returns aggregated token usage statistics.
+// Uses separate simple queries instead of complex multi-statement query for better
+// concurrency behavior with the WebSocket connection.
 func (c *Client) GetTokenUsageSummary(ctx context.Context, since string) (*models.TokenUsageSummary, error) {
-	sql := `
-		LET $usage = (SELECT * FROM token_usage WHERE created_at >= <datetime>$since);
-		LET $total = IF array::len($usage) > 0 THEN <int>math::sum($usage.total_tokens) ELSE 0 END;
-		LET $cost = IF array::len($usage) > 0 THEN <float>math::sum($usage[WHERE cost_usd != NONE].cost_usd) ELSE 0.0 END;
-		LET $by_op = (
-			SELECT
-				operation AS key,
-				<int>math::sum(total_tokens) AS value
-			FROM token_usage
-			WHERE created_at >= <datetime>$since
-			GROUP BY operation
-		);
-		LET $by_model = (
-			SELECT
-				model AS key,
-				<int>math::sum(total_tokens) AS value
-			FROM token_usage
-			WHERE created_at >= <datetime>$since
-			GROUP BY model
-		);
-		RETURN {
-			total_tokens: $total,
-			total_cost_usd: $cost,
-			by_operation: object::from_entries($by_op.map(|$o| [$o.key, $o.value])),
-			by_model: object::from_entries($by_model.map(|$m| [$m.key, $m.value]))
-		}
-	`
+	c.startOp() // Mark activity for heartbeat
 
-	results, err := surrealdb.Query[models.TokenUsageSummary](ctx, c.db, sql, map[string]any{
-		"since": since,
-	})
+	vars := map[string]any{"since": since}
+
+	// Query 1: Get all usage records and sum client-side (simpler than complex GROUP ALL)
+	usageSQL := `SELECT total_tokens, cost_usd FROM token_usage WHERE created_at >= <datetime>$since`
+	type usageRow struct {
+		TotalTokens int      `json:"total_tokens"`
+		CostUSD     *float64 `json:"cost_usd"`
+	}
+	usageResults, err := surrealdb.Query[[]usageRow](ctx, c.db, usageSQL, vars)
 	if err != nil {
-		return nil, fmt.Errorf("get token usage summary: %w", err)
+		return nil, fmt.Errorf("get token usage: %w", err)
 	}
 
-	if results != nil && len(*results) > 0 {
-		lastIdx := len(*results) - 1
-		return &(*results)[lastIdx].Result, nil
+	summary := &models.TokenUsageSummary{
+		ByOperation: make(map[string]int),
+		ByModel:     make(map[string]int),
 	}
-	return &models.TokenUsageSummary{}, nil
+
+	if usageResults != nil && len(*usageResults) > 0 {
+		for _, row := range (*usageResults)[len(*usageResults)-1].Result {
+			summary.TotalTokens += row.TotalTokens
+			if row.CostUSD != nil {
+				summary.TotalCostUSD += *row.CostUSD
+			}
+		}
+	}
+
+	// Query 2: Group by operation (math::sum returns float in SurrealDB v3)
+	byOpSQL := `
+		SELECT operation, math::sum(total_tokens) AS tokens
+		FROM token_usage
+		WHERE created_at >= <datetime>$since
+		GROUP BY operation
+	`
+	type opResult struct {
+		Operation string  `json:"operation"`
+		Tokens    float64 `json:"tokens"`
+	}
+	opResults, err := surrealdb.Query[[]opResult](ctx, c.db, byOpSQL, vars)
+	if err != nil {
+		return nil, fmt.Errorf("get tokens by operation: %w", err)
+	}
+	if opResults != nil && len(*opResults) > 0 {
+		for _, r := range (*opResults)[len(*opResults)-1].Result {
+			summary.ByOperation[r.Operation] = int(r.Tokens)
+		}
+	}
+
+	// Query 3: Group by model (math::sum returns float in SurrealDB v3)
+	byModelSQL := `
+		SELECT model, math::sum(total_tokens) AS tokens
+		FROM token_usage
+		WHERE created_at >= <datetime>$since
+		GROUP BY model
+	`
+	type modelResult struct {
+		Model  string  `json:"model"`
+		Tokens float64 `json:"tokens"`
+	}
+	modelResults, err := surrealdb.Query[[]modelResult](ctx, c.db, byModelSQL, vars)
+	if err != nil {
+		return nil, fmt.Errorf("get tokens by model: %w", err)
+	}
+	if modelResults != nil && len(*modelResults) > 0 {
+		for _, r := range (*modelResults)[len(*modelResults)-1].Result {
+			summary.ByModel[r.Model] = int(r.Tokens)
+		}
+	}
+
+	return summary, nil
 }
 
 // =============================================================================
