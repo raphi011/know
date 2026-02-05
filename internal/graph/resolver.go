@@ -47,20 +47,26 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 
 	// Initialize schema with configured embedding dimension
 	if err := dbClient.InitSchema(ctx, cfg.EmbedDimension); err != nil {
-		dbClient.Close(ctx)
+		if closeErr := dbClient.Close(ctx); closeErr != nil {
+			slog.Warn("failed to close DB during cleanup", "error", closeErr)
+		}
 		return nil, err
 	}
 
 	// Initialize LLM components
 	embedder, err := llm.NewEmbedder(ctx, cfg, mc)
 	if err != nil {
-		dbClient.Close(ctx)
+		if closeErr := dbClient.Close(ctx); closeErr != nil {
+			slog.Warn("failed to close DB during cleanup", "error", closeErr)
+		}
 		return nil, err
 	}
 
 	model, err := llm.NewModel(cfg, mc)
 	if err != nil {
-		dbClient.Close(ctx)
+		if closeErr := dbClient.Close(ctx); closeErr != nil {
+			slog.Warn("failed to close DB during cleanup", "error", closeErr)
+		}
 		return nil, err
 	}
 

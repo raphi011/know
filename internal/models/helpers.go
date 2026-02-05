@@ -3,6 +3,7 @@ package models
 
 import (
 	"fmt"
+	"strings"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -25,4 +26,18 @@ func MustRecordIDString(id surrealmodels.RecordID) string {
 		panic(err)
 	}
 	return s
+}
+
+// Slugify converts a name to a URL-safe ID.
+func Slugify(name string) string {
+	s := strings.ToLower(name)
+	s = strings.ReplaceAll(s, " ", "-")
+	s = strings.ReplaceAll(s, "_", "-")
+	result := strings.Builder{}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }

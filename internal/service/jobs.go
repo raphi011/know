@@ -3,7 +3,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -125,13 +127,9 @@ func (m *JobManager) ListJobs() []*Job {
 	}
 
 	// Sort by start time descending (most recent first)
-	for i := 0; i < len(jobs)-1; i++ {
-		for j := i + 1; j < len(jobs); j++ {
-			if jobs[j].StartedAt.After(jobs[i].StartedAt) {
-				jobs[i], jobs[j] = jobs[j], jobs[i]
-			}
-		}
-	}
+	slices.SortFunc(jobs, func(a, b *Job) int {
+		return b.StartedAt.Compare(a.StartedAt)
+	})
 
 	return jobs
 }
@@ -315,6 +313,13 @@ func (m *JobManager) ResumeIncompleteJobs(ctx context.Context, ingestService *In
 
 		// Resume processing in background
 		go func(job *Job, pendingFiles []string, dbJob models.IngestJob) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("resumed job goroutine panicked", "job_id", job.ID, "panic", r)
+					m.Fail(context.Background(), job, fmt.Errorf("internal panic: %v", r))
+				}
+			}()
+
 			bgCtx := context.Background()
 
 			// Parse options from stored job

@@ -121,8 +121,20 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 		if idErr != nil {
 			slog.Warn("failed to get entity ID for chunking", "error", idErr)
 		} else if chunksCreated, err := s.chunkEntity(ctx, entity); err != nil {
-			// Log but don't fail - entity was created successfully
-			slog.Warn("failed to chunk entity", "entity", idStr, "error", err)
+			// Chunking failed — entity has no embedding and no chunks, making it
+			// invisible to search. Fall back to entity-level embedding.
+			slog.Warn("failed to chunk entity, falling back to entity embedding", "entity", idStr, "error", err)
+			if s.embedder != nil {
+				text := input.Name + " " + *input.Content
+				if emb, embErr := s.embedder.Embed(ctx, text); embErr != nil {
+					slog.Warn("fallback entity embedding also failed", "entity", idStr, "error", embErr)
+				} else {
+					embUpdate := models.EntityUpdate{Embedding: emb}
+					if _, updErr := s.db.UpdateEntity(ctx, idStr, embUpdate); updErr != nil {
+						slog.Warn("failed to save fallback embedding", "entity", idStr, "error", updErr)
+					}
+				}
+			}
 		} else {
 			result.ChunksCreated = chunksCreated
 			if chunksCreated > 0 {
@@ -246,6 +258,8 @@ func (s *EntityService) Update(ctx context.Context, id string, update models.Ent
 		// Create new chunks if content is long
 		if parser.ShouldChunk(*update.Content, parser.DefaultChunkConfig()) {
 			if _, err := s.chunkEntity(ctx, entity); err != nil {
+				// Re-chunking failed after old chunks were deleted — entity has no chunks.
+				// The entity-level embedding was already updated above, so search still works.
 				slog.Warn("failed to re-chunk entity", "entity", id, "error", err)
 			}
 		}

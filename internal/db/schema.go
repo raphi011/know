@@ -174,5 +174,37 @@ func SchemaSQL(dimension int) string {
 
     DEFINE INDEX IF NOT EXISTS idx_job_status ON ingest_job FIELDS status;
     DEFINE INDEX IF NOT EXISTS idx_job_name ON ingest_job FIELDS name UNIQUE;
+
+    -- ==========================================================================
+    -- CONVERSATION TABLE (Chat Sessions)
+    -- ==========================================================================
+    -- Persists multi-turn chat conversations for the web UI.
+    DEFINE TABLE IF NOT EXISTS conversation SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS title ON conversation TYPE string;
+    DEFINE FIELD IF NOT EXISTS entity_id ON conversation TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS created_at ON conversation TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at ON conversation TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_conversation_updated ON conversation FIELDS updated_at;
+
+    -- ==========================================================================
+    -- MESSAGE TABLE (Chat Messages)
+    -- ==========================================================================
+    -- Individual messages within a conversation.
+    DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS conversation ON message TYPE record<conversation>;
+    DEFINE FIELD IF NOT EXISTS role ON message TYPE string;
+    DEFINE FIELD IF NOT EXISTS content ON message TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_at ON message TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_message_conversation ON message FIELDS conversation;
+
+    -- Cascade delete messages when conversation deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_messages ON conversation
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM message WHERE conversation = $before.id
+    };
 `, dimension, dimension)
 }

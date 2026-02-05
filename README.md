@@ -14,6 +14,7 @@ Store any type of knowledge (people, services, concepts, documents) with flexibl
 - **Templates**: Generate structured output (peer reviews, service summaries)
 - **Multi-Provider**: Supports Ollama (local), OpenAI, Anthropic for embeddings and LLM
 - **Web UI**: Svelte-based document editor with CodeMirror — edit markdown documents in the browser
+- **Chat Panel**: Slide-over conversational Q&A with streaming responses, multi-turn history, and document-aware search
 
 ## Installation
 
@@ -271,7 +272,7 @@ relates_to:
 
 ## Web UI
 
-The web UI provides a document editor for browsing and editing `document`-type entities.
+The web UI provides a document editor for browsing and editing `document`-type entities, plus a slide-over chat panel for conversational Q&A against your knowledge base.
 
 ### Production
 
@@ -304,6 +305,12 @@ The Vite dev server proxies `/query` requests to the Go server on port 8484.
 # Browse all documents in the sidebar, click to open in editor
 # Edit markdown content with syntax highlighting
 # Save with Cmd/Ctrl+S — content saves instantly, re-indexing runs in background
+
+# Chat panel (click the chat bubble icon in the toolbar):
+# - Click "New chat" and ask: "What do I know about SurrealDB?"
+# - Open a document first, then chat — search biases toward that document's labels
+# - Multi-turn: ask follow-up questions, the conversation context carries over
+# - Conversations persist across page reloads
 ```
 
 ## Architecture

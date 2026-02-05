@@ -395,9 +395,10 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 			name := strings.TrimSpace(parts[1])
 			existing, err := s.db.GetEntityByName(ctx, name)
 			if err != nil {
-				slog.Debug("failed to check existing entity", "name", name, "error", err)
+				slog.Warn("failed to check existing entity for graph extraction", "name", name, "error", err)
+				continue
 			}
-			if existing == nil && err == nil {
+			if existing == nil {
 				entityType := strings.TrimSpace(parts[2])
 				description := strings.TrimSpace(parts[3])
 				aiSource := models.SourceAIGenerated
@@ -547,7 +548,7 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 		entitiesCreated atomic.Int32
 		chunksCreated   atomic.Int32
 		errorsMu        sync.Mutex
-		errors          []string
+		errs            []string
 	)
 
 	// Worker pool - use struct to pass both path and content
@@ -559,6 +560,8 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 	}
 	workChan := make(chan workItem, len(files))
 	var wg sync.WaitGroup
+	var fatalOnce sync.Once
+	fatalCh := make(chan struct{}) // closed on fatal API error to abort all workers
 
 	// Start workers
 	for i := 0; i < concurrency; i++ {
@@ -566,6 +569,11 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 		go func(workerID int) {
 			defer wg.Done()
 			for item := range workChan {
+				select {
+				case <-fatalCh:
+					return
+				default:
+				}
 				if ctx.Err() != nil {
 					return
 				}
@@ -575,8 +583,11 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 
 				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, item.baseDir, opts)
 				if err != nil {
+					if errors.Is(err, llm.ErrFatalAPI) {
+						fatalOnce.Do(func() { close(fatalCh) })
+					}
 					errorsMu.Lock()
-					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
+					errs = append(errs, fmt.Sprintf("%s: %v", item.path, err))
 					errorsMu.Unlock()
 					continue
 				}
@@ -600,13 +611,13 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 	// Wait for completion
 	wg.Wait()
 
-	slog.Info("content-based processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+	slog.Info("content-based processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errs))
 
 	return &IngestResult{
 		FilesProcessed:  int(filesProcessed.Load()),
 		EntitiesCreated: int(entitiesCreated.Load()),
 		ChunksCreated:   int(chunksCreated.Load()),
-		Errors:          errors,
+		Errors:          errs,
 	}, nil
 }
 
@@ -636,12 +647,14 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 		entitiesCreated atomic.Int32
 		chunksCreated   atomic.Int32
 		errorsMu        sync.Mutex
-		errors          []string
+		errs            []string
 	)
 
 	// Worker pool
 	fileChan := make(chan string, len(files))
 	var wg sync.WaitGroup
+	var fatalOnce sync.Once
+	fatalCh := make(chan struct{}) // closed on fatal API error to abort all workers
 
 	// Start workers
 	for i := 0; i < concurrency; i++ {
@@ -649,6 +662,11 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 		go func(workerID int) {
 			defer wg.Done()
 			for file := range fileChan {
+				select {
+				case <-fatalCh:
+					return
+				default:
+				}
 				if ctx.Err() != nil {
 					return
 				}
@@ -664,8 +682,11 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 
 				result, err := s.IngestFile(ctx, file, opts)
 				if err != nil {
+					if errors.Is(err, llm.ErrFatalAPI) {
+						fatalOnce.Do(func() { close(fatalCh) })
+					}
 					errorsMu.Lock()
-					errors = append(errors, fmt.Sprintf("%s: %v", file, err))
+					errs = append(errs, fmt.Sprintf("%s: %v", file, err))
 					errorsMu.Unlock()
 					continue
 				}
@@ -689,13 +710,13 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 	// Wait for completion
 	wg.Wait()
 
-	slog.Info("file processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+	slog.Info("file processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errs))
 
 	return &IngestResult{
 		FilesProcessed:  int(filesProcessed.Load()),
 		EntitiesCreated: int(entitiesCreated.Load()),
 		ChunksCreated:   int(chunksCreated.Load()),
-		Errors:          errors,
+		Errors:          errs,
 	}, nil
 }
 
@@ -734,6 +755,13 @@ func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobMana
 
 	// Start processing in background with detached context
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("job goroutine panicked", "job_id", job.ID, "panic", r)
+				jobManager.Fail(context.Background(), job, fmt.Errorf("internal panic: %v", r))
+			}
+		}()
+
 		bgCtx := context.Background()
 
 		// Mark as running
@@ -768,7 +796,7 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 		entitiesCreated atomic.Int32
 		chunksCreated   atomic.Int32
 		errorsMu        sync.Mutex
-		errors          []string
+		errs            []string
 	)
 
 	// Worker pool
@@ -780,6 +808,8 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 	}
 	workChan := make(chan workItem, len(files))
 	var wg sync.WaitGroup
+	var fatalOnce sync.Once
+	fatalCh := make(chan struct{}) // closed on fatal API error to abort all workers
 
 	// Start workers
 	for i := 0; i < concurrency; i++ {
@@ -787,6 +817,11 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 		go func(workerID int) {
 			defer wg.Done()
 			for item := range workChan {
+				select {
+				case <-fatalCh:
+					return
+				default:
+				}
 				if ctx.Err() != nil {
 					return
 				}
@@ -801,8 +836,11 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 
 				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, item.baseDir, opts)
 				if err != nil {
+					if errors.Is(err, llm.ErrFatalAPI) {
+						fatalOnce.Do(func() { close(fatalCh) })
+					}
 					errorsMu.Lock()
-					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
+					errs = append(errs, fmt.Sprintf("%s: %v", item.path, err))
 					errorsMu.Unlock()
 					continue
 				}
@@ -826,13 +864,13 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 	// Wait for completion
 	wg.Wait()
 
-	slog.Info("async content-based processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+	slog.Info("async content-based processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errs))
 
 	return &IngestResult{
 		FilesProcessed:  int(filesProcessed.Load()),
 		EntitiesCreated: int(entitiesCreated.Load()),
 		ChunksCreated:   int(chunksCreated.Load()),
-		Errors:          errors,
+		Errors:          errs,
 	}, nil
 }
 
@@ -879,6 +917,13 @@ func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *Jo
 
 	// Start processing in background
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("job goroutine panicked", "job_id", job.ID, "panic", r)
+				jobManager.Fail(context.Background(), job, fmt.Errorf("internal panic: %v", r))
+			}
+		}()
+
 		bgCtx := context.Background()
 
 		// Mark as running
@@ -895,18 +940,7 @@ func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *Jo
 	return job, nil
 }
 
-// slugify converts a name to a URL-safe ID.
+// slugify delegates to the shared models.Slugify function.
 func slugify(name string) string {
-	// Simple slugification: lowercase, replace spaces with hyphens
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	// Remove non-alphanumeric except hyphens
-	result := strings.Builder{}
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
+	return models.Slugify(name)
 }

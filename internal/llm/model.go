@@ -332,6 +332,74 @@ Answer:`, context, query)
 	return m.GenerateWithSystemStream(ctx, systemPrompt, userPrompt, onToken)
 }
 
+// ChatMessage represents a message in a multi-turn conversation.
+type ChatMessage struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
+
+// GenerateWithSystemStreamMultiTurn generates text with a system prompt and multi-turn history,
+// streaming tokens via callback.
+func (m *Model) GenerateWithSystemStreamMultiTurn(
+	ctx context.Context,
+	systemPrompt string,
+	history []ChatMessage,
+	currentQuery string,
+	onToken func(token string) error,
+) error {
+	// Build message array: system + history + current query
+	messages := make([]llms.MessageContent, 0, 2+len(history))
+	messages = append(messages, llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt))
+
+	for _, msg := range history {
+		switch msg.Role {
+		case "user":
+			messages = append(messages, llms.TextParts(llms.ChatMessageTypeHuman, msg.Content))
+		case "assistant":
+			messages = append(messages, llms.TextParts(llms.ChatMessageTypeAI, msg.Content))
+		}
+	}
+
+	messages = append(messages, llms.TextParts(llms.ChatMessageTypeHuman, currentQuery))
+
+	// Calculate total input length for metrics
+	totalLen := len(systemPrompt) + len(currentQuery)
+	for _, msg := range history {
+		totalLen += len(msg.Content)
+	}
+
+	slog.Debug("LLM multi-turn streaming starting", "model", m.modelName, "history_len", len(history), "total_len", totalLen)
+
+	start := time.Now()
+	var outputLen int
+
+	streamingFunc := func(ctx context.Context, chunk []byte) error {
+		outputLen += len(chunk)
+		return onToken(string(chunk))
+	}
+
+	response, err := m.llm.GenerateContent(ctx, messages, llms.WithMaxTokens(8192), llms.WithStreamingFunc(streamingFunc))
+	duration := time.Since(start)
+
+	if err != nil {
+		slog.Warn("LLM multi-turn streaming failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
+		return wrapFatalError(fmt.Errorf("generate multi-turn stream: %w", err))
+	}
+
+	slog.Debug("LLM multi-turn streaming complete", "model", m.modelName, "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
+
+	if m.metrics != nil {
+		var genInfo map[string]any
+		if len(response.Choices) > 0 {
+			genInfo = response.Choices[0].GenerationInfo
+		}
+		inputTokens, outputTokens := extractTokenCounts(genInfo, totalLen, outputLen)
+		m.metrics.RecordLLMUsage(metrics.OpLLMStream, duration, inputTokens, outputTokens)
+	}
+
+	return nil
+}
+
 // ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).
 func (m *Model) ExtractEntitiesAndRelations(ctx context.Context, text string, existingEntities []string) (string, error) {
 	entitiesStr := ""

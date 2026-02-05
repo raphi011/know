@@ -39,7 +39,7 @@ func optionalObject(m map[string]any) any {
 
 // optionalEmbedding returns models.None for nil/empty slices, otherwise returns the slice.
 func optionalEmbedding(e []float32) any {
-	if e == nil || len(e) == 0 {
+	if len(e) == 0 {
 		return surrealmodels.None
 	}
 	return e
@@ -334,10 +334,6 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 
 	// Always update accessed time
 	setClauses = append(setClauses, "accessed = time::now()")
-
-	if len(setClauses) == 1 { // Only accessed time update
-		// No real updates, just touch the record
-	}
 
 	sql := fmt.Sprintf(`
 		UPDATE type::record("entity", $id) SET %s RETURN AFTER
@@ -1176,18 +1172,154 @@ func (c *Client) GetEntitiesBySourcePaths(ctx context.Context, paths []string) (
 	return existingPaths, nil
 }
 
-// slugify converts a name to a URL-safe ID.
-func slugify(name string) string {
-	// Simple slugification: lowercase, replace spaces with hyphens
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	// Remove non-alphanumeric except hyphens
-	result := strings.Builder{}
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
-		}
+// =============================================================================
+// CONVERSATION QUERIES
+// =============================================================================
+
+// CreateConversation creates a new conversation.
+func (c *Client) CreateConversation(ctx context.Context, title string, entityID *string) (*models.Conversation, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	sql := `
+		CREATE conversation SET
+			title = $title,
+			entity_id = $entity_id
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Conversation](ctx, c.db, sql, map[string]any{
+		"title":     title,
+		"entity_id": optionalString(entityID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create conversation: %w", err)
 	}
-	return result.String()
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create conversation: no result returned")
+	}
+
+	return &(*results)[0].Result[0], nil
+}
+
+// GetConversation retrieves a conversation by ID.
+func (c *Client) GetConversation(ctx context.Context, id string) (*models.Conversation, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	results, err := surrealdb.Query[[]models.Conversation](ctx, c.db, `
+		SELECT * FROM type::record("conversation", $id)
+	`, map[string]any{"id": id})
+	if err != nil {
+		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// ListConversations returns conversations ordered by most recently updated.
+func (c *Client) ListConversations(ctx context.Context, limit int) ([]models.Conversation, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	results, err := surrealdb.Query[[]models.Conversation](ctx, c.db, `
+		SELECT * FROM conversation ORDER BY updated_at DESC LIMIT $limit
+	`, map[string]any{"limit": limit})
+	if err != nil {
+		return nil, fmt.Errorf("list conversations: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Conversation{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// DeleteConversation deletes a conversation by ID.
+// Messages are cascade-deleted by the SurrealDB event.
+func (c *Client) DeleteConversation(ctx context.Context, id string) (bool, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	results, err := surrealdb.Query[[]models.Conversation](ctx, c.db, `
+		DELETE type::record("conversation", $id) RETURN BEFORE
+	`, map[string]any{"id": id})
+	if err != nil {
+		return false, fmt.Errorf("delete conversation: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+// CreateMessage creates a new message in a conversation and touches the conversation's updated_at.
+func (c *Client) CreateMessage(ctx context.Context, conversationID, role, content string) (*models.Message, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	sql := `
+		LET $msg = CREATE message SET
+			conversation = type::record("conversation", $conv_id),
+			role = $role,
+			content = $content
+		RETURN AFTER;
+		UPDATE type::record("conversation", $conv_id) SET updated_at = time::now();
+		RETURN $msg;
+	`
+
+	results, err := surrealdb.Query[[]models.Message](ctx, c.db, sql, map[string]any{
+		"conv_id": conversationID,
+		"role":    role,
+		"content": content,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create message: %w", err)
+	}
+
+	// Result is in the last RETURN statement
+	if results == nil || len(*results) == 0 {
+		return nil, fmt.Errorf("create message: no result returned")
+	}
+
+	lastIdx := len(*results) - 1
+	if len((*results)[lastIdx].Result) == 0 {
+		return nil, fmt.Errorf("create message: empty result")
+	}
+
+	return &(*results)[lastIdx].Result[0], nil
+}
+
+// GetMessages retrieves all messages for a conversation, ordered by creation time.
+func (c *Client) GetMessages(ctx context.Context, conversationID string) ([]models.Message, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	results, err := surrealdb.Query[[]models.Message](ctx, c.db, `
+		SELECT * FROM message
+		WHERE conversation = type::record("conversation", $conv_id)
+		ORDER BY created_at ASC
+	`, map[string]any{"conv_id": conversationID})
+	if err != nil {
+		return nil, fmt.Errorf("get messages: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []models.Message{}, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// slugify delegates to the shared models.Slugify function.
+func slugify(name string) string {
+	return models.Slugify(name)
 }

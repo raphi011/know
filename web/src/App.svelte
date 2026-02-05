@@ -5,6 +5,7 @@
   import Sidebar from './lib/components/Sidebar.svelte'
   import Editor from './lib/components/Editor.svelte'
   import SaveStatus from './lib/components/SaveStatus.svelte'
+  import ChatPanel from './lib/components/ChatPanel.svelte'
 
   interface EntityListItem {
     id: string
@@ -16,6 +17,7 @@
     id: string
     name: string
     content: string | null
+    labels: string[]
     updatedAt: string
   }
 
@@ -28,6 +30,7 @@
   let saveTimeout: ReturnType<typeof setTimeout> | undefined
   let loading = $state(false)
   let loadError = $state<string | null>(null)
+  let chatOpen = $state(false)
 
   let isDirty = $derived(editorContent !== lastSavedContent)
 
@@ -132,6 +135,16 @@
           >
             Save
           </button>
+          <button
+            class="chat-toggle"
+            onclick={() => chatOpen = !chatOpen}
+            title="Toggle chat"
+            class:active={chatOpen}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
         </div>
       </div>
       <Editor
@@ -146,12 +159,31 @@
         {:else if loadError}
           <span class="error-text">{loadError}</span>
         {:else}
-          Select a document to edit
+          <div class="empty-content">
+            <span>Select a document to edit</span>
+            <button
+              class="chat-toggle standalone"
+              onclick={() => chatOpen = !chatOpen}
+              title="Open chat"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              Chat
+            </button>
+          </div>
         {/if}
       </div>
     {/if}
   </main>
 </div>
+
+<ChatPanel
+  open={chatOpen}
+  onClose={() => chatOpen = false}
+  entityId={selectedId}
+  entityLabels={selectedEntity?.labels ?? []}
+/>
 
 <style>
   .layout {
@@ -212,6 +244,38 @@
     cursor: default;
   }
 
+  .chat-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .chat-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .chat-toggle.active {
+    background: var(--bg-active);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .chat-toggle.standalone {
+    width: auto;
+    padding: 6px 12px;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+
   .empty-state {
     flex: 1;
     display: flex;
@@ -219,6 +283,13 @@
     justify-content: center;
     color: var(--text-dim);
     font-size: 15px;
+  }
+
+  .empty-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
   }
 
   .error-text {

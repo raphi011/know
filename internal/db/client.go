@@ -45,6 +45,7 @@ type Client struct {
 	logger     logger.Logger
 	metrics    *metrics.Collector
 	lastActive atomic.Int64 // Unix timestamp of last DB operation (for idle detection)
+	done       chan struct{} // closed on Close() to stop monitorConnection goroutine
 }
 
 // NewClient creates a new SurrealDB client with auto-reconnecting WebSocket.
@@ -68,12 +69,12 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 		baseURL = strings.TrimSuffix(baseURL, "/rpc")
 	}
 
-	var connAttempt int
+	var connAttempt atomic.Int64
 	conn := rews.New(
 		func(ctx context.Context) (*gorillaws.Connection, error) {
-			connAttempt++
-			if connAttempt > 1 {
-				sdkLogger.Warn("rews reconnecting", "attempt", connAttempt)
+			attempt := connAttempt.Add(1)
+			if attempt > 1 {
+				sdkLogger.Warn("rews reconnecting", "attempt", attempt)
 			}
 			ws := gorillaws.New(&connection.Config{
 				BaseURL:     baseURL,
@@ -105,7 +106,9 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 	// Create DB wrapper
 	db, err := surrealdb.FromConnection(ctx, conn)
 	if err != nil {
-		_ = conn.Close(ctx)
+		if closeErr := conn.Close(ctx); closeErr != nil {
+			sdkLogger.Debug("failed to close connection during cleanup", "error", closeErr)
+		}
 		return nil, fmt.Errorf("from connection: %w", err)
 	}
 
@@ -126,19 +129,23 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 		})
 	}
 	if err != nil {
-		_ = conn.Close(ctx)
+		if closeErr := conn.Close(ctx); closeErr != nil {
+			sdkLogger.Debug("failed to close connection during cleanup", "error", closeErr)
+		}
 		return nil, fmt.Errorf("signin: %w", err)
 	}
 
 	// Select namespace/database
 	sdkLogger.Info("selecting namespace/database", "namespace", cfg.Namespace, "database", cfg.Database)
 	if err := db.Use(ctx, cfg.Namespace, cfg.Database); err != nil {
-		_ = conn.Close(ctx)
+		if closeErr := conn.Close(ctx); closeErr != nil {
+			sdkLogger.Debug("failed to close connection during cleanup", "error", closeErr)
+		}
 		return nil, fmt.Errorf("use: %w", err)
 	}
 
 	sdkLogger.Info("SurrealDB connection established")
-	client := &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc}
+	client := &Client{conn: conn, db: db, cfg: cfg, logger: sdkLogger, metrics: mc, done: make(chan struct{})}
 	client.lastActive.Store(time.Now().Unix()) // Initialize to prevent immediate heartbeat
 
 	// Start connection health monitor
@@ -147,9 +154,10 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 	return client, nil
 }
 
-// Close closes the SurrealDB connection.
+// Close closes the SurrealDB connection and stops the heartbeat monitor.
 func (c *Client) Close(ctx context.Context) error {
 	c.logger.Info("closing SurrealDB connection")
+	close(c.done)
 	return c.conn.Close(ctx)
 }
 
@@ -171,7 +179,12 @@ func (c *Client) monitorConnection() {
 	var consecutiveFailures int
 	wasConnected := true
 
-	for range ticker.C {
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+		}
 		isConnected := !c.conn.IsClosed()
 
 		// Log connection state changes
@@ -199,7 +212,10 @@ func (c *Client) monitorConnection() {
 						c.logger.Warn("heartbeat failed repeatedly, forcing reconnect",
 							"consecutive", consecutiveFailures,
 							"idle_for", idleDuration.Round(time.Second))
-						_ = c.conn.Close(context.Background()) // rews will auto-reconnect on next operation
+						// Force close to trigger rews auto-reconnect on next operation
+				if closeErr := c.conn.Close(context.Background()); closeErr != nil {
+					c.logger.Debug("failed to close connection for reconnect", "error", closeErr)
+				}
 						consecutiveFailures = 0
 					}
 					// Silent on first failure - transient issues are common under load
@@ -254,7 +270,7 @@ func (c *Client) WipeData(ctx context.Context) error {
 
 	// Delete all records from each table
 	// Order matters due to relations referencing entities
-	tables := []string{"relates_to", "chunk", "template", "token_usage", "ingest_job", "entity"}
+	tables := []string{"message", "conversation", "relates_to", "chunk", "template", "token_usage", "ingest_job", "entity"}
 
 	for _, table := range tables {
 		query := fmt.Sprintf("DELETE %s", table)

@@ -116,13 +116,41 @@ func (s *SearchService) SearchWithChunks(ctx context.Context, opts SearchOptions
 	return results, nil
 }
 
+// buildSearchContext formats search results into a context string for LLM consumption.
+func buildSearchContext(results []models.EntitySearchResult) string {
+	contextParts := make([]string, 0, len(results))
+	for _, result := range results {
+		part := fmt.Sprintf("## %s (%s)\n", result.Name, result.Type)
+		if result.Summary != nil {
+			part += *result.Summary + "\n"
+		}
+
+		if len(result.MatchedChunks) > 0 {
+			for _, chunk := range result.MatchedChunks {
+				if chunk.HeadingPath != nil {
+					part += fmt.Sprintf("\n### %s\n", *chunk.HeadingPath)
+				}
+				part += chunk.Content + "\n"
+			}
+		} else if result.Content != nil {
+			content := *result.Content
+			if len(content) > 500 {
+				content = content[:500] + "..."
+			}
+			part += content + "\n"
+		}
+
+		contextParts = append(contextParts, part)
+	}
+	return strings.Join(contextParts, "\n---\n")
+}
+
 // Ask performs search and synthesizes an answer using LLM.
 func (s *SearchService) Ask(ctx context.Context, query string, opts SearchOptions) (string, error) {
 	if s.model == nil {
 		return "", fmt.Errorf("LLM model not configured")
 	}
 
-	// Search for relevant context
 	opts.Query = query
 	if opts.Limit == 0 {
 		opts.Limit = 20
@@ -137,37 +165,7 @@ func (s *SearchService) Ask(ctx context.Context, query string, opts SearchOption
 		return "No relevant knowledge found for this query.", nil
 	}
 
-	// Build context from results
-	contextParts := make([]string, 0, len(results))
-	for _, result := range results {
-		part := fmt.Sprintf("## %s (%s)\n", result.Name, result.Type)
-		if result.Summary != nil {
-			part += *result.Summary + "\n"
-		}
-
-		// Add matched chunks
-		if len(result.MatchedChunks) > 0 {
-			for _, chunk := range result.MatchedChunks {
-				if chunk.HeadingPath != nil {
-					part += fmt.Sprintf("\n### %s\n", *chunk.HeadingPath)
-				}
-				part += chunk.Content + "\n"
-			}
-		} else if result.Content != nil {
-			// Use full content if no chunks
-			content := *result.Content
-			if len(content) > 500 {
-				content = content[:500] + "..."
-			}
-			part += content + "\n"
-		}
-
-		contextParts = append(contextParts, part)
-	}
-
-	searchContext := strings.Join(contextParts, "\n---\n")
-
-	// Synthesize answer
+	searchContext := buildSearchContext(results)
 	return s.model.SynthesizeAnswer(ctx, query, searchContext)
 }
 
@@ -177,7 +175,6 @@ func (s *SearchService) AskStream(ctx context.Context, query string, opts Search
 		return fmt.Errorf("LLM model not configured")
 	}
 
-	// Search for relevant context
 	opts.Query = query
 	if opts.Limit == 0 {
 		opts.Limit = 20
@@ -189,42 +186,51 @@ func (s *SearchService) AskStream(ctx context.Context, query string, opts Search
 	}
 
 	if len(results) == 0 {
-		// No results - send single message and return
 		return onToken("No relevant knowledge found for this query.")
 	}
 
-	// Build context from results (same logic as Ask)
-	contextParts := make([]string, 0, len(results))
-	for _, result := range results {
-		part := fmt.Sprintf("## %s (%s)\n", result.Name, result.Type)
-		if result.Summary != nil {
-			part += *result.Summary + "\n"
-		}
+	searchContext := buildSearchContext(results)
+	return s.model.SynthesizeAnswerStream(ctx, query, searchContext, onToken)
+}
 
-		// Add matched chunks
-		if len(result.MatchedChunks) > 0 {
-			for _, chunk := range result.MatchedChunks {
-				if chunk.HeadingPath != nil {
-					part += fmt.Sprintf("\n### %s\n", *chunk.HeadingPath)
-				}
-				part += chunk.Content + "\n"
-			}
-		} else if result.Content != nil {
-			// Use full content if no chunks
-			content := *result.Content
-			if len(content) > 500 {
-				content = content[:500] + "..."
-			}
-			part += content + "\n"
-		}
-
-		contextParts = append(contextParts, part)
+// AskStreamMultiTurn performs search and streams LLM answer with multi-turn conversation history.
+func (s *SearchService) AskStreamMultiTurn(
+	ctx context.Context,
+	query string,
+	history []llm.ChatMessage,
+	opts SearchOptions,
+	onToken func(token string) error,
+) error {
+	if s.model == nil {
+		return fmt.Errorf("LLM model not configured")
 	}
 
-	searchContext := strings.Join(contextParts, "\n---\n")
+	opts.Query = query
+	if opts.Limit == 0 {
+		opts.Limit = 20
+	}
 
-	// Stream the synthesized answer
-	return s.model.SynthesizeAnswerStream(ctx, query, searchContext, onToken)
+	results, err := s.SearchWithChunks(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("search: %w", err)
+	}
+
+	searchContext := ""
+	if len(results) > 0 {
+		searchContext = buildSearchContext(results)
+	}
+
+	systemPrompt := `You are a helpful knowledge assistant. Answer the user's question based on the provided context.
+If the context doesn't contain enough information to answer the question, say so.
+Be concise and cite specific information from the context where relevant.`
+
+	if searchContext != "" {
+		systemPrompt += "\n\nContext:\n" + searchContext
+	} else {
+		systemPrompt += "\n\nNo relevant knowledge was found for this query. Let the user know."
+	}
+
+	return s.model.GenerateWithSystemStreamMultiTurn(ctx, systemPrompt, history, query, onToken)
 }
 
 // AskWithTemplate fills a template with knowledge from search.
