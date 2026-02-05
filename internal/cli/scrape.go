@@ -184,17 +184,21 @@ func runScrapeWithHashCheck(ctx context.Context, dirPath string, opts *client.In
 		})
 	}
 
-	// 5. Send to server for processing
+	// 5. Send to server for async processing
 	fmt.Printf("Uploading %d files...\n", len(filesToUpload))
-	result, err := gqlClient.IngestFiles(ctx, filesToUpload, opts)
+	job, err := gqlClient.IngestFilesAsync(ctx, filesToUpload, opts)
 	if err != nil {
-		return fmt.Errorf("ingest files: %w", err)
+		return fmt.Errorf("start ingest job: %w", err)
 	}
 
-	// Override skipped count with our local calculation
-	result.FilesSkipped = skipped
-	printIngestResult(result)
-	return nil
+	// Show progress TUI if terminal, otherwise print job info
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		fmt.Printf("Started job %s\n", job.ID)
+		fmt.Printf("  Use 'knowhow jobs %s' to check progress\n", job.ID)
+		return nil
+	}
+
+	return RunJobProgress(gqlClient, job)
 }
 
 // collectMarkdownFiles walks a directory and returns all markdown file paths.

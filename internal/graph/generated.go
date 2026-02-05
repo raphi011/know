@@ -128,6 +128,7 @@ type ComplexityRoot struct {
 		IngestDirectoryAsync func(childComplexity int, dirPath string, input *IngestInput) int
 		IngestFile           func(childComplexity int, filePath string, input *IngestInput) int
 		IngestFiles          func(childComplexity int, input IngestFilesInput) int
+		IngestFilesAsync     func(childComplexity int, input IngestFilesInput) int
 		UpdateEntity         func(childComplexity int, id string, input EntityUpdate) int
 	}
 
@@ -220,6 +221,7 @@ type MutationResolver interface {
 	CreateTemplate(ctx context.Context, name string, description *string, content string) (*Template, error)
 	DeleteTemplate(ctx context.Context, name string) (bool, error)
 	IngestFiles(ctx context.Context, input IngestFilesInput) (*IngestResult, error)
+	IngestFilesAsync(ctx context.Context, input IngestFilesInput) (*Job, error)
 }
 type QueryResolver interface {
 	Entity(ctx context.Context, id string) (*Entity, error)
@@ -643,6 +645,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.IngestFiles(childComplexity, args["input"].(IngestFilesInput)), true
+	case "Mutation.ingestFilesAsync":
+		if e.complexity.Mutation.IngestFilesAsync == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_ingestFilesAsync_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.IngestFilesAsync(childComplexity, args["input"].(IngestFilesInput)), true
 	case "Mutation.updateEntity":
 		if e.complexity.Mutation.UpdateEntity == nil {
 			break
@@ -1291,6 +1304,17 @@ func (ec *executionContext) field_Mutation_ingestFile_args(ctx context.Context, 
 		return nil, err
 	}
 	args["input"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_ingestFilesAsync_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNIngestFilesInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestFilesInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -3510,6 +3534,71 @@ func (ec *executionContext) fieldContext_Mutation_ingestFiles(ctx context.Contex
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_ingestFiles_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_ingestFilesAsync(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_ingestFilesAsync,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().IngestFilesAsync(ctx, fc.Args["input"].(IngestFilesInput))
+		},
+		nil,
+		ec.marshalNJob2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐJob,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_ingestFilesAsync(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Job_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Job_type(ctx, field)
+			case "status":
+				return ec.fieldContext_Job_status(ctx, field)
+			case "progress":
+				return ec.fieldContext_Job_progress(ctx, field)
+			case "total":
+				return ec.fieldContext_Job_total(ctx, field)
+			case "result":
+				return ec.fieldContext_Job_result(ctx, field)
+			case "error":
+				return ec.fieldContext_Job_error(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Job_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Job_completedAt(ctx, field)
+			case "dirPath":
+				return ec.fieldContext_Job_dirPath(ctx, field)
+			case "pendingFiles":
+				return ec.fieldContext_Job_pendingFiles(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Job", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_ingestFilesAsync_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8112,6 +8201,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "ingestFiles":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_ingestFiles(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ingestFilesAsync":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_ingestFilesAsync(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++

@@ -727,6 +727,46 @@ func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, opts
 	return &result.IngestFiles, nil
 }
 
+// IngestFilesAsync starts an async job for content-based file ingestion.
+// Returns a Job immediately; processing happens in background on the server.
+// Used after CheckHashes to upload only changed files with progress tracking.
+func (c *Client) IngestFilesAsync(ctx context.Context, files []FileContentInput, opts *IngestOptions) (*Job, error) {
+	const query = `
+		mutation IngestFilesAsync($input: IngestFilesInput!) {
+			ingestFilesAsync(input: $input) {
+				id type status progress total startedAt completedAt error
+				result { filesProcessed entitiesCreated chunksCreated relationsCreated errors }
+			}
+		}
+	`
+
+	input := map[string]any{
+		"files": files,
+	}
+
+	if opts != nil {
+		options := map[string]any{}
+		if len(opts.Labels) > 0 {
+			options["labels"] = opts.Labels
+		}
+		if opts.ExtractGraph != nil {
+			options["extractGraph"] = *opts.ExtractGraph
+		}
+		if opts.DryRun != nil {
+			options["dryRun"] = *opts.DryRun
+		}
+		input["options"] = options
+	}
+
+	var result struct {
+		IngestFilesAsync Job `json:"ingestFilesAsync"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"input": input}, &result); err != nil {
+		return nil, err
+	}
+	return &result.IngestFilesAsync, nil
+}
+
 // =============================================================================
 // JOB OPERATIONS
 // =============================================================================

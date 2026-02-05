@@ -669,6 +669,148 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 	}, nil
 }
 
+// IngestFilesWithContentAsync starts an async job for content-based file ingestion.
+// Unlike IngestDirectoryAsync, files are provided with their content (not paths to read from disk).
+// This is used for the two-phase hash-based ingestion flow where the client uploads file content.
+func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobManager *JobManager, files []FileContent, opts IngestOptions) (*Job, error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no files to ingest")
+	}
+
+	// Extract file paths for job tracking
+	filePaths := make([]string, len(files))
+	for i, f := range files {
+		filePaths[i] = f.Path
+	}
+
+	// Prepare options for persistence
+	persistOpts := map[string]any{
+		"labels":        opts.Labels,
+		"extract_graph": opts.ExtractGraph,
+		"content_based": true, // Mark as content-based job
+	}
+
+	// Create job with persistence (using first file's directory as dirPath for display)
+	dirPath := filepath.Dir(files[0].Path)
+	job, err := jobManager.CreateJob(ctx, "ingest", dirPath, filePaths, persistOpts)
+	if err != nil {
+		return nil, fmt.Errorf("create job: %w", err)
+	}
+
+	// Set concurrency from job manager
+	opts.Concurrency = jobManager.Concurrency()
+	opts.Job = job
+
+	// Start processing in background with detached context
+	go func() {
+		bgCtx := context.Background()
+
+		// Mark as running
+		jobManager.SetRunning(bgCtx, job)
+
+		result, err := s.processFilesWithContentInternal(bgCtx, jobManager, job, files, opts)
+		if err != nil {
+			jobManager.Fail(bgCtx, job, err)
+			return
+		}
+		jobManager.Complete(bgCtx, job, result)
+	}()
+
+	return job, nil
+}
+
+// processFilesWithContentInternal processes files from provided content with job tracking.
+func (s *IngestService) processFilesWithContentInternal(ctx context.Context, jobManager *JobManager, job *Job, files []FileContent, opts IngestOptions) (*IngestResult, error) {
+	slog.Info("starting async content-based file processing", "files", len(files), "extract_graph", opts.ExtractGraph)
+
+	// Set default concurrency
+	concurrency := opts.Concurrency
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+
+	totalFiles := len(files)
+
+	// Result aggregation with thread-safe counters
+	var (
+		filesProcessed  atomic.Int32
+		entitiesCreated atomic.Int32
+		chunksCreated   atomic.Int32
+		errorsMu        sync.Mutex
+		errors          []string
+	)
+
+	// Worker pool
+	type workItem struct {
+		path    string
+		content string
+		hash    string
+	}
+	workChan := make(chan workItem, len(files))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for item := range workChan {
+				if ctx.Err() != nil {
+					return
+				}
+
+				processed := filesProcessed.Add(1)
+				slog.Info("processing file", "worker", workerID, "file", filepath.Base(item.path), "progress", fmt.Sprintf("%d/%d", processed, totalFiles))
+
+				// Update job progress via job manager
+				if jobManager != nil && job != nil {
+					jobManager.UpdateProgress(ctx, job, int(processed), totalFiles)
+				}
+
+				entity, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
+				if err != nil {
+					errorsMu.Lock()
+					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
+					errorsMu.Unlock()
+					continue
+				}
+
+				entitiesCreated.Add(1)
+
+				// Count chunks
+				if entity != nil && !opts.DryRun {
+					if entityID, err := models.RecordIDString(entity.ID); err == nil {
+						chunks, err := s.db.GetChunks(ctx, entityID)
+						if err != nil {
+							slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
+						} else {
+							chunksCreated.Add(int32(len(chunks)))
+						}
+					}
+				}
+			}
+		}(i)
+	}
+
+	// Send files to workers
+	for _, f := range files {
+		workChan <- workItem{path: f.Path, content: f.Content, hash: f.Hash}
+	}
+	close(workChan)
+
+	// Wait for completion
+	wg.Wait()
+
+	slog.Info("async content-based processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+
+	return &IngestResult{
+		FilesProcessed:  int(filesProcessed.Load()),
+		EntitiesCreated: int(entitiesCreated.Load()),
+		ChunksCreated:   int(chunksCreated.Load()),
+		Errors:          errors,
+	}, nil
+}
+
 // IngestDirectoryAsync starts an async ingestion job with persistence.
 func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *JobManager, dirPath string, opts IngestOptions) (*Job, error) {
 	// Validate path exists before starting job

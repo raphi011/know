@@ -237,6 +237,15 @@ func (m *JobManager) ResumeIncompleteJobs(ctx context.Context, ingestService *In
 			continue
 		}
 
+		// Skip content-based jobs - they can't be resumed because file content
+		// was provided by the client, not read from disk. User should re-run CLI.
+		if dbJob.Options != nil {
+			if contentBased, ok := dbJob.Options["content_based"].(bool); ok && contentBased {
+				slog.Info("skipping content-based job (requires client re-trigger)", "job_id", jobID)
+				continue
+			}
+		}
+
 		// Check which files have already been processed
 		existingPaths, err := m.db.GetEntitiesBySourcePaths(ctx, dbJob.Files)
 		if err != nil {

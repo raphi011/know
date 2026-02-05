@@ -282,4 +282,7 @@ type Mutation {
   # Content-based ingest (for skip-unchanged optimization)
   """Ingest files with content provided directly (used after checkHashes)"""
   ingestFiles(input: IngestFilesInput!): IngestResult!
+
+  """Async version of ingestFiles - returns job immediately, processes in background"""
+  ingestFilesAsync(input: IngestFilesInput!): Job!
 }

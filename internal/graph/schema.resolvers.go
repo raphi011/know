@@ -225,6 +225,37 @@ func (r *mutationResolver) IngestFiles(ctx context.Context, input IngestFilesInp
 	}, nil
 }
 
+// IngestFilesAsync is the resolver for the ingestFilesAsync field.
+func (r *mutationResolver) IngestFilesAsync(ctx context.Context, input IngestFilesInput) (*Job, error) {
+	opts := service.IngestOptions{}
+	if input.Options != nil {
+		opts.Labels = input.Options.Labels
+		if input.Options.ExtractGraph != nil {
+			opts.ExtractGraph = *input.Options.ExtractGraph
+		}
+		if input.Options.DryRun != nil {
+			opts.DryRun = *input.Options.DryRun
+		}
+	}
+
+	// Convert GraphQL input to service types
+	files := make([]service.FileContent, len(input.Files))
+	for i, f := range input.Files {
+		files[i] = service.FileContent{
+			Path:    f.Path,
+			Content: f.Content,
+			Hash:    f.Hash,
+		}
+	}
+
+	job, err := r.ingestService.IngestFilesWithContentAsync(ctx, r.jobManager, files, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return serviceJobToGraphQL(job), nil
+}
+
 // Entity is the resolver for the entity field.
 func (r *queryResolver) Entity(ctx context.Context, id string) (*Entity, error) {
 	entity, err := r.entityService.Get(ctx, id)
