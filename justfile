@@ -34,8 +34,20 @@ default:
 build:
     go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/knowhow
 
-# Build server binary
-build-server:
+# Install web dependencies
+web-install:
+    cd web && npm install
+
+# Build web frontend
+web-build:
+    cd web && npm run build
+
+# Run web dev server (Vite)
+web-dev:
+    cd web && npm run dev
+
+# Build server binary (builds frontend first)
+build-server: web-build
     go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
 
 # Build both CLI and server

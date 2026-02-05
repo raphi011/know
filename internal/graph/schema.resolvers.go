@@ -8,6 +8,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
@@ -266,6 +267,15 @@ func (r *mutationResolver) IngestFilesAsync(ctx context.Context, input IngestFil
 	return serviceJobToGraphQL(job), nil
 }
 
+// UpdateEntityContent is the resolver for the updateEntityContent field.
+func (r *mutationResolver) UpdateEntityContent(ctx context.Context, id string, content string) (*Entity, error) {
+	entity, err := r.entityService.UpdateContent(ctx, id, content)
+	if err != nil {
+		return nil, err
+	}
+	return entityToGraphQL(entity), nil
+}
+
 // Entity is the resolver for the entity field.
 func (r *queryResolver) Entity(ctx context.Context, id string) (*Entity, error) {
 	entity, err := r.entityService.Get(ctx, id)
@@ -288,9 +298,11 @@ func (r *queryResolver) EntityByName(ctx context.Context, name string) (*Entity,
 		return nil, nil
 	}
 
-	// Update access tracking
+	// Update access tracking (best-effort)
 	if idStr, err := models.RecordIDString(entity.ID); err == nil {
-		_ = r.db.UpdateEntityAccess(ctx, idStr) // Best-effort access tracking
+		if err := r.db.UpdateEntityAccess(ctx, idStr); err != nil {
+			slog.Warn("failed to update entity access", "entity", idStr, "error", err)
+		}
 	}
 
 	return entityToGraphQL(entity), nil

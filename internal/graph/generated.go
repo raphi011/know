@@ -130,6 +130,7 @@ type ComplexityRoot struct {
 		IngestFiles          func(childComplexity int, input IngestFilesInput) int
 		IngestFilesAsync     func(childComplexity int, input IngestFilesInput) int
 		UpdateEntity         func(childComplexity int, id string, input EntityUpdate) int
+		UpdateEntityContent  func(childComplexity int, id string, content string) int
 	}
 
 	OperationStats struct {
@@ -222,6 +223,7 @@ type MutationResolver interface {
 	DeleteTemplate(ctx context.Context, name string) (bool, error)
 	IngestFiles(ctx context.Context, input IngestFilesInput) (*IngestResult, error)
 	IngestFilesAsync(ctx context.Context, input IngestFilesInput) (*Job, error)
+	UpdateEntityContent(ctx context.Context, id string, content string) (*Entity, error)
 }
 type QueryResolver interface {
 	Entity(ctx context.Context, id string) (*Entity, error)
@@ -667,6 +669,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateEntity(childComplexity, args["id"].(string), args["input"].(EntityUpdate)), true
+	case "Mutation.updateEntityContent":
+		if e.complexity.Mutation.UpdateEntityContent == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateEntityContent_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdateEntityContent(childComplexity, args["id"].(string), args["content"].(string)), true
 
 	case "OperationStats.avgInputTokens":
 		if e.complexity.OperationStats.AvgInputTokens == nil {
@@ -1326,6 +1339,22 @@ func (ec *executionContext) field_Mutation_ingestFiles_args(ctx context.Context,
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_updateEntityContent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "content", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["content"] = arg1
 	return args, nil
 }
 
@@ -3599,6 +3628,83 @@ func (ec *executionContext) fieldContext_Mutation_ingestFilesAsync(ctx context.C
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_ingestFilesAsync_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateEntityContent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_updateEntityContent,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().UpdateEntityContent(ctx, fc.Args["id"].(string), fc.Args["content"].(string))
+		},
+		nil,
+		ec.marshalNEntity2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐEntity,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateEntityContent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Entity_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Entity_type(ctx, field)
+			case "name":
+				return ec.fieldContext_Entity_name(ctx, field)
+			case "content":
+				return ec.fieldContext_Entity_content(ctx, field)
+			case "summary":
+				return ec.fieldContext_Entity_summary(ctx, field)
+			case "labels":
+				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
+			case "verified":
+				return ec.fieldContext_Entity_verified(ctx, field)
+			case "confidence":
+				return ec.fieldContext_Entity_confidence(ctx, field)
+			case "source":
+				return ec.fieldContext_Entity_source(ctx, field)
+			case "sourcePath":
+				return ec.fieldContext_Entity_sourcePath(ctx, field)
+			case "metadata":
+				return ec.fieldContext_Entity_metadata(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Entity_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Entity_updatedAt(ctx, field)
+			case "accessedAt":
+				return ec.fieldContext_Entity_accessedAt(ctx, field)
+			case "accessCount":
+				return ec.fieldContext_Entity_accessCount(ctx, field)
+			case "relations":
+				return ec.fieldContext_Entity_relations(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Entity", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateEntityContent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8215,6 +8321,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "ingestFilesAsync":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_ingestFilesAsync(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateEntityContent":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateEntityContent(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++

@@ -294,4 +294,7 @@ type Mutation {
 
   """Async version of ingestFiles - returns job immediately, processes in background"""
   ingestFilesAsync(input: IngestFilesInput!): Job!
+
+  """Update entity content. Saves immediately, re-indexes in background."""
+  updateEntityContent(id: ID!, content: String!): Entity!
 }

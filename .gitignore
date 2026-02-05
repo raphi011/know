@@ -5,8 +5,8 @@
 *.so
 *.dylib
 memcp
-knowhow
-knowhow-server
+/knowhow
+/knowhow-server
 
 # Test binary, built with `go test -c`
 *.test
@@ -25,6 +25,9 @@ vendor/
 # Build output
 bin/
 dist/
+!web/dist/
+web/dist/*
+!web/dist/index.html
 build/
 tmp/
 
@@ -45,6 +48,9 @@ tmp/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Node modules
+web/node_modules/
 
 # Claude Code
 .claude/settings.local.json
