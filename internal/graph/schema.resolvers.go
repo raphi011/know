@@ -148,6 +148,9 @@ func (r *mutationResolver) IngestDirectory(ctx context.Context, dirPath string, 
 func (r *mutationResolver) IngestDirectoryAsync(ctx context.Context, dirPath string, input *IngestInput) (*Job, error) {
 	opts := service.IngestOptions{}
 	if input != nil {
+		if input.Name != nil {
+			opts.Name = *input.Name
+		}
 		opts.Labels = input.Labels
 		if input.ExtractGraph != nil {
 			opts.ExtractGraph = *input.ExtractGraph
@@ -233,6 +236,9 @@ func (r *mutationResolver) IngestFiles(ctx context.Context, input IngestFilesInp
 func (r *mutationResolver) IngestFilesAsync(ctx context.Context, input IngestFilesInput) (*Job, error) {
 	opts := service.IngestOptions{}
 	if input.Options != nil {
+		if input.Options.Name != nil {
+			opts.Name = *input.Options.Name
+		}
 		opts.Labels = input.Options.Labels
 		if input.Options.ExtractGraph != nil {
 			opts.ExtractGraph = *input.Options.ExtractGraph
@@ -465,6 +471,29 @@ func (r *queryResolver) Job(ctx context.Context, id string) (*Job, error) {
 		return nil, nil
 	}
 	return serviceJobToGraphQL(job), nil
+}
+
+// JobByName is the resolver for the jobByName field.
+func (r *queryResolver) JobByName(ctx context.Context, name string) (*Job, error) {
+	// First check in-memory jobs
+	jobs := r.jobManager.ListJobs()
+	for _, j := range jobs {
+		if j.Name == name {
+			return serviceJobToGraphQL(j), nil
+		}
+	}
+
+	// Fall back to database for historical jobs
+	dbJob, err := r.db.GetJobByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if dbJob == nil {
+		return nil, nil
+	}
+
+	// Convert DB job to GraphQL Job
+	return dbJobToGraphQL(dbJob), nil
 }
 
 // ServerStats is the resolver for the serverStats field.

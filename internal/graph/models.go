@@ -135,6 +135,9 @@ type SearchInput struct {
 
 // IngestInput is the input for ingest operations.
 type IngestInput struct {
+	// User-provided name for identifying and rerunning this job
+	Name *string `json:"name,omitempty"`
+	// Curated labels to apply to all ingested entities
 	Labels       []string `json:"labels,omitempty"`
 	ExtractGraph *bool    `json:"extractGraph,omitempty"`
 	DryRun       *bool    `json:"dryRun,omitempty"`

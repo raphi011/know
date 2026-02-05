@@ -27,6 +27,8 @@ type Job struct {
 	ID          string
 	Type        string // "ingest"
 	Status      JobStatus
+	Name        string   // User-provided name for rerunning
+	Labels      []string // Curated labels applied to entities
 	Progress    int
 	Total       int
 	Result      *IngestResult
@@ -70,11 +72,13 @@ func (m *JobManager) Concurrency() int {
 }
 
 // CreateJob creates a new pending job with persistence.
-func (m *JobManager) CreateJob(ctx context.Context, jobType, dirPath string, files []string, opts map[string]any) (*Job, error) {
+func (m *JobManager) CreateJob(ctx context.Context, jobType, name, dirPath string, files, labels []string, opts map[string]any) (*Job, error) {
 	job := &Job{
 		ID:        uuid.New().String()[:8], // Short ID for convenience
 		Type:      jobType,
 		Status:    JobStatusPending,
+		Name:      name,
+		Labels:    labels,
 		StartedAt: time.Now(),
 		DirPath:   dirPath,
 		Files:     files,
@@ -83,7 +87,7 @@ func (m *JobManager) CreateJob(ctx context.Context, jobType, dirPath string, fil
 
 	// Persist to database
 	if m.db != nil {
-		if err := m.db.CreateIngestJob(ctx, job.ID, dirPath, files, opts); err != nil {
+		if err := m.db.CreateIngestJob(ctx, job.ID, name, dirPath, files, labels, opts); err != nil {
 			return nil, err
 		}
 	}
@@ -92,7 +96,7 @@ func (m *JobManager) CreateJob(ctx context.Context, jobType, dirPath string, fil
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 
-	slog.Info("job created", "job_id", job.ID, "type", jobType, "files", len(files))
+	slog.Info("job created", "job_id", job.ID, "name", name, "type", jobType, "files", len(files))
 	return job, nil
 }
 
@@ -286,11 +290,19 @@ func (m *JobManager) ResumeIncompleteJobs(ctx context.Context, ingestService *In
 			continue
 		}
 
+		// Extract name from dbJob
+		var name string
+		if dbJob.Name != nil {
+			name = *dbJob.Name
+		}
+
 		// Create in-memory job
 		job := &Job{
 			ID:           jobID,
 			Type:         dbJob.JobType,
 			Status:       JobStatusRunning,
+			Name:         name,
+			Labels:       dbJob.Labels,
 			Progress:     len(existingPaths),
 			Total:        len(dbJob.Files),
 			StartedAt:    dbJob.StartedAt,
@@ -345,6 +357,8 @@ func (j *Job) Snapshot() Job {
 		ID:           j.ID,
 		Type:         j.Type,
 		Status:       j.Status,
+		Name:         j.Name,
+		Labels:       j.Labels,
 		Progress:     j.Progress,
 		Total:        j.Total,
 		Result:       j.Result,

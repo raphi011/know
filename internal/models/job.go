@@ -12,6 +12,8 @@ type IngestJob struct {
 	ID          surrealmodels.RecordID `json:"id"`
 	JobType     string                 `json:"job_type"`
 	Status      string                 `json:"status"`
+	Name        *string                `json:"name,omitempty"`   // User-provided name for rerunning
+	Labels      []string               `json:"labels,omitempty"` // Curated labels applied to entities
 	DirPath     string                 `json:"dir_path"`
 	Files       []string               `json:"files"`
 	Options     map[string]any         `json:"options,omitempty"`

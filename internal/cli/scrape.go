@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	scrapeName         string
 	scrapeExtractGraph bool
 	scrapeLabels       []string
 	scrapeDryRun       bool
@@ -35,20 +36,24 @@ By default, unchanged files are skipped based on content hash comparison.
 Use --force to re-ingest all files regardless of changes.
 
 Use --extract-graph to also extract entity relationships using LLM.
+Use --name to give the job a name for easy identification and rerunning.
+Use --labels to apply curated labels to all ingested entities.
 
 Examples:
   knowhow scrape ./docs
   knowhow scrape ./notes --labels "personal"
   knowhow scrape ./specs --extract-graph
   knowhow scrape ./wiki --recursive --dry-run
-  knowhow scrape ./docs --force  # re-ingest all files`,
+  knowhow scrape ./docs --force  # re-ingest all files
+  knowhow scrape ./docs --name "my-docs" --labels "docs,important"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScrape,
 }
 
 func init() {
+	scrapeCmd.Flags().StringVarP(&scrapeName, "name", "n", "", "name for this job (for identification and rerunning)")
 	scrapeCmd.Flags().BoolVar(&scrapeExtractGraph, "extract-graph", false, "extract entity relations using LLM")
-	scrapeCmd.Flags().StringSliceVarP(&scrapeLabels, "labels", "l", nil, "labels to apply to all ingested entities")
+	scrapeCmd.Flags().StringSliceVarP(&scrapeLabels, "labels", "l", nil, "curated labels to apply to all ingested entities")
 	scrapeCmd.Flags().BoolVar(&scrapeDryRun, "dry-run", false, "show what would be ingested without making changes")
 	scrapeCmd.Flags().BoolVarP(&scrapeRecursive, "recursive", "r", true, "recursively process subdirectories")
 	scrapeCmd.Flags().BoolVar(&scrapeSync, "sync", false, "wait for completion (default: run async with hash checking)")
@@ -73,6 +78,9 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		ExtractGraph: &scrapeExtractGraph,
 		DryRun:       &scrapeDryRun,
 		Recursive:    &scrapeRecursive,
+	}
+	if scrapeName != "" {
+		opts.Name = &scrapeName
 	}
 
 	// Sync mode with server-side file reading (legacy)
