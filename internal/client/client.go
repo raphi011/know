@@ -533,6 +533,9 @@ func (c *Client) CreateRelation(ctx context.Context, input CreateRelationInput) 
 
 // IngestOptions configures ingestion.
 type IngestOptions struct {
+	// Name is a user-provided identifier for the job (for rerunning)
+	Name *string
+	// Labels to apply to all ingested entities (curated)
 	Labels       []string
 	ExtractGraph *bool
 	DryRun       *bool
@@ -544,6 +547,8 @@ type Job struct {
 	ID          string        `json:"id"`
 	Type        string        `json:"type"`
 	Status      string        `json:"status"`
+	Name        *string       `json:"name,omitempty"`
+	Labels      []string      `json:"labels"`
 	Progress    int           `json:"progress"`
 	Total       int           `json:"total"`
 	Result      *IngestResult `json:"result,omitempty"`
@@ -566,6 +571,9 @@ func (c *Client) IngestFile(ctx context.Context, filePath string, opts *IngestOp
 	vars := map[string]any{"filePath": filePath}
 	if opts != nil {
 		input := map[string]any{}
+		if opts.Name != nil {
+			input["name"] = *opts.Name
+		}
 		if len(opts.Labels) > 0 {
 			input["labels"] = opts.Labels
 		}
@@ -603,6 +611,9 @@ func (c *Client) IngestDirectory(ctx context.Context, dirPath string, opts *Inge
 	vars := map[string]any{"dirPath": dirPath}
 	if opts != nil {
 		input := map[string]any{}
+		if opts.Name != nil {
+			input["name"] = *opts.Name
+		}
 		if len(opts.Labels) > 0 {
 			input["labels"] = opts.Labels
 		}
@@ -641,6 +652,9 @@ func (c *Client) IngestDirectoryAsync(ctx context.Context, dirPath string, opts 
 	vars := map[string]any{"dirPath": dirPath}
 	if opts != nil {
 		input := map[string]any{}
+		if opts.Name != nil {
+			input["name"] = *opts.Name
+		}
 		if len(opts.Labels) > 0 {
 			input["labels"] = opts.Labels
 		}
@@ -708,6 +722,9 @@ func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, base
 
 	if opts != nil {
 		options := map[string]any{}
+		if opts.Name != nil {
+			options["name"] = *opts.Name
+		}
 		if len(opts.Labels) > 0 {
 			options["labels"] = opts.Labels
 		}
@@ -750,6 +767,9 @@ func (c *Client) IngestFilesAsync(ctx context.Context, files []FileContentInput,
 
 	if opts != nil {
 		options := map[string]any{}
+		if opts.Name != nil {
+			options["name"] = *opts.Name
+		}
 		if len(opts.Labels) > 0 {
 			options["labels"] = opts.Labels
 		}

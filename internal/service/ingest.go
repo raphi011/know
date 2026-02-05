@@ -37,7 +37,9 @@ func NewIngestService(db *db.Client, embedder *llm.Embedder, model *llm.Model) *
 
 // IngestOptions configures file ingestion.
 type IngestOptions struct {
-	// Labels to apply to all ingested entities
+	// Name is a user-provided identifier for the job (for rerunning)
+	Name string
+	// Labels to apply to all ingested entities (curated)
 	Labels []string
 	// ExtractGraph uses LLM to extract entity relationships
 	ExtractGraph bool
@@ -712,9 +714,8 @@ func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobMana
 		filePaths[i] = f.Path
 	}
 
-	// Prepare options for persistence
+	// Prepare options for persistence (excluding name and labels which are now top-level)
 	persistOpts := map[string]any{
-		"labels":        opts.Labels,
 		"extract_graph": opts.ExtractGraph,
 		"content_based": true, // Mark as content-based job
 		"base_dir":      baseDir,
@@ -722,7 +723,7 @@ func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobMana
 
 	// Create job with persistence (using first file's directory as dirPath for display)
 	dirPath := filepath.Dir(files[0].Path)
-	job, err := jobManager.CreateJob(ctx, "ingest", dirPath, filePaths, persistOpts)
+	job, err := jobManager.CreateJob(ctx, "ingest", opts.Name, dirPath, filePaths, opts.Labels, persistOpts)
 	if err != nil {
 		return nil, fmt.Errorf("create job: %w", err)
 	}
@@ -859,16 +860,15 @@ func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *Jo
 	// Compute baseDir from directory path for unique entity IDs
 	baseDir := filepath.Base(filepath.Clean(dirPath))
 
-	// Prepare options for persistence
+	// Prepare options for persistence (excluding name and labels which are now top-level)
 	persistOpts := map[string]any{
-		"labels":        opts.Labels,
 		"extract_graph": opts.ExtractGraph,
 		"recursive":     opts.Recursive,
 		"base_dir":      baseDir,
 	}
 
 	// Create job with persistence
-	job, err := jobManager.CreateJob(ctx, "ingest", dirPath, files, persistOpts)
+	job, err := jobManager.CreateJob(ctx, "ingest", opts.Name, dirPath, files, opts.Labels, persistOpts)
 	if err != nil {
 		return nil, fmt.Errorf("create job: %w", err)
 	}

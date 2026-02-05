@@ -51,6 +51,8 @@ type Job struct {
 	ID           string        `json:"id"`
 	Type         string        `json:"type"`
 	Status       string        `json:"status"`
+	Name         *string       `json:"name,omitempty"`
+	Labels       []string      `json:"labels"`
 	Progress     int           `json:"progress"`
 	Total        int           `json:"total"`
 	Result       *IngestResult `json:"result,omitempty"`

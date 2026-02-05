@@ -155,10 +155,13 @@ func SchemaSQL(dimension int) string {
     -- INGEST_JOB TABLE (Async Job Persistence)
     -- ==========================================================================
     -- Persists async ingestion jobs for restart resilience.
+    -- Jobs can be named for easy re-running and have curated labels.
     DEFINE TABLE IF NOT EXISTS ingest_job SCHEMAFULL;
 
     DEFINE FIELD IF NOT EXISTS job_type ON ingest_job TYPE string;
     DEFINE FIELD IF NOT EXISTS status ON ingest_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS name ON ingest_job TYPE option<string>;          -- User-provided name for rerunning
+    DEFINE FIELD IF NOT EXISTS labels ON ingest_job TYPE array<string> DEFAULT [];  -- Curated labels applied to entities
     DEFINE FIELD IF NOT EXISTS dir_path ON ingest_job TYPE string;
     DEFINE FIELD IF NOT EXISTS files ON ingest_job TYPE array<string>;
     DEFINE FIELD IF NOT EXISTS options ON ingest_job TYPE option<object> FLEXIBLE;
@@ -170,5 +173,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS completed_at ON ingest_job TYPE option<datetime>;
 
     DEFINE INDEX IF NOT EXISTS idx_job_status ON ingest_job FIELDS status;
+    DEFINE INDEX IF NOT EXISTS idx_job_name ON ingest_job FIELDS name UNIQUE;
 `, dimension, dimension)
 }

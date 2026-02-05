@@ -76,6 +76,8 @@ type Job {
   id: ID!
   type: String!
   status: String!
+  name: String
+  labels: [String!]!
   progress: Int!
   total: Int!
   result: IngestResult
@@ -171,6 +173,9 @@ input SearchInput {
 }
 
 input IngestInput {
+  """User-provided name for identifying and rerunning this job"""
+  name: String
+  """Curated labels to apply to all ingested entities"""
   labels: [String!]
   extractGraph: Boolean
   dryRun: Boolean
@@ -232,6 +237,8 @@ type Query {
   # Job tracking
   jobs: [Job!]!
   job(id: ID!): Job
+  """Get the most recent job with the given name"""
+  jobByName(name: String!): Job
 
   # Server statistics (in-memory, resets on restart)
   serverStats: ServerStats!

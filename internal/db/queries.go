@@ -1010,12 +1010,14 @@ func (c *Client) ListEntities(ctx context.Context, entityType string, labels []s
 // =============================================================================
 
 // CreateIngestJob creates a new ingest job record.
-func (c *Client) CreateIngestJob(ctx context.Context, id, dirPath string, files []string, opts map[string]any) error {
+func (c *Client) CreateIngestJob(ctx context.Context, id, name, dirPath string, files, labels []string, opts map[string]any) error {
 	c.startOp() // Mark activity for heartbeat
 	sql := `
 		CREATE type::record("ingest_job", $id) SET
 			job_type = "ingest",
 			status = "pending",
+			name = $name,
+			labels = $labels,
 			dir_path = $dir_path,
 			files = $files,
 			options = $options,
@@ -1023,8 +1025,15 @@ func (c *Client) CreateIngestJob(ctx context.Context, id, dirPath string, files 
 			progress = 0
 	`
 
+	var namePtr any
+	if name != "" {
+		namePtr = name
+	}
+
 	_, err := surrealdb.Query[any](ctx, c.db, sql, map[string]any{
 		"id":       id,
+		"name":     namePtr,
+		"labels":   labels,
 		"dir_path": dirPath,
 		"files":    files,
 		"options":  optionalObject(opts),
@@ -1044,6 +1053,22 @@ func (c *Client) GetIngestJob(ctx context.Context, id string) (*models.IngestJob
 
 	if err != nil {
 		return nil, fmt.Errorf("get ingest job: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// GetJobByName retrieves the most recent job with the given name.
+func (c *Client) GetJobByName(ctx context.Context, name string) (*models.IngestJob, error) {
+	results, err := surrealdb.Query[[]models.IngestJob](ctx, c.db, `
+		SELECT * FROM ingest_job WHERE name = $name ORDER BY started_at DESC LIMIT 1
+	`, map[string]any{"name": name})
+
+	if err != nil {
+		return nil, fmt.Errorf("get job by name: %w", err)
 	}
 
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
