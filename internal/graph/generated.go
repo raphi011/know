@@ -7464,7 +7464,7 @@ func (ec *executionContext) unmarshalInputIngestFilesInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"files", "options"}
+	fieldsInOrder := [...]string{"files", "baseDir", "options"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -7478,6 +7478,13 @@ func (ec *executionContext) unmarshalInputIngestFilesInput(ctx context.Context, 
 				return it, err
 			}
 			it.Files = data
+		case "baseDir":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("baseDir"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BaseDir = data
 		case "options":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("options"))
 			data, err := ec.unmarshalOIngestInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestInput(ctx, v)

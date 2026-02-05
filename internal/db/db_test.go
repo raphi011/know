@@ -353,6 +353,71 @@ func TestDeleteEntity(t *testing.T) {
 	}
 }
 
+func TestUpsertEntity(t *testing.T) {
+	ctx := context.Background()
+
+	// Test 1: Create new entity via upsert
+	explicitID := "upsert-test-entity"
+	content1 := "Original content"
+	entity, wasCreated, err := testDB.UpsertEntity(ctx, models.EntityInput{
+		ID:        &explicitID,
+		Type:      "document",
+		Name:      "Upsert Test",
+		Content:   &content1,
+		Embedding: dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("First UpsertEntity failed: %v", err)
+	}
+	if !wasCreated {
+		t.Error("First upsert should report wasCreated=true")
+	}
+	if entity.Name != "Upsert Test" {
+		t.Errorf("Name mismatch: got %q, want %q", entity.Name, "Upsert Test")
+	}
+	if entity.Content == nil || *entity.Content != "Original content" {
+		t.Errorf("Content mismatch after first upsert")
+	}
+
+	// Test 2: Update existing entity via upsert (same ID, new content)
+	content2 := "Updated content"
+	entity2, wasCreated2, err := testDB.UpsertEntity(ctx, models.EntityInput{
+		ID:        &explicitID,
+		Type:      "document",
+		Name:      "Upsert Test Updated",
+		Content:   &content2,
+		Embedding: dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("Second UpsertEntity failed: %v", err)
+	}
+	if wasCreated2 {
+		t.Error("Second upsert should report wasCreated=false (update)")
+	}
+	if entity2.Name != "Upsert Test Updated" {
+		t.Errorf("Name not updated: got %q, want %q", entity2.Name, "Upsert Test Updated")
+	}
+	if entity2.Content == nil || *entity2.Content != "Updated content" {
+		t.Errorf("Content not updated")
+	}
+
+	// Verify via direct get
+	entityID := models.MustRecordIDString(entity2.ID)
+	fetched, err := testDB.GetEntity(ctx, entityID)
+	if err != nil {
+		t.Fatalf("GetEntity after upsert failed: %v", err)
+	}
+	if fetched == nil {
+		t.Fatal("Entity should exist after upsert")
+	}
+	if fetched.Content == nil || *fetched.Content != "Updated content" {
+		t.Error("GetEntity content should reflect upsert update")
+	}
+
+	// Cleanup
+	_, _ = testDB.DeleteEntity(ctx, entityID)
+}
+
 // =============================================================================
 // SEARCH TESTS
 // =============================================================================

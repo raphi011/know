@@ -41,8 +41,10 @@ type FileHashInput struct {
 }
 
 type IngestFilesInput struct {
-	Files   []*FileContentInput `json:"files"`
-	Options *IngestInput        `json:"options,omitempty"`
+	Files []*FileContentInput `json:"files"`
+	// Base directory name for entity ID derivation (e.g., 'insights' from ~/.claude/insights)
+	BaseDir string       `json:"baseDir"`
+	Options *IngestInput `json:"options,omitempty"`
 }
 
 type Job struct {

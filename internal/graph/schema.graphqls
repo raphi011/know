@@ -199,6 +199,8 @@ input FileContentInput {
 
 input IngestFilesInput {
   files: [FileContentInput!]!
+  """Base directory name for entity ID derivation (e.g., 'insights' from ~/.claude/insights)"""
+  baseDir: String!
   options: IngestInput
 }
 

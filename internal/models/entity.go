@@ -58,6 +58,9 @@ type Entity struct {
 // EntityInput is the input structure for creating/updating entities.
 // Uses pointers for optional fields to distinguish between unset and empty.
 type EntityInput struct {
+	// ID is an optional explicit entity ID. If provided, used instead of slugified name.
+	// Useful for ensuring unique IDs when scraping files (e.g., from relative path).
+	ID          *string        `json:"id,omitempty"`
 	Type        string         `json:"type"`
 	Name        string         `json:"name"`
 	Content     *string        `json:"content,omitempty"`

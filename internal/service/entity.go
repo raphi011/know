@@ -37,6 +37,7 @@ func NewEntityService(db *db.Client, embedder *llm.Embedder, model *llm.Model) *
 // Create creates a new entity with automatic embedding generation.
 // For large content that will be chunked, we skip entity-level embedding
 // and rely on chunk embeddings for search (chunks link back to entity).
+// If input.ID is provided, uses upsert to update existing entity (makes scrape idempotent).
 // Returns CreateResult with entity and chunk count.
 func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*CreateResult, error) {
 	// Check if content will be chunked - if so, skip entity-level embedding
@@ -71,10 +72,31 @@ func (s *EntityService) Create(ctx context.Context, input models.EntityInput) (*
 		slog.Debug("creating entity without embedding - embedder not configured", "name", input.Name)
 	}
 
-	// Create entity
-	entity, err := s.db.CreateEntity(ctx, input)
-	if err != nil {
-		return nil, err
+	var entity *models.Entity
+	var wasCreated bool
+	var err error
+
+	// Use upsert when explicit ID is provided (for scrape idempotency)
+	if input.ID != nil && *input.ID != "" {
+		entity, wasCreated, err = s.db.UpsertEntity(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		if !wasCreated {
+			slog.Debug("updated existing entity", "id", *input.ID, "name", input.Name)
+			// Delete old chunks before re-chunking for updated entity
+			if idStr, idErr := models.RecordIDString(entity.ID); idErr == nil {
+				if delErr := s.db.DeleteChunks(ctx, idStr); delErr != nil {
+					slog.Warn("failed to delete old chunks for update", "entity", idStr, "error", delErr)
+				}
+			}
+		}
+	} else {
+		// Standard create for manual entity creation
+		entity, err = s.db.CreateEntity(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	result := &CreateResult{Entity: entity}

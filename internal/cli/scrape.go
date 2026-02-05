@@ -118,6 +118,10 @@ func runScrapeWithHashCheck(ctx context.Context, dirPath string, opts *client.In
 		return nil
 	}
 
+	// Get base directory name for unique entity ID derivation
+	// ~/.claude/insights → "insights"
+	baseDir := filepath.Base(filepath.Clean(dirPath))
+
 	fmt.Printf("Found %d Markdown files\n", len(files))
 
 	// 2. Compute hashes and read content locally
@@ -186,7 +190,7 @@ func runScrapeWithHashCheck(ctx context.Context, dirPath string, opts *client.In
 
 	// 5. Send to server for async processing
 	fmt.Printf("Uploading %d files...\n", len(filesToUpload))
-	job, err := gqlClient.IngestFilesAsync(ctx, filesToUpload, opts)
+	job, err := gqlClient.IngestFilesAsync(ctx, filesToUpload, baseDir, opts)
 	if err != nil {
 		return fmt.Errorf("start ingest job: %w", err)
 	}

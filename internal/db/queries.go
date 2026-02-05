@@ -55,8 +55,11 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 	start := c.startOp()
 	defer c.recordTiming(metrics.OpDBQuery, start)
 
-	// Generate ID from name if not provided
+	// Use explicit ID if provided, otherwise generate from name
 	id := slugify(input.Name)
+	if input.ID != nil && *input.ID != "" {
+		id = *input.ID
+	}
 
 	// Ensure labels is not nil
 	labels := input.Labels
@@ -112,7 +115,7 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 		"embedding":    optionalEmbedding(input.Embedding),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create entity: %w", err)
+		return nil, fmt.Errorf("create entity: %w", wrapQueryError(err))
 	}
 
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
@@ -120,6 +123,93 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 	}
 
 	return &(*results)[0].Result[0], nil
+}
+
+// UpsertEntity creates a new entity or updates an existing one by ID.
+// If entity with the ID exists, updates content, hash, summary, labels, source_path.
+// If not, creates a new entity. Returns the entity and whether it was created (vs updated).
+func (c *Client) UpsertEntity(ctx context.Context, input models.EntityInput) (*models.Entity, bool, error) {
+	start := c.startOp()
+	defer c.recordTiming(metrics.OpDBQuery, start)
+
+	// Use explicit ID if provided, otherwise generate from name
+	id := slugify(input.Name)
+	if input.ID != nil && *input.ID != "" {
+		id = *input.ID
+	}
+
+	// Check if entity exists before upsert to determine if this is a create or update
+	existing, err := c.GetEntity(ctx, id)
+	if err != nil {
+		return nil, false, fmt.Errorf("check existing entity: %w", err)
+	}
+	wasCreated := existing == nil
+
+	// Ensure labels is not nil
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	// Set defaults
+	source := models.SourceManual
+	if input.Source != nil {
+		source = *input.Source
+	}
+	confidence := 0.5
+	if input.Confidence != nil {
+		confidence = *input.Confidence
+	}
+	verified := false
+	if input.Verified != nil {
+		verified = *input.Verified
+	}
+
+	// Use SurrealDB UPSERT - creates if not exists, updates if exists
+	sql := `
+		UPSERT type::record("entity", $id) SET
+			type = $type,
+			name = $name,
+			content = $content,
+			summary = $summary,
+			labels = $labels,
+			content_hash = $content_hash,
+			verified = $verified,
+			confidence = $confidence,
+			source = $source,
+			source_path = $source_path,
+			metadata = $metadata,
+			embedding = $embedding,
+			access_count = IF access_count THEN access_count ELSE 0 END
+		RETURN AFTER
+	`
+
+	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
+		"id":           id,
+		"type":         input.Type,
+		"name":         input.Name,
+		"content":      optionalString(input.Content),
+		"summary":      optionalString(input.Summary),
+		"labels":       labels,
+		"content_hash": optionalString(input.ContentHash),
+		"verified":     verified,
+		"confidence":   confidence,
+		"source":       source,
+		"source_path":  optionalString(input.SourcePath),
+		"metadata":     optionalObject(input.Metadata),
+		"embedding":    optionalEmbedding(input.Embedding),
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("upsert entity: %w", wrapQueryError(err))
+	}
+
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, false, fmt.Errorf("upsert entity: no result returned")
+	}
+
+	entity := &(*results)[0].Result[0]
+
+	return entity, wasCreated, nil
 }
 
 // GetEntity retrieves an entity by ID.
@@ -259,7 +349,7 @@ func (c *Client) UpdateEntity(ctx context.Context, id string, update models.Enti
 	}
 
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("entity not found")
+		return nil, ErrNotFound
 	}
 
 	return &(*results)[0].Result[0], nil

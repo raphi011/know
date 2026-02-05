@@ -8,6 +8,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/service"
@@ -98,6 +99,9 @@ func (r *mutationResolver) IngestFile(ctx context.Context, filePath string, inpu
 			opts.Recursive = *input.Recursive
 		}
 	}
+
+	// Derive baseDir from parent directory for unique entity IDs
+	opts.BaseDir = filepath.Base(filepath.Dir(filePath))
 
 	result, err := r.ingestService.IngestFile(ctx, filePath, opts)
 	if err != nil {
@@ -210,7 +214,7 @@ func (r *mutationResolver) IngestFiles(ctx context.Context, input IngestFilesInp
 		}
 	}
 
-	result, err := r.ingestService.IngestFilesWithContent(ctx, files, opts)
+	result, err := r.ingestService.IngestFilesWithContent(ctx, files, input.BaseDir, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +252,7 @@ func (r *mutationResolver) IngestFilesAsync(ctx context.Context, input IngestFil
 		}
 	}
 
-	job, err := r.ingestService.IngestFilesWithContentAsync(ctx, r.jobManager, files, opts)
+	job, err := r.ingestService.IngestFilesWithContentAsync(ctx, r.jobManager, files, input.BaseDir, opts)
 	if err != nil {
 		return nil, err
 	}

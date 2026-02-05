@@ -49,6 +49,8 @@ type IngestOptions struct {
 	Concurrency int
 	// Job for progress reporting (optional, set by async ingestion)
 	Job *Job
+	// BaseDir is used to compute unique entity IDs (e.g., "insights" from ~/.claude/insights)
+	BaseDir string
 }
 
 // IngestResult summarizes an ingestion operation.
@@ -72,6 +74,12 @@ type FileContent struct {
 	Path    string
 	Content string
 	Hash    string
+}
+
+// IngestFilesInput contains files and metadata for content-based ingestion.
+type IngestFilesInput struct {
+	Files   []FileContent
+	BaseDir string // Base directory name for entity ID derivation (e.g., "insights")
 }
 
 // IngestFileResult contains the result of ingesting a single file.
@@ -120,8 +128,9 @@ func (s *IngestService) CheckHashes(ctx context.Context, files []FileHash) ([]st
 
 // IngestFileWithContent ingests a file from provided content (not from disk).
 // Used by the two-phase hash-based ingestion flow.
-func (s *IngestService) IngestFileWithContent(ctx context.Context, filePath, content, contentHash string, opts IngestOptions) (*IngestFileResult, error) {
-	return s.ingestFileInternal(ctx, filePath, []byte(content), &contentHash, opts)
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (s *IngestService) IngestFileWithContent(ctx context.Context, filePath, content, contentHash, baseDir string, opts IngestOptions) (*IngestFileResult, error) {
+	return s.ingestFileInternal(ctx, filePath, []byte(content), &contentHash, baseDir, opts)
 }
 
 // IngestFile ingests a single Markdown file.
@@ -131,12 +140,13 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
-	return s.ingestFileInternal(ctx, filePath, content, nil, opts)
+	return s.ingestFileInternal(ctx, filePath, content, nil, opts.BaseDir, opts)
 }
 
 // ingestFileInternal handles the core ingestion logic for both IngestFile and IngestFileWithContent.
 // If contentHash is nil, no hash is stored; if provided, it's stored for skip-unchanged deduplication.
-func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string, content []byte, contentHash *string, opts IngestOptions) (*IngestFileResult, error) {
+// baseDir is used to compute unique entity IDs: baseDir + filename (without ext). If empty, uses name.
+func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string, content []byte, contentHash *string, baseDir string, opts IngestOptions) (*IngestFileResult, error) {
 	// Parse markdown
 	doc, err := parser.ParseMarkdown(string(content))
 	if err != nil {
@@ -155,6 +165,15 @@ func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string,
 		name = strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
 	}
 
+	// Compute entity ID from baseDir + filename for uniqueness
+	// e.g., baseDir="insights", filePath=".../2026-02-04-tests-abc.md" → ID="insights-2026-02-04-tests-abc"
+	var entityID *string
+	if baseDir != "" {
+		filename := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+		id := slugify(baseDir + "-" + filename)
+		entityID = &id
+	}
+
 	// Merge labels from frontmatter and options
 	labels := doc.GetFrontmatterStringSlice("labels")
 	if labels == nil {
@@ -165,6 +184,7 @@ func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string,
 	// Build entity input
 	fullContent := doc.Content
 	input := models.EntityInput{
+		ID:          entityID,
 		Type:        entityType,
 		Name:        name,
 		Content:     &fullContent,
@@ -392,8 +412,9 @@ func (s *IngestService) extractGraphRelations(ctx context.Context, entity *model
 				})
 				if err != nil {
 					// Race condition: entity may have been created by another worker
-					if strings.Contains(err.Error(), "already exists") {
-						slog.Debug("entity already exists, skipping extraction", "name", name)
+					// Handle both "already exists" and transaction conflicts
+					if errors.Is(err, db.ErrEntityAlreadyExists) || errors.Is(err, db.ErrTransactionConflict) {
+						slog.Debug("entity already exists or conflict, skipping extraction", "name", name)
 					} else {
 						slog.Warn("failed to create entity from graph extraction", "name", name, "error", err)
 					}
@@ -497,17 +518,20 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 	if err != nil {
 		return nil, err
 	}
+	// Compute baseDir from directory path for unique entity IDs
+	opts.BaseDir = filepath.Base(filepath.Clean(dirPath))
 	return s.processFilesInternal(ctx, nil, nil, files, len(files), opts)
 }
 
 // IngestFilesWithContent ingests multiple files with provided content (not from disk).
 // Used by the two-phase hash-based ingestion flow after checkHashes.
-func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []FileContent, opts IngestOptions) (*IngestResult, error) {
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []FileContent, baseDir string, opts IngestOptions) (*IngestResult, error) {
 	if len(files) == 0 {
 		return &IngestResult{}, nil
 	}
 
-	slog.Info("starting content-based file processing", "files", len(files), "extract_graph", opts.ExtractGraph)
+	slog.Info("starting content-based file processing", "files", len(files), "base_dir", baseDir, "extract_graph", opts.ExtractGraph)
 
 	// Set default concurrency
 	concurrency := opts.Concurrency
@@ -529,6 +553,7 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 		path    string
 		content string
 		hash    string
+		baseDir string
 	}
 	workChan := make(chan workItem, len(files))
 	var wg sync.WaitGroup
@@ -546,7 +571,7 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 				processed := filesProcessed.Add(1)
 				slog.Info("processing file", "worker", workerID, "file", filepath.Base(item.path), "progress", fmt.Sprintf("%d/%d", processed, len(files)))
 
-				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
+				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, item.baseDir, opts)
 				if err != nil {
 					errorsMu.Lock()
 					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
@@ -566,7 +591,7 @@ func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []File
 
 	// Send files to workers
 	for _, f := range files {
-		workChan <- workItem{path: f.Path, content: f.Content, hash: f.Hash}
+		workChan <- workItem{path: f.Path, content: f.Content, hash: f.Hash, baseDir: baseDir}
 	}
 	close(workChan)
 
@@ -675,7 +700,8 @@ func (s *IngestService) processFilesInternal(ctx context.Context, jobManager *Jo
 // IngestFilesWithContentAsync starts an async job for content-based file ingestion.
 // Unlike IngestDirectoryAsync, files are provided with their content (not paths to read from disk).
 // This is used for the two-phase hash-based ingestion flow where the client uploads file content.
-func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobManager *JobManager, files []FileContent, opts IngestOptions) (*Job, error) {
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobManager *JobManager, files []FileContent, baseDir string, opts IngestOptions) (*Job, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no files to ingest")
 	}
@@ -691,6 +717,7 @@ func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobMana
 		"labels":        opts.Labels,
 		"extract_graph": opts.ExtractGraph,
 		"content_based": true, // Mark as content-based job
+		"base_dir":      baseDir,
 	}
 
 	// Create job with persistence (using first file's directory as dirPath for display)
@@ -711,7 +738,7 @@ func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobMana
 		// Mark as running
 		jobManager.SetRunning(bgCtx, job)
 
-		result, err := s.processFilesWithContentInternal(bgCtx, jobManager, job, files, opts)
+		result, err := s.processFilesWithContentInternal(bgCtx, jobManager, job, files, baseDir, opts)
 		if err != nil {
 			jobManager.Fail(bgCtx, job, err)
 			return
@@ -723,7 +750,7 @@ func (s *IngestService) IngestFilesWithContentAsync(ctx context.Context, jobMana
 }
 
 // processFilesWithContentInternal processes files from provided content with job tracking.
-func (s *IngestService) processFilesWithContentInternal(ctx context.Context, jobManager *JobManager, job *Job, files []FileContent, opts IngestOptions) (*IngestResult, error) {
+func (s *IngestService) processFilesWithContentInternal(ctx context.Context, jobManager *JobManager, job *Job, files []FileContent, baseDir string, opts IngestOptions) (*IngestResult, error) {
 	slog.Info("starting async content-based file processing", "files", len(files), "extract_graph", opts.ExtractGraph)
 
 	// Set default concurrency
@@ -748,6 +775,7 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 		path    string
 		content string
 		hash    string
+		baseDir string
 	}
 	workChan := make(chan workItem, len(files))
 	var wg sync.WaitGroup
@@ -770,7 +798,7 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 					jobManager.UpdateProgress(ctx, job, int(processed), totalFiles)
 				}
 
-				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
+				result, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, item.baseDir, opts)
 				if err != nil {
 					errorsMu.Lock()
 					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
@@ -790,7 +818,7 @@ func (s *IngestService) processFilesWithContentInternal(ctx context.Context, job
 
 	// Send files to workers
 	for _, f := range files {
-		workChan <- workItem{path: f.Path, content: f.Content, hash: f.Hash}
+		workChan <- workItem{path: f.Path, content: f.Content, hash: f.Hash, baseDir: baseDir}
 	}
 	close(workChan)
 
@@ -828,11 +856,15 @@ func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *Jo
 		return nil, fmt.Errorf("no markdown files found in %s", dirPath)
 	}
 
+	// Compute baseDir from directory path for unique entity IDs
+	baseDir := filepath.Base(filepath.Clean(dirPath))
+
 	// Prepare options for persistence
 	persistOpts := map[string]any{
 		"labels":        opts.Labels,
 		"extract_graph": opts.ExtractGraph,
 		"recursive":     opts.Recursive,
+		"base_dir":      baseDir,
 	}
 
 	// Create job with persistence
@@ -841,8 +873,9 @@ func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *Jo
 		return nil, fmt.Errorf("create job: %w", err)
 	}
 
-	// Set concurrency from job manager
+	// Set concurrency and baseDir from job manager
 	opts.Concurrency = jobManager.Concurrency()
+	opts.BaseDir = baseDir
 
 	// Start processing in background
 	go func() {
@@ -860,4 +893,20 @@ func (s *IngestService) IngestDirectoryAsync(ctx context.Context, jobManager *Jo
 	}()
 
 	return job, nil
+}
+
+// slugify converts a name to a URL-safe ID.
+func slugify(name string) string {
+	// Simple slugification: lowercase, replace spaces with hyphens
+	s := strings.ToLower(name)
+	s = strings.ReplaceAll(s, " ", "-")
+	s = strings.ReplaceAll(s, "_", "-")
+	// Remove non-alphanumeric except hyphens
+	result := strings.Builder{}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }

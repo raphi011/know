@@ -691,7 +691,8 @@ func (c *Client) CheckHashes(ctx context.Context, files []FileHashInput) (*Check
 
 // IngestFiles ingests multiple files with provided content.
 // Used after CheckHashes to upload only changed files.
-func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, opts *IngestOptions) (*IngestResult, error) {
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, baseDir string, opts *IngestOptions) (*IngestResult, error) {
 	const query = `
 		mutation IngestFiles($input: IngestFilesInput!) {
 			ingestFiles(input: $input) {
@@ -701,7 +702,8 @@ func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, opts
 	`
 
 	input := map[string]any{
-		"files": files,
+		"files":   files,
+		"baseDir": baseDir,
 	}
 
 	if opts != nil {
@@ -730,7 +732,8 @@ func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, opts
 // IngestFilesAsync starts an async job for content-based file ingestion.
 // Returns a Job immediately; processing happens in background on the server.
 // Used after CheckHashes to upload only changed files with progress tracking.
-func (c *Client) IngestFilesAsync(ctx context.Context, files []FileContentInput, opts *IngestOptions) (*Job, error) {
+// baseDir is used to compute unique entity IDs from relative file paths.
+func (c *Client) IngestFilesAsync(ctx context.Context, files []FileContentInput, baseDir string, opts *IngestOptions) (*Job, error) {
 	const query = `
 		mutation IngestFilesAsync($input: IngestFilesInput!) {
 			ingestFilesAsync(input: $input) {
@@ -741,7 +744,8 @@ func (c *Client) IngestFilesAsync(ctx context.Context, files []FileContentInput,
 	`
 
 	input := map[string]any{
-		"files": files,
+		"files":   files,
+		"baseDir": baseDir,
 	}
 
 	if opts != nil {
