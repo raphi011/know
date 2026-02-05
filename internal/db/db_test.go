@@ -661,3 +661,69 @@ func TestTokenUsage(t *testing.T) {
 		t.Errorf("Expected at least 150 total tokens, got %d", summary.TotalTokens)
 	}
 }
+
+func TestGetExistingHashes(t *testing.T) {
+	ctx := context.Background()
+
+	// Create entities with content hashes
+	hash1 := "abc123def456"
+	hash2 := "xyz789ghi012"
+	content := "test content"
+
+	entity1, err := testDB.CreateEntity(ctx, models.EntityInput{
+		Type:        "document",
+		Name:        "Hash Test 1",
+		Content:     &content,
+		ContentHash: &hash1,
+		Embedding:   dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("CreateEntity 1 failed: %v", err)
+	}
+	defer func() {
+		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity1.ID))
+	}()
+
+	entity2, err := testDB.CreateEntity(ctx, models.EntityInput{
+		Type:        "document",
+		Name:        "Hash Test 2",
+		Content:     &content,
+		ContentHash: &hash2,
+		Embedding:   dummyEmbedding(),
+	})
+	if err != nil {
+		t.Fatalf("CreateEntity 2 failed: %v", err)
+	}
+	defer func() {
+		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity2.ID))
+	}()
+
+	// Query with mix of existing and non-existing hashes
+	hashes := []string{hash1, "nonexistent", hash2, "alsonotexist"}
+	existing, err := testDB.GetExistingHashes(ctx, hashes)
+	if err != nil {
+		t.Fatalf("GetExistingHashes failed: %v", err)
+	}
+
+	if len(existing) != 2 {
+		t.Errorf("Expected 2 existing hashes, got %d: %v", len(existing), existing)
+	}
+
+	// Verify the correct hashes were returned
+	found := make(map[string]bool)
+	for _, h := range existing {
+		found[h] = true
+	}
+	if !found[hash1] || !found[hash2] {
+		t.Errorf("Expected hashes %s and %s, got %v", hash1, hash2, existing)
+	}
+
+	// Empty input should return empty result
+	empty, err := testDB.GetExistingHashes(ctx, []string{})
+	if err != nil {
+		t.Fatalf("GetExistingHashes with empty input failed: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("Expected empty result, got %v", empty)
+	}
+}

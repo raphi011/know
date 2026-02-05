@@ -129,6 +129,7 @@ type Entity struct {
 	Content     *string        `json:"content,omitempty"`
 	Summary     *string        `json:"summary,omitempty"`
 	Labels      []string       `json:"labels"`
+	ContentHash *string        `json:"contentHash,omitempty"`
 	Verified    bool           `json:"verified"`
 	Confidence  float64        `json:"confidence"`
 	Source      string         `json:"source"`
@@ -167,10 +168,29 @@ type ChunkMatch struct {
 // IngestResult summarizes an ingestion operation.
 type IngestResult struct {
 	FilesProcessed   int      `json:"filesProcessed"`
+	FilesSkipped     int      `json:"filesSkipped"`
 	EntitiesCreated  int      `json:"entitiesCreated"`
 	ChunksCreated    int      `json:"chunksCreated"`
 	RelationsCreated int      `json:"relationsCreated"`
 	Errors           []string `json:"errors"`
+}
+
+// FileHashInput represents a file with its content hash for deduplication.
+type FileHashInput struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+}
+
+// CheckHashesResult contains the paths that need uploading.
+type CheckHashesResult struct {
+	Needed []string `json:"needed"`
+}
+
+// FileContentInput represents a file with its content for ingestion.
+type FileContentInput struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Hash    string `json:"hash"`
 }
 
 // LabelCount represents a label with its entity count.
@@ -643,6 +663,68 @@ func (c *Client) IngestDirectoryAsync(ctx context.Context, dirPath string, opts 
 		return nil, err
 	}
 	return &result.IngestDirectoryAsync, nil
+}
+
+// CheckHashes queries which files need uploading based on content hashes.
+// Returns paths that are NOT in the database (new or changed content).
+func (c *Client) CheckHashes(ctx context.Context, files []FileHashInput) (*CheckHashesResult, error) {
+	const query = `
+		query CheckHashes($input: CheckHashesInput!) {
+			checkHashes(input: $input) {
+				needed
+			}
+		}
+	`
+
+	input := map[string]any{
+		"files": files,
+	}
+
+	var result struct {
+		CheckHashes CheckHashesResult `json:"checkHashes"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"input": input}, &result); err != nil {
+		return nil, err
+	}
+	return &result.CheckHashes, nil
+}
+
+// IngestFiles ingests multiple files with provided content.
+// Used after CheckHashes to upload only changed files.
+func (c *Client) IngestFiles(ctx context.Context, files []FileContentInput, opts *IngestOptions) (*IngestResult, error) {
+	const query = `
+		mutation IngestFiles($input: IngestFilesInput!) {
+			ingestFiles(input: $input) {
+				filesProcessed filesSkipped entitiesCreated chunksCreated relationsCreated errors
+			}
+		}
+	`
+
+	input := map[string]any{
+		"files": files,
+	}
+
+	if opts != nil {
+		options := map[string]any{}
+		if len(opts.Labels) > 0 {
+			options["labels"] = opts.Labels
+		}
+		if opts.ExtractGraph != nil {
+			options["extractGraph"] = *opts.ExtractGraph
+		}
+		if opts.DryRun != nil {
+			options["dryRun"] = *opts.DryRun
+		}
+		input["options"] = options
+	}
+
+	var result struct {
+		IngestFiles IngestResult `json:"ingestFiles"`
+	}
+	if err := c.Execute(ctx, query, map[string]any{"input": input}, &result); err != nil {
+		return nil, err
+	}
+	return &result.IngestFiles, nil
 }
 
 // =============================================================================

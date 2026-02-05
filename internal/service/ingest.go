@@ -54,10 +54,68 @@ type IngestOptions struct {
 // IngestResult summarizes an ingestion operation.
 type IngestResult struct {
 	FilesProcessed   int
+	FilesSkipped     int
 	EntitiesCreated  int
 	ChunksCreated    int
 	RelationsCreated int
 	Errors           []string
+}
+
+// FileHash represents a file path and its content hash.
+type FileHash struct {
+	Path string
+	Hash string
+}
+
+// FileContent represents a file with its content and hash.
+type FileContent struct {
+	Path    string
+	Content string
+	Hash    string
+}
+
+// CheckHashes determines which files need uploading based on their content hashes.
+// Returns paths that are NOT in the database (new or changed content).
+func (s *IngestService) CheckHashes(ctx context.Context, files []FileHash) ([]string, error) {
+	if len(files) == 0 {
+		return []string{}, nil
+	}
+
+	// Extract all hashes for bulk query
+	hashes := make([]string, len(files))
+	hashToPath := make(map[string]string, len(files))
+	for i, f := range files {
+		hashes[i] = f.Hash
+		hashToPath[f.Hash] = f.Path
+	}
+
+	// Query existing hashes in DB
+	existing, err := s.db.GetExistingHashes(ctx, hashes)
+	if err != nil {
+		return nil, fmt.Errorf("check existing hashes: %w", err)
+	}
+
+	// Build set of existing hashes for O(1) lookup
+	existingSet := make(map[string]struct{}, len(existing))
+	for _, h := range existing {
+		existingSet[h] = struct{}{}
+	}
+
+	// Return paths whose hashes are NOT in DB
+	needed := make([]string, 0, len(files))
+	for _, f := range files {
+		if _, exists := existingSet[f.Hash]; !exists {
+			needed = append(needed, f.Path)
+		}
+	}
+
+	return needed, nil
+}
+
+// IngestFileWithContent ingests a file from provided content (not from disk).
+// Used by the two-phase hash-based ingestion flow.
+func (s *IngestService) IngestFileWithContent(ctx context.Context, filePath, content, contentHash string, opts IngestOptions) (*models.Entity, error) {
+	return s.ingestFileInternal(ctx, filePath, []byte(content), &contentHash, opts)
 }
 
 // IngestFile ingests a single Markdown file.
@@ -67,7 +125,12 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
+	return s.ingestFileInternal(ctx, filePath, content, nil, opts)
+}
 
+// ingestFileInternal handles the core ingestion logic for both IngestFile and IngestFileWithContent.
+// If contentHash is nil, no hash is stored; if provided, it's stored for skip-unchanged deduplication.
+func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string, content []byte, contentHash *string, opts IngestOptions) (*models.Entity, error) {
 	// Parse markdown
 	doc, err := parser.ParseMarkdown(string(content))
 	if err != nil {
@@ -96,11 +159,12 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	// Build entity input
 	fullContent := doc.Content
 	input := models.EntityInput{
-		Type:       entityType,
-		Name:       name,
-		Content:    &fullContent,
-		Labels:     labels,
-		SourcePath: &filePath,
+		Type:        entityType,
+		Name:        name,
+		Content:     &fullContent,
+		Labels:      labels,
+		SourcePath:  &filePath,
+		ContentHash: contentHash,
 	}
 
 	// Add summary if present
@@ -122,12 +186,13 @@ func (s *IngestService) IngestFile(ctx context.Context, filePath string, opts In
 	// Dry run - just return what would be created
 	if opts.DryRun {
 		return &models.Entity{
-			Type:       input.Type,
-			Name:       name,
-			Content:    &fullContent,
-			Labels:     labels,
-			SourcePath: &filePath,
-			Source:     source,
+			Type:        input.Type,
+			Name:        name,
+			Content:     &fullContent,
+			Labels:      labels,
+			SourcePath:  &filePath,
+			ContentHash: contentHash,
+			Source:      source,
 		}, nil
 	}
 
@@ -416,6 +481,96 @@ func (s *IngestService) IngestDirectory(ctx context.Context, dirPath string, opt
 		return nil, err
 	}
 	return s.processFilesInternal(ctx, nil, nil, files, len(files), opts)
+}
+
+// IngestFilesWithContent ingests multiple files with provided content (not from disk).
+// Used by the two-phase hash-based ingestion flow after checkHashes.
+func (s *IngestService) IngestFilesWithContent(ctx context.Context, files []FileContent, opts IngestOptions) (*IngestResult, error) {
+	if len(files) == 0 {
+		return &IngestResult{}, nil
+	}
+
+	slog.Info("starting content-based file processing", "files", len(files), "extract_graph", opts.ExtractGraph)
+
+	// Set default concurrency
+	concurrency := opts.Concurrency
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+
+	// Result aggregation with thread-safe counters
+	var (
+		filesProcessed  atomic.Int32
+		entitiesCreated atomic.Int32
+		chunksCreated   atomic.Int32
+		errorsMu        sync.Mutex
+		errors          []string
+	)
+
+	// Worker pool - use struct to pass both path and content
+	type workItem struct {
+		path    string
+		content string
+		hash    string
+	}
+	workChan := make(chan workItem, len(files))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for item := range workChan {
+				if ctx.Err() != nil {
+					return
+				}
+
+				processed := filesProcessed.Add(1)
+				slog.Info("processing file", "worker", workerID, "file", filepath.Base(item.path), "progress", fmt.Sprintf("%d/%d", processed, len(files)))
+
+				entity, err := s.IngestFileWithContent(ctx, item.path, item.content, item.hash, opts)
+				if err != nil {
+					errorsMu.Lock()
+					errors = append(errors, fmt.Sprintf("%s: %v", item.path, err))
+					errorsMu.Unlock()
+					continue
+				}
+
+				entitiesCreated.Add(1)
+
+				// Count chunks
+				if entity != nil && !opts.DryRun {
+					if entityID, err := models.RecordIDString(entity.ID); err == nil {
+						chunks, err := s.db.GetChunks(ctx, entityID)
+						if err != nil {
+							slog.Debug("failed to get chunks for count", "entity", entityID, "error", err)
+						} else {
+							chunksCreated.Add(int32(len(chunks)))
+						}
+					}
+				}
+			}
+		}(i)
+	}
+
+	// Send files to workers
+	for _, f := range files {
+		workChan <- workItem{path: f.Path, content: f.Content, hash: f.Hash}
+	}
+	close(workChan)
+
+	// Wait for completion
+	wg.Wait()
+
+	slog.Info("content-based processing complete", "entities", entitiesCreated.Load(), "chunks", chunksCreated.Load(), "errors", len(errors))
+
+	return &IngestResult{
+		FilesProcessed:  int(filesProcessed.Load()),
+		EntitiesCreated: int(entitiesCreated.Load()),
+		ChunksCreated:   int(chunksCreated.Load()),
+		Errors:          errors,
+	}, nil
 }
 
 // ProcessFiles processes a list of files with job manager integration.

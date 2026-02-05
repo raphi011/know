@@ -27,6 +27,7 @@ func entityToGraphQL(e *models.Entity) *Entity {
 		Content:     e.Content,
 		Summary:     e.Summary,
 		Labels:      e.Labels,
+		ContentHash: e.ContentHash,
 		Verified:    e.Verified,
 		Confidence:  e.Confidence,
 		Source:      string(e.Source),
@@ -96,6 +97,7 @@ func serviceJobToGraphQL(j *service.Job) *Job {
 	if snapshot.Result != nil {
 		result = &IngestResult{
 			FilesProcessed:   snapshot.Result.FilesProcessed,
+			FilesSkipped:     snapshot.Result.FilesSkipped,
 			EntitiesCreated:  snapshot.Result.EntitiesCreated,
 			ChunksCreated:    snapshot.Result.ChunksCreated,
 			RelationsCreated: snapshot.Result.RelationsCreated,

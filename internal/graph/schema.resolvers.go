@@ -132,6 +132,7 @@ func (r *mutationResolver) IngestDirectory(ctx context.Context, dirPath string, 
 
 	return &IngestResult{
 		FilesProcessed:   result.FilesProcessed,
+		FilesSkipped:     result.FilesSkipped,
 		EntitiesCreated:  result.EntitiesCreated,
 		ChunksCreated:    result.ChunksCreated,
 		RelationsCreated: result.RelationsCreated,
@@ -182,6 +183,46 @@ func (r *mutationResolver) CreateTemplate(ctx context.Context, name string, desc
 // DeleteTemplate is the resolver for the deleteTemplate field.
 func (r *mutationResolver) DeleteTemplate(ctx context.Context, name string) (bool, error) {
 	return r.db.DeleteTemplate(ctx, name)
+}
+
+// IngestFiles is the resolver for the ingestFiles field.
+func (r *mutationResolver) IngestFiles(ctx context.Context, input IngestFilesInput) (*IngestResult, error) {
+	opts := service.IngestOptions{
+		Concurrency: r.jobManager.Concurrency(),
+	}
+	if input.Options != nil {
+		opts.Labels = input.Options.Labels
+		if input.Options.ExtractGraph != nil {
+			opts.ExtractGraph = *input.Options.ExtractGraph
+		}
+		if input.Options.DryRun != nil {
+			opts.DryRun = *input.Options.DryRun
+		}
+	}
+
+	// Convert GraphQL input to service types
+	files := make([]service.FileContent, len(input.Files))
+	for i, f := range input.Files {
+		files[i] = service.FileContent{
+			Path:    f.Path,
+			Content: f.Content,
+			Hash:    f.Hash,
+		}
+	}
+
+	result, err := r.ingestService.IngestFilesWithContent(ctx, files, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &IngestResult{
+		FilesProcessed:   result.FilesProcessed,
+		FilesSkipped:     result.FilesSkipped,
+		EntitiesCreated:  result.EntitiesCreated,
+		ChunksCreated:    result.ChunksCreated,
+		RelationsCreated: result.RelationsCreated,
+		Errors:           result.Errors,
+	}, nil
 }
 
 // Entity is the resolver for the entity field.
@@ -395,6 +436,28 @@ func (r *queryResolver) Job(ctx context.Context, id string) (*Job, error) {
 func (r *queryResolver) ServerStats(ctx context.Context) (*ServerStats, error) {
 	snap := r.metrics.Snapshot()
 	return metricsSnapshotToGraphQL(snap), nil
+}
+
+// CheckHashes is the resolver for the checkHashes field.
+func (r *queryResolver) CheckHashes(ctx context.Context, input CheckHashesInput) (*CheckHashesResult, error) {
+	// Convert GraphQL input to service types
+	files := make([]service.FileHash, len(input.Files))
+	for i, f := range input.Files {
+		files[i] = service.FileHash{
+			Path: f.Path,
+			Hash: f.Hash,
+		}
+	}
+
+	// Query which files need uploading
+	needed, err := r.ingestService.CheckHashes(ctx, files)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CheckHashesResult{
+		Needed: needed,
+	}, nil
 }
 
 // AskStream is the resolver for the askStream field.

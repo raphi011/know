@@ -14,6 +14,7 @@ type Entity {
   content: String
   summary: String
   labels: [String!]!
+  contentHash: String
   verified: Boolean!
   confidence: Float!
   source: String!
@@ -59,10 +60,16 @@ type ChunkMatch {
 
 type IngestResult {
   filesProcessed: Int!
+  filesSkipped: Int!
   entitiesCreated: Int!
   chunksCreated: Int!
   relationsCreated: Int!
   errors: [String!]!
+}
+
+type CheckHashesResult {
+  """Paths that need uploading (new or changed content)"""
+  needed: [String!]!
 }
 
 type Job {
@@ -170,6 +177,31 @@ input IngestInput {
   recursive: Boolean
 }
 
+input FileHashInput {
+  """Relative or absolute file path"""
+  path: String!
+  """SHA256 hash of raw file bytes"""
+  hash: String!
+}
+
+input CheckHashesInput {
+  files: [FileHashInput!]!
+}
+
+input FileContentInput {
+  """File path (used for entity name derivation)"""
+  path: String!
+  """Raw file content"""
+  content: String!
+  """SHA256 hash of content"""
+  hash: String!
+}
+
+input IngestFilesInput {
+  files: [FileContentInput!]!
+  options: IngestInput
+}
+
 # =============================================================================
 # QUERIES
 # =============================================================================
@@ -201,6 +233,10 @@ type Query {
 
   # Server statistics (in-memory, resets on restart)
   serverStats: ServerStats!
+
+  # Hash checking for skip-unchanged optimization
+  """Check which files need uploading based on content hashes"""
+  checkHashes(input: CheckHashesInput!): CheckHashesResult!
 }
 
 # =============================================================================
@@ -242,4 +278,8 @@ type Mutation {
   # Template operations
   createTemplate(name: String!, description: String, content: String!): Template!
   deleteTemplate(name: String!): Boolean!
+
+  # Content-based ingest (for skip-unchanged optimization)
+  """Ingest files with content provided directly (used after checkHashes)"""
+  ingestFiles(input: IngestFilesInput!): IngestResult!
 }

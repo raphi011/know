@@ -106,7 +106,7 @@ knowhow ask "What are John's responsibilities?" --labels "work" --type person
 ### Ingest Markdown Files
 
 ```bash
-# Scrape a directory
+# Scrape a directory (unchanged files are automatically skipped)
 knowhow scrape ./docs
 
 # With labels
@@ -115,8 +115,11 @@ knowhow scrape ./notes --labels "personal"
 # Extract entity relations using LLM
 knowhow scrape ./specs --extract-graph
 
-# Dry run (preview)
+# Dry run (preview which files would be ingested)
 knowhow scrape ./wiki --dry-run
+
+# Force re-ingest all files (skip change detection)
+knowhow scrape ./docs --force
 ```
 
 ### Manage Relations

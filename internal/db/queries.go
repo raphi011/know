@@ -85,6 +85,7 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 			content = $content,
 			summary = $summary,
 			labels = $labels,
+			content_hash = $content_hash,
 			verified = $verified,
 			confidence = $confidence,
 			source = $source,
@@ -96,18 +97,19 @@ func (c *Client) CreateEntity(ctx context.Context, input models.EntityInput) (*m
 	`
 
 	results, err := surrealdb.Query[[]models.Entity](ctx, c.db, sql, map[string]any{
-		"id":          id,
-		"type":        input.Type,
-		"name":        input.Name,
-		"content":     optionalString(input.Content),
-		"summary":     optionalString(input.Summary),
-		"labels":      labels,
-		"verified":    verified,
-		"confidence":  confidence,
-		"source":      source,
-		"source_path": optionalString(input.SourcePath),
-		"metadata":    optionalObject(input.Metadata),
-		"embedding":   optionalEmbedding(input.Embedding),
+		"id":           id,
+		"type":         input.Type,
+		"name":         input.Name,
+		"content":      optionalString(input.Content),
+		"summary":      optionalString(input.Summary),
+		"labels":       labels,
+		"content_hash": optionalString(input.ContentHash),
+		"verified":     verified,
+		"confidence":   confidence,
+		"source":       source,
+		"source_path":  optionalString(input.SourcePath),
+		"metadata":     optionalObject(input.Metadata),
+		"embedding":    optionalEmbedding(input.Embedding),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create entity: %w", err)
@@ -262,6 +264,36 @@ func (c *Client) UpdateEntityAccess(ctx context.Context, id string) error {
 		return fmt.Errorf("update entity access: %w", err)
 	}
 	return nil
+}
+
+// GetExistingHashes returns content hashes that already exist in the database.
+// Used to determine which files need uploading (those NOT in the result).
+func (c *Client) GetExistingHashes(ctx context.Context, hashes []string) ([]string, error) {
+	if len(hashes) == 0 {
+		return []string{}, nil
+	}
+
+	results, err := surrealdb.Query[[]struct {
+		ContentHash *string `json:"content_hash"`
+	}](ctx, c.db, `
+		SELECT content_hash FROM entity WHERE content_hash IN $hashes
+	`, map[string]any{"hashes": hashes})
+
+	if err != nil {
+		return nil, fmt.Errorf("get existing hashes: %w", err)
+	}
+
+	if results == nil || len(*results) == 0 {
+		return []string{}, nil
+	}
+
+	existing := make([]string, 0, len((*results)[0].Result))
+	for _, r := range (*results)[0].Result {
+		if r.ContentHash != nil {
+			existing = append(existing, *r.ContentHash)
+		}
+	}
+	return existing, nil
 }
 
 // =============================================================================

@@ -54,6 +54,10 @@ type ComplexityRoot struct {
 		Token func(childComplexity int) int
 	}
 
+	CheckHashesResult struct {
+		Needed func(childComplexity int) int
+	}
+
 	ChunkMatch struct {
 		Content     func(childComplexity int) int
 		HeadingPath func(childComplexity int) int
@@ -65,6 +69,7 @@ type ComplexityRoot struct {
 		AccessedAt  func(childComplexity int) int
 		Confidence  func(childComplexity int) int
 		Content     func(childComplexity int) int
+		ContentHash func(childComplexity int) int
 		CreatedAt   func(childComplexity int) int
 		ID          func(childComplexity int) int
 		Labels      func(childComplexity int) int
@@ -90,6 +95,7 @@ type ComplexityRoot struct {
 		EntitiesCreated  func(childComplexity int) int
 		Errors           func(childComplexity int) int
 		FilesProcessed   func(childComplexity int) int
+		FilesSkipped     func(childComplexity int) int
 		RelationsCreated func(childComplexity int) int
 	}
 
@@ -121,6 +127,7 @@ type ComplexityRoot struct {
 		IngestDirectory      func(childComplexity int, dirPath string, input *IngestInput) int
 		IngestDirectoryAsync func(childComplexity int, dirPath string, input *IngestInput) int
 		IngestFile           func(childComplexity int, filePath string, input *IngestInput) int
+		IngestFiles          func(childComplexity int, input IngestFilesInput) int
 		UpdateEntity         func(childComplexity int, id string, input EntityUpdate) int
 	}
 
@@ -142,6 +149,7 @@ type ComplexityRoot struct {
 
 	Query struct {
 		Ask          func(childComplexity int, query string, input *SearchInput, templateName *string) int
+		CheckHashes  func(childComplexity int, input CheckHashesInput) int
 		Entities     func(childComplexity int, typeArg *string, labels []string, limit *int) int
 		Entity       func(childComplexity int, id string) int
 		EntityByName func(childComplexity int, name string) int
@@ -211,6 +219,7 @@ type MutationResolver interface {
 	IngestDirectoryAsync(ctx context.Context, dirPath string, input *IngestInput) (*Job, error)
 	CreateTemplate(ctx context.Context, name string, description *string, content string) (*Template, error)
 	DeleteTemplate(ctx context.Context, name string) (bool, error)
+	IngestFiles(ctx context.Context, input IngestFilesInput) (*IngestResult, error)
 }
 type QueryResolver interface {
 	Entity(ctx context.Context, id string) (*Entity, error)
@@ -226,6 +235,7 @@ type QueryResolver interface {
 	Jobs(ctx context.Context) ([]*Job, error)
 	Job(ctx context.Context, id string) (*Job, error)
 	ServerStats(ctx context.Context) (*ServerStats, error)
+	CheckHashes(ctx context.Context, input CheckHashesInput) (*CheckHashesResult, error)
 }
 type SubscriptionResolver interface {
 	AskStream(ctx context.Context, query string, input *SearchInput, templateName *string) (<-chan *AskStreamEvent, error)
@@ -268,6 +278,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.AskStreamEvent.Token(childComplexity), true
+
+	case "CheckHashesResult.needed":
+		if e.complexity.CheckHashesResult.Needed == nil {
+			break
+		}
+
+		return e.complexity.CheckHashesResult.Needed(childComplexity), true
 
 	case "ChunkMatch.content":
 		if e.complexity.ChunkMatch.Content == nil {
@@ -312,6 +329,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Entity.Content(childComplexity), true
+	case "Entity.contentHash":
+		if e.complexity.Entity.ContentHash == nil {
+			break
+		}
+
+		return e.complexity.Entity.ContentHash(childComplexity), true
 	case "Entity.createdAt":
 		if e.complexity.Entity.CreatedAt == nil {
 			break
@@ -428,6 +451,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.IngestResult.FilesProcessed(childComplexity), true
+	case "IngestResult.filesSkipped":
+		if e.complexity.IngestResult.FilesSkipped == nil {
+			break
+		}
+
+		return e.complexity.IngestResult.FilesSkipped(childComplexity), true
 	case "IngestResult.relationsCreated":
 		if e.complexity.IngestResult.RelationsCreated == nil {
 			break
@@ -603,6 +632,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.IngestFile(childComplexity, args["filePath"].(string), args["input"].(*IngestInput)), true
+	case "Mutation.ingestFiles":
+		if e.complexity.Mutation.IngestFiles == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_ingestFiles_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.IngestFiles(childComplexity, args["input"].(IngestFilesInput)), true
 	case "Mutation.updateEntity":
 		if e.complexity.Mutation.UpdateEntity == nil {
 			break
@@ -705,6 +745,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.Ask(childComplexity, args["query"].(string), args["input"].(*SearchInput), args["templateName"].(*string)), true
+	case "Query.checkHashes":
+		if e.complexity.Query.CheckHashes == nil {
+			break
+		}
+
+		args, err := ec.field_Query_checkHashes_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.CheckHashes(childComplexity, args["input"].(CheckHashesInput)), true
 	case "Query.entities":
 		if e.complexity.Query.Entities == nil {
 			break
@@ -988,8 +1039,12 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
 	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
+		ec.unmarshalInputCheckHashesInput,
 		ec.unmarshalInputEntityInput,
 		ec.unmarshalInputEntityUpdate,
+		ec.unmarshalInputFileContentInput,
+		ec.unmarshalInputFileHashInput,
+		ec.unmarshalInputIngestFilesInput,
 		ec.unmarshalInputIngestInput,
 		ec.unmarshalInputRelationInput,
 		ec.unmarshalInputSearchInput,
@@ -1239,6 +1294,17 @@ func (ec *executionContext) field_Mutation_ingestFile_args(ctx context.Context, 
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_ingestFiles_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNIngestFilesInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestFilesInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updateEntity_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1284,6 +1350,17 @@ func (ec *executionContext) field_Query_ask_args(ctx context.Context, rawArgs ma
 		return nil, err
 	}
 	args["templateName"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_checkHashes_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNCheckHashesInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐCheckHashesInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
 	return args, nil
 }
 
@@ -1524,6 +1601,35 @@ func (ec *executionContext) _AskStreamEvent_error(ctx context.Context, field gra
 func (ec *executionContext) fieldContext_AskStreamEvent_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AskStreamEvent",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CheckHashesResult_needed(ctx context.Context, field graphql.CollectedField, obj *CheckHashesResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CheckHashesResult_needed,
+		func(ctx context.Context) (any, error) {
+			return obj.Needed, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_CheckHashesResult_needed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CheckHashesResult",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -1783,6 +1889,35 @@ func (ec *executionContext) _Entity_labels(ctx context.Context, field graphql.Co
 }
 
 func (ec *executionContext) fieldContext_Entity_labels(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Entity",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Entity_contentHash(ctx context.Context, field graphql.CollectedField, obj *Entity) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Entity_contentHash,
+		func(ctx context.Context) (any, error) {
+			return obj.ContentHash, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Entity_contentHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Entity",
 		Field:      field,
@@ -2137,6 +2272,8 @@ func (ec *executionContext) fieldContext_EntitySearchResult_entity(_ context.Con
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -2247,6 +2384,35 @@ func (ec *executionContext) _IngestResult_filesProcessed(ctx context.Context, fi
 }
 
 func (ec *executionContext) fieldContext_IngestResult_filesProcessed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "IngestResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _IngestResult_filesSkipped(ctx context.Context, field graphql.CollectedField, obj *IngestResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_IngestResult_filesSkipped,
+		func(ctx context.Context) (any, error) {
+			return obj.FilesSkipped, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_IngestResult_filesSkipped(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "IngestResult",
 		Field:      field,
@@ -2546,6 +2712,8 @@ func (ec *executionContext) fieldContext_Job_result(_ context.Context, field gra
 			switch field.Name {
 			case "filesProcessed":
 				return ec.fieldContext_IngestResult_filesProcessed(ctx, field)
+			case "filesSkipped":
+				return ec.fieldContext_IngestResult_filesSkipped(ctx, field)
 			case "entitiesCreated":
 				return ec.fieldContext_IngestResult_entitiesCreated(ctx, field)
 			case "chunksCreated":
@@ -2801,6 +2969,8 @@ func (ec *executionContext) fieldContext_Mutation_createEntity(ctx context.Conte
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -2876,6 +3046,8 @@ func (ec *executionContext) fieldContext_Mutation_updateEntity(ctx context.Conte
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -3033,6 +3205,8 @@ func (ec *executionContext) fieldContext_Mutation_ingestFile(ctx context.Context
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -3098,6 +3272,8 @@ func (ec *executionContext) fieldContext_Mutation_ingestDirectory(ctx context.Co
 			switch field.Name {
 			case "filesProcessed":
 				return ec.fieldContext_IngestResult_filesProcessed(ctx, field)
+			case "filesSkipped":
+				return ec.fieldContext_IngestResult_filesSkipped(ctx, field)
 			case "entitiesCreated":
 				return ec.fieldContext_IngestResult_entitiesCreated(ctx, field)
 			case "chunksCreated":
@@ -3279,6 +3455,61 @@ func (ec *executionContext) fieldContext_Mutation_deleteTemplate(ctx context.Con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_deleteTemplate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_ingestFiles(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_ingestFiles,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().IngestFiles(ctx, fc.Args["input"].(IngestFilesInput))
+		},
+		nil,
+		ec.marshalNIngestResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestResult,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_ingestFiles(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "filesProcessed":
+				return ec.fieldContext_IngestResult_filesProcessed(ctx, field)
+			case "filesSkipped":
+				return ec.fieldContext_IngestResult_filesSkipped(ctx, field)
+			case "entitiesCreated":
+				return ec.fieldContext_IngestResult_entitiesCreated(ctx, field)
+			case "chunksCreated":
+				return ec.fieldContext_IngestResult_chunksCreated(ctx, field)
+			case "relationsCreated":
+				return ec.fieldContext_IngestResult_relationsCreated(ctx, field)
+			case "errors":
+				return ec.fieldContext_IngestResult_errors(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type IngestResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_ingestFiles_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3699,6 +3930,8 @@ func (ec *executionContext) fieldContext_Query_entity(ctx context.Context, field
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -3774,6 +4007,8 @@ func (ec *executionContext) fieldContext_Query_entityByName(ctx context.Context,
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -3849,6 +4084,8 @@ func (ec *executionContext) fieldContext_Query_entities(ctx context.Context, fie
 				return ec.fieldContext_Entity_summary(ctx, field)
 			case "labels":
 				return ec.fieldContext_Entity_labels(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Entity_contentHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_Entity_verified(ctx, field)
 			case "confidence":
@@ -4353,6 +4590,51 @@ func (ec *executionContext) fieldContext_Query_serverStats(_ context.Context, fi
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ServerStats", field.Name)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_checkHashes(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_checkHashes,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().CheckHashes(ctx, fc.Args["input"].(CheckHashesInput))
+		},
+		nil,
+		ec.marshalNCheckHashesResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐCheckHashesResult,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_checkHashes(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "needed":
+				return ec.fieldContext_CheckHashesResult_needed(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CheckHashesResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_checkHashes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -6825,6 +7107,33 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputCheckHashesInput(ctx context.Context, obj any) (CheckHashesInput, error) {
+	var it CheckHashesInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"files"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "files":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("files"))
+			data, err := ec.unmarshalNFileHashInput2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileHashInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Files = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputEntityInput(ctx context.Context, obj any) (EntityInput, error) {
 	var it EntityInput
 	asMap := map[string]any{}
@@ -6978,6 +7287,115 @@ func (ec *executionContext) unmarshalInputEntityUpdate(ctx context.Context, obj 
 				return it, err
 			}
 			it.Metadata = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFileContentInput(ctx context.Context, obj any) (FileContentInput, error) {
+	var it FileContentInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"path", "content", "hash"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "path":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("path"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Path = data
+		case "content":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("content"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Content = data
+		case "hash":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hash"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Hash = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFileHashInput(ctx context.Context, obj any) (FileHashInput, error) {
+	var it FileHashInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"path", "hash"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "path":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("path"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Path = data
+		case "hash":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hash"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Hash = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputIngestFilesInput(ctx context.Context, obj any) (IngestFilesInput, error) {
+	var it IngestFilesInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"files", "options"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "files":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("files"))
+			data, err := ec.unmarshalNFileContentInput2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileContentInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Files = data
+		case "options":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("options"))
+			data, err := ec.unmarshalOIngestInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Options = data
 		}
 	}
 
@@ -7189,6 +7607,45 @@ func (ec *executionContext) _AskStreamEvent(ctx context.Context, sel ast.Selecti
 	return out
 }
 
+var checkHashesResultImplementors = []string{"CheckHashesResult"}
+
+func (ec *executionContext) _CheckHashesResult(ctx context.Context, sel ast.SelectionSet, obj *CheckHashesResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, checkHashesResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CheckHashesResult")
+		case "needed":
+			out.Values[i] = ec._CheckHashesResult_needed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var chunkMatchImplementors = []string{"ChunkMatch"}
 
 func (ec *executionContext) _ChunkMatch(ctx context.Context, sel ast.SelectionSet, obj *ChunkMatch) graphql.Marshaler {
@@ -7270,6 +7727,8 @@ func (ec *executionContext) _Entity(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "contentHash":
+			out.Values[i] = ec._Entity_contentHash(ctx, field, obj)
 		case "verified":
 			out.Values[i] = ec._Entity_verified(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -7399,6 +7858,11 @@ func (ec *executionContext) _IngestResult(ctx context.Context, sel ast.Selection
 			out.Values[i] = graphql.MarshalString("IngestResult")
 		case "filesProcessed":
 			out.Values[i] = ec._IngestResult_filesProcessed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "filesSkipped":
+			out.Values[i] = ec._IngestResult_filesSkipped(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -7641,6 +8105,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "deleteTemplate":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_deleteTemplate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ingestFiles":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_ingestFiles(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -8024,6 +8495,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_serverStats(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "checkHashes":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_checkHashes(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -8729,6 +9222,25 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
+func (ec *executionContext) unmarshalNCheckHashesInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐCheckHashesInput(ctx context.Context, v any) (CheckHashesInput, error) {
+	res, err := ec.unmarshalInputCheckHashesInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNCheckHashesResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐCheckHashesResult(ctx context.Context, sel ast.SelectionSet, v CheckHashesResult) graphql.Marshaler {
+	return ec._CheckHashesResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNCheckHashesResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐCheckHashesResult(ctx context.Context, sel ast.SelectionSet, v *CheckHashesResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._CheckHashesResult(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatch(ctx context.Context, sel ast.SelectionSet, v ChunkMatch) graphql.Marshaler {
 	return ec._ChunkMatch(ctx, sel, &v)
 }
@@ -8915,6 +9427,46 @@ func (ec *executionContext) unmarshalNEntityUpdate2githubᚗcomᚋraphaelgruber�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNFileContentInput2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileContentInputᚄ(ctx context.Context, v any) ([]*FileContentInput, error) {
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]*FileContentInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNFileContentInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileContentInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalNFileContentInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileContentInput(ctx context.Context, v any) (*FileContentInput, error) {
+	res, err := ec.unmarshalInputFileContentInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNFileHashInput2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileHashInputᚄ(ctx context.Context, v any) ([]*FileHashInput, error) {
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]*FileHashInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNFileHashInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileHashInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalNFileHashInput2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileHashInput(ctx context.Context, v any) (*FileHashInput, error) {
+	res, err := ec.unmarshalInputFileHashInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNFloat2float64(ctx context.Context, v any) (float64, error) {
 	res, err := graphql.UnmarshalFloatContext(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -8945,6 +9497,11 @@ func (ec *executionContext) marshalNID2string(ctx context.Context, sel ast.Selec
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) unmarshalNIngestFilesInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestFilesInput(ctx context.Context, v any) (IngestFilesInput, error) {
+	res, err := ec.unmarshalInputIngestFilesInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNIngestResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐIngestResult(ctx context.Context, sel ast.SelectionSet, v IngestResult) graphql.Marshaler {

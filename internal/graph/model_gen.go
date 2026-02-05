@@ -15,6 +15,36 @@ type AskStreamEvent struct {
 	Error *string `json:"error,omitempty"`
 }
 
+type CheckHashesInput struct {
+	Files []*FileHashInput `json:"files"`
+}
+
+type CheckHashesResult struct {
+	// Paths that need uploading (new or changed content)
+	Needed []string `json:"needed"`
+}
+
+type FileContentInput struct {
+	// File path (used for entity name derivation)
+	Path string `json:"path"`
+	// Raw file content
+	Content string `json:"content"`
+	// SHA256 hash of content
+	Hash string `json:"hash"`
+}
+
+type FileHashInput struct {
+	// Relative or absolute file path
+	Path string `json:"path"`
+	// SHA256 hash of raw file bytes
+	Hash string `json:"hash"`
+}
+
+type IngestFilesInput struct {
+	Files   []*FileContentInput `json:"files"`
+	Options *IngestInput        `json:"options,omitempty"`
+}
+
 type Job struct {
 	ID           string        `json:"id"`
 	Type         string        `json:"type"`

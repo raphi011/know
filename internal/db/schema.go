@@ -30,6 +30,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS confidence ON entity TYPE float DEFAULT 0.5;     -- 0-1 certainty (for AI content)
     DEFINE FIELD IF NOT EXISTS source ON entity TYPE string DEFAULT "manual";   -- "manual" | "mcp" | "scrape" | "ai_generated"
     DEFINE FIELD IF NOT EXISTS source_path ON entity TYPE option<string>;       -- Original file path if scraped
+    DEFINE FIELD IF NOT EXISTS content_hash ON entity TYPE option<string>;     -- SHA256 hash for skip-unchanged
 
     -- Type-specific data
     DEFINE FIELD IF NOT EXISTS metadata ON entity TYPE option<object> FLEXIBLE;
