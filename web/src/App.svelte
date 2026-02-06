@@ -47,11 +47,13 @@
   let chatOpen = $state(false)
   let allLabels = $state<LabelCount[]>([])
   let filterLabels = $state<string[]>([])
+  let labelError = $state<string | null>(null)
+  let labelErrorTimeout: ReturnType<typeof setTimeout> | undefined
+  let labelOpInFlight = $state(false)
 
   let isDirty = $derived(editorContent !== lastSavedContent)
 
   onMount(() => {
-    loadDocuments()
     loadLabels()
 
     // Global Cmd/Ctrl+S handler for when editor doesn't have focus
@@ -65,20 +67,15 @@
     return () => document.removeEventListener('keydown', handleKeydown)
   })
 
-  // Re-fetch documents when label filters change
+  // Fetch documents on mount and when label filters change
   $effect(() => {
-    // Track filterLabels by reading it
-    const _labels = filterLabels
-    loadDocuments()
+    const vars = filterLabels.length > 0 ? { labels: filterLabels } : {}
+    loadDocuments(vars)
   })
 
-  async function loadDocuments() {
+  async function loadDocuments(vars: { labels?: string[] } = {}) {
     try {
       loadError = null
-      const vars: { labels?: string[] } = {}
-      if (filterLabels.length > 0) {
-        vars.labels = filterLabels
-      }
       const data: { entities: EntityListItem[] } = await client.request(LIST_DOCUMENTS, vars)
       entities = data.entities
     } catch (e) {
@@ -93,51 +90,47 @@
       allLabels = data.labels
     } catch (e) {
       console.error('Failed to load labels:', e)
+      showLabelError('Failed to load labels')
     }
   }
 
-  async function addLabel(label: string) {
-    if (!selectedId || !selectedEntity) return
+  function showLabelError(msg: string) {
+    labelError = msg
+    if (labelErrorTimeout) clearTimeout(labelErrorTimeout)
+    labelErrorTimeout = setTimeout(() => { labelError = null }, 4000)
+  }
 
-    // Optimistic update
+  async function updateLabel(label: string, mode: 'add' | 'remove') {
+    if (!selectedId || !selectedEntity) return
+    if (mode === 'add' && selectedEntity.labels.includes(label)) return
+    if (labelOpInFlight) return
+    labelOpInFlight = true
+
     const prev = selectedEntity.labels
-    selectedEntity = { ...selectedEntity, labels: [...prev, label] }
+    selectedEntity = {
+      ...selectedEntity,
+      labels: mode === 'add' ? [...prev, label] : prev.filter((l) => l !== label),
+    }
 
     try {
+      const input = mode === 'add' ? { addLabels: [label] } : { delLabels: [label] }
       const data: { updateEntity: EntityFull } = await client.request(
         UPDATE_ENTITY_LABELS,
-        { id: selectedId, input: { addLabels: [label] } },
+        { id: selectedId, input },
       )
       selectedEntity = { ...selectedEntity, labels: data.updateEntity.labels }
-      // Refresh sidebar doc labels + global label counts
-      loadDocuments()
-      loadLabels()
+      await Promise.all([loadDocuments(), loadLabels()])
     } catch (e) {
-      console.error('Failed to add label:', e)
+      console.error(`Failed to ${mode} label:`, e)
       selectedEntity = { ...selectedEntity, labels: prev }
+      showLabelError(`Failed to ${mode} label "${label}"`)
+    } finally {
+      labelOpInFlight = false
     }
   }
 
-  async function removeLabel(label: string) {
-    if (!selectedId || !selectedEntity) return
-
-    // Optimistic update
-    const prev = selectedEntity.labels
-    selectedEntity = { ...selectedEntity, labels: prev.filter((l) => l !== label) }
-
-    try {
-      const data: { updateEntity: EntityFull } = await client.request(
-        UPDATE_ENTITY_LABELS,
-        { id: selectedId, input: { delLabels: [label] } },
-      )
-      selectedEntity = { ...selectedEntity, labels: data.updateEntity.labels }
-      loadDocuments()
-      loadLabels()
-    } catch (e) {
-      console.error('Failed to remove label:', e)
-      selectedEntity = { ...selectedEntity, labels: prev }
-    }
-  }
+  function addLabel(label: string) { updateLabel(label, 'add') }
+  function removeLabel(label: string) { updateLabel(label, 'remove') }
 
   function toggleFilterLabel(label: string) {
     if (filterLabels.includes(label)) {
@@ -252,6 +245,9 @@
             currentLabels={selectedEntity.labels}
             onAdd={addLabel}
           />
+          {#if labelError}
+            <span class="label-error">{labelError}</span>
+          {/if}
         </div>
       </div>
       <Editor
@@ -413,6 +409,11 @@
   }
 
   .error-text {
+    color: var(--error);
+  }
+
+  .label-error {
+    font-size: 11px;
     color: var(--error);
   }
 </style>

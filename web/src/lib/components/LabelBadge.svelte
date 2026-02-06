@@ -16,15 +16,14 @@
 
 {#if onclick}
   <button
-    class="badge"
+    class="badge clickable"
     class:selected
-    class:clickable={true}
     onclick={onclick}
   >
     {label}
   </button>
 {:else}
-  <span class="badge" class:removable>
+  <span class="badge">
     {label}
     {#if removable && onremove}
       <button

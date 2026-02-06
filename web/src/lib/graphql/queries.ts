@@ -104,6 +104,7 @@ export const UPDATE_CONTENT = gql`
       id
       name
       content
+      labels
       updatedAt
     }
   }

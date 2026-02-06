@@ -13,24 +13,26 @@
   let open = $state(false)
   let highlightIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state()
+  let blurTimeout: ReturnType<typeof setTimeout> | undefined
 
   let suggestions = $derived.by(() => {
     const q = query.toLowerCase().trim()
-    const available = allLabels
-      .filter((l) => !currentLabels.includes(l.label))
-      .filter((l) => !q || l.label.toLowerCase().includes(q))
-      .map((l) => l.label)
-
-    const items: { label: string; isNew: boolean }[] = available.map((l) => ({
-      label: l,
-      isNew: false,
-    }))
+    const items = allLabels
+      .filter((l) => !currentLabels.includes(l.label) && (!q || l.label.toLowerCase().includes(q)))
+      .map((l) => ({ label: l.label, isNew: false }))
 
     if (q && !allLabels.some((l) => l.label.toLowerCase() === q)) {
       items.push({ label: q, isNew: true })
     }
 
     return items
+  })
+
+  // Clamp highlightIndex when suggestions shrink
+  $effect(() => {
+    if (highlightIndex >= suggestions.length) {
+      highlightIndex = Math.max(0, suggestions.length - 1)
+    }
   })
 
   function select(label: string) {
@@ -53,7 +55,7 @@
       highlightIndex = Math.max(highlightIndex - 1, 0)
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (suggestions.length > 0) {
+      if (suggestions.length > 0 && highlightIndex < suggestions.length) {
         select(suggestions[highlightIndex].label)
       }
       open = false
@@ -68,12 +70,12 @@
   }
 
   function handleFocus() {
+    if (blurTimeout) clearTimeout(blurTimeout)
     open = true
   }
 
   function handleBlur() {
-    // Delay to allow click on suggestion to register
-    setTimeout(() => {
+    blurTimeout = setTimeout(() => {
       open = false
     }, 150)
   }
