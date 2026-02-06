@@ -1,18 +1,27 @@
 <script lang="ts">
+  import LabelBadge from './LabelBadge.svelte'
+
   interface Entity {
     id: string
     name: string
+    labels: string[]
     updatedAt: string
   }
 
   let {
     entities,
     selectedId,
+    allLabels,
+    filterLabels,
     onSelect,
+    onToggleFilter,
   }: {
     entities: Entity[]
     selectedId: string | null
+    allLabels: { label: string; count: number }[]
+    filterLabels: string[]
     onSelect: (id: string) => void
+    onToggleFilter: (label: string) => void
   } = $props()
 
   let search = $state('')
@@ -27,6 +36,17 @@
 </script>
 
 <aside class="sidebar">
+  {#if allLabels.length > 0}
+    <div class="filter-chips">
+      {#each allLabels as { label } (label)}
+        <LabelBadge
+          {label}
+          selected={filterLabels.includes(label)}
+          onclick={() => onToggleFilter(label)}
+        />
+      {/each}
+    </div>
+  {/if}
   <div class="search-box">
     <input
       type="text"
@@ -41,7 +61,14 @@
         class:active={entity.id === selectedId}
         onclick={() => onSelect(entity.id)}
       >
-        {entity.name}
+        <span class="entity-name">{entity.name}</span>
+        {#if entity.labels.length > 0}
+          <span class="entity-labels">
+            {#each entity.labels as label (label)}
+              <LabelBadge {label} />
+            {/each}
+          </span>
+        {/if}
       </button>
     {/each}
     {#if filtered.length === 0}
@@ -62,6 +89,14 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
   }
 
   .search-box {
@@ -91,7 +126,10 @@
   }
 
   .entity-item {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
     width: 100%;
     padding: 8px 16px;
     border: none;
@@ -100,9 +138,19 @@
     font-size: 13px;
     text-align: left;
     cursor: pointer;
+  }
+
+  .entity-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .entity-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
   }
 
   .entity-item:hover {
