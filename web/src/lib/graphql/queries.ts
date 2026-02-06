@@ -1,10 +1,31 @@
 import { gql } from 'graphql-request'
 
 export const LIST_DOCUMENTS = gql`
-  query ListDocuments {
-    entities(type: "document", limit: 500) {
+  query ListDocuments($labels: [String!]) {
+    entities(type: "document", labels: $labels, limit: 500) {
       id
       name
+      labels
+      updatedAt
+    }
+  }
+`
+
+export const LIST_LABELS = gql`
+  query ListLabels {
+    labels {
+      label
+      count
+    }
+  }
+`
+
+export const UPDATE_ENTITY_LABELS = gql`
+  mutation UpdateEntityLabels($id: ID!, $input: EntityUpdate!) {
+    updateEntity(id: $id, input: $input) {
+      id
+      name
+      labels
       updatedAt
     }
   }
