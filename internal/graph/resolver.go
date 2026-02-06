@@ -72,7 +72,11 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 
 	// Log configuration
 	slog.Info("embedding settings", "provider", cfg.EmbedProvider, "model", cfg.EmbedModel, "dimension", cfg.EmbedDimension)
-	slog.Info("llm settings", "provider", cfg.LLMProvider, "model", cfg.LLMModel)
+	if model != nil {
+		slog.Info("llm settings", "provider", cfg.LLMProvider, "model", cfg.LLMModel)
+	} else {
+		slog.Info("llm disabled")
+	}
 	slog.Info("ingest settings", "workers", cfg.IngestConcurrency)
 
 	ingestService := service.NewIngestService(dbClient, embedder, model)

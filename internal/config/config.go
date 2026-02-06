@@ -12,6 +12,7 @@ import (
 type LLMProvider string
 
 const (
+	ProviderNone      LLMProvider = "none"
 	ProviderOllama    LLMProvider = "ollama"
 	ProviderOpenAI    LLMProvider = "openai"
 	ProviderAnthropic LLMProvider = "anthropic"

@@ -242,7 +242,9 @@ func (s *IngestService) ingestFileInternal(ctx context.Context, filePath string,
 	}
 
 	// Extract graph relations using LLM if requested
-	if opts.ExtractGraph && s.model != nil {
+	if opts.ExtractGraph && s.model == nil {
+		slog.Warn("graph extraction requested but LLM is disabled, skipping", "file", filePath)
+	} else if opts.ExtractGraph {
 		if err := s.extractGraphRelations(ctx, createResult.Entity); err != nil {
 			// Fatal API errors (billing, auth) should stop everything
 			if errors.Is(err, llm.ErrFatalAPI) {
