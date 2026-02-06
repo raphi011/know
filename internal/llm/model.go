@@ -130,6 +130,9 @@ func NewModel(cfg config.Config, mc *metrics.Collector) (*Model, error) {
 	var err error
 
 	switch cfg.LLMProvider {
+	case config.ProviderNone:
+		return nil, nil
+
 	case config.ProviderOllama:
 		model, err = ollama.New(
 			ollama.WithModel(cfg.LLMModel),

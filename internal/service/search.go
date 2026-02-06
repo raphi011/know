@@ -146,11 +146,8 @@ func buildSearchContext(results []models.EntitySearchResult) string {
 }
 
 // Ask performs search and synthesizes an answer using LLM.
+// When no LLM is configured, returns the raw search context.
 func (s *SearchService) Ask(ctx context.Context, query string, opts SearchOptions) (string, error) {
-	if s.model == nil {
-		return "", fmt.Errorf("LLM model not configured")
-	}
-
 	opts.Query = query
 	if opts.Limit == 0 {
 		opts.Limit = 20
@@ -166,15 +163,18 @@ func (s *SearchService) Ask(ctx context.Context, query string, opts SearchOption
 	}
 
 	searchContext := buildSearchContext(results)
+
+	if s.model == nil {
+		slog.Info("returning raw search context (LLM disabled)", "query", query, "result_count", len(results))
+		return searchContext, nil
+	}
+
 	return s.model.SynthesizeAnswer(ctx, query, searchContext)
 }
 
 // AskStream performs search and streams the LLM-synthesized answer token by token.
+// When no LLM is configured, sends the raw search context as a single token event.
 func (s *SearchService) AskStream(ctx context.Context, query string, opts SearchOptions, onToken func(token string) error) error {
-	if s.model == nil {
-		return fmt.Errorf("LLM model not configured")
-	}
-
 	opts.Query = query
 	if opts.Limit == 0 {
 		opts.Limit = 20
@@ -190,6 +190,12 @@ func (s *SearchService) AskStream(ctx context.Context, query string, opts Search
 	}
 
 	searchContext := buildSearchContext(results)
+
+	if s.model == nil {
+		slog.Info("streaming raw search context (LLM disabled)", "query", query, "result_count", len(results))
+		return onToken(searchContext)
+	}
+
 	return s.model.SynthesizeAnswerStream(ctx, query, searchContext, onToken)
 }
 
@@ -202,7 +208,7 @@ func (s *SearchService) AskStreamMultiTurn(
 	onToken func(token string) error,
 ) error {
 	if s.model == nil {
-		return fmt.Errorf("LLM model not configured")
+		return fmt.Errorf("multi-turn chat requires an LLM (set KNOWHOW_LLM_PROVIDER)")
 	}
 
 	opts.Query = query
@@ -236,7 +242,7 @@ Be concise and cite specific information from the context where relevant.`
 // AskWithTemplate fills a template with knowledge from search.
 func (s *SearchService) AskWithTemplate(ctx context.Context, query string, templateName string, opts SearchOptions) (string, error) {
 	if s.model == nil {
-		return "", fmt.Errorf("LLM model not configured")
+		return "", fmt.Errorf("template filling requires an LLM (set KNOWHOW_LLM_PROVIDER)")
 	}
 
 	// Get template
