@@ -98,9 +98,12 @@ func getEnv(key, defaultVal string) string {
 
 func getEnvInt(key string, defaultVal int) int {
 	if val := os.Getenv(key); val != "" {
-		if i, err := strconv.Atoi(val); err == nil {
-			return i
+		i, err := strconv.Atoi(val)
+		if err != nil {
+			slog.Warn("invalid integer env var, using default", "key", key, "value", val, "default", defaultVal, "error", err)
+			return defaultVal
 		}
+		return i
 	}
 	return defaultVal
 }

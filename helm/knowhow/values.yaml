@@ -28,12 +28,12 @@ surrealdb:
 
 # LLM provider configuration
 llm:
-  provider: ""       # ollama | openai | anthropic | bedrock
+  provider: ""       # none | ollama | openai | anthropic | bedrock
   model: ""          # e.g. llama3.2, gpt-4, claude-sonnet-4-20250514
 
 # Embedding provider configuration
 embedding:
-  provider: ""       # ollama | openai | bedrock
+  provider: ""       # none | ollama | openai | bedrock
   model: ""          # e.g. bge-m3, text-embedding-3-small
   dimension: ""      # e.g. 1024
 

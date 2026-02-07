@@ -3,7 +3,7 @@ FROM oven/bun:1-alpine AS web-builder
 
 WORKDIR /app/web
 
-COPY web/package.json web/bun.lock* ./
+COPY web/package.json web/bun.lock ./
 RUN bun install
 
 COPY web/ ./
@@ -36,8 +36,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /knowhow ./cmd/knowhow
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S knowhow \
-    && adduser -S knowhow -G knowhow
+    && addgroup -S -g 1000 knowhow \
+    && adduser -S -u 1000 -G knowhow knowhow
 
 COPY --from=go-builder /knowhow-server /usr/local/bin/knowhow-server
 COPY --from=go-builder /knowhow /usr/local/bin/knowhow
