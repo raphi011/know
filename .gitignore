@@ -52,6 +52,9 @@ Thumbs.db
 # Node modules
 web/node_modules/
 
+# npm lockfile (using bun)
+web/package-lock.json
+
 # Claude Code
 .claude/settings.local.json
 

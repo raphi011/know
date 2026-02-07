@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "knowhow.fullname" . }}
+  labels:
+    {{- include "knowhow.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "knowhow.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "knowhow.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "knowhow.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8484
+              protocol: TCP
+          env:
+            - name: KNOWHOW_SERVER_PORT
+              value: "8484"
+            # SurrealDB connection
+            - name: SURREALDB_URL
+              value: {{ .Values.surrealdb.url | quote }}
+            - name: SURREALDB_NAMESPACE
+              value: {{ .Values.surrealdb.namespace | quote }}
+            - name: SURREALDB_DATABASE
+              value: {{ .Values.surrealdb.database | quote }}
+            - name: SURREALDB_AUTH_LEVEL
+              value: {{ .Values.surrealdb.authLevel | quote }}
+            {{- if .Values.surrealdb.existingSecret }}
+            - name: SURREALDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.surrealdb.existingSecret }}
+                  key: {{ .Values.surrealdb.existingSecretUserKey | default "user" }}
+            - name: SURREALDB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.surrealdb.existingSecret }}
+                  key: {{ .Values.surrealdb.existingSecretPasswordKey | default "password" }}
+            {{- else }}
+            - name: SURREALDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "knowhow.fullname" . }}-surrealdb
+                  key: user
+            - name: SURREALDB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "knowhow.fullname" . }}-surrealdb
+                  key: password
+            {{- end }}
+            # LLM provider
+            {{- if .Values.llm.provider }}
+            - name: KNOWHOW_LLM_PROVIDER
+              value: {{ .Values.llm.provider | quote }}
+            {{- end }}
+            {{- if .Values.llm.model }}
+            - name: KNOWHOW_LLM_MODEL
+              value: {{ .Values.llm.model | quote }}
+            {{- end }}
+            # Embedding provider
+            {{- if .Values.embedding.provider }}
+            - name: KNOWHOW_EMBED_PROVIDER
+              value: {{ .Values.embedding.provider | quote }}
+            {{- end }}
+            {{- if .Values.embedding.model }}
+            - name: KNOWHOW_EMBED_MODEL
+              value: {{ .Values.embedding.model | quote }}
+            {{- end }}
+            {{- if .Values.embedding.dimension }}
+            - name: KNOWHOW_EMBED_DIMENSION
+              value: {{ .Values.embedding.dimension | quote }}
+            {{- end }}
+            # Ollama
+            {{- if .Values.ollama.host }}
+            - name: OLLAMA_HOST
+              value: {{ .Values.ollama.host | quote }}
+            {{- end }}
+            # API keys
+            {{- if .Values.apiKeys.existingSecret }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiKeys.existingSecret }}
+                  key: openai-api-key
+                  optional: true
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiKeys.existingSecret }}
+                  key: anthropic-api-key
+                  optional: true
+            {{- else }}
+            {{- if .Values.apiKeys.openaiApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "knowhow.fullname" . }}-api-keys
+                  key: openai-api-key
+            {{- end }}
+            {{- if .Values.apiKeys.anthropicApiKey }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "knowhow.fullname" . }}-api-keys
+                  key: anthropic-api-key
+            {{- end }}
+            {{- end }}
+            # AWS Bedrock
+            {{- if .Values.bedrock.modelProvider }}
+            - name: KNOWHOW_BEDROCK_MODEL_PROVIDER
+              value: {{ .Values.bedrock.modelProvider | quote }}
+            {{- end }}
+            {{- if .Values.bedrock.embedModelProvider }}
+            - name: KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER
+              value: {{ .Values.bedrock.embedModelProvider | quote }}
+            {{- end }}
+            {{- if .Values.bedrock.region }}
+            - name: AWS_REGION
+              value: {{ .Values.bedrock.region | quote }}
+            {{- end }}
+            # Extra environment variables
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

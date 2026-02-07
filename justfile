@@ -36,15 +36,15 @@ build:
 
 # Install web dependencies
 web-install:
-    cd web && npm install
+    cd web && bun install
 
 # Build web frontend
 web-build:
-    cd web && npm run build
+    cd web && bun run build
 
 # Run web dev server (Vite)
 web-dev:
-    cd web && npm run dev
+    cd web && bun run dev
 
 # Build server binary (builds frontend first)
 build-server: web-build
@@ -81,7 +81,7 @@ dev: db-up ollama-pull web-install
     echo "  Vite dev server:  http://localhost:5173"
     echo ""
     air &
-    cd web && npm run dev &
+    cd web && bun run dev &
     wait
 
 # Start Go server only with live-reload (no Vite)
@@ -105,7 +105,7 @@ dev-reset: db-up ollama-pull web-install
     echo "  Go server (air):  http://localhost:$KNOWHOW_SERVER_PORT"
     echo "  Vite dev server:  http://localhost:5173"
     KNOWHOW_WIPE_DB=true air &
-    cd web && npm run dev &
+    cd web && bun run dev &
     wait
 
 # Run CLI command (ensures correct server URL)
