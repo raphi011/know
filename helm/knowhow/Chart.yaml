@@ -1,0 +1,15 @@
+apiVersion: v2
+name: knowhow
+description: Knowhow - Personal Knowledge RAG Database with GraphQL API and Web UI
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+keywords:
+  - knowhow
+  - knowledge-graph
+  - rag
+  - surrealdb
+  - graphql
+home: https://github.com/raphi011/knowhow
+maintainers:
+  - name: Raphael Gruber

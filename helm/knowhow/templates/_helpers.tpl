@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "memcp.name" -}}
+{{- define "knowhow.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "memcp.fullname" -}}
+{{- define "knowhow.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "memcp.chart" -}}
+{{- define "knowhow.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "memcp.labels" -}}
-helm.sh/chart: {{ include "memcp.chart" . }}
-{{ include "memcp.selectorLabels" . }}
+{{- define "knowhow.labels" -}}
+helm.sh/chart: {{ include "knowhow.chart" . }}
+{{ include "knowhow.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,17 +43,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "memcp.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "memcp.name" . }}
+{{- define "knowhow.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "knowhow.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "memcp.serviceAccountName" -}}
+{{- define "knowhow.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "memcp.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "knowhow.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

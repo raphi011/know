@@ -27,8 +27,7 @@ Thumbs.db
 *.pem
 *.key
 
-# Documentation
-*.md
+# Documentation (not needed in image)
 docs/
 
 # Helm (not needed in image)
@@ -36,3 +35,14 @@ helm/
 
 # Claude Code
 .claude/
+CLAUDE.md
+
+# Web build artifacts (rebuilt in Docker)
+web/node_modules/
+web/dist/
+
+# Dev tooling
+tmp/
+.air.toml
+justfile
+docker-compose.yml

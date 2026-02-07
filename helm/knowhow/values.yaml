@@ -1,0 +1,135 @@
+# Default values for knowhow
+
+replicaCount: 1
+
+image:
+  repository: knowhow
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# SurrealDB connection settings
+surrealdb:
+  url: "ws://surrealdb:8000/rpc"
+  namespace: "knowledge"
+  database: "graph"
+  user: "root"
+  password: "root"
+  # Authentication level: "root" or "database"
+  authLevel: "root"
+  # Use existing secret for credentials (optional)
+  # existingSecret: "surrealdb-credentials"
+  # existingSecretUserKey: "user"
+  # existingSecretPasswordKey: "password"
+
+# LLM provider configuration
+llm:
+  provider: ""       # none | ollama | openai | anthropic | bedrock
+  model: ""          # e.g. llama3.2, gpt-4, claude-sonnet-4-20250514
+
+# Embedding provider configuration
+embedding:
+  provider: ""       # none | ollama | openai | bedrock
+  model: ""          # e.g. bge-m3, text-embedding-3-small
+  dimension: ""      # e.g. 1024
+
+# Ollama settings (when using ollama provider)
+ollama:
+  host: ""           # e.g. http://ollama:11434
+
+# API keys (set via existingSecret or directly)
+# Prefer using existingSecret for production
+apiKeys:
+  # Use an existing secret containing API keys
+  # existingSecret: "knowhow-api-keys"
+  openaiApiKey: ""
+  anthropicApiKey: ""
+
+# AWS Bedrock settings
+bedrock:
+  modelProvider: ""       # e.g. anthropic
+  embedModelProvider: ""  # e.g. amazon
+  region: ""              # e.g. eu-central-1
+
+# Extra environment variables (for any config not covered above)
+extraEnv: []
+  # - name: KNOWHOW_LOG_LEVEL
+  #   value: "DEBUG"
+  # - name: KNOWHOW_INGEST_CONCURRENCY
+  #   value: "4"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8484
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: knowhow.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: knowhow-tls
+  #    hosts:
+  #      - knowhow.local
+
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 256Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

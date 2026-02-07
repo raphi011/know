@@ -1,39 +1,51 @@
-# Build stage
-FROM golang:1.23-alpine AS builder
+# Stage 1: Build web frontend
+FROM oven/bun:1-alpine AS web-builder
+
+WORKDIR /app/web
+
+COPY web/package.json web/bun.lock ./
+RUN bun install
+
+COPY web/ ./
+RUN bun run build
+
+# Stage 2: Build Go binaries
+FROM golang:1.25-alpine AS go-builder
 
 WORKDIR /app
 
-# Install git for go mod download
 RUN apk add --no-cache git
 
-# Copy go module files
+# Download Go modules first (cache layer)
 COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+COPY web/embed.go ./web/embed.go
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /memcp ./cmd/memcp
+# Copy built web assets from previous stage
+COPY --from=web-builder /app/web/dist/ ./web/dist/
 
-# Runtime stage
-FROM alpine:3.19
+# Build both binaries
+RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /knowhow-server ./cmd/knowhow-server
+RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /knowhow ./cmd/knowhow
 
-WORKDIR /app
+# Stage 3: Runtime
+FROM alpine:3.21
 
-# Copy Go binary
-COPY --from=builder /memcp /usr/local/bin/memcp
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -S -g 1000 knowhow \
+    && adduser -S -u 1000 -G knowhow knowhow
 
-# Expose MCP port
-EXPOSE 8080
+COPY --from=go-builder /knowhow-server /usr/local/bin/knowhow-server
+COPY --from=go-builder /knowhow /usr/local/bin/knowhow
 
-# Environment variables with defaults
-ENV SURREALDB_URL=ws://localhost:8000/rpc \
-    SURREALDB_NAMESPACE=knowledge \
-    SURREALDB_DATABASE=graph \
-    SURREALDB_USER=root \
-    SURREALDB_PASS=root \
-    SURREALDB_AUTH_LEVEL=root
+USER knowhow
 
-CMD ["memcp"]
+EXPOSE 8484
+
+ENV KNOWHOW_SERVER_PORT=8484
+
+ENTRYPOINT ["knowhow-server"]

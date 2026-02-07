@@ -1,15 +1,15 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.0-beta.2
-    container_name: memcp-surrealdb
+    container_name: knowhow-surrealdb
     command: start --user root --pass root memory
     ports:
       - "8000:8000"
     restart: unless-stopped
 
-  memcp:
+  knowhow-server:
     build: .
-    container_name: memcp-server
+    container_name: knowhow-server
     ports:
       - "8484:8484"
     environment:
@@ -18,6 +18,21 @@ services:
       - SURREALDB_DATABASE=graph
       - SURREALDB_USER=root
       - SURREALDB_PASS=root
+      - SURREALDB_AUTH_LEVEL=root
+      - KNOWHOW_SERVER_PORT=8484
+      # Configure LLM/embedding providers as needed:
+      # - KNOWHOW_LLM_PROVIDER=ollama
+      # - KNOWHOW_LLM_MODEL=llama3.2
+      # - KNOWHOW_EMBED_PROVIDER=ollama
+      # - KNOWHOW_EMBED_MODEL=bge-m3
+      # - KNOWHOW_EMBED_DIMENSION=1024
+      # - OLLAMA_HOST=http://host.docker.internal:11434
     depends_on:
       - surrealdb
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8484/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
