@@ -3,10 +3,8 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,7 +20,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/graph"
-	"github.com/raphaelgruber/memcp-go/web"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -118,30 +115,6 @@ func main() {
 		fmt.Fprintln(w, "ok")
 	})
 
-	// Serve embedded SPA from web/dist
-	distFS, err := fs.Sub(web.Dist, "dist")
-	if err != nil {
-		slog.Error("failed to create sub filesystem", "error", err)
-		os.Exit(1)
-	}
-	fileServer := http.FileServer(http.FS(distFS))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Try serving the file directly; fall back to index.html for SPA routing
-		if r.URL.Path != "/" {
-			f, err := distFS.Open(r.URL.Path[1:])
-			if errors.Is(err, fs.ErrNotExist) {
-				r.URL.Path = "/"
-			} else if err != nil {
-				slog.Warn("unexpected error opening embedded file", "path", r.URL.Path, "error", err)
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			} else {
-				f.Close()
-			}
-		}
-		fileServer.ServeHTTP(w, r)
-	})
-
 	// Create HTTP server
 	httpServer := &http.Server{
 		Addr:         ":" + port,
@@ -153,7 +126,6 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		slog.Info("Web UI available", "url", fmt.Sprintf("http://localhost:%s/", port))
 		slog.Info("GraphQL playground available", "url", fmt.Sprintf("http://localhost:%s/playground", port))
 		slog.Info("GraphQL endpoint available", "url", fmt.Sprintf("http://localhost:%s/query", port))
 
