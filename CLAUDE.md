@@ -85,6 +85,72 @@ Available docs:
 - `docs/langchaingo.md` - Go LLM library usage
 - `docs/bedrock.md` - AWS Bedrock + Teleport setup
 
+## Knowhow v2 — Vault-Based Architecture
+
+v2 lives alongside v1 in `internal/v2/`. It replaces the flat entity model with vault-scoped documents, wiki-links, and auth.
+
+### Building v2
+
+```bash
+just build-server-v2     # GraphQL server on :8485
+just build-cli-v2        # CLI (scrape command, uses GraphQL API)
+just build-bootstrap-v2  # One-time DB bootstrap script
+just build-all           # All binaries (v1 + v2)
+just generate-v2         # Regenerate gqlgen code for v2
+```
+
+### v2 Architecture
+
+```
+cmd/knowhow-server-v2/   # GraphQL server (port 8485)
+cmd/knowhow-v2/          # CLI client (talks to server via GraphQL)
+cmd/bootstrap-v2/        # One-time script: creates user + vault + token
+internal/v2/
+├── models/              # Data structs + helpers (RecordIDString, ContentHash)
+├── db/                  # SurrealDB client, DDL, query functions
+├── document/            # Document lifecycle: parse → embed → link → chunk
+├── vault/               # Vault CRUD + virtual folder derivation
+├── search/              # Hybrid BM25 + vector search with RRF fusion
+├── template/            # Template CRUD
+├── auth/                # Token auth middleware + AuthContext
+├── graph/               # GraphQL schema, resolvers, gqlgen config
+└── integration/         # Full lifecycle integration tests
+```
+
+### Key v2 Patterns
+
+- **SurrealDB v3 strict mode**: `option<T>` fields require `surrealmodels.None` (not Go `nil`/`NULL`)
+- **Embedder is optional**: `nil` embedder disables AI features gracefully
+- **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
+- **GraphQL v2**: schema at `internal/v2/graph/schema.graphqls`, config at `gqlgen-v2.yml`
+- **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
+- **CLI uses GraphQL API**: `cmd/knowhow-v2/` never connects directly to DB
+- **Bootstrap connects directly to DB**: `cmd/bootstrap-v2/` is a one-time setup script
+
+### Running v2
+
+```bash
+# 1. Start SurrealDB
+just db-up
+
+# 2. Bootstrap (creates user, vault, API token)
+go run -buildvcs=false ./cmd/bootstrap-v2 --name "Admin"
+# Prints token to stdout, vault ID to stderr
+
+# 3. Start v2 server
+just build-server-v2
+KNOWHOW_V2_PORT=8485 ./bin/knowhow-server-v2
+
+# 4. Scrape documents
+KNOWHOW_V2_TOKEN=kh_... ./bin/knowhow-v2 scrape ./docs --vault <vault-id>
+```
+
+### v2 Tests
+
+```bash
+go test -v ./internal/v2/...  # All v2 tests (30 tests across 4 packages)
+```
+
 ## Web UI (Svelte + Vite)
 
 The `web/` directory contains a Svelte 5 SPA that serves as a document editor.
