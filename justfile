@@ -42,8 +42,16 @@ build-server:
 build-server-v2:
     go build -buildvcs=false -o {{build_dir}}/knowhow-server-v2 ./cmd/knowhow-server-v2
 
-# Build both CLI and server (v1 + v2)
-build-all: build build-server build-server-v2
+# Build v2 CLI binary
+build-cli-v2:
+    go build -buildvcs=false -o {{build_dir}}/knowhow-v2 ./cmd/knowhow-v2
+
+# Build v2 bootstrap script
+build-bootstrap-v2:
+    go build -buildvcs=false -o {{build_dir}}/bootstrap-v2 ./cmd/bootstrap-v2
+
+# Build all binaries (v1 + v2)
+build-all: build build-server build-server-v2 build-cli-v2 build-bootstrap-v2
 
 # Run server with optional args (e.g., just server --wipe)
 server *ARGS: build-server
