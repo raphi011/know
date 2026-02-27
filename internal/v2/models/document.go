@@ -15,6 +15,15 @@ const (
 	SourceAIGenerated DocumentSource = "ai_generated"
 )
 
+// Valid returns true if the DocumentSource is a known value.
+func (s DocumentSource) Valid() bool {
+	switch s {
+	case SourceManual, SourceScrape, SourceMCP, SourceAIGenerated:
+		return true
+	}
+	return false
+}
+
 type Document struct {
 	ID          surrealmodels.RecordID `json:"id"`
 	Vault       surrealmodels.RecordID `json:"vault"`

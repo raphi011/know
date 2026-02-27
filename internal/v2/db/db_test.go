@@ -67,8 +67,13 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	_ = testDB.Close(ctx)
-	_ = testContainer.Terminate(ctx)
+	// Cleanup: best-effort, process is exiting
+	if err := testDB.Close(ctx); err != nil {
+		log.Printf("warning: failed to close test DB: %v", err)
+	}
+	if err := testContainer.Terminate(ctx); err != nil {
+		log.Printf("warning: failed to terminate container: %v", err)
+	}
 
 	os.Exit(code)
 }
@@ -488,9 +493,11 @@ func TestDeleteChunks(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	_ = testDB.CreateChunks(ctx, []models.ChunkInput{
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
 		{DocumentID: docID, Content: "To delete", Position: 0, Embedding: dummyEmbedding()},
-	})
+	}); err != nil {
+		t.Fatalf("CreateChunks setup failed: %v", err)
+	}
 
 	err = testDB.DeleteChunks(ctx, docID)
 	if err != nil {
@@ -527,9 +534,11 @@ func TestCascadeDeleteChunksOnDocumentDelete(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	_ = testDB.CreateChunks(ctx, []models.ChunkInput{
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
 		{DocumentID: docID, Content: "Cascade chunk", Position: 0, Embedding: dummyEmbedding()},
-	})
+	}); err != nil {
+		t.Fatalf("CreateChunks setup failed: %v", err)
+	}
 
 	// Delete the document — should cascade to chunks
 	err = testDB.DeleteDocument(ctx, docID)
@@ -593,21 +602,29 @@ func TestGetBacklinks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	docA, _ := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/backlink-a.md", Title: "Doc A",
 		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
 	})
-	docB, _ := testDB.CreateDocument(ctx, models.DocumentInput{
+	if err != nil {
+		t.Fatalf("CreateDocument docA failed: %v", err)
+	}
+	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/backlink-b.md", Title: "Doc B",
 		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
 	})
+	if err != nil {
+		t.Fatalf("CreateDocument docB failed: %v", err)
+	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 
 	// A links to B
-	_ = testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
+	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
 		{RawTarget: "Doc B", ToDocID: &docBID},
-	})
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
+	}
 
 	backlinks, err := testDB.GetBacklinks(ctx, docBID)
 	if err != nil {
@@ -626,18 +643,26 @@ func TestResolveDanglingLinks(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	// Create doc with dangling link to "Future Doc"
-	docA, _ := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/dangling-source.md", Title: "Source",
 		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
 	})
+	if err != nil {
+		t.Fatalf("CreateDocument docA failed: %v", err)
+	}
 	docAID := models.MustRecordIDString(docA.ID)
 
-	_ = testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
+	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
 		{RawTarget: "Future Doc"}, // No ToDocID — dangling
-	})
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
+	}
 
 	// Verify it's dangling
-	links, _ := testDB.GetWikiLinks(ctx, docAID)
+	links, err := testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks failed: %v", err)
+	}
 	if len(links) != 1 {
 		t.Fatalf("Expected 1 link, got %d", len(links))
 	}
@@ -646,10 +671,13 @@ func TestResolveDanglingLinks(t *testing.T) {
 	}
 
 	// Create the target document
-	docB, _ := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/future-doc.md", Title: "Future Doc",
 		Content: "arrived", ContentBody: "arrived", Source: models.SourceManual, Labels: []string{},
 	})
+	if err != nil {
+		t.Fatalf("CreateDocument docB failed: %v", err)
+	}
 	docBID := models.MustRecordIDString(docB.ID)
 
 	// Resolve dangling links
@@ -662,7 +690,10 @@ func TestResolveDanglingLinks(t *testing.T) {
 	}
 
 	// Verify it's resolved
-	links, _ = testDB.GetWikiLinks(ctx, docAID)
+	links, err = testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks after resolve failed: %v", err)
+	}
 	if len(links) != 1 {
 		t.Fatalf("Expected 1 link, got %d", len(links))
 	}
@@ -682,16 +713,20 @@ func TestBM25Search(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	_, _ = testDB.CreateDocument(ctx, models.DocumentInput{
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/search-go.md", Title: "Go Programming",
 		Content: "---\ntitle: Go\n---\nGo is a statically typed language", ContentBody: "Go is a statically typed language",
 		Source: models.SourceManual, Labels: []string{"programming"},
-	})
-	_, _ = testDB.CreateDocument(ctx, models.DocumentInput{
+	}); err != nil {
+		t.Fatalf("CreateDocument go failed: %v", err)
+	}
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/search-python.md", Title: "Python Programming",
 		Content: "---\ntitle: Python\n---\nPython is a dynamic language", ContentBody: "Python is a dynamic language",
 		Source: models.SourceManual, Labels: []string{"programming"},
-	})
+	}); err != nil {
+		t.Fatalf("CreateDocument python failed: %v", err)
+	}
 
 	results, err := testDB.BM25Search(ctx, "Go statically typed", SearchFilter{
 		VaultID: vaultID,
@@ -712,16 +747,20 @@ func TestSearchWithLabelFilter(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	_, _ = testDB.CreateDocument(ctx, models.DocumentInput{
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-a.md", Title: "Web Doc",
 		Content: "Web frameworks are great", ContentBody: "Web frameworks are great",
 		Source: models.SourceManual, Labels: []string{"web"},
-	})
-	_, _ = testDB.CreateDocument(ctx, models.DocumentInput{
+	}); err != nil {
+		t.Fatalf("CreateDocument web failed: %v", err)
+	}
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-b.md", Title: "CLI Doc",
 		Content: "CLI tools are useful frameworks", ContentBody: "CLI tools are useful frameworks",
 		Source: models.SourceManual, Labels: []string{"cli"},
-	})
+	}); err != nil {
+		t.Fatalf("CreateDocument cli failed: %v", err)
+	}
 
 	results, err := testDB.BM25Search(ctx, "frameworks", SearchFilter{
 		VaultID: vaultID,
@@ -751,16 +790,20 @@ func TestSearchWithFolderFilter(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	_, _ = testDB.CreateDocument(ctx, models.DocumentInput{
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/guides/setup.md", Title: "Setup Guide",
 		Content: "Install the software first", ContentBody: "Install the software first",
 		Source: models.SourceManual, Labels: []string{},
-	})
-	_, _ = testDB.CreateDocument(ctx, models.DocumentInput{
+	}); err != nil {
+		t.Fatalf("CreateDocument guides failed: %v", err)
+	}
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/notes/install.md", Title: "Install Notes",
 		Content: "Notes about installing software", ContentBody: "Notes about installing software",
 		Source: models.SourceManual, Labels: []string{},
-	})
+	}); err != nil {
+		t.Fatalf("CreateDocument notes failed: %v", err)
+	}
 
 	folder := "/guides/"
 	results, err := testDB.BM25Search(ctx, "software", SearchFilter{

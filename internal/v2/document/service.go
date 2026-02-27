@@ -200,7 +200,9 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content 
 			slog.Warn("failed to resolve wiki-link", "target", target, "error", err)
 		} else if resolved != nil {
 			id, err := models.RecordIDString(resolved.ID)
-			if err == nil {
+			if err != nil {
+				slog.Warn("failed to extract resolved document ID for wiki-link", "target", target, "error", err)
+			} else {
 				toDocID = &id
 			}
 		}
@@ -216,6 +218,7 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content 
 func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc *models.Document) {
 	docID, err := models.RecordIDString(doc.ID)
 	if err != nil {
+		slog.Warn("failed to extract document ID for dangling link resolution", "path", doc.Path, "error", err)
 		return
 	}
 
@@ -294,19 +297,24 @@ func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, f
 
 	for _, target := range targets {
 		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
-		if err != nil || resolved == nil {
+		if err != nil {
+			slog.Warn("failed to resolve relates_to target", "target", target, "error", err)
+			continue
+		}
+		if resolved == nil {
 			slog.Info("relates_to target not found", "target", target)
 			continue
 		}
 		toDocID, err := models.RecordIDString(resolved.ID)
 		if err != nil {
+			slog.Warn("failed to extract resolved document ID for relates_to", "target", target, "error", err)
 			continue
 		}
 		if _, err := s.db.CreateRelation(ctx, models.DocRelationInput{
 			FromDocID: docID,
 			ToDocID:   toDocID,
-			RelType:   "relates_to",
-			Source:    "frontmatter",
+			RelType:   string(models.RelRelatesTo),
+			Source:    string(models.RelSourceFrontmatter),
 		}); err != nil {
 			slog.Warn("failed to create relates_to relation", "target", target, "error", err)
 		}

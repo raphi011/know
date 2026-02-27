@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -41,10 +42,15 @@ func Middleware(dbClient *v2db.Client) func(http.Handler) http.Handler {
 
 			// Update last used (fire and forget)
 			tokenID, err := models.RecordIDString(token.ID)
-			if err == nil {
+			if err != nil {
+				slog.Warn("failed to extract token ID for last_used update", "error", err)
+			} else {
 				go func() {
-					if err := dbClient.UpdateTokenLastUsed(r.Context(), tokenID); err != nil {
-						slog.Warn("failed to update token last_used", "error", err)
+					// Use background context since this outlives the request
+					bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := dbClient.UpdateTokenLastUsed(bgCtx, tokenID); err != nil {
+						slog.Warn("failed to update token last_used", "token_id", tokenID, "error", err)
 					}
 				}()
 			}
@@ -52,9 +58,13 @@ func Middleware(dbClient *v2db.Client) func(http.Handler) http.Handler {
 			// Extract vault access IDs
 			vaultAccess := make([]string, 0, len(token.VaultAccess))
 			for _, v := range token.VaultAccess {
-				if id, err := models.RecordIDString(v); err == nil {
-					vaultAccess = append(vaultAccess, id)
+				id, err := models.RecordIDString(v)
+				if err != nil {
+					slog.Warn("failed to extract vault access ID from token, skipping",
+						"token_name", token.Name, "error", err)
+					continue
 				}
+				vaultAccess = append(vaultAccess, id)
 			}
 
 			// Extract user ID

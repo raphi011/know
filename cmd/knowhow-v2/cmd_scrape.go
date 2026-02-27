@@ -42,7 +42,9 @@ func init() {
 	scrapeCmd.Flags().BoolVar(&scrapeDryRun, "dry-run", false, "show what would be ingested without changes")
 	scrapeCmd.Flags().BoolVar(&scrapeForce, "force", false, "re-ingest all files (ignore content hash)")
 	scrapeCmd.Flags().StringVar(&scrapeSource, "source", "scrape", "document source tag")
-	_ = scrapeCmd.MarkFlagRequired("vault")
+	if err := scrapeCmd.MarkFlagRequired("vault"); err != nil {
+		panic(fmt.Sprintf("mark vault flag required: %v", err))
+	}
 }
 
 func runScrape(cmd *cobra.Command, args []string) error {

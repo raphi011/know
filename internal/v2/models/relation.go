@@ -6,6 +6,21 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
+// RelationType describes the kind of relationship between documents.
+type RelationType string
+
+const (
+	RelRelatesTo RelationType = "relates_to"
+)
+
+// RelationSource describes how a relation was created.
+type RelationSource string
+
+const (
+	RelSourceFrontmatter RelationSource = "frontmatter"
+	RelSourceAPI         RelationSource = "api"
+)
+
 type DocRelation struct {
 	ID        surrealmodels.RecordID `json:"id"`
 	In        surrealmodels.RecordID `json:"in"`

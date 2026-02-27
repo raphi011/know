@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/raphaelgruber/memcp-go/internal/v2/models"
 	"github.com/raphaelgruber/memcp-go/internal/v2/search"
@@ -13,10 +14,12 @@ func vaultToGraphQL(v *models.Vault) *Vault {
 	}
 	id, err := models.RecordIDString(v.ID)
 	if err != nil {
+		slog.Warn("unexpected vault ID format in GraphQL conversion", "vault_name", v.Name, "error", err)
 		id = fmt.Sprintf("%v", v.ID.ID)
 	}
 	createdBy, err := models.RecordIDString(v.CreatedBy)
 	if err != nil {
+		slog.Warn("unexpected vault createdBy format in GraphQL conversion", "vault_name", v.Name, "error", err)
 		createdBy = fmt.Sprintf("%v", v.CreatedBy.ID)
 	}
 	return &Vault{
@@ -35,10 +38,12 @@ func documentToGraphQL(d *models.Document) *Document {
 	}
 	id, err := models.RecordIDString(d.ID)
 	if err != nil {
+		slog.Warn("unexpected document ID format in GraphQL conversion", "path", d.Path, "error", err)
 		id = fmt.Sprintf("%v", d.ID.ID)
 	}
 	vaultID, err := models.RecordIDString(d.Vault)
 	if err != nil {
+		slog.Warn("unexpected document vault ID format in GraphQL conversion", "path", d.Path, "error", err)
 		vaultID = fmt.Sprintf("%v", d.Vault.ID)
 	}
 	labels := d.Labels
@@ -77,16 +82,19 @@ func wikiLinkToGraphQL(l *models.WikiLink) *WikiLink {
 	}
 	id, err := models.RecordIDString(l.ID)
 	if err != nil {
+		slog.Warn("unexpected wiki-link ID format", "raw_target", l.RawTarget, "error", err)
 		id = fmt.Sprintf("%v", l.ID.ID)
 	}
 	fromDocID, err := models.RecordIDString(l.FromDoc)
 	if err != nil {
+		slog.Warn("unexpected wiki-link fromDoc ID format", "raw_target", l.RawTarget, "error", err)
 		fromDocID = fmt.Sprintf("%v", l.FromDoc.ID)
 	}
 	var toDocID *string
 	if l.ToDoc != nil {
 		s, err := models.RecordIDString(*l.ToDoc)
 		if err != nil {
+			slog.Warn("unexpected wiki-link toDoc ID format", "raw_target", l.RawTarget, "error", err)
 			s = fmt.Sprintf("%v", l.ToDoc.ID)
 		}
 		toDocID = &s
@@ -106,14 +114,17 @@ func relationToGraphQL(r *models.DocRelation) *DocRelation {
 	}
 	id, err := models.RecordIDString(r.ID)
 	if err != nil {
+		slog.Warn("unexpected relation ID format", "rel_type", r.RelType, "error", err)
 		id = fmt.Sprintf("%v", r.ID.ID)
 	}
 	inID, err := models.RecordIDString(r.In)
 	if err != nil {
+		slog.Warn("unexpected relation In ID format", "rel_type", r.RelType, "error", err)
 		inID = fmt.Sprintf("%v", r.In.ID)
 	}
 	outID, err := models.RecordIDString(r.Out)
 	if err != nil {
+		slog.Warn("unexpected relation Out ID format", "rel_type", r.RelType, "error", err)
 		outID = fmt.Sprintf("%v", r.Out.ID)
 	}
 	return &DocRelation{
@@ -132,12 +143,14 @@ func templateToGraphQL(t *models.Template) *Template {
 	}
 	id, err := models.RecordIDString(t.ID)
 	if err != nil {
+		slog.Warn("unexpected template ID format", "name", t.Name, "error", err)
 		id = fmt.Sprintf("%v", t.ID.ID)
 	}
 	var vaultID *string
 	if t.Vault != nil {
 		s, err := models.RecordIDString(*t.Vault)
 		if err != nil {
+			slog.Warn("unexpected template vault ID format", "name", t.Name, "error", err)
 			s = fmt.Sprintf("%v", t.Vault.ID)
 		}
 		vaultID = &s
@@ -160,6 +173,7 @@ func userToGraphQL(u *models.User) *User {
 	}
 	id, err := models.RecordIDString(u.ID)
 	if err != nil {
+		slog.Warn("unexpected user ID format", "name", u.Name, "error", err)
 		id = fmt.Sprintf("%v", u.ID.ID)
 	}
 	return &User{

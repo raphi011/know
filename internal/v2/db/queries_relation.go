@@ -44,6 +44,20 @@ func (c *Client) GetRelations(ctx context.Context, documentID string) ([]models.
 	return (*results)[0].Result, nil
 }
 
+func (c *Client) GetRelationByID(ctx context.Context, id string) (*models.DocRelation, error) {
+	sql := `SELECT * FROM type::record("doc_relation", $id)`
+	results, err := surrealdb.Query[[]models.DocRelation](ctx, c.DB(), sql, map[string]any{
+		"id": id,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get relation by id: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
 func (c *Client) DeleteRelation(ctx context.Context, id string) error {
 	sql := `DELETE type::record("doc_relation", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {

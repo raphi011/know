@@ -217,7 +217,10 @@ Some notes about the beta project.
 	for _, l := range links {
 		if l.ToDoc != nil {
 			resolvedCount++
-			toID, _ := models.RecordIDString(*l.ToDoc)
+			toID, err := models.RecordIDString(*l.ToDoc)
+			if err != nil {
+				t.Fatalf("extract toDoc ID: %v", err)
+			}
 			if toID != doc2ID {
 				t.Errorf("resolved link points to %q, want %q", toID, doc2ID)
 			}
@@ -255,7 +258,10 @@ Some notes about the beta project.
 	}
 	// Only doc2 has "notes" label and content about "project"
 	for _, r := range results {
-		rID, _ := models.RecordIDString(r.Document.ID)
+		rID, err := models.RecordIDString(r.Document.ID)
+		if err != nil {
+			t.Fatalf("extract search result doc ID: %v", err)
+		}
 		if rID == doc1ID {
 			t.Error("search with label=notes should not return doc1")
 		}

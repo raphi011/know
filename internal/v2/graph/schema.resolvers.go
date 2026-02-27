@@ -8,6 +8,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/raphaelgruber/memcp-go/internal/v2/auth"
 	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
@@ -89,6 +90,9 @@ func (r *mutationResolver) CreateDocument(ctx context.Context, vaultID string, f
 	src := models.SourceManual
 	if source != nil {
 		src = models.DocumentSource(*source)
+		if !src.Valid() {
+			return nil, fmt.Errorf("invalid document source: %q", *source)
+		}
 	}
 	doc, err := r.documentService.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
@@ -139,11 +143,42 @@ func (r *mutationResolver) DeleteDocument(ctx context.Context, vaultID string, p
 
 // CreateRelation is the resolver for the createRelation field.
 func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInput) (*DocRelation, error) {
+	// Verify access to both documents' vaults
+	fromDoc, err := r.db.GetDocumentByID(ctx, input.FromDocID)
+	if err != nil {
+		return nil, fmt.Errorf("get from document: %w", err)
+	}
+	if fromDoc == nil {
+		return nil, fmt.Errorf("from document not found: %s", input.FromDocID)
+	}
+	fromVaultID, err := models.RecordIDString(fromDoc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract from document vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, fromVaultID); err != nil {
+		return nil, err
+	}
+
+	toDoc, err := r.db.GetDocumentByID(ctx, input.ToDocID)
+	if err != nil {
+		return nil, fmt.Errorf("get to document: %w", err)
+	}
+	if toDoc == nil {
+		return nil, fmt.Errorf("to document not found: %s", input.ToDocID)
+	}
+	toVaultID, err := models.RecordIDString(toDoc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract to document vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, toVaultID); err != nil {
+		return nil, err
+	}
+
 	rel, err := r.db.CreateRelation(ctx, models.DocRelationInput{
 		FromDocID: input.FromDocID,
 		ToDocID:   input.ToDocID,
 		RelType:   input.RelType,
-		Source:    "api",
+		Source:    string(models.RelSourceAPI),
 	})
 	if err != nil {
 		return nil, err
@@ -153,6 +188,32 @@ func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInp
 
 // DeleteRelation is the resolver for the deleteRelation field.
 func (r *mutationResolver) DeleteRelation(ctx context.Context, id string) (bool, error) {
+	// Look up the relation to verify vault access on both documents
+	relations, err := r.db.GetRelationByID(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("get relation: %w", err)
+	}
+	if relations == nil {
+		return false, fmt.Errorf("relation not found: %s", id)
+	}
+	inDocID, err := models.RecordIDString(relations.In)
+	if err != nil {
+		return false, fmt.Errorf("extract relation in doc ID: %w", err)
+	}
+	inDoc, err := r.db.GetDocumentByID(ctx, inDocID)
+	if err != nil {
+		return false, fmt.Errorf("get in document: %w", err)
+	}
+	if inDoc != nil {
+		vaultID, err := models.RecordIDString(inDoc.Vault)
+		if err != nil {
+			return false, fmt.Errorf("extract vault ID: %w", err)
+		}
+		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+			return false, err
+		}
+	}
+
 	if err := r.db.DeleteRelation(ctx, id); err != nil {
 		return false, err
 	}
@@ -185,6 +246,24 @@ func (r *mutationResolver) CreateTemplate(ctx context.Context, input TemplateInp
 
 // DeleteTemplate is the resolver for the deleteTemplate field.
 func (r *mutationResolver) DeleteTemplate(ctx context.Context, id string) (bool, error) {
+	// Check vault access if the template is scoped to a vault
+	tmpl, err := r.templateService.Get(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("get template: %w", err)
+	}
+	if tmpl == nil {
+		return false, fmt.Errorf("template not found: %s", id)
+	}
+	if tmpl.Vault != nil {
+		vaultID, err := models.RecordIDString(*tmpl.Vault)
+		if err != nil {
+			return false, fmt.Errorf("extract template vault ID: %w", err)
+		}
+		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+			return false, err
+		}
+	}
+
 	if err := r.templateService.Delete(ctx, id); err != nil {
 		return false, err
 	}
@@ -239,7 +318,11 @@ func (r *queryResolver) Vaults(ctx context.Context) ([]*Vault, error) {
 	}
 	var result []*Vault
 	for i := range all {
-		id, _ := models.RecordIDString(all[i].ID)
+		id, err := models.RecordIDString(all[i].ID)
+		if err != nil {
+			slog.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
+			continue
+		}
 		if accessSet[id] {
 			result = append(result, vaultToGraphQL(&all[i]))
 		}
@@ -268,7 +351,10 @@ func (r *queryResolver) DocumentByID(ctx context.Context, id string) (*Document,
 	if doc == nil {
 		return nil, nil
 	}
-	vaultID, _ := models.RecordIDString(doc.Vault)
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from document: %w", err)
+	}
 	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
 		return nil, err
 	}

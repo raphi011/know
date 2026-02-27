@@ -127,7 +127,11 @@ func rrfFusion(bm25, vector []v2db.DocumentWithScore, chunks []v2db.ChunkWithSco
 	scores := make(map[string]*docScore)
 
 	getID := func(doc models.Document) string {
-		id, _ := models.RecordIDString(doc.ID)
+		id, err := models.RecordIDString(doc.ID)
+		if err != nil {
+			slog.Warn("failed to extract document ID in search ranking", "error", err)
+			return fmt.Sprintf("unknown-%v", doc.ID.ID)
+		}
 		return id
 	}
 
@@ -151,7 +155,11 @@ func rrfFusion(bm25, vector []v2db.DocumentWithScore, chunks []v2db.ChunkWithSco
 
 	// Attach chunk matches
 	for _, ch := range chunks {
-		docID, _ := models.RecordIDString(ch.Document)
+		docID, err := models.RecordIDString(ch.Document)
+		if err != nil {
+			slog.Warn("failed to extract chunk document ID", "error", err)
+			continue
+		}
 		if ds, ok := scores[docID]; ok {
 			ds.chunks = append(ds.chunks, ChunkMatch{
 				Content:     ch.Content,
