@@ -38,8 +38,12 @@ build:
 build-server:
     go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
 
-# Build both CLI and server
-build-all: build build-server
+# Build v2 server binary
+build-server-v2:
+    go build -buildvcs=false -o {{build_dir}}/knowhow-server-v2 ./cmd/knowhow-server-v2
+
+# Build both CLI and server (v1 + v2)
+build-all: build build-server build-server-v2
 
 # Run server with optional args (e.g., just server --wipe)
 server *ARGS: build-server
@@ -73,9 +77,13 @@ dev-setup: db-up ollama-pull
     @echo "Ollama embedding model ready"
     @echo "Run 'just dev' to start the server, or '{{build_dir}}/knowhow <command>' for CLI"
 
-# Regenerate GraphQL code
+# Regenerate GraphQL code (v1)
 generate:
     go run github.com/99designs/gqlgen generate
+
+# Regenerate GraphQL code (v2)
+generate-v2:
+    go run github.com/99designs/gqlgen generate --config gqlgen-v2.yml
 
 # Start SurrealDB
 db-up:
