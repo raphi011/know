@@ -36,6 +36,27 @@ type Document {
   wikiLinks: [WikiLink!]!
   backlinks: [WikiLink!]!
   relations: [DocRelation!]!
+  queryBlocks: [QueryBlock!]!
+}
+
+enum QueryFormat {
+  LIST
+  TABLE
+}
+
+type QueryBlock {
+  index: Int!
+  rawQuery: String!
+  format: QueryFormat!
+  results: [QueryResult!]!
+  error: String
+}
+
+type QueryResult {
+  docId: ID!
+  title: String!
+  path: String!
+  fields: JSON
 }
 
 type Folder {

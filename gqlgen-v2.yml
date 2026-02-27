@@ -55,3 +55,9 @@ models:
     model: github.com/raphaelgruber/memcp-go/internal/v2/graph.RelationInput
   TemplateInput:
     model: github.com/raphaelgruber/memcp-go/internal/v2/graph.TemplateInput
+  QueryBlock:
+    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.QueryBlock
+  QueryResult:
+    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.QueryResult
+  QueryFormat:
+    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.QueryFormat

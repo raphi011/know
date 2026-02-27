@@ -96,6 +96,30 @@ type ScrapeResult struct {
 	Errors           []string `json:"errors"`
 }
 
+// Query block types
+
+type QueryFormat string
+
+const (
+	QueryFormatList  QueryFormat = "LIST"
+	QueryFormatTable QueryFormat = "TABLE"
+)
+
+type QueryBlock struct {
+	Index    int           `json:"index"`
+	RawQuery string        `json:"rawQuery"`
+	Format   QueryFormat   `json:"format"`
+	Results  []QueryResult `json:"results"`
+	Error    *string       `json:"error,omitempty"`
+}
+
+type QueryResult struct {
+	DocID  string         `json:"docId"`
+	Title  string         `json:"title"`
+	Path   string         `json:"path"`
+	Fields map[string]any `json:"fields,omitempty"`
+}
+
 // Input types
 
 type VaultInput struct {

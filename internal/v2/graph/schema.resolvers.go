@@ -55,6 +55,11 @@ func (r *documentResolver) Relations(ctx context.Context, obj *Document) ([]*Doc
 	return result, nil
 }
 
+// QueryBlocks is the resolver for the queryBlocks field.
+func (r *documentResolver) QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error) {
+	panic(fmt.Errorf("not implemented: QueryBlocks - queryBlocks"))
+}
+
 // CreateVault is the resolver for the createVault field.
 func (r *mutationResolver) CreateVault(ctx context.Context, input VaultInput) (*Vault, error) {
 	ac, err := auth.FromContext(ctx)

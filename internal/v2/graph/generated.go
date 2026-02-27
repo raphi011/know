@@ -76,6 +76,7 @@ type ComplexityRoot struct {
 		Labels      func(childComplexity int) int
 		Metadata    func(childComplexity int) int
 		Path        func(childComplexity int) int
+		QueryBlocks func(childComplexity int) int
 		Relations   func(childComplexity int) int
 		Source      func(childComplexity int) int
 		SourcePath  func(childComplexity int) int
@@ -118,6 +119,21 @@ type ComplexityRoot struct {
 		Templates    func(childComplexity int, vaultID *string) int
 		Vault        func(childComplexity int, id string) int
 		Vaults       func(childComplexity int) int
+	}
+
+	QueryBlock struct {
+		Error    func(childComplexity int) int
+		Format   func(childComplexity int) int
+		Index    func(childComplexity int) int
+		RawQuery func(childComplexity int) int
+		Results  func(childComplexity int) int
+	}
+
+	QueryResult struct {
+		DocID  func(childComplexity int) int
+		Fields func(childComplexity int) int
+		Path   func(childComplexity int) int
+		Title  func(childComplexity int) int
 	}
 
 	ScrapeResult struct {
@@ -176,6 +192,7 @@ type DocumentResolver interface {
 	WikiLinks(ctx context.Context, obj *Document) ([]*WikiLink, error)
 	Backlinks(ctx context.Context, obj *Document) ([]*WikiLink, error)
 	Relations(ctx context.Context, obj *Document) ([]*DocRelation, error)
+	QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error)
 }
 type MutationResolver interface {
 	CreateVault(ctx context.Context, input VaultInput) (*Vault, error)
@@ -345,6 +362,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Document.Path(childComplexity), true
+	case "Document.queryBlocks":
+		if e.complexity.Document.QueryBlocks == nil {
+			break
+		}
+
+		return e.complexity.Document.QueryBlocks(childComplexity), true
 	case "Document.relations":
 		if e.complexity.Document.Relations == nil {
 			break
@@ -609,6 +632,62 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.Vaults(childComplexity), true
+
+	case "QueryBlock.error":
+		if e.complexity.QueryBlock.Error == nil {
+			break
+		}
+
+		return e.complexity.QueryBlock.Error(childComplexity), true
+	case "QueryBlock.format":
+		if e.complexity.QueryBlock.Format == nil {
+			break
+		}
+
+		return e.complexity.QueryBlock.Format(childComplexity), true
+	case "QueryBlock.index":
+		if e.complexity.QueryBlock.Index == nil {
+			break
+		}
+
+		return e.complexity.QueryBlock.Index(childComplexity), true
+	case "QueryBlock.rawQuery":
+		if e.complexity.QueryBlock.RawQuery == nil {
+			break
+		}
+
+		return e.complexity.QueryBlock.RawQuery(childComplexity), true
+	case "QueryBlock.results":
+		if e.complexity.QueryBlock.Results == nil {
+			break
+		}
+
+		return e.complexity.QueryBlock.Results(childComplexity), true
+
+	case "QueryResult.docId":
+		if e.complexity.QueryResult.DocID == nil {
+			break
+		}
+
+		return e.complexity.QueryResult.DocID(childComplexity), true
+	case "QueryResult.fields":
+		if e.complexity.QueryResult.Fields == nil {
+			break
+		}
+
+		return e.complexity.QueryResult.Fields(childComplexity), true
+	case "QueryResult.path":
+		if e.complexity.QueryResult.Path == nil {
+			break
+		}
+
+		return e.complexity.QueryResult.Path(childComplexity), true
+	case "QueryResult.title":
+		if e.complexity.QueryResult.Title == nil {
+			break
+		}
+
+		return e.complexity.QueryResult.Title(childComplexity), true
 
 	case "ScrapeResult.chunksCreated":
 		if e.complexity.ScrapeResult.ChunksCreated == nil {
@@ -2085,6 +2164,47 @@ func (ec *executionContext) fieldContext_Document_relations(_ context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _Document_queryBlocks(ctx context.Context, field graphql.CollectedField, obj *Document) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Document_queryBlocks,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Document().QueryBlocks(ctx, obj)
+		},
+		nil,
+		ec.marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlockᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Document_queryBlocks(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Document",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "index":
+				return ec.fieldContext_QueryBlock_index(ctx, field)
+			case "rawQuery":
+				return ec.fieldContext_QueryBlock_rawQuery(ctx, field)
+			case "format":
+				return ec.fieldContext_QueryBlock_format(ctx, field)
+			case "results":
+				return ec.fieldContext_QueryBlock_results(ctx, field)
+			case "error":
+				return ec.fieldContext_QueryBlock_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type QueryBlock", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Folder_path(ctx context.Context, field graphql.CollectedField, obj *Folder) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2399,6 +2519,8 @@ func (ec *executionContext) fieldContext_Mutation_createDocument(ctx context.Con
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -2476,6 +2598,8 @@ func (ec *executionContext) fieldContext_Mutation_updateDocument(ctx context.Con
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -2553,6 +2677,8 @@ func (ec *executionContext) fieldContext_Mutation_moveDocument(ctx context.Conte
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -3008,6 +3134,8 @@ func (ec *executionContext) fieldContext_Query_document(ctx context.Context, fie
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -3085,6 +3213,8 @@ func (ec *executionContext) fieldContext_Query_documentById(ctx context.Context,
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -3378,6 +3508,277 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _QueryBlock_index(ctx context.Context, field graphql.CollectedField, obj *QueryBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryBlock_index,
+		func(ctx context.Context) (any, error) {
+			return obj.Index, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryBlock_index(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryBlock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryBlock_rawQuery(ctx context.Context, field graphql.CollectedField, obj *QueryBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryBlock_rawQuery,
+		func(ctx context.Context) (any, error) {
+			return obj.RawQuery, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryBlock_rawQuery(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryBlock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryBlock_format(ctx context.Context, field graphql.CollectedField, obj *QueryBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryBlock_format,
+		func(ctx context.Context) (any, error) {
+			return obj.Format, nil
+		},
+		nil,
+		ec.marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryFormat,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryBlock_format(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryBlock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type QueryFormat does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryBlock_results(ctx context.Context, field graphql.CollectedField, obj *QueryBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryBlock_results,
+		func(ctx context.Context) (any, error) {
+			return obj.Results, nil
+		},
+		nil,
+		ec.marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResultᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryBlock_results(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryBlock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "docId":
+				return ec.fieldContext_QueryResult_docId(ctx, field)
+			case "title":
+				return ec.fieldContext_QueryResult_title(ctx, field)
+			case "path":
+				return ec.fieldContext_QueryResult_path(ctx, field)
+			case "fields":
+				return ec.fieldContext_QueryResult_fields(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type QueryResult", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryBlock_error(ctx context.Context, field graphql.CollectedField, obj *QueryBlock) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryBlock_error,
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryBlock_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryBlock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryResult_docId(ctx context.Context, field graphql.CollectedField, obj *QueryResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryResult_docId,
+		func(ctx context.Context) (any, error) {
+			return obj.DocID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryResult_docId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryResult_title(ctx context.Context, field graphql.CollectedField, obj *QueryResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryResult_title,
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryResult_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryResult_path(ctx context.Context, field graphql.CollectedField, obj *QueryResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryResult_path,
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryResult_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _QueryResult_fields(ctx context.Context, field graphql.CollectedField, obj *QueryResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_QueryResult_fields,
+		func(ctx context.Context) (any, error) {
+			return obj.Fields, nil
+		},
+		nil,
+		ec.marshalOJSON2map,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_QueryResult_fields(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ScrapeResult_filesProcessed(ctx context.Context, field graphql.CollectedField, obj *ScrapeResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3581,6 +3982,8 @@ func (ec *executionContext) fieldContext_SearchResult_document(_ context.Context
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -4237,6 +4640,8 @@ func (ec *executionContext) fieldContext_Vault_documents(ctx context.Context, fi
 				return ec.fieldContext_Document_backlinks(ctx, field)
 			case "relations":
 				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -6421,6 +6826,42 @@ func (ec *executionContext) _Document(ctx context.Context, sel ast.SelectionSet,
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "queryBlocks":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Document_queryBlocks(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -6840,6 +7281,113 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___schema(ctx, field)
 			})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var queryBlockImplementors = []string{"QueryBlock"}
+
+func (ec *executionContext) _QueryBlock(ctx context.Context, sel ast.SelectionSet, obj *QueryBlock) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, queryBlockImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("QueryBlock")
+		case "index":
+			out.Values[i] = ec._QueryBlock_index(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rawQuery":
+			out.Values[i] = ec._QueryBlock_rawQuery(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "format":
+			out.Values[i] = ec._QueryBlock_format(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "results":
+			out.Values[i] = ec._QueryBlock_results(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._QueryBlock_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var queryResultImplementors = []string{"QueryResult"}
+
+func (ec *executionContext) _QueryResult(ctx context.Context, sel ast.SelectionSet, obj *QueryResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, queryResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("QueryResult")
+		case "docId":
+			out.Values[i] = ec._QueryResult_docId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._QueryResult_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._QueryResult_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fields":
+			out.Values[i] = ec._QueryResult_fields(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -7959,6 +8507,125 @@ func (ec *executionContext) marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcp�
 		return graphql.Null
 	}
 	return ec._Me(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlockᚄ(ctx context.Context, sel ast.SelectionSet, v []*QueryBlock) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlock(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlock(ctx context.Context, sel ast.SelectionSet, v *QueryBlock) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._QueryBlock(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryFormat(ctx context.Context, v any) (QueryFormat, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := QueryFormat(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryFormat(ctx context.Context, sel ast.SelectionSet, v QueryFormat) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResult(ctx context.Context, sel ast.SelectionSet, v QueryResult) graphql.Marshaler {
+	return ec._QueryResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResultᚄ(ctx context.Context, sel ast.SelectionSet, v []QueryResult) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResult(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐRelationInput(ctx context.Context, v any) (RelationInput, error) {
