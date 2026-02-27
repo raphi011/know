@@ -60,3 +60,6 @@ web/package-lock.json
 
 # Logs
 *.log
+
+# Worktrees
+.worktrees/
