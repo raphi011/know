@@ -41,7 +41,7 @@ For SurrealDB-specific syntax, v3.0 breaking changes, and query patterns:
 3. Explicitly justified with a comment explaining why it's safe to ignore
 
 This applies to:
-- Database operations (`CreateEntity`, `UpdateEntityAccess`, `GetEntityByName`, etc.)
+- Database operations (`CreateDocument`, `CreateVault`, `GetTokenByHash`, etc.)
 - ID extraction (`models.RecordIDString`)
 - Any function that returns an error
 
@@ -85,113 +85,72 @@ Available docs:
 - `docs/langchaingo.md` - Go LLM library usage
 - `docs/bedrock.md` - AWS Bedrock + Teleport setup
 
-## Knowhow v2 — Vault-Based Architecture
+## Architecture — Vault-Based Document System
 
-v2 lives alongside v1 in `internal/v2/`. It replaces the flat entity model with vault-scoped documents, wiki-links, and auth.
-
-### Building v2
+### Building
 
 ```bash
-just build-server-v2     # GraphQL server on :8485
-just build-cli-v2        # CLI (scrape command, uses GraphQL API)
-just build-bootstrap-v2  # One-time DB bootstrap script
-just build-all           # All binaries (v1 + v2)
-just generate-v2         # Regenerate gqlgen code for v2
+just build          # CLI binary
+just build-server   # GraphQL server
+just build-bootstrap # One-time DB bootstrap script
+just build-all      # All binaries
+just generate       # Regenerate gqlgen code
 ```
 
-### v2 Architecture
+### Project Structure
 
 ```
-cmd/knowhow-server-v2/   # GraphQL server (port 8485)
-cmd/knowhow-v2/          # CLI client (talks to server via GraphQL)
-cmd/bootstrap-v2/        # One-time script: creates user + vault + token
-internal/v2/
-├── models/              # Data structs + helpers (RecordIDString, ContentHash)
-├── db/                  # SurrealDB client, DDL, query functions
-├── document/            # Document lifecycle: parse → embed → link → chunk
-├── vault/               # Vault CRUD + virtual folder derivation
-├── search/              # Hybrid BM25 + vector search with RRF fusion
-├── template/            # Template CRUD
-├── auth/                # Token auth middleware + AuthContext
-├── graph/               # GraphQL schema, resolvers, gqlgen config
-└── integration/         # Full lifecycle integration tests
+cmd/knowhow-server/     # GraphQL server
+cmd/knowhow/            # CLI client (scrape command, uses GraphQL API)
+cmd/bootstrap/          # One-time script: creates user + vault + token
+internal/
+├── models/             # Data structs + helpers (RecordIDString, ContentHash)
+├── db/                 # SurrealDB client, DDL, query functions, connection
+├── document/           # Document lifecycle: parse → embed → link → chunk
+├── vault/              # Vault CRUD + virtual folder derivation
+├── search/             # Hybrid BM25 + vector search with RRF fusion
+├── template/           # Template CRUD
+├── auth/               # Token auth middleware + AuthContext
+├── graph/              # GraphQL schema, resolvers, gqlgen config
+├── parser/             # Markdown parsing, wiki-link extraction, chunking
+├── llm/                # LLM/embedding provider abstraction
+├── config/             # Configuration loading
+├── metrics/            # Metrics collection
+└── integration/        # Full lifecycle integration tests
 ```
 
-### Key v2 Patterns
+### Key Patterns
 
 - **SurrealDB v3 strict mode**: `option<T>` fields require `surrealmodels.None` (not Go `nil`/`NULL`)
 - **Embedder is optional**: `nil` embedder disables AI features gracefully
 - **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
-- **GraphQL v2**: schema at `internal/v2/graph/schema.graphqls`, config at `gqlgen-v2.yml`
+- **GraphQL**: schema at `internal/graph/schema.graphqls`, config at `gqlgen.yml`
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
-- **CLI uses GraphQL API**: `cmd/knowhow-v2/` never connects directly to DB
-- **Bootstrap connects directly to DB**: `cmd/bootstrap-v2/` is a one-time setup script
+- **CLI uses GraphQL API**: `cmd/knowhow/` never connects directly to DB
+- **Bootstrap connects directly to DB**: `cmd/bootstrap/` is a one-time setup script
 
-### Running v2
+### Running
 
 ```bash
 # 1. Start SurrealDB
 just db-up
 
 # 2. Bootstrap (creates user, vault, API token)
-go run -buildvcs=false ./cmd/bootstrap-v2 --name "Admin"
+go run -buildvcs=false ./cmd/bootstrap --name "Admin"
 # Prints token to stdout, vault ID to stderr
 
-# 3. Start v2 server
-just build-server-v2
-KNOWHOW_V2_PORT=8485 ./bin/knowhow-server-v2
+# 3. Start server
+just build-server
+./bin/knowhow-server
 
 # 4. Scrape documents
-KNOWHOW_V2_TOKEN=kh_... ./bin/knowhow-v2 scrape ./docs --vault <vault-id>
+KNOWHOW_TOKEN=kh_... ./bin/knowhow scrape ./docs --vault <vault-id>
 ```
 
-### v2 Tests
+### Tests
 
 ```bash
-go test -v ./internal/v2/...  # All v2 tests (30 tests across 4 packages)
-```
-
-## Web UI (Svelte + Vite)
-
-The `web/` directory contains a Svelte 5 SPA that serves as a document editor.
-
-### Development
-
-```bash
-just web-dev    # Start Vite dev server on :5173
-just web-build  # Build production bundle to web/dist/
-```
-
-The Vite dev server proxies `/query` to the Go API on `:8484`. In production, the built assets are embedded via `go:embed` in `web/embed.go`.
-
-### Key Details
-
-- **Svelte 5 runes**: Uses `$state`, `$derived`, `$effect` (not old `$:` syntax or stores)
-- **CodeMirror 6**: Editor wrapped as `Editor.svelte` — `lineWrapping` is `EditorView.lineWrapping`
-- **GraphQL client**: `graphql-request` (lightweight, not Apollo) — queries in `src/lib/graphql/queries.ts`
-- **Build**: `just build-server` runs `web-build` first, then `go build` with embedded dist/
-
-### File Structure
-
-```
-web/
-├── embed.go                      # go:embed all:dist
-├── dist/                         # Built assets (gitignored content, stub checked in)
-├── src/
-│   ├── App.svelte                # Root: layout + state + save logic
-│   ├── app.css                   # Global styles (dark/light theme via CSS vars)
-│   ├── main.ts                   # Svelte mount
-│   └── lib/
-│       ├── graphql/
-│       │   ├── client.ts         # GraphQLClient → /query
-│       │   └── queries.ts        # LIST_DOCUMENTS, GET_ENTITY, UPDATE_CONTENT
-│       └── components/
-│           ├── Sidebar.svelte    # Document list + search filter
-│           ├── Editor.svelte     # CodeMirror wrapper
-│           └── SaveStatus.svelte # Save indicator
-├── package.json
-├── vite.config.ts                # Proxy /query → :8484
-└── tsconfig.json
+just test  # All tests
 ```
 
 ## Bubbletea v2 TUI

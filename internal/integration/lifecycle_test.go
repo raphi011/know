@@ -8,19 +8,18 @@ import (
 	"testing"
 	"time"
 
-	v1db "github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/auth"
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/document"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
-	"github.com/raphaelgruber/memcp-go/internal/v2/search"
-	"github.com/raphaelgruber/memcp-go/internal/v2/vault"
+	"github.com/raphaelgruber/memcp-go/internal/auth"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/document"
+	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphaelgruber/memcp-go/internal/search"
+	"github.com/raphaelgruber/memcp-go/internal/vault"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
-	testDB        *v2db.Client
+	testDB        *db.Client
 	testContainer testcontainers.Container
 )
 
@@ -55,7 +54,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("get mapped port: %v", err)
 	}
 
-	testDB, err = v2db.NewClient(ctx, v1db.Config{
+	testDB, err = db.NewClient(ctx, db.Config{
 		URL:       fmt.Sprintf("ws://%s:%s/rpc", host, mappedPort.Port()),
 		Namespace: "test_integration",
 		Database:  "test_integration",

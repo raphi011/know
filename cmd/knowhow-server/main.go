@@ -1,4 +1,4 @@
-// Package main provides the GraphQL server for Knowhow v2.
+// Package main provides the GraphQL server for Knowhow.
 package main
 
 import (
@@ -17,8 +17,8 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/raphaelgruber/memcp-go/internal/config"
-	"github.com/raphaelgruber/memcp-go/internal/v2/auth"
-	v2graph "github.com/raphaelgruber/memcp-go/internal/v2/graph"
+	"github.com/raphaelgruber/memcp-go/internal/auth"
+	"github.com/raphaelgruber/memcp-go/internal/graph"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -27,9 +27,9 @@ func main() {
 	cfg := config.Load()
 
 	// Get server port from environment or default
-	port := os.Getenv("KNOWHOW_V2_PORT")
+	port := os.Getenv("KNOWHOW_SERVER_PORT")
 	if port == "" {
-		port = "8485"
+		port = "8484"
 	}
 
 	// Initialize logging
@@ -40,11 +40,11 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
-	slog.Info("starting knowhow-server-v2", "port", port)
+	slog.Info("starting knowhow-server", "port", port)
 
 	// Create resolver with all dependencies
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	resolver, err := v2graph.NewResolver(ctx, cfg)
+	resolver, err := graph.NewResolver(ctx, cfg)
 	cancel()
 	if err != nil {
 		slog.Error("failed to create resolver", "error", err)
@@ -57,7 +57,7 @@ func main() {
 	}()
 
 	// Create GraphQL server
-	srv := handler.New(v2graph.NewExecutableSchema(v2graph.Config{
+	srv := handler.New(graph.NewExecutableSchema(graph.Config{
 		Resolvers: resolver,
 	}))
 

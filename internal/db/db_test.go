@@ -8,8 +8,7 @@ import (
 	"testing"
 	"time"
 
-	v1db "github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -49,7 +48,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to get mapped port: %v", err)
 	}
 
-	testDB, err = NewClient(ctx, v1db.Config{
+	testDB, err = NewClient(ctx, Config{
 		URL:       fmt.Sprintf("ws://%s:%s/rpc", host, mappedPort.Port()),
 		Namespace: "test_v2",
 		Database:  "test_v2",
@@ -772,13 +771,13 @@ func TestSearchWithLabelFilter(t *testing.T) {
 	}
 	for _, r := range results {
 		foundLabel := false
-		for _, l := range r.Labels {
+		for _, l := range r.Document.Labels {
 			if l == "web" {
 				foundLabel = true
 			}
 		}
 		if !foundLabel {
-			t.Errorf("Result %q should have 'web' label", r.Title)
+			t.Errorf("Result %q should have 'web' label", r.Document.Title)
 		}
 	}
 }
@@ -815,8 +814,8 @@ func TestSearchWithFolderFilter(t *testing.T) {
 		t.Fatalf("BM25Search with folder failed: %v", err)
 	}
 	for _, r := range results {
-		if r.Path[:8] != "/guides/" {
-			t.Errorf("Result %q path %q should start with /guides/", r.Title, r.Path)
+		if r.Document.Path[:8] != "/guides/" {
+			t.Errorf("Result %q path %q should start with /guides/", r.Document.Title, r.Document.Path)
 		}
 	}
 }

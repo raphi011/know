@@ -1,4 +1,4 @@
-// Package main provides the CLI for Knowhow v2.
+// Package main provides the CLI for Knowhow.
 // All commands communicate with the server via GraphQL API.
 package main
 
@@ -15,14 +15,14 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:          "knowhow-v2",
-	Short:        "Knowhow v2 CLI — document ingestion and management",
+	Use:          "knowhow",
+	Short:        "Knowhow CLI — document ingestion and management",
 	SilenceUsage: true,
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("KNOWHOW_V2_URL", "http://localhost:8485/query"), "GraphQL API URL")
-	rootCmd.PersistentFlags().StringVar(&apiToken, "token", os.Getenv("KNOWHOW_V2_TOKEN"), "API bearer token")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("KNOWHOW_SERVER_URL", "http://localhost:8484/query"), "GraphQL API URL")
+	rootCmd.PersistentFlags().StringVar(&apiToken, "token", os.Getenv("KNOWHOW_TOKEN"), "API bearer token")
 }
 
 func main() {

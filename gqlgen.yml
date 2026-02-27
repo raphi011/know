@@ -1,18 +1,18 @@
 # gqlgen configuration for v2
 schema:
-  - internal/v2/graph/schema.graphqls
+  - internal/graph/schema.graphqls
 
 exec:
-  filename: internal/v2/graph/generated.go
+  filename: internal/graph/generated.go
   package: graph
 
 model:
-  filename: internal/v2/graph/model_gen.go
+  filename: internal/graph/model_gen.go
   package: graph
 
 resolver:
   layout: follow-schema
-  dir: internal/v2/graph
+  dir: internal/graph
   package: graph
   filename_template: "{name}.resolvers.go"
 
@@ -24,40 +24,40 @@ models:
   JSON:
     model: github.com/99designs/gqlgen/graphql.Map
   Vault:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.Vault
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Vault
   Document:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.Document
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Document
   Folder:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.Folder
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Folder
   WikiLink:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.WikiLink
+    model: github.com/raphaelgruber/memcp-go/internal/graph.WikiLink
   DocRelation:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.DocRelation
+    model: github.com/raphaelgruber/memcp-go/internal/graph.DocRelation
   Template:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.Template
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Template
   SearchResult:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.SearchResult
+    model: github.com/raphaelgruber/memcp-go/internal/graph.SearchResult
   ChunkMatch:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.ChunkMatch
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ChunkMatch
   User:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.User
+    model: github.com/raphaelgruber/memcp-go/internal/graph.User
   Me:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.Me
+    model: github.com/raphaelgruber/memcp-go/internal/graph.Me
   ScrapeResult:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.ScrapeResult
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ScrapeResult
   VaultInput:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.VaultInput
+    model: github.com/raphaelgruber/memcp-go/internal/graph.VaultInput
   SearchInput:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.SearchInput
+    model: github.com/raphaelgruber/memcp-go/internal/graph.SearchInput
   FileInput:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.FileInput
+    model: github.com/raphaelgruber/memcp-go/internal/graph.FileInput
   RelationInput:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.RelationInput
+    model: github.com/raphaelgruber/memcp-go/internal/graph.RelationInput
   TemplateInput:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.TemplateInput
+    model: github.com/raphaelgruber/memcp-go/internal/graph.TemplateInput
   QueryBlock:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.QueryBlock
+    model: github.com/raphaelgruber/memcp-go/internal/graph.QueryBlock
   QueryResult:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.QueryResult
+    model: github.com/raphaelgruber/memcp-go/internal/graph.QueryResult
   QueryFormat:
-    model: github.com/raphaelgruber/memcp-go/internal/v2/graph.QueryFormat
+    model: github.com/raphaelgruber/memcp-go/internal/graph.QueryFormat

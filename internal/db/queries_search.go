@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 )
 

@@ -10,8 +10,8 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 
 	"github.com/raphaelgruber/memcp-go/internal/llm"
 	"github.com/raphaelgruber/memcp-go/internal/parser"
@@ -19,13 +19,13 @@ import (
 
 // Service manages document lifecycle: parse → extract → store → link → embed.
 type Service struct {
-	db       *v2db.Client
+	db       *db.Client
 	embedder *llm.Embedder // optional — nil disables embedding
 	resolver *LinkResolver
 }
 
 // NewService creates a new document service.
-func NewService(db *v2db.Client, embedder *llm.Embedder) *Service {
+func NewService(db *db.Client, embedder *llm.Embedder) *Service {
 	return &Service{
 		db:       db,
 		embedder: embedder,
@@ -192,7 +192,7 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content 
 		return nil
 	}
 
-	links := make([]v2db.WikiLinkInput, 0, len(targets))
+	links := make([]db.WikiLinkInput, 0, len(targets))
 	for _, target := range targets {
 		var toDocID *string
 		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
@@ -206,7 +206,7 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content 
 				toDocID = &id
 			}
 		}
-		links = append(links, v2db.WikiLinkInput{
+		links = append(links, db.WikiLinkInput{
 			RawTarget: target,
 			ToDocID:   toDocID,
 		})

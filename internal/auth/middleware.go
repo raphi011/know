@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 )
 
 // Middleware validates Bearer tokens and injects AuthContext.
-func Middleware(dbClient *v2db.Client) func(http.Handler) http.Handler {
+func Middleware(dbClient *db.Client) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")

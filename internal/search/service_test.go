@@ -3,8 +3,8 @@ package search
 import (
 	"testing"
 
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
@@ -19,15 +19,15 @@ func doc(id, title string) models.Document {
 	}
 }
 
-func docWithScore(id, title string, score float64) v2db.DocumentWithScore {
-	return v2db.DocumentWithScore{
+func docWithScore(id, title string, score float64) db.DocumentWithScore {
+	return db.DocumentWithScore{
 		Document: doc(id, title),
 		Score:    score,
 	}
 }
 
-func chunkWithScore(docID, content string, score float64) v2db.ChunkWithScore {
-	return v2db.ChunkWithScore{
+func chunkWithScore(docID, content string, score float64) db.ChunkWithScore {
+	return db.ChunkWithScore{
 		Chunk: models.Chunk{
 			ID:       rid("chunk", docID+"-0"),
 			Document: rid("document", docID),
@@ -39,7 +39,7 @@ func chunkWithScore(docID, content string, score float64) v2db.ChunkWithScore {
 }
 
 func TestRRFFusion_BM25Only(t *testing.T) {
-	bm25 := []v2db.DocumentWithScore{
+	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 		docWithScore("b", "Doc B", 3.0),
 	}
@@ -55,7 +55,7 @@ func TestRRFFusion_BM25Only(t *testing.T) {
 }
 
 func TestRRFFusion_VectorOnly(t *testing.T) {
-	vector := []v2db.DocumentWithScore{
+	vector := []db.DocumentWithScore{
 		docWithScore("x", "Doc X", 0.95),
 		docWithScore("y", "Doc Y", 0.80),
 	}
@@ -71,11 +71,11 @@ func TestRRFFusion_VectorOnly(t *testing.T) {
 
 func TestRRFFusion_HybridBoost(t *testing.T) {
 	// Doc A appears in both, Doc B only in BM25, Doc C only in vector
-	bm25 := []v2db.DocumentWithScore{
+	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 		docWithScore("b", "Doc B", 3.0),
 	}
-	vector := []v2db.DocumentWithScore{
+	vector := []db.DocumentWithScore{
 		docWithScore("c", "Doc C", 0.95),
 		docWithScore("a", "Doc A", 0.90),
 	}
@@ -95,10 +95,10 @@ func TestRRFFusion_HybridBoost(t *testing.T) {
 }
 
 func TestRRFFusion_ChunkAttachment(t *testing.T) {
-	bm25 := []v2db.DocumentWithScore{
+	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 	}
-	chunks := []v2db.ChunkWithScore{
+	chunks := []db.ChunkWithScore{
 		chunkWithScore("a", "chunk content from A", 0.9),
 	}
 
@@ -116,10 +116,10 @@ func TestRRFFusion_ChunkAttachment(t *testing.T) {
 
 func TestRRFFusion_ChunkOrphan(t *testing.T) {
 	// Chunk references a doc that isn't in BM25 or vector results — should be ignored
-	bm25 := []v2db.DocumentWithScore{
+	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 	}
-	chunks := []v2db.ChunkWithScore{
+	chunks := []db.ChunkWithScore{
 		chunkWithScore("unknown", "orphan chunk", 0.9),
 	}
 
@@ -133,7 +133,7 @@ func TestRRFFusion_ChunkOrphan(t *testing.T) {
 }
 
 func TestRRFFusion_Limit(t *testing.T) {
-	bm25 := []v2db.DocumentWithScore{
+	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 		docWithScore("b", "Doc B", 4.0),
 		docWithScore("c", "Doc C", 3.0),

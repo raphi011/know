@@ -28,10 +28,10 @@ Unchanged files are skipped by comparing content hashes, unless --force is set.
 Each file goes through the full document pipeline (parse, embed, link, chunk).
 
 Examples:
-  knowhow-v2 scrape ./docs --vault <id>
-  knowhow-v2 scrape ./notes --vault <id> --labels personal,notes
-  knowhow-v2 scrape ./wiki --vault <id> --dry-run
-  knowhow-v2 scrape ./docs --vault <id> --force`,
+  knowhow scrape ./docs --vault <id>
+  knowhow scrape ./notes --vault <id> --labels personal,notes
+  knowhow scrape ./wiki --vault <id> --dry-run
+  knowhow scrape ./docs --vault <id> --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScrape,
 }

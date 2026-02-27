@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/raphaelgruber/memcp-go/internal/auth"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/parser"
-	"github.com/raphaelgruber/memcp-go/internal/v2/auth"
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
-	"github.com/raphaelgruber/memcp-go/internal/v2/search"
+	"github.com/raphaelgruber/memcp-go/internal/search"
 )
 
 // WikiLinks is the resolver for the wikiLinks field.
@@ -434,7 +434,7 @@ func (r *queryResolver) Templates(ctx context.Context, vaultID *string) ([]*Temp
 
 // Documents is the resolver for the documents field.
 func (r *vaultResolver) Documents(ctx context.Context, obj *Vault, folder *string, labels []string, docType *string) ([]*Document, error) {
-	docs, err := r.db.ListDocuments(ctx, v2db.ListDocumentsFilter{
+	docs, err := r.db.ListDocuments(ctx, db.ListDocumentsFilter{
 		VaultID: obj.ID,
 		Folder:  folder,
 		Labels:  labels,

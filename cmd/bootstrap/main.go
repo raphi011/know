@@ -3,7 +3,7 @@
 //
 // Usage:
 //
-//	go run ./cmd/bootstrap-v2 --name "Admin" --email "admin@example.com"
+//	go run ./cmd/bootstrap --name "Admin" --email "admin@example.com"
 package main
 
 import (
@@ -14,11 +14,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/raphaelgruber/memcp-go/internal/auth"
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/auth"
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 )
 
 func main() {
@@ -33,7 +32,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	dbClient, err := v2db.NewClient(ctx, db.Config{
+	dbClient, err := db.NewClient(ctx, db.Config{
 		URL:       cfg.SurrealDBURL,
 		Namespace: cfg.SurrealDBNamespace,
 		Database:  cfg.SurrealDBDatabase,

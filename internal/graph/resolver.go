@@ -1,4 +1,4 @@
-// Package graph provides GraphQL resolvers for Knowhow v2.
+// Package graph provides GraphQL resolvers for Knowhow.
 // This file will not be regenerated automatically.
 package graph
 
@@ -8,24 +8,23 @@ import (
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/document"
 	"github.com/raphaelgruber/memcp-go/internal/llm"
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/document"
-	"github.com/raphaelgruber/memcp-go/internal/v2/search"
-	"github.com/raphaelgruber/memcp-go/internal/v2/template"
-	"github.com/raphaelgruber/memcp-go/internal/v2/vault"
+	"github.com/raphaelgruber/memcp-go/internal/search"
+	"github.com/raphaelgruber/memcp-go/internal/template"
+	"github.com/raphaelgruber/memcp-go/internal/vault"
 )
 
 // Resolver is the root resolver with all dependencies.
 type Resolver struct {
-	db              *v2db.Client
+	db              *db.Client
 	vaultService    *vault.Service
 	documentService *document.Service
 	searchService   *search.Service
 	templateService *template.Service
 }
 
-// NewResolver creates a new v2 resolver with all dependencies.
+// NewResolver creates a new resolver with all dependencies.
 func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	dbCfg := db.Config{
 		URL:       cfg.SurrealDBURL,
@@ -36,7 +35,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		AuthLevel: cfg.SurrealDBAuthLevel,
 	}
 
-	dbClient, err := v2db.NewClient(ctx, dbCfg, nil, nil)
+	dbClient, err := db.NewClient(ctx, dbCfg, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +58,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		}
 	}
 
-	slog.Info("v2 resolver initialized",
+	slog.Info("resolver initialized",
 		"embed_provider", cfg.EmbedProvider,
 		"embed_dimension", cfg.EmbedDimension,
 		"semantic_search", embedder != nil,
@@ -75,7 +74,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 }
 
 // DBClient returns the underlying DB client for use by middleware.
-func (r *Resolver) DBClient() *v2db.Client {
+func (r *Resolver) DBClient() *db.Client {
 	return r.db
 }
 

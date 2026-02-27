@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/parser"
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
-	"github.com/raphaelgruber/memcp-go/internal/v2/search"
+	"github.com/raphaelgruber/memcp-go/internal/search"
 )
 
 func vaultToGraphQL(v *models.Vault) *Vault {
@@ -196,7 +196,7 @@ func queryFormatToGraphQL(f parser.QueryFormat) QueryFormat {
 }
 
 // resolveQueryBlock executes a parsed query block against the database.
-func resolveQueryBlock(ctx context.Context, dbClient *v2db.Client, vaultID string, parsed parser.QueryBlock) QueryBlock {
+func resolveQueryBlock(ctx context.Context, dbClient *db.Client, vaultID string, parsed parser.QueryBlock) QueryBlock {
 	block := QueryBlock{
 		Index:    parsed.Index,
 		RawQuery: parsed.RawQuery,
@@ -210,7 +210,7 @@ func resolveQueryBlock(ctx context.Context, dbClient *v2db.Client, vaultID strin
 	}
 
 	// Build filter from parsed DSL
-	filter := v2db.ListDocumentsFilter{
+	filter := db.ListDocumentsFilter{
 		VaultID: vaultID,
 		Folder:  parsed.Folder,
 		Limit:   parsed.Limit,

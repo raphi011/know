@@ -6,17 +6,17 @@ import (
 	"path"
 	"strings"
 
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 )
 
 // Service manages vault CRUD and derived folder listing.
 type Service struct {
-	db *v2db.Client
+	db *db.Client
 }
 
 // NewService creates a new vault service.
-func NewService(db *v2db.Client) *Service {
+func NewService(db *db.Client) *Service {
 	return &Service{db: db}
 }
 

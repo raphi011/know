@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"sort"
 
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 
 	"github.com/raphaelgruber/memcp-go/internal/llm"
 )
@@ -15,12 +15,12 @@ import (
 // Service provides search with graceful degradation.
 // Base: BM25 fulltext (always). Semantic: vector search (if embedder configured).
 type Service struct {
-	db       *v2db.Client
+	db       *db.Client
 	embedder *llm.Embedder // optional
 }
 
 // NewService creates a new search service.
-func NewService(db *v2db.Client, embedder *llm.Embedder) *Service {
+func NewService(db *db.Client, embedder *llm.Embedder) *Service {
 	return &Service{db: db, embedder: embedder}
 }
 
@@ -55,7 +55,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		limit = 20
 	}
 
-	filter := v2db.SearchFilter{
+	filter := db.SearchFilter{
 		VaultID: input.VaultID,
 		Labels:  input.Labels,
 		DocType: input.DocType,
@@ -103,7 +103,7 @@ func (s *Service) HasSemanticSearch() bool {
 	return s.embedder != nil
 }
 
-func toBM25Results(docs []v2db.DocumentWithScore) []SearchResult {
+func toBM25Results(docs []db.DocumentWithScore) []SearchResult {
 	results := make([]SearchResult, len(docs))
 	for i, d := range docs {
 		results[i] = SearchResult{
@@ -115,7 +115,7 @@ func toBM25Results(docs []v2db.DocumentWithScore) []SearchResult {
 }
 
 // rrfFusion combines BM25 and vector results using Reciprocal Rank Fusion.
-func rrfFusion(bm25, vector []v2db.DocumentWithScore, chunks []v2db.ChunkWithScore, limit int) []SearchResult {
+func rrfFusion(bm25, vector []db.DocumentWithScore, chunks []db.ChunkWithScore, limit int) []SearchResult {
 	const k = 60.0 // RRF constant
 
 	type docScore struct {

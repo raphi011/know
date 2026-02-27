@@ -3,17 +3,17 @@ package template
 import (
 	"context"
 
-	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
-	"github.com/raphaelgruber/memcp-go/internal/v2/models"
+	"github.com/raphaelgruber/memcp-go/internal/db"
+	"github.com/raphaelgruber/memcp-go/internal/models"
 )
 
 // Service manages template CRUD operations.
 type Service struct {
-	db *v2db.Client
+	db *db.Client
 }
 
 // NewService creates a new template service.
-func NewService(db *v2db.Client) *Service {
+func NewService(db *db.Client) *Service {
 	return &Service{db: db}
 }
 
