@@ -883,3 +883,61 @@ func TestTokenLastUsed(t *testing.T) {
 		t.Error("LastUsed should be set after update")
 	}
 }
+
+func TestListDocuments_LabelFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Create documents with different labels and paths
+	for _, doc := range []struct {
+		path   string
+		title  string
+		labels []string
+	}{
+		{"/projects/go-app.md", "Go App", []string{"go", "project"}},
+		{"/projects/rust-app.md", "Rust App", []string{"rust", "project"}},
+		{"/notes/setup.md", "Setup Guide", []string{"guide"}},
+	} {
+		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+			VaultID:     vaultID,
+			Path:        doc.path,
+			Title:       doc.title,
+			Content:     "# " + doc.title,
+			ContentBody: doc.title,
+			Labels:      doc.labels,
+			Source:      models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", doc.path, err)
+		}
+	}
+
+	// Query by label
+	docs, err := testDB.ListDocuments(ctx, ListDocumentsFilter{
+		VaultID: vaultID,
+		Labels:  []string{"go"},
+	})
+	if err != nil {
+		t.Fatalf("list by label: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Errorf("expected 1 doc with label 'go', got %d", len(docs))
+	}
+
+	// Query by folder + label
+	folder := "/projects/"
+	docs, err = testDB.ListDocuments(ctx, ListDocumentsFilter{
+		VaultID: vaultID,
+		Folder:  &folder,
+		Labels:  []string{"project"},
+	})
+	if err != nil {
+		t.Fatalf("list by folder+label: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Errorf("expected 2 docs in /projects/ with label 'project', got %d", len(docs))
+	}
+}
