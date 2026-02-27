@@ -1,9 +1,13 @@
 package graph
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
+	"github.com/raphaelgruber/memcp-go/internal/parser"
+	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
 	"github.com/raphaelgruber/memcp-go/internal/v2/models"
 	"github.com/raphaelgruber/memcp-go/internal/v2/search"
 )
@@ -182,6 +186,102 @@ func userToGraphQL(u *models.User) *User {
 		Email:     u.Email,
 		CreatedAt: u.CreatedAt,
 	}
+}
+
+func queryFormatToGraphQL(f parser.QueryFormat) QueryFormat {
+	if f == parser.FormatTable {
+		return QueryFormatTable
+	}
+	return QueryFormatList
+}
+
+// resolveQueryBlock executes a parsed query block against the database.
+func resolveQueryBlock(ctx context.Context, dbClient *v2db.Client, vaultID string, parsed parser.QueryBlock) QueryBlock {
+	block := QueryBlock{
+		Index:    parsed.Index,
+		RawQuery: parsed.RawQuery,
+		Format:   queryFormatToGraphQL(parsed.Format),
+		Results:  []QueryResult{},
+	}
+
+	if parsed.Error != "" {
+		block.Error = &parsed.Error
+		return block
+	}
+
+	// Build filter from parsed DSL
+	filter := v2db.ListDocumentsFilter{
+		VaultID: vaultID,
+		Folder:  parsed.Folder,
+		Limit:   parsed.Limit,
+	}
+
+	// Map WHERE conditions to filter fields
+	for _, cond := range parsed.Conditions {
+		switch {
+		case cond.Field == "labels" && cond.Op == parser.OpContain:
+			filter.Labels = append(filter.Labels, cond.Value)
+		case cond.Field == "type" && cond.Op == parser.OpEqual:
+			filter.DocType = &cond.Value
+		}
+	}
+
+	docs, err := dbClient.ListDocuments(ctx, filter)
+	if err != nil {
+		errMsg := fmt.Sprintf("query error: %v", err)
+		block.Error = &errMsg
+		return block
+	}
+
+	// Post-filter for conditions the DB filter doesn't support (title CONTAINS)
+	var titleContains string
+	for _, cond := range parsed.Conditions {
+		if cond.Field == "title" && cond.Op == parser.OpContains {
+			titleContains = strings.ToLower(cond.Value)
+		}
+	}
+
+	for _, doc := range docs {
+		if titleContains != "" && !strings.Contains(strings.ToLower(doc.Title), titleContains) {
+			continue
+		}
+		docID, err := models.RecordIDString(doc.ID)
+		if err != nil {
+			slog.Warn("failed to extract doc ID in query block resolution", "path", doc.Path, "error", err)
+			docID = fmt.Sprintf("%v", doc.ID.ID)
+		}
+		result := QueryResult{
+			DocID: docID,
+			Title: doc.Title,
+			Path:  doc.Path,
+		}
+		// Build fields map for SHOW columns
+		if len(parsed.ShowFields) > 0 {
+			fields := make(map[string]any)
+			for _, f := range parsed.ShowFields {
+				switch f {
+				case "title":
+					fields["title"] = doc.Title
+				case "path":
+					fields["path"] = doc.Path
+				case "labels":
+					fields["labels"] = doc.Labels
+				case "doc_type":
+					fields["doc_type"] = doc.DocType
+				case "created_at":
+					fields["created_at"] = doc.CreatedAt
+				case "updated_at":
+					fields["updated_at"] = doc.UpdatedAt
+				case "source":
+					fields["source"] = doc.Source
+				}
+			}
+			result.Fields = fields
+		}
+		block.Results = append(block.Results, result)
+	}
+
+	return block
 }
 
 func searchResultToGraphQL(r search.SearchResult) SearchResult {

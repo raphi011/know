@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/raphaelgruber/memcp-go/internal/parser"
 	"github.com/raphaelgruber/memcp-go/internal/v2/auth"
 	v2db "github.com/raphaelgruber/memcp-go/internal/v2/db"
 	"github.com/raphaelgruber/memcp-go/internal/v2/models"
@@ -57,7 +58,17 @@ func (r *documentResolver) Relations(ctx context.Context, obj *Document) ([]*Doc
 
 // QueryBlocks is the resolver for the queryBlocks field.
 func (r *documentResolver) QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error) {
-	panic(fmt.Errorf("not implemented: QueryBlocks - queryBlocks"))
+	parsed := parser.ExtractQueryBlocks(obj.Content)
+	if len(parsed) == 0 {
+		return []*QueryBlock{}, nil
+	}
+
+	results := make([]*QueryBlock, len(parsed))
+	for i, p := range parsed {
+		block := resolveQueryBlock(ctx, r.db, obj.VaultID, p)
+		results[i] = &block
+	}
+	return results, nil
 }
 
 // CreateVault is the resolver for the createVault field.
