@@ -41,7 +41,7 @@ func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*mo
 	}
 
 	// Try title match (shallowest path wins)
-	sql = `SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND title = $target ORDER BY array::len(string::split(path, '/')) ASC LIMIT 1`
+	sql = `SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND title = $target ORDER BY path ASC LIMIT 1`
 	results, err = surrealdb.Query[[]models.Document](ctx, r.db.DB(), sql, map[string]any{
 		"vault_id": vaultID,
 		"target":   target,
