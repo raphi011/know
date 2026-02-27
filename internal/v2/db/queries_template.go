@@ -6,6 +6,7 @@ import (
 
 	"github.com/raphaelgruber/memcp-go/internal/v2/models"
 	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 func (c *Client) CreateTemplate(ctx context.Context, input models.TemplateInput) (*models.Template, error) {
@@ -13,7 +14,7 @@ func (c *Client) CreateTemplate(ctx context.Context, input models.TemplateInput)
 	if input.VaultID != nil {
 		vaultVal = newRecordID("vault", *input.VaultID)
 	} else {
-		vaultVal = nil
+		vaultVal = surrealmodels.None
 	}
 
 	sql := `

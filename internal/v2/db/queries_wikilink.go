@@ -6,6 +6,7 @@ import (
 
 	"github.com/raphaelgruber/memcp-go/internal/v2/models"
 	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // CreateWikiLinks creates wiki-link records for a document.
@@ -22,7 +23,7 @@ func (c *Client) CreateWikiLinks(ctx context.Context, fromDocID, vaultID string,
 		if link.ToDocID != nil {
 			toDoc = newRecordID("document", *link.ToDocID)
 		} else {
-			toDoc = nil
+			toDoc = surrealmodels.None
 		}
 
 		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
