@@ -34,14 +34,18 @@ type Document struct {
 }
 
 type DocumentInput struct {
-	VaultID    string         `json:"vault_id"`
-	Path       string         `json:"path"`
-	Content    string         `json:"content"`
-	Source     DocumentSource `json:"source"`
-	SourcePath *string        `json:"source_path,omitempty"`
-	Labels     []string       `json:"labels,omitempty"`
-	DocType    *string        `json:"doc_type,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	VaultID     string         `json:"vault_id"`
+	Path        string         `json:"path"`
+	Title       string         `json:"title"`
+	Content     string         `json:"content"`
+	ContentBody string         `json:"content_body"`
+	Source      DocumentSource `json:"source"`
+	SourcePath  *string        `json:"source_path,omitempty"`
+	ContentHash *string        `json:"content_hash,omitempty"`
+	Labels      []string       `json:"labels,omitempty"`
+	DocType     *string        `json:"doc_type,omitempty"`
+	Embedding   []float32      `json:"embedding,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 // Folder is a virtual folder derived from document paths.
