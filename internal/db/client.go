@@ -269,15 +269,14 @@ func (c *Client) WipeData(ctx context.Context) error {
 	c.logger.Warn("wiping all data from database")
 
 	// Delete all records from each table
-	// Order matters due to relations referencing entities
-	tables := []string{"message", "conversation", "relates_to", "chunk", "template", "token_usage", "ingest_job", "entity"}
+	// Order matters due to foreign key references
+	tables := []string{"doc_relation", "wiki_link", "chunk", "document", "template", "api_token", "vault", "user"}
 
 	for _, table := range tables {
 		query := fmt.Sprintf("DELETE %s", table)
 		if _, err := surrealdb.Query[any](ctx, c.db, query, nil); err != nil {
 			return fmt.Errorf("delete %s: %w", table, err)
 		}
-		c.logger.Info("deleted table data", "table", table)
 	}
 
 	c.logger.Info("database wipe complete")
