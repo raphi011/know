@@ -1,0 +1,192 @@
+# GraphQL Schema for Knowhow v2 — Vault-Based Knowledge Management
+
+scalar DateTime
+scalar JSON
+
+# =============================================================================
+# TYPES
+# =============================================================================
+
+type Vault {
+  id: ID!
+  name: String!
+  description: String
+  createdBy: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  documents(folder: String, labels: [String!], docType: String): [Document!]!
+  folders(parent: String): [Folder!]!
+}
+
+type Document {
+  id: ID!
+  vaultId: ID!
+  path: String!
+  title: String!
+  content: String!
+  contentBody: String!
+  labels: [String!]!
+  docType: String
+  source: String!
+  sourcePath: String
+  contentHash: String
+  metadata: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  wikiLinks: [WikiLink!]!
+  backlinks: [WikiLink!]!
+  relations: [DocRelation!]!
+}
+
+type Folder {
+  path: String!
+  name: String!
+  docCount: Int!
+}
+
+type WikiLink {
+  id: ID!
+  fromDocId: ID!
+  toDocId: ID
+  rawTarget: String!
+  resolved: Boolean!
+}
+
+type DocRelation {
+  id: ID!
+  fromDocId: ID!
+  toDocId: ID!
+  relType: String!
+  source: String!
+  createdAt: DateTime!
+}
+
+type Template {
+  id: ID!
+  vaultId: ID
+  name: String!
+  description: String
+  content: String!
+  isAITemplate: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type SearchResult {
+  document: Document!
+  score: Float!
+  matchedChunks: [ChunkMatch!]!
+}
+
+type ChunkMatch {
+  content: String!
+  headingPath: String
+  position: Int!
+  score: Float!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String
+  createdAt: DateTime!
+}
+
+"""Current authenticated user info"""
+type Me {
+  user: User!
+  vaultAccess: [ID!]!
+}
+
+type ScrapeResult {
+  filesProcessed: Int!
+  filesSkipped: Int!
+  documentsCreated: Int!
+  chunksCreated: Int!
+  errors: [String!]!
+}
+
+# =============================================================================
+# INPUTS
+# =============================================================================
+
+input VaultInput {
+  name: String!
+  description: String
+}
+
+input SearchInput {
+  vaultId: ID!
+  query: String!
+  labels: [String!]
+  docType: String
+  folder: String
+  limit: Int
+}
+
+input FileInput {
+  path: String!
+  content: String!
+}
+
+input RelationInput {
+  fromDocId: ID!
+  toDocId: ID!
+  relType: String!
+}
+
+input TemplateInput {
+  vaultId: ID
+  name: String!
+  description: String
+  content: String!
+  isAITemplate: Boolean
+}
+
+# =============================================================================
+# QUERIES
+# =============================================================================
+
+type Query {
+  # Auth
+  me: Me!
+
+  # Vaults
+  vault(id: ID!): Vault
+  vaults: [Vault!]!
+
+  # Documents
+  document(vaultId: ID!, path: String!): Document
+  documentById(id: ID!): Document
+
+  # Search
+  search(input: SearchInput!): [SearchResult!]!
+
+  # Templates
+  template(id: ID!): Template
+  templates(vaultId: ID): [Template!]!
+}
+
+# =============================================================================
+# MUTATIONS
+# =============================================================================
+
+type Mutation {
+  # Vaults
+  createVault(input: VaultInput!): Vault!
+  deleteVault(id: ID!): Boolean!
+
+  # Documents
+  createDocument(vaultId: ID!, file: FileInput!, source: String): Document!
+  updateDocument(vaultId: ID!, path: String!, content: String!): Document!
+  moveDocument(vaultId: ID!, oldPath: String!, newPath: String!): Document!
+  deleteDocument(vaultId: ID!, path: String!): Boolean!
+
+  # Relations
+  createRelation(input: RelationInput!): DocRelation!
+  deleteRelation(id: ID!): Boolean!
+
+  # Templates
+  createTemplate(input: TemplateInput!): Template!
+  deleteTemplate(id: ID!): Boolean!
+}
