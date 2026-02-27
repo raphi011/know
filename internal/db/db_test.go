@@ -1,4 +1,3 @@
-// Package db provides integration tests for SurrealDB operations.
 package db
 
 import (
@@ -17,14 +16,11 @@ import (
 var testDB *Client
 var testContainer testcontainers.Container
 
-// TestMain sets up and tears down the SurrealDB container for all tests.
 func TestMain(m *testing.M) {
-	// Disable ryuk (cleanup container) as it can cause issues in some environments
 	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 
 	ctx := context.Background()
 
-	// Start SurrealDB container
 	var err error
 	testContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
@@ -39,13 +35,12 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to start SurrealDB container: %v", err)
 	}
 
-	// Get container host and port
 	host, err := testContainer.Host(ctx)
 	if err != nil {
 		log.Fatalf("Failed to get container host: %v", err)
 	}
-	// Workaround: testcontainers may return "null" as host in some environments
-	if host == "" || host == "null" {
+	// Colima VM IPs are not reachable; ports are forwarded to localhost
+	if host == "" || host == "null" || host == "192.168.64.2" {
 		host = "localhost"
 	}
 	mappedPort, err := testContainer.MappedPort(ctx, "8000")
@@ -53,11 +48,10 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to get mapped port: %v", err)
 	}
 
-	// Connect to test database
 	testDB, err = NewClient(ctx, Config{
 		URL:       fmt.Sprintf("ws://%s:%s/rpc", host, mappedPort.Port()),
-		Namespace: "test",
-		Database:  "test",
+		Namespace: "test_v2",
+		Database:  "test_v2",
 		Username:  "root",
 		Password:  "root",
 		AuthLevel: "root",
@@ -66,23 +60,23 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to connect to test database: %v", err)
 	}
 
-	// Initialize schema with test embedding dimension (384)
 	if err := testDB.InitSchema(ctx, 384); err != nil {
-		log.Fatalf("Failed to initialize schema: %v", err)
+		log.Fatalf("Failed to initialize v2 schema: %v", err)
 	}
 
-	// Run tests
 	code := m.Run()
 
-	// Cleanup
-	_ = testDB.Close(ctx)
-	_ = testContainer.Terminate(ctx)
+	// Cleanup: best-effort, process is exiting
+	if err := testDB.Close(ctx); err != nil {
+		log.Printf("warning: failed to close test DB: %v", err)
+	}
+	if err := testContainer.Terminate(ctx); err != nil {
+		log.Printf("warning: failed to terminate container: %v", err)
+	}
 
 	os.Exit(code)
 }
 
-// dummyEmbedding returns a dummy embedding vector for testing.
-// Uses 384 dimensions to match the default all-minilm:l6-v2 model.
 func dummyEmbedding() []float32 {
 	embedding := make([]float32, 384)
 	for i := range embedding {
@@ -91,403 +85,343 @@ func dummyEmbedding() []float32 {
 	return embedding
 }
 
-// =============================================================================
-// ENTITY TESTS
-// =============================================================================
-
-func TestCreateEntity(t *testing.T) {
-	ctx := context.Background()
-
-	content := "Test entity content"
-	entity, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Test Entity",
-		Content:   &content,
-		Labels:    []string{"test", "unit-test"},
-		Embedding: dummyEmbedding(),
-	})
+func createTestUser(t *testing.T, ctx context.Context) *models.User {
+	t.Helper()
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "testuser-" + fmt.Sprint(time.Now().UnixNano())})
 	if err != nil {
-		t.Fatalf("CreateEntity failed: %v", err)
+		t.Fatalf("Failed to create test user: %v", err)
 	}
-
-	if entity.Name != "Test Entity" {
-		t.Errorf("Expected name 'Test Entity', got %q", entity.Name)
-	}
-	if entity.Type != "concept" {
-		t.Errorf("Expected type 'concept', got %q", entity.Type)
-	}
-	if entity.Content == nil || *entity.Content != content {
-		t.Errorf("Expected content %q, got %v", content, entity.Content)
-	}
-	if len(entity.Labels) != 2 {
-		t.Errorf("Expected 2 labels, got %d", len(entity.Labels))
-	}
-
-	// Cleanup
-	_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity.ID))
+	return user
 }
 
-func TestGetEntity(t *testing.T) {
-	ctx := context.Background()
-
-	// Create test entity
-	content := "Get test content"
-	created, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Get Test Entity",
-		Content:   &content,
-		Embedding: dummyEmbedding(),
+func createTestVault(t *testing.T, ctx context.Context, userID string) *models.Vault {
+	t.Helper()
+	vault, err := testDB.CreateVault(ctx, userID, models.VaultInput{
+		Name: "test-vault-" + fmt.Sprint(time.Now().UnixNano()),
 	})
 	if err != nil {
-		t.Fatalf("Failed to create test entity: %v", err)
+		t.Fatalf("Failed to create test vault: %v", err)
 	}
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(created.ID))
-	}()
+	return vault
+}
 
-	// Get by ID
-	entityID := models.MustRecordIDString(created.ID)
-	entity, err := testDB.GetEntity(ctx, entityID)
+// =============================================================================
+// VAULT TESTS
+// =============================================================================
+
+func TestCreateVault(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	desc := "A test vault"
+	vault, err := testDB.CreateVault(ctx, userID, models.VaultInput{
+		Name:        "My Vault",
+		Description: &desc,
+	})
 	if err != nil {
-		t.Fatalf("GetEntity failed: %v", err)
+		t.Fatalf("CreateVault failed: %v", err)
 	}
-	if entity == nil {
-		t.Fatal("GetEntity returned nil")
+	if vault.Name != "My Vault" {
+		t.Errorf("Expected name 'My Vault', got %q", vault.Name)
 	}
-	if entity.Name != "Get Test Entity" {
-		t.Errorf("Expected name 'Get Test Entity', got %q", entity.Name)
+	if vault.Description == nil || *vault.Description != "A test vault" {
+		t.Errorf("Expected description 'A test vault', got %v", vault.Description)
+	}
+}
+
+func TestGetVault(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	retrieved, err := testDB.GetVault(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("GetVault failed: %v", err)
+	}
+	if retrieved == nil {
+		t.Fatal("GetVault returned nil")
+	}
+	if retrieved.Name != vault.Name {
+		t.Errorf("Expected name %q, got %q", vault.Name, retrieved.Name)
 	}
 
-	// Get non-existent
-	nonExistent, err := testDB.GetEntity(ctx, "non-existent-id")
+	nonExistent, err := testDB.GetVault(ctx, "nonexistent")
 	if err != nil {
-		t.Errorf("GetEntity with non-existent ID should not error: %v", err)
+		t.Errorf("GetVault non-existent should not error: %v", err)
 	}
 	if nonExistent != nil {
-		t.Error("GetEntity with non-existent ID should return nil")
+		t.Error("GetVault non-existent should return nil")
 	}
 }
 
-func TestGetEntityByName(t *testing.T) {
+func TestListVaults(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	_ = createTestVault(t, ctx, userID)
 
-	// Create test entity
-	content := "Name lookup test"
-	created, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Unique Name For Test",
-		Content:   &content,
-		Embedding: dummyEmbedding(),
-	})
+	vaults, err := testDB.ListVaults(ctx)
 	if err != nil {
-		t.Fatalf("Failed to create test entity: %v", err)
+		t.Fatalf("ListVaults failed: %v", err)
 	}
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(created.ID))
-	}()
-
-	// Exact name match
-	entity, err := testDB.GetEntityByName(ctx, "Unique Name For Test")
-	if err != nil {
-		t.Fatalf("GetEntityByName failed: %v", err)
-	}
-	if entity == nil {
-		t.Fatal("GetEntityByName returned nil")
-	}
-
-	// Case-insensitive match
-	entityLower, err := testDB.GetEntityByName(ctx, "unique name for test")
-	if err != nil {
-		t.Fatalf("GetEntityByName (case-insensitive) failed: %v", err)
-	}
-	if entityLower == nil {
-		t.Fatal("GetEntityByName should be case-insensitive")
-	}
-
-	// Non-existent name
-	nonExistent, err := testDB.GetEntityByName(ctx, "This Name Does Not Exist")
-	if err != nil {
-		t.Errorf("GetEntityByName with non-existent name should not error: %v", err)
-	}
-	if nonExistent != nil {
-		t.Error("GetEntityByName with non-existent name should return nil")
+	if len(vaults) == 0 {
+		t.Error("ListVaults should return at least one vault")
 	}
 }
 
-func TestGetEntitiesByNames(t *testing.T) {
+func TestDeleteVault(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create test entities
-	entities := []models.EntityInput{
-		{Type: "concept", Name: "Batch Test Alpha", Embedding: dummyEmbedding()},
-		{Type: "concept", Name: "Batch Test Beta", Embedding: dummyEmbedding()},
-		{Type: "concept", Name: "Batch Test Gamma", Embedding: dummyEmbedding()},
-	}
-
-	var createdIDs []string
-	for _, input := range entities {
-		created, err := testDB.CreateEntity(ctx, input)
-		if err != nil {
-			t.Fatalf("Failed to create test entity %s: %v", input.Name, err)
-		}
-		createdIDs = append(createdIDs, models.MustRecordIDString(created.ID))
-	}
-	defer func() {
-		for _, id := range createdIDs {
-			_, _ = testDB.DeleteEntity(ctx, id)
-		}
-	}()
-
-	// Test batch lookup with mixed existing and non-existing names
-	names := []string{"Batch Test Alpha", "batch test beta", "Nonexistent Entity", "Batch Test Gamma"}
-	result, err := testDB.GetEntitiesByNames(ctx, names)
-	if err != nil {
-		t.Fatalf("GetEntitiesByNames failed: %v", err)
-	}
-
-	// Should find 3 entities (case-insensitive)
-	if len(result) != 3 {
-		t.Errorf("Expected 3 entities, got %d", len(result))
-	}
-
-	// Check case-insensitive lookup
-	if _, ok := result["batch test alpha"]; !ok {
-		t.Error("Expected to find 'batch test alpha' (lowercase key)")
-	}
-	if _, ok := result["batch test beta"]; !ok {
-		t.Error("Expected to find 'batch test beta' (lowercase key)")
-	}
-	if _, ok := result["nonexistent entity"]; ok {
-		t.Error("Should not find 'nonexistent entity'")
-	}
-
-	// Test empty input
-	emptyResult, err := testDB.GetEntitiesByNames(ctx, []string{})
-	if err != nil {
-		t.Fatalf("GetEntitiesByNames with empty input failed: %v", err)
-	}
-	if len(emptyResult) != 0 {
-		t.Errorf("Expected empty result for empty input, got %d", len(emptyResult))
-	}
-}
-
-func TestUpdateEntity(t *testing.T) {
-	ctx := context.Background()
-
-	// Create test entity
-	content := "Original content"
-	created, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Update Test Entity",
-		Content:   &content,
-		Labels:    []string{"original"},
-		Embedding: dummyEmbedding(),
+	// Create a document in the vault to test cascade
+	hash := "testhash"
+	_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/test.md",
+		Title:       "Test",
+		Content:     "content",
+		ContentBody: "content",
+		Source:      models.SourceManual,
+		ContentHash: &hash,
+		Labels:      []string{},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create test entity: %v", err)
+		t.Fatalf("CreateDocument failed: %v", err)
 	}
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(created.ID))
-	}()
 
-	// Update content and labels
-	entityID := models.MustRecordIDString(created.ID)
-	newContent := "Updated content"
-	updated, err := testDB.UpdateEntity(ctx, entityID, models.EntityUpdate{
-		Content:   &newContent,
-		AddLabels: []string{"updated"},
-	})
+	err = testDB.DeleteVault(ctx, vaultID)
 	if err != nil {
-		t.Fatalf("UpdateEntity failed: %v", err)
+		t.Fatalf("DeleteVault failed: %v", err)
 	}
-	if updated.Content == nil || *updated.Content != newContent {
-		t.Errorf("Expected updated content %q, got %v", newContent, updated.Content)
-	}
-	if len(updated.Labels) != 2 {
-		t.Errorf("Expected 2 labels after update, got %d: %v", len(updated.Labels), updated.Labels)
-	}
-}
 
-func TestDeleteEntity(t *testing.T) {
-	ctx := context.Background()
-
-	// Create test entity
-	content := "Delete test"
-	created, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Delete Test Entity",
-		Content:   &content,
-		Embedding: dummyEmbedding(),
-	})
+	deleted, err := testDB.GetVault(ctx, vaultID)
 	if err != nil {
-		t.Fatalf("Failed to create test entity: %v", err)
+		t.Fatalf("GetVault after delete failed: %v", err)
 	}
-
-	entityID := models.MustRecordIDString(created.ID)
-
-	// Delete
-	deleted, err := testDB.DeleteEntity(ctx, entityID)
-	if err != nil {
-		t.Fatalf("DeleteEntity failed: %v", err)
+	if deleted != nil {
+		t.Error("Vault should be nil after delete")
 	}
-	if !deleted {
-		t.Error("DeleteEntity should return true for existing entity")
-	}
-
-	// Verify gone
-	entity, err := testDB.GetEntity(ctx, entityID)
-	if err != nil {
-		t.Fatalf("GetEntity after delete failed: %v", err)
-	}
-	if entity != nil {
-		t.Error("Entity should be nil after delete")
-	}
-
-	// Delete non-existent
-	deleted, err = testDB.DeleteEntity(ctx, "non-existent-id")
-	if err != nil {
-		t.Errorf("DeleteEntity with non-existent ID should not error: %v", err)
-	}
-	if deleted {
-		t.Error("DeleteEntity with non-existent ID should return false")
-	}
-}
-
-func TestUpsertEntity(t *testing.T) {
-	ctx := context.Background()
-
-	// Test 1: Create new entity via upsert
-	explicitID := "upsert-test-entity"
-	content1 := "Original content"
-	entity, wasCreated, err := testDB.UpsertEntity(ctx, models.EntityInput{
-		ID:        &explicitID,
-		Type:      "document",
-		Name:      "Upsert Test",
-		Content:   &content1,
-		Embedding: dummyEmbedding(),
-	})
-	if err != nil {
-		t.Fatalf("First UpsertEntity failed: %v", err)
-	}
-	if !wasCreated {
-		t.Error("First upsert should report wasCreated=true")
-	}
-	if entity.Name != "Upsert Test" {
-		t.Errorf("Name mismatch: got %q, want %q", entity.Name, "Upsert Test")
-	}
-	if entity.Content == nil || *entity.Content != "Original content" {
-		t.Errorf("Content mismatch after first upsert")
-	}
-
-	// Test 2: Update existing entity via upsert (same ID, new content)
-	content2 := "Updated content"
-	entity2, wasCreated2, err := testDB.UpsertEntity(ctx, models.EntityInput{
-		ID:        &explicitID,
-		Type:      "document",
-		Name:      "Upsert Test Updated",
-		Content:   &content2,
-		Embedding: dummyEmbedding(),
-	})
-	if err != nil {
-		t.Fatalf("Second UpsertEntity failed: %v", err)
-	}
-	if wasCreated2 {
-		t.Error("Second upsert should report wasCreated=false (update)")
-	}
-	if entity2.Name != "Upsert Test Updated" {
-		t.Errorf("Name not updated: got %q, want %q", entity2.Name, "Upsert Test Updated")
-	}
-	if entity2.Content == nil || *entity2.Content != "Updated content" {
-		t.Errorf("Content not updated")
-	}
-
-	// Verify via direct get
-	entityID := models.MustRecordIDString(entity2.ID)
-	fetched, err := testDB.GetEntity(ctx, entityID)
-	if err != nil {
-		t.Fatalf("GetEntity after upsert failed: %v", err)
-	}
-	if fetched == nil {
-		t.Fatal("Entity should exist after upsert")
-	}
-	if fetched.Content == nil || *fetched.Content != "Updated content" {
-		t.Error("GetEntity content should reflect upsert update")
-	}
-
-	// Cleanup
-	_, _ = testDB.DeleteEntity(ctx, entityID)
 }
 
 // =============================================================================
-// SEARCH TESTS
+// DOCUMENT TESTS
 // =============================================================================
 
-func TestHybridSearch(t *testing.T) {
+func TestCreateDocument(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create test entities
-	content1 := "Go is a programming language designed at Google"
-	content2 := "Python is a popular scripting language"
-	content3 := "JavaScript runs in the browser"
+	hash := "abc123"
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/docs/hello.md",
+		Title:       "Hello World",
+		Content:     "---\ntitle: Hello\n---\nHello world content",
+		ContentBody: "Hello world content",
+		Source:      models.SourceManual,
+		Labels:      []string{"test", "greeting"},
+		ContentHash: &hash,
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
+	}
+	if doc.Title != "Hello World" {
+		t.Errorf("Expected title 'Hello World', got %q", doc.Title)
+	}
+	if doc.Path != "/docs/hello.md" {
+		t.Errorf("Expected path '/docs/hello.md', got %q", doc.Path)
+	}
+	if len(doc.Labels) != 2 {
+		t.Errorf("Expected 2 labels, got %d", len(doc.Labels))
+	}
+}
 
-	entities := []models.EntityInput{
-		{Type: "concept", Name: "Go Language", Content: &content1, Labels: []string{"programming"}, Embedding: dummyEmbedding()},
-		{Type: "concept", Name: "Python Language", Content: &content2, Labels: []string{"programming"}, Embedding: dummyEmbedding()},
-		{Type: "concept", Name: "JavaScript", Content: &content3, Labels: []string{"programming", "web"}, Embedding: dummyEmbedding()},
+func TestGetDocumentByPath(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/unique-path.md",
+		Title:       "Unique Path Doc",
+		Content:     "content",
+		ContentBody: "content",
+		Source:      models.SourceManual,
+		Labels:      []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
 	}
 
-	var createdIDs []string
-	for _, input := range entities {
-		entity, err := testDB.CreateEntity(ctx, input)
+	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/unique-path.md")
+	if err != nil {
+		t.Fatalf("GetDocumentByPath failed: %v", err)
+	}
+	if doc == nil {
+		t.Fatal("GetDocumentByPath returned nil")
+	}
+	if doc.Title != "Unique Path Doc" {
+		t.Errorf("Expected title 'Unique Path Doc', got %q", doc.Title)
+	}
+
+	notFound, err := testDB.GetDocumentByPath(ctx, vaultID, "/nonexistent.md")
+	if err != nil {
+		t.Fatalf("GetDocumentByPath nonexistent error: %v", err)
+	}
+	if notFound != nil {
+		t.Error("Expected nil for nonexistent path")
+	}
+}
+
+func TestListDocuments(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	for _, path := range []string{"/a/doc1.md", "/a/doc2.md", "/b/doc3.md"} {
+		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+			VaultID:     vaultID,
+			Path:        path,
+			Title:       "Doc " + path,
+			Content:     "content of " + path,
+			ContentBody: "content of " + path,
+			Source:      models.SourceManual,
+			Labels:      []string{"test"},
+		})
 		if err != nil {
-			t.Fatalf("Failed to create test entity: %v", err)
+			t.Fatalf("CreateDocument %s failed: %v", path, err)
 		}
-		createdIDs = append(createdIDs, models.MustRecordIDString(entity.ID))
-	}
-	defer func() {
-		for _, id := range createdIDs {
-			_, _ = testDB.DeleteEntity(ctx, id)
-		}
-	}()
-
-	// Search for "Go"
-	results, err := testDB.HybridSearch(ctx, SearchOptions{
-		Query:     "Go programming",
-		Embedding: dummyEmbedding(),
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("HybridSearch failed: %v", err)
-	}
-	if len(results) == 0 {
-		t.Error("HybridSearch should return results for 'Go programming'")
 	}
 
-	// Search with label filter
-	results, err = testDB.HybridSearch(ctx, SearchOptions{
-		Query:     "language",
-		Embedding: dummyEmbedding(),
-		Labels:    []string{"web"},
-		Limit:     10,
+	// List all
+	docs, err := testDB.ListDocuments(ctx, ListDocumentsFilter{VaultID: vaultID})
+	if err != nil {
+		t.Fatalf("ListDocuments failed: %v", err)
+	}
+	if len(docs) != 3 {
+		t.Errorf("Expected 3 docs, got %d", len(docs))
+	}
+
+	// List by folder
+	folder := "/a/"
+	docs, err = testDB.ListDocuments(ctx, ListDocumentsFilter{VaultID: vaultID, Folder: &folder})
+	if err != nil {
+		t.Fatalf("ListDocuments with folder failed: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Errorf("Expected 2 docs in /a/, got %d", len(docs))
+	}
+}
+
+func TestUpdateDocument(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/update-test.md",
+		Title:       "Original",
+		Content:     "original",
+		ContentBody: "original",
+		Source:      models.SourceManual,
+		Labels:      []string{"old"},
 	})
 	if err != nil {
-		t.Fatalf("HybridSearch with labels failed: %v", err)
+		t.Fatalf("CreateDocument failed: %v", err)
 	}
-	// Should only find JavaScript (has "web" label)
-	if len(results) == 0 {
-		t.Log("HybridSearch with web label returned no results (may be RRF limitation in v3)")
-		// Don't fail - RRF might not work with all dummy embeddings
-		return
+	docID := models.MustRecordIDString(doc.ID)
+
+	updated, err := testDB.UpdateDocument(ctx, docID, "new content", "new content", "Updated Title", []string{"new"}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("UpdateDocument failed: %v", err)
 	}
-	found := false
-	for _, r := range results {
-		t.Logf("Found: %s (labels: %v)", r.Name, r.Labels)
-		if r.Name == "JavaScript" {
-			found = true
-		}
+	if updated.Title != "Updated Title" {
+		t.Errorf("Expected title 'Updated Title', got %q", updated.Title)
 	}
-	if !found {
-		t.Error("HybridSearch with web label should find JavaScript")
+	if updated.ContentBody != "new content" {
+		t.Errorf("Expected content_body 'new content', got %q", updated.ContentBody)
+	}
+}
+
+func TestDeleteDocument(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/delete-test.md",
+		Title:       "Delete Me",
+		Content:     "content",
+		ContentBody: "content",
+		Source:      models.SourceManual,
+		Labels:      []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	err = testDB.DeleteDocument(ctx, docID)
+	if err != nil {
+		t.Fatalf("DeleteDocument failed: %v", err)
+	}
+
+	gone, err := testDB.GetDocumentByID(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetDocumentByID after delete error: %v", err)
+	}
+	if gone != nil {
+		t.Error("Document should be nil after delete")
+	}
+}
+
+func TestMoveDocument(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/old-path.md",
+		Title:       "Move Test",
+		Content:     "content",
+		ContentBody: "content",
+		Source:      models.SourceManual,
+		Labels:      []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	moved, err := testDB.MoveDocument(ctx, docID, "/new-path.md")
+	if err != nil {
+		t.Fatalf("MoveDocument failed: %v", err)
+	}
+	if moved.Path != "/new-path.md" {
+		t.Errorf("Expected path '/new-path.md', got %q", moved.Path)
 	}
 }
 
@@ -497,355 +431,512 @@ func TestHybridSearch(t *testing.T) {
 
 func TestCreateAndGetChunks(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create test entity
-	content := "Long content that would be chunked"
-	entity, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "document",
-		Name:      "Chunk Test Doc",
-		Content:   &content,
-		Embedding: dummyEmbedding(),
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/chunk-test.md",
+		Title:       "Chunk Test",
+		Content:     "long content",
+		ContentBody: "long content",
+		Source:      models.SourceManual,
+		Labels:      []string{"test"},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create test entity: %v", err)
+		t.Fatalf("CreateDocument failed: %v", err)
 	}
-	entityID := models.MustRecordIDString(entity.ID)
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, entityID)
-	}()
+	docID := models.MustRecordIDString(doc.ID)
 
-	// Create chunks
-	headingPath := "## Section 1"
-	chunks := []models.ChunkInput{
-		{EntityID: entityID, Content: "Chunk 1 content", Position: 0, HeadingPath: &headingPath, Embedding: dummyEmbedding()},
-		{EntityID: entityID, Content: "Chunk 2 content", Position: 1, Embedding: dummyEmbedding()},
-	}
-
-	err = testDB.CreateChunks(ctx, entityID, chunks)
+	heading := "## Section 1"
+	err = testDB.CreateChunks(ctx, []models.ChunkInput{
+		{DocumentID: docID, Content: "Chunk 1", Position: 0, HeadingPath: &heading, Labels: []string{"test"}, Embedding: dummyEmbedding()},
+		{DocumentID: docID, Content: "Chunk 2", Position: 1, Labels: []string{"test"}, Embedding: dummyEmbedding()},
+	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
 	}
 
-	// Get chunks
-	retrieved, err := testDB.GetChunks(ctx, entityID)
+	chunks, err := testDB.GetChunks(ctx, docID)
 	if err != nil {
 		t.Fatalf("GetChunks failed: %v", err)
 	}
-	if len(retrieved) != 2 {
-		t.Errorf("Expected 2 chunks, got %d", len(retrieved))
+	if len(chunks) != 2 {
+		t.Errorf("Expected 2 chunks, got %d", len(chunks))
 	}
-	if retrieved[0].Position != 0 {
+	if chunks[0].Position != 0 {
 		t.Error("Chunks should be ordered by position")
 	}
 }
 
 func TestDeleteChunks(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create test entity with chunks
-	content := "Content for chunk deletion test"
-	entity, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "document",
-		Name:      "Delete Chunks Test",
-		Content:   &content,
-		Embedding: dummyEmbedding(),
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/chunk-delete-test.md",
+		Title:       "Chunk Delete",
+		Content:     "content",
+		ContentBody: "content",
+		Source:      models.SourceManual,
+		Labels:      []string{},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create test entity: %v", err)
+		t.Fatalf("CreateDocument failed: %v", err)
 	}
-	entityID := models.MustRecordIDString(entity.ID)
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, entityID)
-	}()
+	docID := models.MustRecordIDString(doc.ID)
 
-	chunks := []models.ChunkInput{
-		{EntityID: entityID, Content: "To be deleted", Position: 0},
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{DocumentID: docID, Content: "To delete", Position: 0, Embedding: dummyEmbedding()},
+	}); err != nil {
+		t.Fatalf("CreateChunks setup failed: %v", err)
 	}
-	_ = testDB.CreateChunks(ctx, entityID, chunks)
 
-	// Delete chunks
-	err = testDB.DeleteChunks(ctx, entityID)
+	err = testDB.DeleteChunks(ctx, docID)
 	if err != nil {
 		t.Fatalf("DeleteChunks failed: %v", err)
 	}
 
-	// Verify gone
-	retrieved, err := testDB.GetChunks(ctx, entityID)
+	chunks, err := testDB.GetChunks(ctx, docID)
 	if err != nil {
 		t.Fatalf("GetChunks after delete failed: %v", err)
 	}
-	if len(retrieved) != 0 {
-		t.Errorf("Expected 0 chunks after delete, got %d", len(retrieved))
+	if len(chunks) != 0 {
+		t.Errorf("Expected 0 chunks after delete, got %d", len(chunks))
+	}
+}
+
+func TestCascadeDeleteChunksOnDocumentDelete(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID:     vaultID,
+		Path:        "/cascade-test.md",
+		Title:       "Cascade",
+		Content:     "content",
+		ContentBody: "content",
+		Source:      models.SourceManual,
+		Labels:      []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{DocumentID: docID, Content: "Cascade chunk", Position: 0, Embedding: dummyEmbedding()},
+	}); err != nil {
+		t.Fatalf("CreateChunks setup failed: %v", err)
+	}
+
+	// Delete the document — should cascade to chunks
+	err = testDB.DeleteDocument(ctx, docID)
+	if err != nil {
+		t.Fatalf("DeleteDocument failed: %v", err)
+	}
+
+	// SurrealDB cascade events are async, give it a moment
+	time.Sleep(100 * time.Millisecond)
+
+	chunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetChunks after cascade failed: %v", err)
+	}
+	if len(chunks) != 0 {
+		t.Errorf("Expected chunks to be cascade-deleted, got %d", len(chunks))
 	}
 }
 
 // =============================================================================
-// RELATION TESTS
+// WIKI-LINK TESTS
 // =============================================================================
 
-func TestCreateAndGetRelations(t *testing.T) {
+func TestCreateWikiLinks(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create two entities
-	content1 := "First entity"
-	content2 := "Second entity"
-	entity1, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Relation Test 1",
-		Content:   &content1,
-		Embedding: dummyEmbedding(),
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/link-source.md", Title: "Link Source",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create entity 1: %v", err)
+		t.Fatalf("CreateDocument failed: %v", err)
 	}
-	entity2, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Relation Test 2",
-		Content:   &content2,
-		Embedding: dummyEmbedding(),
+	docID := models.MustRecordIDString(doc.ID)
+
+	err = testDB.CreateWikiLinks(ctx, docID, vaultID, []WikiLinkInput{
+		{RawTarget: "Some Target"},
+		{RawTarget: "Another Target"},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create entity 2: %v", err)
+		t.Fatalf("CreateWikiLinks failed: %v", err)
 	}
 
-	id1 := models.MustRecordIDString(entity1.ID)
-	id2 := models.MustRecordIDString(entity2.ID)
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, id1)
-		_, _ = testDB.DeleteEntity(ctx, id2)
-	}()
-
-	// Create relation
-	err = testDB.CreateRelation(ctx, models.RelationInput{
-		FromID:  id1,
-		ToID:    id2,
-		RelType: "relates_to",
-	})
+	links, err := testDB.GetWikiLinks(ctx, docID)
 	if err != nil {
-		t.Fatalf("CreateRelation failed: %v", err)
+		t.Fatalf("GetWikiLinks failed: %v", err)
 	}
-
-	// Get relations for entity1
-	relations, err := testDB.GetRelations(ctx, id1)
-	if err != nil {
-		t.Fatalf("GetRelations failed: %v", err)
-	}
-	if len(relations) == 0 {
-		t.Error("Expected at least one relation")
-	}
-
-	// Get relations for entity2 (should also see the relation)
-	relations, err = testDB.GetRelations(ctx, id2)
-	if err != nil {
-		t.Fatalf("GetRelations for entity2 failed: %v", err)
-	}
-	if len(relations) == 0 {
-		t.Error("Expected to find relation from entity2 perspective")
+	if len(links) != 2 {
+		t.Errorf("Expected 2 wiki links, got %d", len(links))
 	}
 }
 
-func TestDeleteRelation(t *testing.T) {
+func TestGetBacklinks(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create two entities with relation
-	content1 := "Delete relation test 1"
-	content2 := "Delete relation test 2"
-	entity1, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Delete Rel Test 1",
-		Content:   &content1,
-		Embedding: dummyEmbedding(),
+	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/backlink-a.md", Title: "Doc A",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create entity 1: %v", err)
+		t.Fatalf("CreateDocument docA failed: %v", err)
 	}
-	entity2, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:      "concept",
-		Name:      "Delete Rel Test 2",
-		Content:   &content2,
-		Embedding: dummyEmbedding(),
+	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/backlink-b.md", Title: "Doc B",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create entity 2: %v", err)
+		t.Fatalf("CreateDocument docB failed: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+	docBID := models.MustRecordIDString(docB.ID)
+
+	// A links to B
+	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
+		{RawTarget: "Doc B", ToDocID: &docBID},
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
 	}
 
-	id1 := models.MustRecordIDString(entity1.ID)
-	id2 := models.MustRecordIDString(entity2.ID)
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, id1)
-		_, _ = testDB.DeleteEntity(ctx, id2)
-	}()
-
-	_ = testDB.CreateRelation(ctx, models.RelationInput{
-		FromID:  id1,
-		ToID:    id2,
-		RelType: "test_rel",
-	})
-
-	// Delete relation
-	err = testDB.DeleteRelation(ctx, id1, id2, "test_rel")
+	backlinks, err := testDB.GetBacklinks(ctx, docBID)
 	if err != nil {
-		t.Fatalf("DeleteRelation failed: %v", err)
+		t.Fatalf("GetBacklinks failed: %v", err)
+	}
+	if len(backlinks) != 1 {
+		t.Errorf("Expected 1 backlink, got %d", len(backlinks))
+	}
+}
+
+func TestResolveDanglingLinks(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Create doc with dangling link to "Future Doc"
+	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/dangling-source.md", Title: "Source",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument docA failed: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+
+	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
+		{RawTarget: "Future Doc"}, // No ToDocID — dangling
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
 	}
 
-	// Verify gone
-	relations, _ := testDB.GetRelations(ctx, id1)
-	for _, rel := range relations {
-		if rel.RelType == "test_rel" {
-			t.Error("Relation should have been deleted")
+	// Verify it's dangling
+	links, err := testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks failed: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("Expected 1 link, got %d", len(links))
+	}
+	if links[0].ToDoc != nil {
+		t.Fatal("Link should be dangling (to_doc nil)")
+	}
+
+	// Create the target document
+	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/future-doc.md", Title: "Future Doc",
+		Content: "arrived", ContentBody: "arrived", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument docB failed: %v", err)
+	}
+	docBID := models.MustRecordIDString(docB.ID)
+
+	// Resolve dangling links
+	resolved, err := testDB.ResolveDanglingLinks(ctx, vaultID, "Future Doc", docBID)
+	if err != nil {
+		t.Fatalf("ResolveDanglingLinks failed: %v", err)
+	}
+	if resolved != 1 {
+		t.Errorf("Expected 1 resolved link, got %d", resolved)
+	}
+
+	// Verify it's resolved
+	links, err = testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks after resolve failed: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("Expected 1 link, got %d", len(links))
+	}
+	if links[0].ToDoc == nil {
+		t.Error("Link should now be resolved")
+	}
+}
+
+// =============================================================================
+// SEARCH TESTS
+// =============================================================================
+
+func TestBM25Search(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/search-go.md", Title: "Go Programming",
+		Content: "---\ntitle: Go\n---\nGo is a statically typed language", ContentBody: "Go is a statically typed language",
+		Source: models.SourceManual, Labels: []string{"programming"},
+	}); err != nil {
+		t.Fatalf("CreateDocument go failed: %v", err)
+	}
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/search-python.md", Title: "Python Programming",
+		Content: "---\ntitle: Python\n---\nPython is a dynamic language", ContentBody: "Python is a dynamic language",
+		Source: models.SourceManual, Labels: []string{"programming"},
+	}); err != nil {
+		t.Fatalf("CreateDocument python failed: %v", err)
+	}
+
+	results, err := testDB.BM25Search(ctx, "Go statically typed", SearchFilter{
+		VaultID: vaultID,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("BM25Search failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("BM25Search should return results for 'Go statically typed'")
+	}
+}
+
+func TestSearchWithLabelFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/label-a.md", Title: "Web Doc",
+		Content: "Web frameworks are great", ContentBody: "Web frameworks are great",
+		Source: models.SourceManual, Labels: []string{"web"},
+	}); err != nil {
+		t.Fatalf("CreateDocument web failed: %v", err)
+	}
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/label-b.md", Title: "CLI Doc",
+		Content: "CLI tools are useful frameworks", ContentBody: "CLI tools are useful frameworks",
+		Source: models.SourceManual, Labels: []string{"cli"},
+	}); err != nil {
+		t.Fatalf("CreateDocument cli failed: %v", err)
+	}
+
+	results, err := testDB.BM25Search(ctx, "frameworks", SearchFilter{
+		VaultID: vaultID,
+		Labels:  []string{"web"},
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("BM25Search with labels failed: %v", err)
+	}
+	for _, r := range results {
+		foundLabel := false
+		for _, l := range r.Document.Labels {
+			if l == "web" {
+				foundLabel = true
+			}
+		}
+		if !foundLabel {
+			t.Errorf("Result %q should have 'web' label", r.Document.Title)
+		}
+	}
+}
+
+func TestSearchWithFolderFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/guides/setup.md", Title: "Setup Guide",
+		Content: "Install the software first", ContentBody: "Install the software first",
+		Source: models.SourceManual, Labels: []string{},
+	}); err != nil {
+		t.Fatalf("CreateDocument guides failed: %v", err)
+	}
+	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/notes/install.md", Title: "Install Notes",
+		Content: "Notes about installing software", ContentBody: "Notes about installing software",
+		Source: models.SourceManual, Labels: []string{},
+	}); err != nil {
+		t.Fatalf("CreateDocument notes failed: %v", err)
+	}
+
+	folder := "/guides/"
+	results, err := testDB.BM25Search(ctx, "software", SearchFilter{
+		VaultID: vaultID,
+		Folder:  &folder,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("BM25Search with folder failed: %v", err)
+	}
+	for _, r := range results {
+		if r.Document.Path[:8] != "/guides/" {
+			t.Errorf("Result %q path %q should start with /guides/", r.Document.Title, r.Document.Path)
 		}
 	}
 }
 
 // =============================================================================
-// TEMPLATE TESTS
+// TOKEN TESTS
 // =============================================================================
 
-func TestTemplates(t *testing.T) {
+func TestCreateAndLookupToken(t *testing.T) {
 	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
 
-	// Create template
-	description := "Test template description"
-	template, err := testDB.CreateTemplate(ctx, models.TemplateInput{
-		Name:        "Test Template",
-		Description: &description,
-		Content:     "# {{name}}\n\n{{content}}",
-	})
+	token, err := testDB.CreateToken(ctx, userID, "hash123unique"+fmt.Sprint(time.Now().UnixNano()), "test-token", nil)
 	if err != nil {
-		t.Fatalf("CreateTemplate failed: %v", err)
+		t.Fatalf("CreateToken failed: %v", err)
 	}
-	defer func() {
-		_, _ = testDB.DeleteTemplate(ctx, "Test Template")
-	}()
-
-	if template.Name != "Test Template" {
-		t.Errorf("Expected name 'Test Template', got %q", template.Name)
+	if token.Name != "test-token" {
+		t.Errorf("Expected name 'test-token', got %q", token.Name)
 	}
 
-	// Get template
-	retrieved, err := testDB.GetTemplate(ctx, "Test Template")
+	found, err := testDB.GetTokenByHash(ctx, token.TokenHash)
 	if err != nil {
-		t.Fatalf("GetTemplate failed: %v", err)
+		t.Fatalf("GetTokenByHash failed: %v", err)
 	}
-	if retrieved == nil {
-		t.Fatal("GetTemplate returned nil")
+	if found == nil {
+		t.Fatal("GetTokenByHash returned nil")
 	}
 
-	// List templates
-	templates, err := testDB.ListTemplates(ctx)
+	notFound, err := testDB.GetTokenByHash(ctx, "nonexistenthash")
 	if err != nil {
-		t.Fatalf("ListTemplates failed: %v", err)
+		t.Fatalf("GetTokenByHash nonexistent error: %v", err)
 	}
-	found := false
-	for _, tmpl := range templates {
-		if tmpl.Name == "Test Template" {
-			found = true
+	if notFound != nil {
+		t.Error("Expected nil for nonexistent hash")
+	}
+}
+
+func TestTokenLastUsed(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	token, err := testDB.CreateToken(ctx, userID, "lastusedhash"+fmt.Sprint(time.Now().UnixNano()), "last-used-token", nil)
+	if err != nil {
+		t.Fatalf("CreateToken failed: %v", err)
+	}
+	tokenID := models.MustRecordIDString(token.ID)
+
+	if token.LastUsed != nil {
+		t.Error("LastUsed should be nil initially")
+	}
+
+	err = testDB.UpdateTokenLastUsed(ctx, tokenID)
+	if err != nil {
+		t.Fatalf("UpdateTokenLastUsed failed: %v", err)
+	}
+
+	updated, err := testDB.GetTokenByHash(ctx, token.TokenHash)
+	if err != nil {
+		t.Fatalf("GetTokenByHash after update failed: %v", err)
+	}
+	if updated.LastUsed == nil {
+		t.Error("LastUsed should be set after update")
+	}
+}
+
+func TestListDocuments_LabelFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Create documents with different labels and paths
+	for _, doc := range []struct {
+		path   string
+		title  string
+		labels []string
+	}{
+		{"/projects/go-app.md", "Go App", []string{"go", "project"}},
+		{"/projects/rust-app.md", "Rust App", []string{"rust", "project"}},
+		{"/notes/setup.md", "Setup Guide", []string{"guide"}},
+	} {
+		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+			VaultID:     vaultID,
+			Path:        doc.path,
+			Title:       doc.title,
+			Content:     "# " + doc.title,
+			ContentBody: doc.title,
+			Labels:      doc.labels,
+			Source:      models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", doc.path, err)
 		}
 	}
-	if !found {
-		t.Error("ListTemplates should include created template")
-	}
 
-	// Delete template
-	deleted, err := testDB.DeleteTemplate(ctx, "Test Template")
-	if err != nil {
-		t.Fatalf("DeleteTemplate failed: %v", err)
-	}
-	if !deleted {
-		t.Error("DeleteTemplate should return true")
-	}
-}
-
-// =============================================================================
-// TOKEN USAGE TESTS
-// =============================================================================
-
-func TestTokenUsage(t *testing.T) {
-	ctx := context.Background()
-
-	// Record usage
-	err := testDB.RecordTokenUsage(ctx, models.TokenUsageInput{
-		Operation:    "test_embed",
-		Model:        "test-model",
-		InputTokens:  100,
-		OutputTokens: 50,
+	// Query by label
+	docs, err := testDB.ListDocuments(ctx, ListDocumentsFilter{
+		VaultID: vaultID,
+		Labels:  []string{"go"},
 	})
 	if err != nil {
-		t.Fatalf("RecordTokenUsage failed: %v", err)
+		t.Fatalf("list by label: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Errorf("expected 1 doc with label 'go', got %d", len(docs))
 	}
 
-	// Get summary (from start of time to capture our record)
-	summary, err := testDB.GetTokenUsageSummary(ctx, "2020-01-01T00:00:00Z")
-	if err != nil {
-		t.Fatalf("GetTokenUsageSummary failed: %v", err)
-	}
-	if summary.TotalTokens < 150 {
-		t.Errorf("Expected at least 150 total tokens, got %d", summary.TotalTokens)
-	}
-}
-
-func TestGetExistingHashes(t *testing.T) {
-	ctx := context.Background()
-
-	// Create entities with content hashes
-	hash1 := "abc123def456"
-	hash2 := "xyz789ghi012"
-	content := "test content"
-
-	entity1, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:        "document",
-		Name:        "Hash Test 1",
-		Content:     &content,
-		ContentHash: &hash1,
-		Embedding:   dummyEmbedding(),
+	// Query by folder + label
+	folder := "/projects/"
+	docs, err = testDB.ListDocuments(ctx, ListDocumentsFilter{
+		VaultID: vaultID,
+		Folder:  &folder,
+		Labels:  []string{"project"},
 	})
 	if err != nil {
-		t.Fatalf("CreateEntity 1 failed: %v", err)
+		t.Fatalf("list by folder+label: %v", err)
 	}
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity1.ID))
-	}()
-
-	entity2, err := testDB.CreateEntity(ctx, models.EntityInput{
-		Type:        "document",
-		Name:        "Hash Test 2",
-		Content:     &content,
-		ContentHash: &hash2,
-		Embedding:   dummyEmbedding(),
-	})
-	if err != nil {
-		t.Fatalf("CreateEntity 2 failed: %v", err)
-	}
-	defer func() {
-		_, _ = testDB.DeleteEntity(ctx, models.MustRecordIDString(entity2.ID))
-	}()
-
-	// Query with mix of existing and non-existing hashes
-	hashes := []string{hash1, "nonexistent", hash2, "alsonotexist"}
-	existing, err := testDB.GetExistingHashes(ctx, hashes)
-	if err != nil {
-		t.Fatalf("GetExistingHashes failed: %v", err)
-	}
-
-	if len(existing) != 2 {
-		t.Errorf("Expected 2 existing hashes, got %d: %v", len(existing), existing)
-	}
-
-	// Verify the correct hashes were returned
-	found := make(map[string]bool)
-	for _, h := range existing {
-		found[h] = true
-	}
-	if !found[hash1] || !found[hash2] {
-		t.Errorf("Expected hashes %s and %s, got %v", hash1, hash2, existing)
-	}
-
-	// Empty input should return empty result
-	empty, err := testDB.GetExistingHashes(ctx, []string{})
-	if err != nil {
-		t.Fatalf("GetExistingHashes with empty input failed: %v", err)
-	}
-	if len(empty) != 0 {
-		t.Errorf("Expected empty result, got %v", empty)
+	if len(docs) != 2 {
+		t.Errorf("expected 2 docs in /projects/ with label 'project', got %d", len(docs))
 	}
 }

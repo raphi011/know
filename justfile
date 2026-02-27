@@ -38,20 +38,12 @@ build:
 build-server:
     go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
 
-# Build v2 server binary
-build-server-v2:
-    go build -buildvcs=false -o {{build_dir}}/knowhow-server-v2 ./cmd/knowhow-server-v2
+# Build bootstrap script
+build-bootstrap:
+    go build -buildvcs=false -o {{build_dir}}/bootstrap ./cmd/bootstrap
 
-# Build v2 CLI binary
-build-cli-v2:
-    go build -buildvcs=false -o {{build_dir}}/knowhow-v2 ./cmd/knowhow-v2
-
-# Build v2 bootstrap script
-build-bootstrap-v2:
-    go build -buildvcs=false -o {{build_dir}}/bootstrap-v2 ./cmd/bootstrap-v2
-
-# Build all binaries (v1 + v2)
-build-all: build build-server build-server-v2 build-cli-v2 build-bootstrap-v2
+# Build all binaries
+build-all: build build-server build-bootstrap
 
 # Run server with optional args (e.g., just server --wipe)
 server *ARGS: build-server
@@ -64,7 +56,7 @@ install:
 
 # Run all tests
 test:
-    go test -v ./...
+    go test -buildvcs=false -v ./...
 
 # Start dev environment with live-reload
 dev: db-up ollama-pull
@@ -85,13 +77,9 @@ dev-setup: db-up ollama-pull
     @echo "Ollama embedding model ready"
     @echo "Run 'just dev' to start the server, or '{{build_dir}}/knowhow <command>' for CLI"
 
-# Regenerate GraphQL code (v1)
+# Regenerate GraphQL code
 generate:
-    go run github.com/99designs/gqlgen generate
-
-# Regenerate GraphQL code (v2)
-generate-v2:
-    go run github.com/99designs/gqlgen generate --config gqlgen-v2.yml
+    go run github.com/99designs/gqlgen generate --config gqlgen.yml
 
 # Start SurrealDB
 db-up:

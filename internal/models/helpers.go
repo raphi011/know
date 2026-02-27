@@ -1,15 +1,16 @@
-// Package models defines data structures for the Knowhow knowledge database.
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"path"
 	"strings"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // RecordIDString safely extracts the string ID from a SurrealDB RecordID.
-// Returns an error if the ID is not a string type.
 func RecordIDString(id surrealmodels.RecordID) (string, error) {
 	s, ok := id.ID.(string)
 	if !ok {
@@ -19,7 +20,6 @@ func RecordIDString(id surrealmodels.RecordID) (string, error) {
 }
 
 // MustRecordIDString extracts the string ID, panicking if not a string.
-// Use only when you're certain the ID is a string (e.g., after DB operations that return strings).
 func MustRecordIDString(id surrealmodels.RecordID) string {
 	s, err := RecordIDString(id)
 	if err != nil {
@@ -28,16 +28,26 @@ func MustRecordIDString(id surrealmodels.RecordID) string {
 	return s
 }
 
-// Slugify converts a name to a URL-safe ID.
-func Slugify(name string) string {
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	result := strings.Builder{}
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
-		}
+// ContentHash computes SHA256 hash of content for dedup.
+func ContentHash(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(h[:])
+}
+
+// NormalizePath ensures path starts with / and has no trailing slash.
+func NormalizePath(p string) string {
+	p = path.Clean(p)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
 	}
-	return result.String()
+	return p
+}
+
+// ParentFolder returns the parent folder path for a document path.
+func ParentFolder(docPath string) string {
+	dir := path.Dir(docPath)
+	if dir == "." {
+		return "/"
+	}
+	return dir
 }

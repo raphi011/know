@@ -1,339 +1,303 @@
-// Package graph provides GraphQL resolvers for Knowhow.
 package graph
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 
-	"github.com/raphaelgruber/memcp-go/internal/metrics"
+	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/models"
-	"github.com/raphaelgruber/memcp-go/internal/service"
+	"github.com/raphaelgruber/memcp-go/internal/parser"
+	"github.com/raphaelgruber/memcp-go/internal/search"
 )
 
-// entityToGraphQL converts a models.Entity to a GraphQL Entity.
-func entityToGraphQL(e *models.Entity) *Entity {
-	if e == nil {
+func vaultToGraphQL(v *models.Vault) *Vault {
+	if v == nil {
 		return nil
 	}
-
-	idStr, err := models.RecordIDString(e.ID)
+	id, err := models.RecordIDString(v.ID)
 	if err != nil {
-		idStr = fmt.Sprintf("%v", e.ID.ID)
+		slog.Warn("unexpected vault ID format in GraphQL conversion", "vault_name", v.Name, "error", err)
+		id = fmt.Sprintf("%v", v.ID.ID)
 	}
-
-	return &Entity{
-		ID:          idStr,
-		Type:        e.Type,
-		Name:        e.Name,
-		Content:     e.Content,
-		Summary:     e.Summary,
-		Labels:      e.Labels,
-		ContentHash: e.ContentHash,
-		Verified:    e.Verified,
-		Confidence:  e.Confidence,
-		Source:      string(e.Source),
-		SourcePath:  e.SourcePath,
-		Metadata:    e.Metadata,
-		CreatedAt:   e.CreatedAt,
-		UpdatedAt:   e.UpdatedAt,
-		AccessedAt:  e.Accessed,
-		AccessCount: e.AccessCount,
-		Relations:   []Relation{}, // Relations loaded separately if needed
+	createdBy, err := models.RecordIDString(v.CreatedBy)
+	if err != nil {
+		slog.Warn("unexpected vault createdBy format in GraphQL conversion", "vault_name", v.Name, "error", err)
+		createdBy = fmt.Sprintf("%v", v.CreatedBy.ID)
+	}
+	return &Vault{
+		ID:          id,
+		Name:        v.Name,
+		Description: v.Description,
+		CreatedBy:   createdBy,
+		CreatedAt:   v.CreatedAt,
+		UpdatedAt:   v.UpdatedAt,
 	}
 }
 
-// templateToGraphQL converts a models.Template to a GraphQL Template.
+func documentToGraphQL(d *models.Document) *Document {
+	if d == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(d.ID)
+	if err != nil {
+		slog.Warn("unexpected document ID format in GraphQL conversion", "path", d.Path, "error", err)
+		id = fmt.Sprintf("%v", d.ID.ID)
+	}
+	vaultID, err := models.RecordIDString(d.Vault)
+	if err != nil {
+		slog.Warn("unexpected document vault ID format in GraphQL conversion", "path", d.Path, "error", err)
+		vaultID = fmt.Sprintf("%v", d.Vault.ID)
+	}
+	labels := d.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+	return &Document{
+		ID:          id,
+		VaultID:     vaultID,
+		Path:        d.Path,
+		Title:       d.Title,
+		Content:     d.Content,
+		ContentBody: d.ContentBody,
+		Labels:      labels,
+		DocType:     d.DocType,
+		Source:      string(d.Source),
+		SourcePath:  d.SourcePath,
+		ContentHash: d.ContentHash,
+		Metadata:    d.Metadata,
+		CreatedAt:   d.CreatedAt,
+		UpdatedAt:   d.UpdatedAt,
+	}
+}
+
+func folderToGraphQL(f models.Folder) Folder {
+	return Folder{
+		Path:     f.Path,
+		Name:     f.Name,
+		DocCount: f.DocCount,
+	}
+}
+
+func wikiLinkToGraphQL(l *models.WikiLink) *WikiLink {
+	if l == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(l.ID)
+	if err != nil {
+		slog.Warn("unexpected wiki-link ID format", "raw_target", l.RawTarget, "error", err)
+		id = fmt.Sprintf("%v", l.ID.ID)
+	}
+	fromDocID, err := models.RecordIDString(l.FromDoc)
+	if err != nil {
+		slog.Warn("unexpected wiki-link fromDoc ID format", "raw_target", l.RawTarget, "error", err)
+		fromDocID = fmt.Sprintf("%v", l.FromDoc.ID)
+	}
+	var toDocID *string
+	if l.ToDoc != nil {
+		s, err := models.RecordIDString(*l.ToDoc)
+		if err != nil {
+			slog.Warn("unexpected wiki-link toDoc ID format", "raw_target", l.RawTarget, "error", err)
+			s = fmt.Sprintf("%v", l.ToDoc.ID)
+		}
+		toDocID = &s
+	}
+	return &WikiLink{
+		ID:        id,
+		FromDocID: fromDocID,
+		ToDocID:   toDocID,
+		RawTarget: l.RawTarget,
+		Resolved:  l.ToDoc != nil,
+	}
+}
+
+func relationToGraphQL(r *models.DocRelation) *DocRelation {
+	if r == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(r.ID)
+	if err != nil {
+		slog.Warn("unexpected relation ID format", "rel_type", r.RelType, "error", err)
+		id = fmt.Sprintf("%v", r.ID.ID)
+	}
+	inID, err := models.RecordIDString(r.In)
+	if err != nil {
+		slog.Warn("unexpected relation In ID format", "rel_type", r.RelType, "error", err)
+		inID = fmt.Sprintf("%v", r.In.ID)
+	}
+	outID, err := models.RecordIDString(r.Out)
+	if err != nil {
+		slog.Warn("unexpected relation Out ID format", "rel_type", r.RelType, "error", err)
+		outID = fmt.Sprintf("%v", r.Out.ID)
+	}
+	return &DocRelation{
+		ID:        id,
+		FromDocID: inID,
+		ToDocID:   outID,
+		RelType:   r.RelType,
+		Source:     r.Source,
+		CreatedAt: r.CreatedAt,
+	}
+}
+
 func templateToGraphQL(t *models.Template) *Template {
 	if t == nil {
 		return nil
 	}
-
-	idStr, err := models.RecordIDString(t.ID)
+	id, err := models.RecordIDString(t.ID)
 	if err != nil {
-		idStr = fmt.Sprintf("%v", t.ID.ID)
+		slog.Warn("unexpected template ID format", "name", t.Name, "error", err)
+		id = fmt.Sprintf("%v", t.ID.ID)
 	}
-
+	var vaultID *string
+	if t.Vault != nil {
+		s, err := models.RecordIDString(*t.Vault)
+		if err != nil {
+			slog.Warn("unexpected template vault ID format", "name", t.Name, "error", err)
+			s = fmt.Sprintf("%v", t.Vault.ID)
+		}
+		vaultID = &s
+	}
 	return &Template{
-		ID:          idStr,
-		Name:        t.Name,
-		Description: t.Description,
-		Content:     t.Content,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
+		ID:           id,
+		VaultID:      vaultID,
+		Name:         t.Name,
+		Description:  t.Description,
+		Content:      t.Content,
+		IsAITemplate: t.IsAITemplate,
+		CreatedAt:    t.CreatedAt,
+		UpdatedAt:    t.UpdatedAt,
 	}
 }
 
-// searchResultToGraphQL converts a models.EntitySearchResult to a GraphQL EntitySearchResult.
-func searchResultToGraphQL(r *models.EntitySearchResult) *EntitySearchResult {
-	if r == nil {
+func userToGraphQL(u *models.User) *User {
+	if u == nil {
 		return nil
 	}
-
-	entity := entityToGraphQL(&r.Entity)
-
-	chunks := make([]ChunkMatch, len(r.MatchedChunks))
-	for i, chunk := range r.MatchedChunks {
-		chunks[i] = ChunkMatch{
-			Content:     chunk.Content,
-			HeadingPath: chunk.HeadingPath,
-			Position:    chunk.Position,
-		}
-	}
-
-	return &EntitySearchResult{
-		Entity:        *entity,
-		MatchedChunks: chunks,
-		Score:         r.Score,
-	}
-}
-
-// serviceJobToGraphQL converts a service.Job to a GraphQL Job.
-func serviceJobToGraphQL(j *service.Job) *Job {
-	snapshot := j.Snapshot()
-	var errPtr *string
-	if snapshot.Error != "" {
-		errPtr = &snapshot.Error
-	}
-	var result *IngestResult
-	if snapshot.Result != nil {
-		result = &IngestResult{
-			FilesProcessed:   snapshot.Result.FilesProcessed,
-			FilesSkipped:     snapshot.Result.FilesSkipped,
-			EntitiesCreated:  snapshot.Result.EntitiesCreated,
-			ChunksCreated:    snapshot.Result.ChunksCreated,
-			RelationsCreated: snapshot.Result.RelationsCreated,
-			Errors:           snapshot.Result.Errors,
-		}
-	}
-
-	// Handle persistence fields
-	var dirPath *string
-	if snapshot.DirPath != "" {
-		dirPath = &snapshot.DirPath
-	}
-	var pendingFiles *int
-	if snapshot.PendingFiles > 0 {
-		pendingFiles = &snapshot.PendingFiles
-	}
-
-	// Handle name (optional)
-	var name *string
-	if snapshot.Name != "" {
-		name = &snapshot.Name
-	}
-
-	// Ensure labels is never nil
-	labels := snapshot.Labels
-	if labels == nil {
-		labels = []string{}
-	}
-
-	return &Job{
-		ID:           snapshot.ID,
-		Type:         snapshot.Type,
-		Status:       string(snapshot.Status),
-		Name:         name,
-		Labels:       labels,
-		Progress:     snapshot.Progress,
-		Total:        snapshot.Total,
-		Result:       result,
-		Error:        errPtr,
-		StartedAt:    snapshot.StartedAt,
-		CompletedAt:  snapshot.CompletedAt,
-		DirPath:      dirPath,
-		PendingFiles: pendingFiles,
-	}
-}
-
-// dbJobToGraphQL converts a models.IngestJob (from database) to a GraphQL Job.
-func dbJobToGraphQL(j *models.IngestJob) *Job {
-	if j == nil {
-		return nil
-	}
-
-	jobID, err := models.RecordIDString(j.ID)
+	id, err := models.RecordIDString(u.ID)
 	if err != nil {
-		jobID = fmt.Sprintf("%v", j.ID.ID)
+		slog.Warn("unexpected user ID format", "name", u.Name, "error", err)
+		id = fmt.Sprintf("%v", u.ID.ID)
+	}
+	return &User{
+		ID:        id,
+		Name:      u.Name,
+		Email:     u.Email,
+		CreatedAt: u.CreatedAt,
+	}
+}
+
+func queryFormatToGraphQL(f parser.QueryFormat) QueryFormat {
+	if f == parser.FormatTable {
+		return QueryFormatTable
+	}
+	return QueryFormatList
+}
+
+// resolveQueryBlock executes a parsed query block against the database.
+func resolveQueryBlock(ctx context.Context, dbClient *db.Client, vaultID string, parsed parser.QueryBlock) QueryBlock {
+	block := QueryBlock{
+		Index:    parsed.Index,
+		RawQuery: parsed.RawQuery,
+		Format:   queryFormatToGraphQL(parsed.Format),
+		Results:  []QueryResult{},
 	}
 
-	var errPtr *string
-	if j.Error != nil {
-		errPtr = j.Error
+	if parsed.Error != "" {
+		block.Error = &parsed.Error
+		return block
 	}
 
-	var result *IngestResult
-	if j.Result != nil {
-		result = &IngestResult{
-			FilesProcessed:   intFromMap(j.Result, "files_processed"),
-			EntitiesCreated:  intFromMap(j.Result, "entities_created"),
-			ChunksCreated:    intFromMap(j.Result, "chunks_created"),
-			RelationsCreated: intFromMap(j.Result, "relations_created"),
-			Errors:           stringsFromMap(j.Result, "errors"),
+	// Build filter from parsed DSL
+	filter := db.ListDocumentsFilter{
+		VaultID: vaultID,
+		Folder:  parsed.Folder,
+		Limit:   parsed.Limit,
+	}
+
+	// Map WHERE conditions to filter fields
+	for _, cond := range parsed.Conditions {
+		switch {
+		case cond.Field == "labels" && cond.Op == parser.OpContain:
+			filter.Labels = append(filter.Labels, cond.Value)
+		case cond.Field == "type" && cond.Op == parser.OpEqual:
+			filter.DocType = &cond.Value
 		}
 	}
 
-	var dirPath *string
-	if j.DirPath != "" {
-		dirPath = &j.DirPath
-	}
-
-	// Ensure labels is never nil
-	labels := j.Labels
-	if labels == nil {
-		labels = []string{}
-	}
-
-	return &Job{
-		ID:          jobID,
-		Type:        j.JobType,
-		Status:      j.Status,
-		Name:        j.Name,
-		Labels:      labels,
-		Progress:    j.Progress,
-		Total:       j.Total,
-		Result:      result,
-		Error:       errPtr,
-		StartedAt:   j.StartedAt,
-		CompletedAt: j.CompletedAt,
-		DirPath:     dirPath,
-	}
-}
-
-// conversationToGraphQL converts a models.Conversation to a GraphQL Conversation.
-func conversationToGraphQL(c *models.Conversation, messages []Message) *Conversation {
-	if c == nil {
-		return nil
-	}
-
-	idStr, err := models.RecordIDString(c.ID)
+	docs, err := dbClient.ListDocuments(ctx, filter)
 	if err != nil {
-		idStr = fmt.Sprintf("%v", c.ID.ID)
+		errMsg := fmt.Sprintf("query error: %v", err)
+		block.Error = &errMsg
+		return block
 	}
 
-	if messages == nil {
-		messages = []Message{}
-	}
-
-	return &Conversation{
-		ID:        idStr,
-		Title:     c.Title,
-		EntityID:  c.EntityID,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
-		Messages:  messages,
-	}
-}
-
-// messageToGraphQL converts a models.Message to a GraphQL Message.
-func messageToGraphQL(m *models.Message) Message {
-	idStr, err := models.RecordIDString(m.ID)
-	if err != nil {
-		idStr = fmt.Sprintf("%v", m.ID.ID)
-	}
-
-	return Message{
-		ID:        idStr,
-		Role:      m.Role,
-		Content:   m.Content,
-		CreatedAt: m.CreatedAt,
-	}
-}
-
-// intFromMap extracts an int from a map[string]any.
-func intFromMap(m map[string]any, key string) int {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case float64:
-			return int(n)
+	// Post-filter for conditions the DB filter doesn't support (title CONTAINS)
+	var titleContains string
+	for _, cond := range parsed.Conditions {
+		if cond.Field == "title" && cond.Op == parser.OpContains {
+			titleContains = strings.ToLower(cond.Value)
 		}
 	}
-	return 0
-}
 
-// stringsFromMap extracts a []string from a map[string]any.
-func stringsFromMap(m map[string]any, key string) []string {
-	if v, ok := m[key]; ok {
-		if arr, ok := v.([]any); ok {
-			result := make([]string, 0, len(arr))
-			for _, item := range arr {
-				if s, ok := item.(string); ok {
-					result = append(result, s)
+	for _, doc := range docs {
+		if titleContains != "" && !strings.Contains(strings.ToLower(doc.Title), titleContains) {
+			continue
+		}
+		docID, err := models.RecordIDString(doc.ID)
+		if err != nil {
+			slog.Warn("failed to extract doc ID in query block resolution", "path", doc.Path, "error", err)
+			docID = fmt.Sprintf("%v", doc.ID.ID)
+		}
+		result := QueryResult{
+			DocID: docID,
+			Title: doc.Title,
+			Path:  doc.Path,
+		}
+		// Build fields map for SHOW columns
+		if len(parsed.ShowFields) > 0 {
+			fields := make(map[string]any)
+			for _, f := range parsed.ShowFields {
+				switch f {
+				case "title":
+					fields["title"] = doc.Title
+				case "path":
+					fields["path"] = doc.Path
+				case "labels":
+					fields["labels"] = doc.Labels
+				case "doc_type":
+					fields["doc_type"] = doc.DocType
+				case "created_at":
+					fields["created_at"] = doc.CreatedAt
+				case "updated_at":
+					fields["updated_at"] = doc.UpdatedAt
+				case "source":
+					fields["source"] = doc.Source
 				}
 			}
-			return result
+			result.Fields = fields
 		}
-		if arr, ok := v.([]string); ok {
-			return arr
+		block.Results = append(block.Results, result)
+	}
+
+	return block
+}
+
+func searchResultToGraphQL(r search.SearchResult) SearchResult {
+	doc := documentToGraphQL(&r.Document)
+	chunks := make([]ChunkMatch, len(r.MatchedChunks))
+	for i, ch := range r.MatchedChunks {
+		chunks[i] = ChunkMatch{
+			Content:     ch.Content,
+			HeadingPath: ch.HeadingPath,
+			Position:    ch.Position,
+			Score:       ch.Score,
 		}
 	}
-	return []string{}
-}
-
-// intPtr returns a pointer to an int value.
-func intPtr(v int64) *int {
-	i := int(v)
-	return &i
-}
-
-// floatPtr returns a pointer to a float64 value.
-func floatPtr(v float64) *float64 {
-	return &v
-}
-
-// operationSnapshotToGraphQL converts a metrics.OperationSnapshot to a GraphQL OperationStats.
-func operationSnapshotToGraphQL(s *metrics.OperationSnapshot) *OperationStats {
-	if s == nil {
-		return nil
-	}
-
-	stats := &OperationStats{
-		Count:       int(s.Count),
-		TotalTimeMs: int(s.TotalTimeMs),
-		AvgTimeMs:   s.AvgTimeMs,
-		MinTimeMs:   int(s.MinTimeMs),
-		MaxTimeMs:   int(s.MaxTimeMs),
-	}
-
-	// Add token stats if present
-	if s.TotalInputTokens != nil {
-		stats.TotalInputTokens = intPtr(*s.TotalInputTokens)
-	}
-	if s.TotalOutputTokens != nil {
-		stats.TotalOutputTokens = intPtr(*s.TotalOutputTokens)
-	}
-	if s.AvgInputTokens != nil {
-		stats.AvgInputTokens = floatPtr(*s.AvgInputTokens)
-	}
-	if s.AvgOutputTokens != nil {
-		stats.AvgOutputTokens = floatPtr(*s.AvgOutputTokens)
-	}
-	if s.MinInputTokens != nil {
-		stats.MinInputTokens = intPtr(*s.MinInputTokens)
-	}
-	if s.MaxInputTokens != nil {
-		stats.MaxInputTokens = intPtr(*s.MaxInputTokens)
-	}
-	if s.MinOutputTokens != nil {
-		stats.MinOutputTokens = intPtr(*s.MinOutputTokens)
-	}
-	if s.MaxOutputTokens != nil {
-		stats.MaxOutputTokens = intPtr(*s.MaxOutputTokens)
-	}
-
-	return stats
-}
-
-// metricsSnapshotToGraphQL converts a metrics.Snapshot to a GraphQL ServerStats.
-func metricsSnapshotToGraphQL(s metrics.Snapshot) *ServerStats {
-	return &ServerStats{
-		UptimeSeconds: s.UptimeSeconds,
-		Embedding:     operationSnapshotToGraphQL(s.Embedding),
-		LlmGenerate:   operationSnapshotToGraphQL(s.LLMGenerate),
-		LlmStream:     operationSnapshotToGraphQL(s.LLMStream),
-		DbQuery:       operationSnapshotToGraphQL(s.DBQuery),
-		DbSearch:      operationSnapshotToGraphQL(s.DBSearch),
+	return SearchResult{
+		Document:      *doc,
+		Score:         r.Score,
+		MatchedChunks: chunks,
 	}
 }

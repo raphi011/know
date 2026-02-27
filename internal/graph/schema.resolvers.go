@@ -9,752 +9,463 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strings"
-	"time"
 
-	"github.com/raphaelgruber/memcp-go/internal/llm"
+	"github.com/raphaelgruber/memcp-go/internal/auth"
+	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/models"
-	"github.com/raphaelgruber/memcp-go/internal/service"
+	"github.com/raphaelgruber/memcp-go/internal/parser"
+	"github.com/raphaelgruber/memcp-go/internal/search"
 )
 
-// CreateEntity is the resolver for the createEntity field.
-func (r *mutationResolver) CreateEntity(ctx context.Context, input EntityInput) (*Entity, error) {
-	// Convert GraphQL input to service input
-	modelInput := models.EntityInput{
-		Type:       input.Type,
-		Name:       input.Name,
-		Content:    input.Content,
-		Summary:    input.Summary,
-		Labels:     input.Labels,
-		Verified:   input.Verified,
-		SourcePath: input.SourcePath,
-		Metadata:   input.Metadata,
-	}
-
-	// Set source if provided
-	if input.Source != nil {
-		source := models.EntitySource(*input.Source)
-		modelInput.Source = &source
-	}
-
-	result, err := r.entityService.Create(ctx, modelInput)
+// WikiLinks is the resolver for the wikiLinks field.
+func (r *documentResolver) WikiLinks(ctx context.Context, obj *Document) ([]*WikiLink, error) {
+	links, err := r.db.GetWikiLinks(ctx, obj.ID)
 	if err != nil {
 		return nil, err
 	}
-
-	return entityToGraphQL(result.Entity), nil
+	result := make([]*WikiLink, len(links))
+	for i := range links {
+		result[i] = wikiLinkToGraphQL(&links[i])
+	}
+	return result, nil
 }
 
-// UpdateEntity is the resolver for the updateEntity field.
-func (r *mutationResolver) UpdateEntity(ctx context.Context, id string, input EntityUpdate) (*Entity, error) {
-	modelUpdate := models.EntityUpdate{
-		Name:      input.Name,
-		Content:   input.Content,
-		Summary:   input.Summary,
-		Labels:    input.Labels,
-		AddLabels: input.AddLabels,
-		DelLabels: input.DelLabels,
-		Verified:  input.Verified,
-		Metadata:  input.Metadata,
-	}
-
-	entity, err := r.entityService.Update(ctx, id, modelUpdate)
+// Backlinks is the resolver for the backlinks field.
+func (r *documentResolver) Backlinks(ctx context.Context, obj *Document) ([]*WikiLink, error) {
+	links, err := r.db.GetBacklinks(ctx, obj.ID)
 	if err != nil {
 		return nil, err
 	}
-
-	return entityToGraphQL(entity), nil
+	result := make([]*WikiLink, len(links))
+	for i := range links {
+		result[i] = wikiLinkToGraphQL(&links[i])
+	}
+	return result, nil
 }
 
-// DeleteEntity is the resolver for the deleteEntity field.
-func (r *mutationResolver) DeleteEntity(ctx context.Context, id string) (bool, error) {
-	return r.entityService.Delete(ctx, id)
+// Relations is the resolver for the relations field.
+func (r *documentResolver) Relations(ctx context.Context, obj *Document) ([]*DocRelation, error) {
+	relations, err := r.db.GetRelations(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*DocRelation, len(relations))
+	for i := range relations {
+		result[i] = relationToGraphQL(&relations[i])
+	}
+	return result, nil
 }
 
-// CreateRelation is the resolver for the createRelation field.
-func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInput) (bool, error) {
-	modelInput := models.RelationInput{
-		FromID:   input.FromID,
-		ToID:     input.ToID,
-		RelType:  input.RelType,
-		Strength: input.Strength,
+// QueryBlocks is the resolver for the queryBlocks field.
+func (r *documentResolver) QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error) {
+	parsed := parser.ExtractQueryBlocks(obj.Content)
+	if len(parsed) == 0 {
+		return []*QueryBlock{}, nil
 	}
 
-	err := r.entityService.CreateRelation(ctx, modelInput)
+	results := make([]*QueryBlock, len(parsed))
+	for i, p := range parsed {
+		block := resolveQueryBlock(ctx, r.db, obj.VaultID, p)
+		results[i] = &block
+	}
+	return results, nil
+}
+
+// CreateVault is the resolver for the createVault field.
+func (r *mutationResolver) CreateVault(ctx context.Context, input VaultInput) (*Vault, error) {
+	ac, err := auth.FromContext(ctx)
 	if err != nil {
+		return nil, err
+	}
+	v, err := r.vaultService.Create(ctx, ac.UserID, models.VaultInput{
+		Name:        input.Name,
+		Description: input.Description,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return vaultToGraphQL(v), nil
+}
+
+// DeleteVault is the resolver for the deleteVault field.
+func (r *mutationResolver) DeleteVault(ctx context.Context, id string) (bool, error) {
+	if err := auth.RequireVaultAccess(ctx, id); err != nil {
+		return false, err
+	}
+	if err := r.vaultService.Delete(ctx, id); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// IngestFile is the resolver for the ingestFile field.
-func (r *mutationResolver) IngestFile(ctx context.Context, filePath string, input *IngestInput) (*Entity, error) {
-	opts := service.IngestOptions{}
-	if input != nil {
-		opts.Labels = input.Labels
-		if input.ExtractGraph != nil {
-			opts.ExtractGraph = *input.ExtractGraph
-		}
-		if input.DryRun != nil {
-			opts.DryRun = *input.DryRun
-		}
-		if input.Recursive != nil {
-			opts.Recursive = *input.Recursive
+// CreateDocument is the resolver for the createDocument field.
+func (r *mutationResolver) CreateDocument(ctx context.Context, vaultID string, file FileInput, source *string) (*Document, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	src := models.SourceManual
+	if source != nil {
+		src = models.DocumentSource(*source)
+		if !src.Valid() {
+			return nil, fmt.Errorf("invalid document source: %q", *source)
 		}
 	}
-
-	// Derive baseDir from parent directory for unique entity IDs
-	opts.BaseDir = filepath.Base(filepath.Dir(filePath))
-
-	result, err := r.ingestService.IngestFile(ctx, filePath, opts)
+	doc, err := r.documentService.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    file.Path,
+		Content: file.Content,
+		Source:  src,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return entityToGraphQL(result.Entity), nil
+	return documentToGraphQL(doc), nil
 }
 
-// IngestDirectory is the resolver for the ingestDirectory field.
-func (r *mutationResolver) IngestDirectory(ctx context.Context, dirPath string, input *IngestInput) (*IngestResult, error) {
-	opts := service.IngestOptions{
-		Concurrency: r.jobManager.Concurrency(),
+// UpdateDocument is the resolver for the updateDocument field.
+func (r *mutationResolver) UpdateDocument(ctx context.Context, vaultID string, path string, content string) (*Document, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
 	}
-	if input != nil {
-		opts.Labels = input.Labels
-		if input.ExtractGraph != nil {
-			opts.ExtractGraph = *input.ExtractGraph
-		}
-		if input.DryRun != nil {
-			opts.DryRun = *input.DryRun
-		}
-		if input.Recursive != nil {
-			opts.Recursive = *input.Recursive
-		}
-	}
-
-	result, err := r.ingestService.IngestDirectory(ctx, dirPath, opts)
+	doc, err := r.documentService.Update(ctx, vaultID, path, content)
 	if err != nil {
 		return nil, err
 	}
-
-	return &IngestResult{
-		FilesProcessed:   result.FilesProcessed,
-		FilesSkipped:     result.FilesSkipped,
-		EntitiesCreated:  result.EntitiesCreated,
-		ChunksCreated:    result.ChunksCreated,
-		RelationsCreated: result.RelationsCreated,
-		Errors:           result.Errors,
-	}, nil
+	return documentToGraphQL(doc), nil
 }
 
-// IngestDirectoryAsync is the resolver for the ingestDirectoryAsync field.
-func (r *mutationResolver) IngestDirectoryAsync(ctx context.Context, dirPath string, input *IngestInput) (*Job, error) {
-	opts := service.IngestOptions{}
-	if input != nil {
-		if input.Name != nil {
-			opts.Name = *input.Name
-		}
-		opts.Labels = input.Labels
-		if input.ExtractGraph != nil {
-			opts.ExtractGraph = *input.ExtractGraph
-		}
-		if input.DryRun != nil {
-			opts.DryRun = *input.DryRun
-		}
-		if input.Recursive != nil {
-			opts.Recursive = *input.Recursive
-		}
+// MoveDocument is the resolver for the moveDocument field.
+func (r *mutationResolver) MoveDocument(ctx context.Context, vaultID string, oldPath string, newPath string) (*Document, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
 	}
-
-	job, err := r.ingestService.IngestDirectoryAsync(ctx, r.jobManager, dirPath, opts)
+	doc, err := r.documentService.Move(ctx, vaultID, oldPath, newPath)
 	if err != nil {
 		return nil, err
 	}
+	return documentToGraphQL(doc), nil
+}
 
-	return serviceJobToGraphQL(job), nil
+// DeleteDocument is the resolver for the deleteDocument field.
+func (r *mutationResolver) DeleteDocument(ctx context.Context, vaultID string, path string) (bool, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return false, err
+	}
+	if err := r.documentService.Delete(ctx, vaultID, path); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// CreateRelation is the resolver for the createRelation field.
+func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInput) (*DocRelation, error) {
+	// Verify access to both documents' vaults
+	fromDoc, err := r.db.GetDocumentByID(ctx, input.FromDocID)
+	if err != nil {
+		return nil, fmt.Errorf("get from document: %w", err)
+	}
+	if fromDoc == nil {
+		return nil, fmt.Errorf("from document not found: %s", input.FromDocID)
+	}
+	fromVaultID, err := models.RecordIDString(fromDoc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract from document vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, fromVaultID); err != nil {
+		return nil, err
+	}
+
+	toDoc, err := r.db.GetDocumentByID(ctx, input.ToDocID)
+	if err != nil {
+		return nil, fmt.Errorf("get to document: %w", err)
+	}
+	if toDoc == nil {
+		return nil, fmt.Errorf("to document not found: %s", input.ToDocID)
+	}
+	toVaultID, err := models.RecordIDString(toDoc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract to document vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, toVaultID); err != nil {
+		return nil, err
+	}
+
+	rel, err := r.db.CreateRelation(ctx, models.DocRelationInput{
+		FromDocID: input.FromDocID,
+		ToDocID:   input.ToDocID,
+		RelType:   input.RelType,
+		Source:    string(models.RelSourceAPI),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return relationToGraphQL(rel), nil
+}
+
+// DeleteRelation is the resolver for the deleteRelation field.
+func (r *mutationResolver) DeleteRelation(ctx context.Context, id string) (bool, error) {
+	// Look up the relation to verify vault access on both documents
+	relations, err := r.db.GetRelationByID(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("get relation: %w", err)
+	}
+	if relations == nil {
+		return false, fmt.Errorf("relation not found: %s", id)
+	}
+	inDocID, err := models.RecordIDString(relations.In)
+	if err != nil {
+		return false, fmt.Errorf("extract relation in doc ID: %w", err)
+	}
+	inDoc, err := r.db.GetDocumentByID(ctx, inDocID)
+	if err != nil {
+		return false, fmt.Errorf("get in document: %w", err)
+	}
+	if inDoc != nil {
+		vaultID, err := models.RecordIDString(inDoc.Vault)
+		if err != nil {
+			return false, fmt.Errorf("extract vault ID: %w", err)
+		}
+		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+			return false, err
+		}
+	}
+
+	if err := r.db.DeleteRelation(ctx, id); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CreateTemplate is the resolver for the createTemplate field.
-func (r *mutationResolver) CreateTemplate(ctx context.Context, name string, description *string, content string) (*Template, error) {
-	input := models.TemplateInput{
-		Name:        name,
-		Description: description,
-		Content:     content,
+func (r *mutationResolver) CreateTemplate(ctx context.Context, input TemplateInput) (*Template, error) {
+	if input.VaultID != nil {
+		if err := auth.RequireVaultAccess(ctx, *input.VaultID); err != nil {
+			return nil, err
+		}
 	}
-
-	template, err := r.db.CreateTemplate(ctx, input)
+	isAI := false
+	if input.IsAITemplate != nil {
+		isAI = *input.IsAITemplate
+	}
+	t, err := r.templateService.Create(ctx, models.TemplateInput{
+		VaultID:      input.VaultID,
+		Name:         input.Name,
+		Description:  input.Description,
+		Content:      input.Content,
+		IsAITemplate: isAI,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return templateToGraphQL(template), nil
+	return templateToGraphQL(t), nil
 }
 
 // DeleteTemplate is the resolver for the deleteTemplate field.
-func (r *mutationResolver) DeleteTemplate(ctx context.Context, name string) (bool, error) {
-	return r.db.DeleteTemplate(ctx, name)
+func (r *mutationResolver) DeleteTemplate(ctx context.Context, id string) (bool, error) {
+	// Check vault access if the template is scoped to a vault
+	tmpl, err := r.templateService.Get(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("get template: %w", err)
+	}
+	if tmpl == nil {
+		return false, fmt.Errorf("template not found: %s", id)
+	}
+	if tmpl.Vault != nil {
+		vaultID, err := models.RecordIDString(*tmpl.Vault)
+		if err != nil {
+			return false, fmt.Errorf("extract template vault ID: %w", err)
+		}
+		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+			return false, err
+		}
+	}
+
+	if err := r.templateService.Delete(ctx, id); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-// IngestFiles is the resolver for the ingestFiles field.
-func (r *mutationResolver) IngestFiles(ctx context.Context, input IngestFilesInput) (*IngestResult, error) {
-	opts := service.IngestOptions{
-		Concurrency: r.jobManager.Concurrency(),
-	}
-	if input.Options != nil {
-		opts.Labels = input.Options.Labels
-		if input.Options.ExtractGraph != nil {
-			opts.ExtractGraph = *input.Options.ExtractGraph
-		}
-		if input.Options.DryRun != nil {
-			opts.DryRun = *input.Options.DryRun
-		}
-	}
-
-	// Convert GraphQL input to service types
-	files := make([]service.FileContent, len(input.Files))
-	for i, f := range input.Files {
-		files[i] = service.FileContent{
-			Path:    f.Path,
-			Content: f.Content,
-			Hash:    f.Hash,
-		}
-	}
-
-	result, err := r.ingestService.IngestFilesWithContent(ctx, files, input.BaseDir, opts)
+// Me is the resolver for the me field.
+func (r *queryResolver) Me(ctx context.Context) (*Me, error) {
+	ac, err := auth.FromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	return &IngestResult{
-		FilesProcessed:   result.FilesProcessed,
-		FilesSkipped:     result.FilesSkipped,
-		EntitiesCreated:  result.EntitiesCreated,
-		ChunksCreated:    result.ChunksCreated,
-		RelationsCreated: result.RelationsCreated,
-		Errors:           result.Errors,
+	user, err := r.db.GetUser(ctx, ac.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("user not found")
+	}
+	return &Me{
+		User:        *userToGraphQL(user),
+		VaultAccess: ac.VaultAccess,
 	}, nil
 }
 
-// IngestFilesAsync is the resolver for the ingestFilesAsync field.
-func (r *mutationResolver) IngestFilesAsync(ctx context.Context, input IngestFilesInput) (*Job, error) {
-	opts := service.IngestOptions{}
-	if input.Options != nil {
-		if input.Options.Name != nil {
-			opts.Name = *input.Options.Name
+// Vault is the resolver for the vault field.
+func (r *queryResolver) Vault(ctx context.Context, id string) (*Vault, error) {
+	if err := auth.RequireVaultAccess(ctx, id); err != nil {
+		return nil, err
+	}
+	v, err := r.vaultService.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return vaultToGraphQL(v), nil
+}
+
+// Vaults is the resolver for the vaults field.
+func (r *queryResolver) Vaults(ctx context.Context) ([]*Vault, error) {
+	ac, err := auth.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all, err := r.vaultService.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Filter to vaults the user has access to
+	accessSet := make(map[string]bool, len(ac.VaultAccess))
+	for _, id := range ac.VaultAccess {
+		accessSet[id] = true
+	}
+	var result []*Vault
+	for i := range all {
+		id, err := models.RecordIDString(all[i].ID)
+		if err != nil {
+			slog.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
+			continue
 		}
-		opts.Labels = input.Options.Labels
-		if input.Options.ExtractGraph != nil {
-			opts.ExtractGraph = *input.Options.ExtractGraph
+		if accessSet[id] {
+			result = append(result, vaultToGraphQL(&all[i]))
 		}
-		if input.Options.DryRun != nil {
-			opts.DryRun = *input.Options.DryRun
-		}
-	}
-
-	// Convert GraphQL input to service types
-	files := make([]service.FileContent, len(input.Files))
-	for i, f := range input.Files {
-		files[i] = service.FileContent{
-			Path:    f.Path,
-			Content: f.Content,
-			Hash:    f.Hash,
-		}
-	}
-
-	job, err := r.ingestService.IngestFilesWithContentAsync(ctx, r.jobManager, files, input.BaseDir, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return serviceJobToGraphQL(job), nil
-}
-
-// UpdateEntityContent is the resolver for the updateEntityContent field.
-func (r *mutationResolver) UpdateEntityContent(ctx context.Context, id string, content string) (*Entity, error) {
-	entity, err := r.entityService.UpdateContent(ctx, id, content)
-	if err != nil {
-		return nil, err
-	}
-	return entityToGraphQL(entity), nil
-}
-
-// CreateConversation is the resolver for the createConversation field.
-func (r *mutationResolver) CreateConversation(ctx context.Context, title *string, entityID *string) (*Conversation, error) {
-	t := "New conversation"
-	if title != nil && *title != "" {
-		t = *title
-	}
-
-	conv, err := r.db.CreateConversation(ctx, t, entityID)
-	if err != nil {
-		return nil, err
-	}
-
-	return conversationToGraphQL(conv, nil), nil
-}
-
-// DeleteConversation is the resolver for the deleteConversation field.
-func (r *mutationResolver) DeleteConversation(ctx context.Context, id string) (bool, error) {
-	return r.db.DeleteConversation(ctx, id)
-}
-
-// Entity is the resolver for the entity field.
-func (r *queryResolver) Entity(ctx context.Context, id string) (*Entity, error) {
-	entity, err := r.entityService.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if entity == nil {
-		return nil, nil
-	}
-	return entityToGraphQL(entity), nil
-}
-
-// EntityByName is the resolver for the entityByName field.
-func (r *queryResolver) EntityByName(ctx context.Context, name string) (*Entity, error) {
-	entity, err := r.db.GetEntityByName(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	if entity == nil {
-		return nil, nil
-	}
-
-	// Update access tracking (best-effort)
-	if idStr, err := models.RecordIDString(entity.ID); err == nil {
-		if err := r.db.UpdateEntityAccess(ctx, idStr); err != nil {
-			slog.Warn("failed to update entity access", "entity", idStr, "error", err)
-		}
-	} else {
-		slog.Warn("failed to extract entity ID for access tracking", "error", err)
-	}
-
-	return entityToGraphQL(entity), nil
-}
-
-// Entities is the resolver for the entities field.
-func (r *queryResolver) Entities(ctx context.Context, typeArg *string, labels []string, limit *int) ([]*Entity, error) {
-	entityType := ""
-	if typeArg != nil {
-		entityType = *typeArg
-	}
-
-	lim := 50
-	if limit != nil {
-		lim = *limit
-	}
-
-	entities, err := r.db.ListEntities(ctx, entityType, labels, lim)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]*Entity, len(entities))
-	for i := range entities {
-		result[i] = entityToGraphQL(&entities[i])
 	}
 	return result, nil
 }
 
-// Search is the resolver for the search field.
-func (r *queryResolver) Search(ctx context.Context, input SearchInput) ([]*EntitySearchResult, error) {
-	opts := service.SearchOptions{
-		Query:  input.Query,
-		Labels: input.Labels,
-		Types:  input.Types,
+// Document is the resolver for the document field.
+func (r *queryResolver) Document(ctx context.Context, vaultID string, path string) (*Document, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
 	}
-	if input.VerifiedOnly != nil {
-		opts.VerifiedOnly = *input.VerifiedOnly
-	}
-	if input.Limit != nil {
-		opts.Limit = *input.Limit
-	}
-
-	results, err := r.searchService.SearchWithChunks(ctx, opts)
+	doc, err := r.db.GetDocumentByPath(ctx, vaultID, path)
 	if err != nil {
 		return nil, err
 	}
+	return documentToGraphQL(doc), nil
+}
 
-	gqlResults := make([]*EntitySearchResult, len(results))
-	for i := range results {
-		gqlResults[i] = searchResultToGraphQL(&results[i])
+// DocumentByID is the resolver for the documentById field.
+func (r *queryResolver) DocumentByID(ctx context.Context, id string) (*Document, error) {
+	doc, err := r.db.GetDocumentByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		return nil, nil
+	}
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from document: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	return documentToGraphQL(doc), nil
+}
+
+// Search is the resolver for the search field.
+func (r *queryResolver) Search(ctx context.Context, input SearchInput) ([]*SearchResult, error) {
+	if err := auth.RequireVaultAccess(ctx, input.VaultID); err != nil {
+		return nil, err
+	}
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+	}
+	results, err := r.searchService.Search(ctx, search.SearchInput{
+		VaultID: input.VaultID,
+		Query:   input.Query,
+		Labels:  input.Labels,
+		DocType: input.DocType,
+		Folder:  input.Folder,
+		Limit:   limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	gqlResults := make([]*SearchResult, len(results))
+	for i, sr := range results {
+		gql := searchResultToGraphQL(sr)
+		gqlResults[i] = &gql
 	}
 	return gqlResults, nil
 }
 
-// Ask is the resolver for the ask field.
-func (r *queryResolver) Ask(ctx context.Context, query string, input *SearchInput, templateName *string) (string, error) {
-	opts := service.SearchOptions{}
-	if input != nil {
-		opts.Query = input.Query
-		opts.Labels = input.Labels
-		opts.Types = input.Types
-		if input.VerifiedOnly != nil {
-			opts.VerifiedOnly = *input.VerifiedOnly
-		}
-		if input.Limit != nil {
-			opts.Limit = *input.Limit
-		}
-	}
-
-	if templateName != nil && *templateName != "" {
-		return r.searchService.AskWithTemplate(ctx, query, *templateName, opts)
-	}
-
-	return r.searchService.Ask(ctx, query, opts)
-}
-
-// Labels is the resolver for the labels field.
-func (r *queryResolver) Labels(ctx context.Context) ([]*LabelCount, error) {
-	labels, err := r.db.ListLabels(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]*LabelCount, len(labels))
-	for i := range labels {
-		result[i] = &LabelCount{
-			Label: labels[i].Label,
-			Count: labels[i].Count,
-		}
-	}
-	return result, nil
-}
-
-// Types is the resolver for the types field.
-func (r *queryResolver) Types(ctx context.Context) ([]*TypeCount, error) {
-	types, err := r.db.ListTypes(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]*TypeCount, len(types))
-	for i := range types {
-		result[i] = &TypeCount{
-			Type:  types[i].Type,
-			Count: types[i].Count,
-		}
-	}
-	return result, nil
-}
-
 // Template is the resolver for the template field.
-func (r *queryResolver) Template(ctx context.Context, name string) (*Template, error) {
-	template, err := r.db.GetTemplate(ctx, name)
+func (r *queryResolver) Template(ctx context.Context, id string) (*Template, error) {
+	t, err := r.templateService.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if template == nil {
-		return nil, nil
-	}
-	return templateToGraphQL(template), nil
+	return templateToGraphQL(t), nil
 }
 
 // Templates is the resolver for the templates field.
-func (r *queryResolver) Templates(ctx context.Context) ([]*Template, error) {
-	templates, err := r.db.ListTemplates(ctx)
+func (r *queryResolver) Templates(ctx context.Context, vaultID *string) ([]*Template, error) {
+	if vaultID != nil {
+		if err := auth.RequireVaultAccess(ctx, *vaultID); err != nil {
+			return nil, err
+		}
+	}
+	list, err := r.templateService.List(ctx, vaultID)
 	if err != nil {
 		return nil, err
 	}
-
-	result := make([]*Template, len(templates))
-	for i := range templates {
-		result[i] = templateToGraphQL(&templates[i])
+	result := make([]*Template, len(list))
+	for i := range list {
+		result[i] = templateToGraphQL(&list[i])
 	}
 	return result, nil
 }
 
-// UsageSummary is the resolver for the usageSummary field.
-func (r *queryResolver) UsageSummary(ctx context.Context, since string) (*TokenUsageSummary, error) {
-	summary, err := r.db.GetTokenUsageSummary(ctx, since)
+// Documents is the resolver for the documents field.
+func (r *vaultResolver) Documents(ctx context.Context, obj *Vault, folder *string, labels []string, docType *string) ([]*Document, error) {
+	docs, err := r.db.ListDocuments(ctx, db.ListDocumentsFilter{
+		VaultID: obj.ID,
+		Folder:  folder,
+		Labels:  labels,
+		DocType: docType,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Convert map[string]int to map[string]any for GraphQL JSON scalar
-	byOperation := make(map[string]any)
-	for k, v := range summary.ByOperation {
-		byOperation[k] = v
-	}
-
-	byModel := make(map[string]any)
-	for k, v := range summary.ByModel {
-		byModel[k] = v
-	}
-
-	return &TokenUsageSummary{
-		TotalTokens:  summary.TotalTokens,
-		TotalCostUSD: summary.TotalCostUSD,
-		ByOperation:  byOperation,
-		ByModel:      byModel,
-	}, nil
-}
-
-// Jobs is the resolver for the jobs field.
-func (r *queryResolver) Jobs(ctx context.Context) ([]*Job, error) {
-	jobs := r.jobManager.ListJobs()
-	result := make([]*Job, len(jobs))
-	for i, j := range jobs {
-		result[i] = serviceJobToGraphQL(j)
+	result := make([]*Document, len(docs))
+	for i := range docs {
+		result[i] = documentToGraphQL(&docs[i])
 	}
 	return result, nil
 }
 
-// Job is the resolver for the job field.
-func (r *queryResolver) Job(ctx context.Context, id string) (*Job, error) {
-	job := r.jobManager.GetJob(id)
-	if job == nil {
-		return nil, nil
-	}
-	return serviceJobToGraphQL(job), nil
-}
-
-// JobByName is the resolver for the jobByName field.
-func (r *queryResolver) JobByName(ctx context.Context, name string) (*Job, error) {
-	// First check in-memory jobs
-	jobs := r.jobManager.ListJobs()
-	for _, j := range jobs {
-		if j.Name == name {
-			return serviceJobToGraphQL(j), nil
-		}
-	}
-
-	// Fall back to database for historical jobs
-	dbJob, err := r.db.GetJobByName(ctx, name)
+// Folders is the resolver for the folders field.
+func (r *vaultResolver) Folders(ctx context.Context, obj *Vault, parent *string) ([]*Folder, error) {
+	folders, err := r.vaultService.ListFolders(ctx, obj.ID, parent)
 	if err != nil {
 		return nil, err
 	}
-	if dbJob == nil {
-		return nil, nil
-	}
-
-	// Convert DB job to GraphQL Job
-	return dbJobToGraphQL(dbJob), nil
-}
-
-// ServerStats is the resolver for the serverStats field.
-func (r *queryResolver) ServerStats(ctx context.Context) (*ServerStats, error) {
-	snap := r.metrics.Snapshot()
-	return metricsSnapshotToGraphQL(snap), nil
-}
-
-// CheckHashes is the resolver for the checkHashes field.
-func (r *queryResolver) CheckHashes(ctx context.Context, input CheckHashesInput) (*CheckHashesResult, error) {
-	// Convert GraphQL input to service types
-	files := make([]service.FileHash, len(input.Files))
-	for i, f := range input.Files {
-		files[i] = service.FileHash{
-			Path: f.Path,
-			Hash: f.Hash,
-		}
-	}
-
-	// Query which files need uploading
-	needed, err := r.ingestService.CheckHashes(ctx, files)
-	if err != nil {
-		return nil, err
-	}
-
-	return &CheckHashesResult{
-		Needed: needed,
-	}, nil
-}
-
-// Conversations is the resolver for the conversations field.
-func (r *queryResolver) Conversations(ctx context.Context, limit *int) ([]*Conversation, error) {
-	lim := 50
-	if limit != nil {
-		lim = *limit
-	}
-
-	convs, err := r.db.ListConversations(ctx, lim)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]*Conversation, len(convs))
-	for i := range convs {
-		result[i] = conversationToGraphQL(&convs[i], nil)
+	result := make([]*Folder, len(folders))
+	for i := range folders {
+		f := folderToGraphQL(folders[i])
+		result[i] = &f
 	}
 	return result, nil
 }
 
-// Conversation is the resolver for the conversation field.
-func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversation, error) {
-	conv, err := r.db.GetConversation(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if conv == nil {
-		return nil, nil
-	}
-
-	msgs, err := r.db.GetMessages(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	gqlMsgs := make([]Message, len(msgs))
-	for i := range msgs {
-		gqlMsgs[i] = messageToGraphQL(&msgs[i])
-	}
-
-	return conversationToGraphQL(conv, gqlMsgs), nil
-}
-
-// AskStream is the resolver for the askStream field.
-func (r *subscriptionResolver) AskStream(ctx context.Context, query string, input *SearchInput, templateName *string) (<-chan *AskStreamEvent, error) {
-	// Template-based streaming not yet implemented
-	if templateName != nil {
-		return nil, fmt.Errorf("streaming with templates not yet supported, use regular ask query")
-	}
-
-	// Convert GraphQL input to service options
-	opts := service.SearchOptions{Query: query}
-	if input != nil {
-		if len(input.Labels) > 0 {
-			opts.Labels = input.Labels
-		}
-		if len(input.Types) > 0 {
-			opts.Types = input.Types
-		}
-		if input.VerifiedOnly != nil {
-			opts.VerifiedOnly = *input.VerifiedOnly
-		}
-		if input.Limit != nil {
-			opts.Limit = *input.Limit
-		}
-	}
-
-	// Create channel for streaming events (buffered to avoid blocking LLM)
-	eventChan := make(chan *AskStreamEvent, 100)
-
-	// Start streaming in goroutine
-	go func() {
-		defer close(eventChan)
-
-		err := r.searchService.AskStream(ctx, query, opts, func(token string) error {
-			// Check if context was canceled (client disconnected)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			// Send token event
-			select {
-			case eventChan <- &AskStreamEvent{Token: token, Done: false}:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-
-		// Send completion event
-		if err != nil {
-			errMsg := err.Error()
-			select {
-			case eventChan <- &AskStreamEvent{Token: "", Done: true, Error: &errMsg}:
-			case <-ctx.Done():
-			}
-		} else {
-			select {
-			case eventChan <- &AskStreamEvent{Token: "", Done: true}:
-			case <-ctx.Done():
-			}
-		}
-	}()
-
-	return eventChan, nil
-}
-
-// ChatStream is the resolver for the chatStream field.
-func (r *subscriptionResolver) ChatStream(ctx context.Context, conversationID string, message string, history []*ChatMessageInput, input *SearchInput) (<-chan *AskStreamEvent, error) {
-	// Save user message to DB
-	if _, err := r.db.CreateMessage(ctx, conversationID, "user", message); err != nil {
-		return nil, fmt.Errorf("save user message: %w", err)
-	}
-
-	// Convert history to LLM format
-	llmHistory := make([]llm.ChatMessage, 0, len(history))
-	for _, h := range history {
-		if h != nil {
-			llmHistory = append(llmHistory, llm.ChatMessage{
-				Role:    h.Role,
-				Content: h.Content,
-			})
-		}
-	}
-
-	// Build search options
-	opts := service.SearchOptions{Query: message}
-	if input != nil {
-		if len(input.Labels) > 0 {
-			opts.Labels = input.Labels
-		}
-		if len(input.Types) > 0 {
-			opts.Types = input.Types
-		}
-		if input.VerifiedOnly != nil {
-			opts.VerifiedOnly = *input.VerifiedOnly
-		}
-		if input.Limit != nil {
-			opts.Limit = *input.Limit
-		}
-	}
-
-	eventChan := make(chan *AskStreamEvent, 100)
-
-	go func() {
-		defer close(eventChan)
-
-		var fullResponse strings.Builder
-
-		err := r.searchService.AskStreamMultiTurn(ctx, message, llmHistory, opts, func(token string) error {
-			fullResponse.WriteString(token)
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			select {
-			case eventChan <- &AskStreamEvent{Token: token, Done: false}:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-
-		// Save assistant response to DB (best-effort, use detached context
-		// since the streaming ctx may already be Done after client received all tokens)
-		if err == nil && fullResponse.Len() > 0 {
-			saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if _, dbErr := r.db.CreateMessage(saveCtx, conversationID, "assistant", fullResponse.String()); dbErr != nil {
-				slog.Warn("failed to save assistant message", "conversation", conversationID, "error", dbErr)
-			}
-			saveCancel()
-		}
-
-		// Send completion event
-		if err != nil {
-			errMsg := err.Error()
-			select {
-			case eventChan <- &AskStreamEvent{Token: "", Done: true, Error: &errMsg}:
-			case <-ctx.Done():
-			}
-		} else {
-			select {
-			case eventChan <- &AskStreamEvent{Token: "", Done: true}:
-			case <-ctx.Done():
-			}
-		}
-	}()
-
-	return eventChan, nil
-}
+// Document returns DocumentResolver implementation.
+func (r *Resolver) Document() DocumentResolver { return &documentResolver{r} }
 
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
@@ -762,9 +473,10 @@ func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
-// Subscription returns SubscriptionResolver implementation.
-func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionResolver{r} }
+// Vault returns VaultResolver implementation.
+func (r *Resolver) Vault() VaultResolver { return &vaultResolver{r} }
 
+type documentResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
-type subscriptionResolver struct{ *Resolver }
+type vaultResolver struct{ *Resolver }
