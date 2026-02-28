@@ -34,16 +34,37 @@ type SearchInput struct {
 }
 
 type SearchResult struct {
-	Document      models.Document
-	Score         float64
+	DocumentID string
+	Path       string
+	Title      string
+	Labels     []string
+	DocType    *string
+	Score      float64
 	MatchedChunks []ChunkMatch
 }
 
 type ChunkMatch struct {
-	Content     string
+	Snippet     string
 	HeadingPath *string
 	Position    int
 	Score       float64
+}
+
+const maxSnippetLen = 200
+
+func truncateSnippet(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	// Find a word boundary near maxLen to avoid cutting mid-word
+	cut := maxLen
+	for cut > maxLen-30 && cut > 0 && s[cut] != ' ' {
+		cut--
+	}
+	if cut <= maxLen-30 || cut == 0 {
+		cut = maxLen // no nearby space, just hard cut
+	}
+	return s[:cut] + "…"
 }
 
 // Search performs search with graceful degradation.
@@ -133,12 +154,53 @@ func (s *Service) HasSemanticSearch() bool {
 func toBM25Results(docs []db.DocumentWithScore) []SearchResult {
 	results := make([]SearchResult, len(docs))
 	for i, d := range docs {
+		id, err := models.RecordIDString(d.ID)
+		if err != nil {
+			slog.Warn("failed to extract document ID in BM25 results", "error", err)
+			id = fmt.Sprintf("%v", d.ID.ID)
+		}
+		labels := d.Labels
+		if labels == nil {
+			labels = []string{}
+		}
 		results[i] = SearchResult{
-			Document: d.Document,
-			Score:    d.Score,
+			DocumentID: id,
+			Path:       d.Path,
+			Title:      d.Title,
+			Labels:     labels,
+			DocType:    d.DocType,
+			Score:      d.Score,
 		}
 	}
 	return results
+}
+
+// docInfo holds lightweight document metadata for RRF fusion.
+type docInfo struct {
+	id      string
+	path    string
+	title   string
+	labels  []string
+	docType *string
+}
+
+func docInfoFromModel(d models.Document) docInfo {
+	id, err := models.RecordIDString(d.ID)
+	if err != nil {
+		slog.Warn("failed to extract document ID in search ranking", "error", err)
+		id = fmt.Sprintf("unknown-%v", d.ID.ID)
+	}
+	labels := d.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+	return docInfo{
+		id:      id,
+		path:    d.Path,
+		title:   d.Title,
+		labels:  labels,
+		docType: d.DocType,
+	}
 }
 
 // rrfFusion combines BM25 and chunk vector results using Reciprocal Rank Fusion.
@@ -147,29 +209,20 @@ func rrfFusion(bm25 []db.DocumentWithScore, chunks []db.ChunkWithScore, chunkDoc
 	const k = 60.0 // RRF constant
 
 	type docScore struct {
-		doc    models.Document
+		info   docInfo
 		score  float64
 		chunks []ChunkMatch
 	}
 
 	scores := make(map[string]*docScore)
 
-	getID := func(doc models.Document) string {
-		id, err := models.RecordIDString(doc.ID)
-		if err != nil {
-			slog.Warn("failed to extract document ID in search ranking", "error", err)
-			return fmt.Sprintf("unknown-%v", doc.ID.ID)
-		}
-		return id
-	}
-
 	// BM25 scores
 	for rank, d := range bm25 {
-		id := getID(d.Document)
-		if _, ok := scores[id]; !ok {
-			scores[id] = &docScore{doc: d.Document}
+		info := docInfoFromModel(d.Document)
+		if _, ok := scores[info.id]; !ok {
+			scores[info.id] = &docScore{info: info}
 		}
-		scores[id].score += 1.0 / (k + float64(rank+1))
+		scores[info.id].score += 1.0 / (k + float64(rank+1))
 	}
 
 	// Chunk vector scores — contribute to document RRF ranking and attach matches
@@ -182,14 +235,14 @@ func rrfFusion(bm25 []db.DocumentWithScore, chunks []db.ChunkWithScore, chunkDoc
 		if _, ok := scores[docID]; !ok {
 			// Chunk's parent not in BM25 — promote it using fetched document data
 			if doc, found := chunkDocs[docID]; found {
-				scores[docID] = &docScore{doc: doc}
+				scores[docID] = &docScore{info: docInfoFromModel(doc)}
 			} else {
 				continue
 			}
 		}
 		scores[docID].score += 1.0 / (k + float64(rank+1))
 		scores[docID].chunks = append(scores[docID].chunks, ChunkMatch{
-			Content:     ch.Content,
+			Snippet:     truncateSnippet(ch.Content, maxSnippetLen),
 			HeadingPath: ch.HeadingPath,
 			Position:    ch.Position,
 			Score:       ch.Score,
@@ -212,7 +265,11 @@ func rrfFusion(bm25 []db.DocumentWithScore, chunks []db.ChunkWithScore, chunkDoc
 	results := make([]SearchResult, len(sorted))
 	for i, ds := range sorted {
 		results[i] = SearchResult{
-			Document:      ds.doc,
+			DocumentID:    ds.info.id,
+			Path:          ds.info.path,
+			Title:         ds.info.title,
+			Labels:        ds.info.labels,
+			DocType:       ds.info.docType,
 			Score:         ds.score,
 			MatchedChunks: ds.chunks,
 		}

@@ -94,13 +94,17 @@ type Template {
 }
 
 type SearchResult {
-  document: Document!
+  documentId: ID!
+  path: String!
+  title: String!
+  labels: [String!]!
+  docType: String
   score: Float!
   matchedChunks: [ChunkMatch!]!
 }
 
 type ChunkMatch {
-  content: String!
+  snippet: String!
   headingPath: String
   position: Int!
   score: Float!

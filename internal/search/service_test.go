@@ -16,6 +16,7 @@ func doc(id, title string) models.Document {
 	return models.Document{
 		ID:    rid("document", id),
 		Title: title,
+		Path:  "docs/" + id + ".md",
 	}
 }
 
@@ -49,8 +50,11 @@ func TestRRFFusion_BM25Only(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 	// Doc A should rank higher (rank 1 in BM25)
-	if results[0].Document.Title != "Doc A" {
-		t.Errorf("expected Doc A first, got %q", results[0].Document.Title)
+	if results[0].Title != "Doc A" {
+		t.Errorf("expected Doc A first, got %q", results[0].Title)
+	}
+	if results[0].DocumentID != "a" {
+		t.Errorf("expected DocumentID 'a', got %q", results[0].DocumentID)
 	}
 }
 
@@ -69,8 +73,8 @@ func TestRRFFusion_ChunkPromotion(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
-	if results[0].Document.Title != "Doc X" {
-		t.Errorf("expected Doc X first, got %q", results[0].Document.Title)
+	if results[0].Title != "Doc X" {
+		t.Errorf("expected Doc X first, got %q", results[0].Title)
 	}
 	if len(results[0].MatchedChunks) != 1 {
 		t.Fatalf("expected 1 matched chunk on Doc X, got %d", len(results[0].MatchedChunks))
@@ -97,8 +101,8 @@ func TestRRFFusion_HybridBoost(t *testing.T) {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
 	// Doc A should be first — it appears in both lists and gets boosted
-	if results[0].Document.Title != "Doc A" {
-		t.Errorf("expected Doc A first (hybrid boost), got %q", results[0].Document.Title)
+	if results[0].Title != "Doc A" {
+		t.Errorf("expected Doc A first (hybrid boost), got %q", results[0].Title)
 	}
 	// Doc A's score should be higher than any single-source doc
 	if results[0].Score <= results[1].Score {
@@ -121,8 +125,8 @@ func TestRRFFusion_ChunkAttachment(t *testing.T) {
 	if len(results[0].MatchedChunks) != 1 {
 		t.Fatalf("expected 1 matched chunk, got %d", len(results[0].MatchedChunks))
 	}
-	if results[0].MatchedChunks[0].Content != "chunk content from A" {
-		t.Errorf("expected chunk content, got %q", results[0].MatchedChunks[0].Content)
+	if results[0].MatchedChunks[0].Snippet != "chunk content from A" {
+		t.Errorf("expected chunk snippet, got %q", results[0].MatchedChunks[0].Snippet)
 	}
 }
 
@@ -163,5 +167,81 @@ func TestRRFFusion_Empty(t *testing.T) {
 	results := rrfFusion(nil, nil, nil, 10)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for empty inputs, got %d", len(results))
+	}
+}
+
+func TestRRFFusion_LightweightFields(t *testing.T) {
+	bm25 := []db.DocumentWithScore{
+		{
+			Document: models.Document{
+				ID:    rid("document", "abc"),
+				Title: "My Doc",
+				Path:  "notes/my-doc.md",
+				Labels: []string{"go", "test"},
+			},
+			Score: 5.0,
+		},
+	}
+
+	results := rrfFusion(bm25, nil, nil, 10)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	r := results[0]
+	if r.DocumentID != "abc" {
+		t.Errorf("expected DocumentID 'abc', got %q", r.DocumentID)
+	}
+	if r.Path != "notes/my-doc.md" {
+		t.Errorf("expected path 'notes/my-doc.md', got %q", r.Path)
+	}
+	if r.Title != "My Doc" {
+		t.Errorf("expected title 'My Doc', got %q", r.Title)
+	}
+	if len(r.Labels) != 2 || r.Labels[0] != "go" {
+		t.Errorf("expected labels [go, test], got %v", r.Labels)
+	}
+}
+
+func TestTruncateSnippet(t *testing.T) {
+	short := "hello world"
+	if got := truncateSnippet(short, 200); got != short {
+		t.Errorf("short string should not be truncated, got %q", got)
+	}
+
+	// Build a long string
+	long := ""
+	for i := 0; i < 50; i++ {
+		long += "word "
+	}
+	got := truncateSnippet(long, 50)
+	if len(got) > 55 { // 50 + ellipsis + tolerance
+		t.Errorf("expected truncated string, got length %d", len(got))
+	}
+	if got[len(got)-3:] != "…" {
+		t.Errorf("expected ellipsis suffix, got %q", got[len(got)-5:])
+	}
+}
+
+func TestRRFFusion_SnippetTruncation(t *testing.T) {
+	// Build chunk content longer than maxSnippetLen
+	longContent := ""
+	for i := 0; i < 100; i++ {
+		longContent += "word "
+	}
+
+	bm25 := []db.DocumentWithScore{
+		docWithScore("a", "Doc A", 5.0),
+	}
+	chunks := []db.ChunkWithScore{
+		chunkWithScore("a", longContent, 0.9),
+	}
+
+	results := rrfFusion(bm25, chunks, nil, 10)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	snippet := results[0].MatchedChunks[0].Snippet
+	if len(snippet) > maxSnippetLen+5 { // +5 for ellipsis char
+		t.Errorf("snippet should be truncated, got length %d", len(snippet))
 	}
 }
