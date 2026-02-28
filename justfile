@@ -67,9 +67,8 @@ dev-reset: db-up ollama-pull
     KNOWHOW_WIPE_DB=true air
 
 # Run CLI command (ensures correct server URL)
-[positional-arguments]
 run *args: build
-    {{build_dir}}/{{binary}} "$@"
+    {{build_dir}}/{{binary}} {{args}}
 
 # Start development environment without running the server
 dev-setup: db-up ollama-pull
