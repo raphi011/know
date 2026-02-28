@@ -27,7 +27,6 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 			source = $source,
 			source_path = $source_path,
 			content_hash = $content_hash,
-			embedding = $embedding,
 			metadata = $metadata
 		RETURN AFTER
 	`
@@ -42,7 +41,6 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 		"source":       string(input.Source),
 		"source_path":  optionalString(input.SourcePath),
 		"content_hash": optionalString(input.ContentHash),
-		"embedding":    optionalEmbedding(input.Embedding),
 		"metadata":     optionalObject(input.Metadata),
 	})
 	if err != nil {
@@ -131,7 +129,7 @@ func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) 
 	return (*results)[0].Result, nil
 }
 
-func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, labels []string, contentHash *string, embedding []float32, metadata map[string]any) (*models.Document, error) {
+func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, labels []string, contentHash *string, metadata map[string]any) (*models.Document, error) {
 	if labels == nil {
 		labels = []string{}
 	}
@@ -143,7 +141,6 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 			title = $title,
 			labels = $labels,
 			content_hash = $content_hash,
-			embedding = $embedding,
 			metadata = $metadata
 		RETURN AFTER
 	`
@@ -154,7 +151,6 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 		"title":        title,
 		"labels":       labels,
 		"content_hash": optionalString(contentHash),
-		"embedding":    optionalEmbedding(embedding),
 		"metadata":     optionalObject(metadata),
 	})
 	if err != nil {
@@ -213,7 +209,7 @@ func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput)
 		return nil, false, fmt.Errorf("extract document id: %w", err)
 	}
 
-	doc, err := c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Labels, input.ContentHash, input.Embedding, input.Metadata)
+	doc, err := c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Labels, input.ContentHash, input.Metadata)
 	if err != nil {
 		return nil, false, err
 	}

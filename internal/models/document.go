@@ -36,7 +36,6 @@ type Document struct {
 	Source      DocumentSource         `json:"source"`
 	SourcePath  *string                `json:"source_path,omitempty"`
 	ContentHash *string                `json:"content_hash,omitempty"`
-	Embedding   []float32              `json:"embedding,omitempty"`
 	Metadata    map[string]any         `json:"metadata,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
@@ -53,7 +52,6 @@ type DocumentInput struct {
 	ContentHash *string        `json:"content_hash,omitempty"`
 	Labels      []string       `json:"labels,omitempty"`
 	DocType     *string        `json:"doc_type,omitempty"`
-	Embedding   []float32      `json:"embedding,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 

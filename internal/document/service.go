@@ -75,18 +75,7 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	// 7. Normalize path
 	path := models.NormalizePath(input.Path)
 
-	// 8. Embed document-level (if embedder available)
-	var embedding []float32
-	if s.embedder != nil {
-		emb, err := s.embedder.Embed(ctx, contentBody)
-		if err != nil {
-			slog.Warn("failed to embed document", "path", path, "error", err)
-		} else {
-			embedding = emb
-		}
-	}
-
-	// 9. Store document
+	// 8. Store document
 	dbInput := models.DocumentInput{
 		VaultID:     input.VaultID,
 		Path:        path,
@@ -98,7 +87,6 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		ContentHash: &contentHash,
 		Labels:      allLabels,
 		DocType:     docType,
-		Embedding:   embedding,
 		Metadata:    metadata,
 	}
 
@@ -112,22 +100,22 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		return nil, fmt.Errorf("extract doc id: %w", err)
 	}
 
-	// 10. Extract and store wiki-links
+	// 9. Extract and store wiki-links
 	if err := s.processWikiLinks(ctx, docID, input.VaultID, parsed.Content); err != nil {
 		slog.Warn("failed to process wiki-links", "path", path, "error", err)
 	}
 
-	// 11. Resolve dangling links that might point to this document
+	// 10. Resolve dangling links that might point to this document
 	s.resolveDanglingForDoc(ctx, input.VaultID, doc)
 
-	// 12. Chunk and embed (if embedder available and this is a create/update)
+	// 11. Chunk and embed (if embedder available)
 	if s.embedder != nil {
 		if err := s.processChunks(ctx, docID, parsed, allLabels); err != nil {
 			slog.Warn("failed to process chunks", "path", path, "error", err)
 		}
 	}
 
-	// 13. Process explicit relates_to from frontmatter
+	// 12. Process explicit relates_to from frontmatter
 	if created {
 		s.processRelatesTo(ctx, docID, input.VaultID, parsed.Frontmatter)
 	}

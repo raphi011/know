@@ -54,33 +54,45 @@ func TestRRFFusion_BM25Only(t *testing.T) {
 	}
 }
 
-func TestRRFFusion_VectorOnly(t *testing.T) {
-	vector := []db.DocumentWithScore{
-		docWithScore("x", "Doc X", 0.95),
-		docWithScore("y", "Doc Y", 0.80),
+func TestRRFFusion_ChunkPromotion(t *testing.T) {
+	// Chunks promote their parent documents even without BM25 hits
+	chunks := []db.ChunkWithScore{
+		chunkWithScore("x", "Doc X content", 0.95),
+		chunkWithScore("y", "Doc Y content", 0.80),
+	}
+	chunkDocs := map[string]models.Document{
+		"x": doc("x", "Doc X"),
+		"y": doc("y", "Doc Y"),
 	}
 
-	results := rrfFusion(nil, vector, nil, 10)
+	results := rrfFusion(nil, chunks, chunkDocs, 10)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 	if results[0].Document.Title != "Doc X" {
 		t.Errorf("expected Doc X first, got %q", results[0].Document.Title)
 	}
+	if len(results[0].MatchedChunks) != 1 {
+		t.Fatalf("expected 1 matched chunk on Doc X, got %d", len(results[0].MatchedChunks))
+	}
 }
 
 func TestRRFFusion_HybridBoost(t *testing.T) {
-	// Doc A appears in both, Doc B only in BM25, Doc C only in vector
+	// Doc A appears in both BM25 and chunks — should get boosted
+	// Doc B only in BM25, Doc C only via chunk
 	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 		docWithScore("b", "Doc B", 3.0),
 	}
-	vector := []db.DocumentWithScore{
-		docWithScore("c", "Doc C", 0.95),
-		docWithScore("a", "Doc A", 0.90),
+	chunks := []db.ChunkWithScore{
+		chunkWithScore("c", "Doc C chunk", 0.95),
+		chunkWithScore("a", "Doc A chunk", 0.90),
+	}
+	chunkDocs := map[string]models.Document{
+		"c": doc("c", "Doc C"),
 	}
 
-	results := rrfFusion(bm25, vector, nil, 10)
+	results := rrfFusion(bm25, chunks, chunkDocs, 10)
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
@@ -102,7 +114,7 @@ func TestRRFFusion_ChunkAttachment(t *testing.T) {
 		chunkWithScore("a", "chunk content from A", 0.9),
 	}
 
-	results := rrfFusion(bm25, nil, chunks, 10)
+	results := rrfFusion(bm25, chunks, nil, 10)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -115,7 +127,7 @@ func TestRRFFusion_ChunkAttachment(t *testing.T) {
 }
 
 func TestRRFFusion_ChunkOrphan(t *testing.T) {
-	// Chunk references a doc that isn't in BM25 or vector results — should be ignored
+	// Chunk references a doc not in BM25 and not in chunkDocs — should be ignored
 	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 	}
@@ -123,7 +135,7 @@ func TestRRFFusion_ChunkOrphan(t *testing.T) {
 		chunkWithScore("unknown", "orphan chunk", 0.9),
 	}
 
-	results := rrfFusion(bm25, nil, chunks, 10)
+	results := rrfFusion(bm25, chunks, nil, 10)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
