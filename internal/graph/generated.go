@@ -50,10 +50,10 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	ChunkMatch struct {
-		Content     func(childComplexity int) int
 		HeadingPath func(childComplexity int) int
 		Position    func(childComplexity int) int
 		Score       func(childComplexity int) int
+		Snippet     func(childComplexity int) int
 	}
 
 	DocRelation struct {
@@ -145,9 +145,13 @@ type ComplexityRoot struct {
 	}
 
 	SearchResult struct {
-		Document      func(childComplexity int) int
+		DocType       func(childComplexity int) int
+		DocumentID    func(childComplexity int) int
+		Labels        func(childComplexity int) int
 		MatchedChunks func(childComplexity int) int
+		Path          func(childComplexity int) int
 		Score         func(childComplexity int) int
+		Title         func(childComplexity int) int
 	}
 
 	Template struct {
@@ -240,12 +244,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	_ = ec
 	switch typeName + "." + field {
 
-	case "ChunkMatch.content":
-		if e.complexity.ChunkMatch.Content == nil {
+	case "ChunkMatch.snippet":
+		if e.complexity.ChunkMatch.Snippet == nil {
 			break
 		}
 
-		return e.complexity.ChunkMatch.Content(childComplexity), true
+		return e.complexity.ChunkMatch.Snippet(childComplexity), true
 	case "ChunkMatch.headingPath":
 		if e.complexity.ChunkMatch.HeadingPath == nil {
 			break
@@ -720,24 +724,48 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ScrapeResult.FilesSkipped(childComplexity), true
 
-	case "SearchResult.document":
-		if e.complexity.SearchResult.Document == nil {
+	case "SearchResult.docType":
+		if e.complexity.SearchResult.DocType == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.Document(childComplexity), true
+		return e.complexity.SearchResult.DocType(childComplexity), true
+	case "SearchResult.documentId":
+		if e.complexity.SearchResult.DocumentID == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.DocumentID(childComplexity), true
+	case "SearchResult.labels":
+		if e.complexity.SearchResult.Labels == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Labels(childComplexity), true
 	case "SearchResult.matchedChunks":
 		if e.complexity.SearchResult.MatchedChunks == nil {
 			break
 		}
 
 		return e.complexity.SearchResult.MatchedChunks(childComplexity), true
+	case "SearchResult.path":
+		if e.complexity.SearchResult.Path == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Path(childComplexity), true
 	case "SearchResult.score":
 		if e.complexity.SearchResult.Score == nil {
 			break
 		}
 
 		return e.complexity.SearchResult.Score(childComplexity), true
+	case "SearchResult.title":
+		if e.complexity.SearchResult.Title == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Title(childComplexity), true
 
 	case "Template.content":
 		if e.complexity.Template.Content == nil {
@@ -1343,14 +1371,14 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 
 // region    **************************** field.gotpl *****************************
 
-func (ec *executionContext) _ChunkMatch_content(ctx context.Context, field graphql.CollectedField, obj *ChunkMatch) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChunkMatch_snippet(ctx context.Context, field graphql.CollectedField, obj *ChunkMatch) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ChunkMatch_content,
+		ec.fieldContext_ChunkMatch_snippet,
 		func(ctx context.Context) (any, error) {
-			return obj.Content, nil
+			return obj.Snippet, nil
 		},
 		nil,
 		ec.marshalNString2string,
@@ -1359,7 +1387,7 @@ func (ec *executionContext) _ChunkMatch_content(ctx context.Context, field graph
 	)
 }
 
-func (ec *executionContext) fieldContext_ChunkMatch_content(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ChunkMatch_snippet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChunkMatch",
 		Field:      field,
@@ -3258,8 +3286,16 @@ func (ec *executionContext) fieldContext_Query_search(ctx context.Context, field
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "document":
-				return ec.fieldContext_SearchResult_document(ctx, field)
+			case "documentId":
+				return ec.fieldContext_SearchResult_documentId(ctx, field)
+			case "path":
+				return ec.fieldContext_SearchResult_path(ctx, field)
+			case "title":
+				return ec.fieldContext_SearchResult_title(ctx, field)
+			case "labels":
+				return ec.fieldContext_SearchResult_labels(ctx, field)
+			case "docType":
+				return ec.fieldContext_SearchResult_docType(ctx, field)
 			case "score":
 				return ec.fieldContext_SearchResult_score(ctx, field)
 			case "matchedChunks":
@@ -3924,68 +3960,146 @@ func (ec *executionContext) fieldContext_ScrapeResult_errors(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _SearchResult_document(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _SearchResult_documentId(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SearchResult_document,
+		ec.fieldContext_SearchResult_documentId,
 		func(ctx context.Context) (any, error) {
-			return obj.Document, nil
+			return obj.DocumentID, nil
 		},
 		nil,
-		ec.marshalNDocument2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument,
+		ec.marshalNID2string,
 		true,
 		true,
 	)
 }
 
-func (ec *executionContext) fieldContext_SearchResult_document(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SearchResult_documentId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SearchResult",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_Document_id(ctx, field)
-			case "vaultId":
-				return ec.fieldContext_Document_vaultId(ctx, field)
-			case "path":
-				return ec.fieldContext_Document_path(ctx, field)
-			case "title":
-				return ec.fieldContext_Document_title(ctx, field)
-			case "content":
-				return ec.fieldContext_Document_content(ctx, field)
-			case "contentBody":
-				return ec.fieldContext_Document_contentBody(ctx, field)
-			case "labels":
-				return ec.fieldContext_Document_labels(ctx, field)
-			case "docType":
-				return ec.fieldContext_Document_docType(ctx, field)
-			case "source":
-				return ec.fieldContext_Document_source(ctx, field)
-			case "sourcePath":
-				return ec.fieldContext_Document_sourcePath(ctx, field)
-			case "contentHash":
-				return ec.fieldContext_Document_contentHash(ctx, field)
-			case "metadata":
-				return ec.fieldContext_Document_metadata(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Document_createdAt(ctx, field)
-			case "updatedAt":
-				return ec.fieldContext_Document_updatedAt(ctx, field)
-			case "wikiLinks":
-				return ec.fieldContext_Document_wikiLinks(ctx, field)
-			case "backlinks":
-				return ec.fieldContext_Document_backlinks(ctx, field)
-			case "relations":
-				return ec.fieldContext_Document_relations(ctx, field)
-			case "queryBlocks":
-				return ec.fieldContext_Document_queryBlocks(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_path(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SearchResult_path,
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_title(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SearchResult_title,
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_labels(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SearchResult_labels,
+		func(ctx context.Context) (any, error) {
+			return obj.Labels, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_labels(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_docType(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SearchResult_docType,
+		func(ctx context.Context) (any, error) {
+			return obj.DocType, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_docType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4044,8 +4158,8 @@ func (ec *executionContext) fieldContext_SearchResult_matchedChunks(_ context.Co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "content":
-				return ec.fieldContext_ChunkMatch_content(ctx, field)
+			case "snippet":
+				return ec.fieldContext_ChunkMatch_snippet(ctx, field)
 			case "headingPath":
 				return ec.fieldContext_ChunkMatch_headingPath(ctx, field)
 			case "position":
@@ -6545,8 +6659,8 @@ func (ec *executionContext) _ChunkMatch(ctx context.Context, sel ast.SelectionSe
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("ChunkMatch")
-		case "content":
-			out.Values[i] = ec._ChunkMatch_content(ctx, field, obj)
+		case "snippet":
+			out.Values[i] = ec._ChunkMatch_snippet(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -7481,11 +7595,28 @@ func (ec *executionContext) _SearchResult(ctx context.Context, sel ast.Selection
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("SearchResult")
-		case "document":
-			out.Values[i] = ec._SearchResult_document(ctx, field, obj)
+		case "documentId":
+			out.Values[i] = ec._SearchResult_documentId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "path":
+			out.Values[i] = ec._SearchResult_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._SearchResult_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "labels":
+			out.Values[i] = ec._SearchResult_labels(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "docType":
+			out.Values[i] = ec._SearchResult_docType(ctx, field, obj)
 		case "score":
 			out.Values[i] = ec._SearchResult_score(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

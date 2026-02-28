@@ -74,53 +74,6 @@ func (c *Client) BM25Search(ctx context.Context, query string, filter SearchFilt
 	return (*results)[0].Result, nil
 }
 
-// VectorSearch performs HNSW vector similarity search on document embeddings.
-func (c *Client) VectorSearch(ctx context.Context, embedding []float32, filter SearchFilter) ([]DocumentWithScore, error) {
-	var conditions []string
-	vars := map[string]any{
-		"vault_id":  filter.VaultID,
-		"embedding": embedding,
-	}
-
-	conditions = append(conditions, `vault = type::record("vault", $vault_id)`)
-
-	if len(filter.Labels) > 0 {
-		conditions = append(conditions, `labels CONTAINSANY $labels`)
-		vars["labels"] = filter.Labels
-	}
-	if filter.DocType != nil {
-		conditions = append(conditions, `doc_type = $doc_type`)
-		vars["doc_type"] = *filter.DocType
-	}
-	if filter.Folder != nil {
-		conditions = append(conditions, `string::starts_with(path, $folder)`)
-		vars["folder"] = *filter.Folder
-	}
-
-	limit := 20
-	if filter.Limit > 0 {
-		limit = filter.Limit
-	}
-
-	sql := fmt.Sprintf(`
-		SELECT *, vector::similarity::cosine(embedding, $embedding) AS score
-		FROM document
-		WHERE %s
-			AND embedding <|%d|> $embedding
-		ORDER BY score DESC
-		LIMIT %d
-	`, strings.Join(conditions, " AND "), limit, limit)
-
-	results, err := surrealdb.Query[[]DocumentWithScore](ctx, c.DB(), sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("vector search: %w", err)
-	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
-}
-
 // ChunkVectorSearch performs HNSW vector similarity search on chunk embeddings.
 func (c *Client) ChunkVectorSearch(ctx context.Context, embedding []float32, vaultID string, limit int) ([]ChunkWithScore, error) {
 	if limit <= 0 {

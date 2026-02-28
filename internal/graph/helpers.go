@@ -285,18 +285,21 @@ func resolveQueryBlock(ctx context.Context, dbClient *db.Client, vaultID string,
 }
 
 func searchResultToGraphQL(r search.SearchResult) SearchResult {
-	doc := documentToGraphQL(&r.Document)
 	chunks := make([]ChunkMatch, len(r.MatchedChunks))
 	for i, ch := range r.MatchedChunks {
 		chunks[i] = ChunkMatch{
-			Content:     ch.Content,
+			Snippet:     ch.Snippet,
 			HeadingPath: ch.HeadingPath,
 			Position:    ch.Position,
 			Score:       ch.Score,
 		}
 	}
 	return SearchResult{
-		Document:      *doc,
+		DocumentID:    r.DocumentID,
+		Path:          r.Path,
+		Title:         r.Title,
+		Labels:        r.Labels,
+		DocType:       r.DocType,
 		Score:         r.Score,
 		MatchedChunks: chunks,
 	}

@@ -18,14 +18,6 @@ func optionalObject(m map[string]any) any {
 	return m
 }
 
-// optionalEmbedding returns models.None for nil/empty slices, otherwise returns the slice.
-func optionalEmbedding(e []float32) any {
-	if len(e) == 0 {
-		return surrealmodels.None
-	}
-	return e
-}
-
 // optionalRecordID returns models.None for nil record pointers, otherwise returns the record.
 func optionalRecordID(r *surrealmodels.RecordID) any {
 	if r == nil {

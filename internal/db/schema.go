@@ -52,7 +52,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS source       ON document TYPE string DEFAULT "manual";
     DEFINE FIELD IF NOT EXISTS source_path  ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS embedding    ON document TYPE option<array<float>>;
     DEFINE FIELD IF NOT EXISTS metadata     ON document TYPE option<object> FLEXIBLE;
     DEFINE FIELD IF NOT EXISTS created_at   ON document TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS updated_at   ON document TYPE datetime VALUE time::now();
@@ -62,8 +61,6 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_document_vault_doctype ON document FIELDS vault, doc_type;
     DEFINE INDEX IF NOT EXISTS idx_document_content_ft    ON document FIELDS content_body FULLTEXT ANALYZER knowhow_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_document_title_ft      ON document FIELDS title FULLTEXT ANALYZER knowhow_analyzer BM25;
-    DEFINE INDEX IF NOT EXISTS idx_document_embedding     ON document FIELDS embedding
-        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;
 
     -- Cascade delete chunks and wiki_links when document deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_chunks ON document
@@ -153,5 +150,5 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS created_at   ON api_token TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_api_token_hash ON api_token FIELDS token_hash UNIQUE;
-`, dimension, dimension)
+`, dimension)
 }

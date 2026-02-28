@@ -64,13 +64,17 @@ type Template struct {
 }
 
 type SearchResult struct {
-	Document      Document     `json:"document"`
+	DocumentID    string       `json:"documentId"`
+	Path          string       `json:"path"`
+	Title         string       `json:"title"`
+	Labels        []string     `json:"labels"`
+	DocType       *string      `json:"docType,omitempty"`
 	Score         float64      `json:"score"`
 	MatchedChunks []ChunkMatch `json:"matchedChunks"`
 }
 
 type ChunkMatch struct {
-	Content     string  `json:"content"`
+	Snippet     string  `json:"snippet"`
 	HeadingPath *string `json:"headingPath,omitempty"`
 	Position    int     `json:"position"`
 	Score       float64 `json:"score"`
