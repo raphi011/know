@@ -9,6 +9,7 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/parser"
+	"github.com/raphaelgruber/memcp-go/internal/review"
 	"github.com/raphaelgruber/memcp-go/internal/search"
 )
 
@@ -282,6 +283,133 @@ func resolveQueryBlock(ctx context.Context, dbClient *db.Client, vaultID string,
 	}
 
 	return block
+}
+
+func proposalToGraphQL(p *models.DocumentProposal) *DocumentProposal {
+	if p == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(p.ID)
+	if err != nil {
+		slog.Warn("unexpected proposal ID format", "error", err)
+		id = fmt.Sprintf("%v", p.ID.ID)
+	}
+	vaultID, err := models.RecordIDString(p.Vault)
+	if err != nil {
+		slog.Warn("unexpected proposal vault ID format", "error", err)
+		vaultID = fmt.Sprintf("%v", p.Vault.ID)
+	}
+
+	// Map DB status to GraphQL enum
+	var status ProposalStatus
+	switch p.Status {
+	case models.ProposalApproved:
+		status = ProposalStatusApproved
+	case models.ProposalPartiallyApproved:
+		status = ProposalStatusPartiallyApproved
+	case models.ProposalRejected:
+		status = ProposalStatusRejected
+	case models.ProposalConflict:
+		status = ProposalStatusConflict
+	case models.ProposalExpired:
+		status = ProposalStatusExpired
+	default:
+		status = ProposalStatusPending
+	}
+
+	docID, err := models.RecordIDString(p.Document)
+	if err != nil {
+		slog.Warn("unexpected proposal document ID format", "error", err)
+		docID = fmt.Sprintf("%v", p.Document.ID)
+	}
+
+	return &DocumentProposal{
+		ID:              id,
+		VaultID:         vaultID,
+		DocumentID:      docID,
+		ProposedContent: p.ProposedContent,
+		Description:     p.Description,
+		Source:          string(p.Source),
+		Status:          status,
+		OriginalHash:    p.OriginalHash,
+		ReviewedAt:      p.ReviewedAt,
+		ReviewerNotes:   p.ReviewerNotes,
+		CreatedAt:       p.CreatedAt,
+	}
+}
+
+func proposalStatusToModel(s *ProposalStatus) *models.ProposalStatus {
+	if s == nil {
+		return nil
+	}
+	var ms models.ProposalStatus
+	switch *s {
+	case ProposalStatusPending:
+		ms = models.ProposalPending
+	case ProposalStatusApproved:
+		ms = models.ProposalApproved
+	case ProposalStatusPartiallyApproved:
+		ms = models.ProposalPartiallyApproved
+	case ProposalStatusRejected:
+		ms = models.ProposalRejected
+	case ProposalStatusConflict:
+		ms = models.ProposalConflict
+	case ProposalStatusExpired:
+		ms = models.ProposalExpired
+	default:
+		ms = models.ProposalPending
+	}
+	return &ms
+}
+
+func diffResultToGraphQL(dr *review.DiffResult) *ProposalDiff {
+	hunks := make([]*DiffHunk, len(dr.Hunks))
+	for i, h := range dr.Hunks {
+		hunks[i] = hunkToGraphQL(h)
+	}
+	return &ProposalDiff{
+		Hunks:       hunks,
+		HasConflict: dr.HasConflict,
+		Stats: &DiffStats{
+			Additions:  dr.Stats.Additions,
+			Deletions:  dr.Stats.Deletions,
+			HunksCount: dr.Stats.HunksCount,
+		},
+	}
+}
+
+func hunkToGraphQL(h review.Hunk) *DiffHunk {
+	lines := make([]*DiffLine, len(h.Lines))
+	for i, l := range h.Lines {
+		lines[i] = diffLineToGraphQL(l)
+	}
+	return &DiffHunk{
+		Index:    h.Index,
+		OldStart: h.OldStart,
+		OldLines: h.OldLines,
+		NewStart: h.NewStart,
+		NewLines: h.NewLines,
+		Header:   h.Header(),
+		Lines:    lines,
+	}
+}
+
+func diffLineToGraphQL(l review.DiffLine) *DiffLine {
+	var t DiffLineTypeEnum
+	switch l.Type {
+	case review.DiffAdd:
+		t = DiffLineTypeAdd
+	case review.DiffDelete:
+		t = DiffLineTypeDelete
+	default:
+		t = DiffLineTypeContext
+	}
+	return &DiffLine{
+		Type:      t,
+		Content:   l.Content,
+		OldLineNo: l.OldLineNo,
+		NewLineNo: l.NewLineNo,
+	}
 }
 
 func searchResultToGraphQL(r search.SearchResult) SearchResult {

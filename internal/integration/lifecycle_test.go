@@ -257,11 +257,7 @@ Some notes about the beta project.
 	}
 	// Only doc2 has "notes" label and content about "project"
 	for _, r := range results {
-		rID, err := models.RecordIDString(r.Document.ID)
-		if err != nil {
-			t.Fatalf("extract search result doc ID: %v", err)
-		}
-		if rID == doc1ID {
+		if r.DocumentID == doc1ID {
 			t.Error("search with label=notes should not return doc1")
 		}
 	}

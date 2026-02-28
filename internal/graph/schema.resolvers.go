@@ -71,6 +71,78 @@ func (r *documentResolver) QueryBlocks(ctx context.Context, obj *Document) ([]*Q
 	return results, nil
 }
 
+// Proposals is the resolver for the proposals field.
+func (r *documentResolver) Proposals(ctx context.Context, obj *Document, status *ProposalStatus) ([]*DocumentProposal, error) {
+	modelStatus := proposalStatusToModel(status)
+	proposals, err := r.reviewService.ListForDocument(ctx, obj.ID, modelStatus)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*DocumentProposal, len(proposals))
+	for i := range proposals {
+		result[i] = proposalToGraphQL(&proposals[i])
+	}
+	return result, nil
+}
+
+// Document is the resolver for the document field.
+func (r *documentProposalResolver) Document(ctx context.Context, obj *DocumentProposal) (*Document, error) {
+	doc, err := r.db.GetDocumentByID(ctx, obj.DocumentID)
+	if err != nil {
+		return nil, fmt.Errorf("get proposal document: %w", err)
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("proposal document not found: %s", obj.DocumentID)
+	}
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	return documentToGraphQL(doc), nil
+}
+
+// HasConflict is the resolver for the hasConflict field.
+func (r *documentProposalResolver) HasConflict(ctx context.Context, obj *DocumentProposal) (bool, error) {
+	proposal, err := r.reviewService.Get(ctx, obj.ID)
+	if err != nil {
+		return false, fmt.Errorf("get proposal: %w", err)
+	}
+	if proposal == nil {
+		return false, fmt.Errorf("proposal not found: %s", obj.ID)
+	}
+	doc, err := r.db.GetDocumentByID(ctx, obj.DocumentID)
+	if err != nil {
+		return false, fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return false, nil
+	}
+	currentHash := ""
+	if doc.ContentHash != nil {
+		currentHash = *doc.ContentHash
+	}
+	return proposal.OriginalHash != "" && currentHash != "" && proposal.OriginalHash != currentHash, nil
+}
+
+// Diff is the resolver for the diff field.
+func (r *documentProposalResolver) Diff(ctx context.Context, obj *DocumentProposal) (*ProposalDiff, error) {
+	proposal, err := r.reviewService.Get(ctx, obj.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get proposal: %w", err)
+	}
+	if proposal == nil {
+		return nil, fmt.Errorf("proposal not found: %s", obj.ID)
+	}
+	diffResult, err := r.reviewService.Diff(ctx, proposal)
+	if err != nil {
+		return nil, fmt.Errorf("compute diff: %w", err)
+	}
+	return diffResultToGraphQL(diffResult), nil
+}
+
 // CreateVault is the resolver for the createVault field.
 func (r *mutationResolver) CreateVault(ctx context.Context, input VaultInput) (*Vault, error) {
 	ac, err := auth.FromContext(ctx)
@@ -286,6 +358,93 @@ func (r *mutationResolver) DeleteTemplate(ctx context.Context, id string) (bool,
 	return true, nil
 }
 
+// ProposeDocumentUpdate is the resolver for the proposeDocumentUpdate field.
+func (r *mutationResolver) ProposeDocumentUpdate(ctx context.Context, input ProposeDocumentUpdateInput) (*DocumentProposal, error) {
+	if err := auth.RequireVaultAccess(ctx, input.VaultID); err != nil {
+		return nil, err
+	}
+	source := models.ProposalSourceAISuggested
+	if input.Source != nil {
+		source = models.ProposalSource(*input.Source)
+		if !source.Valid() {
+			return nil, fmt.Errorf("invalid proposal source: %q", *input.Source)
+		}
+	}
+	proposal, err := r.reviewService.CreateByPath(ctx, input.VaultID, input.Path, input.ProposedContent, input.Description, source)
+	if err != nil {
+		return nil, err
+	}
+	return proposalToGraphQL(proposal), nil
+}
+
+// ApproveProposal is the resolver for the approveProposal field.
+func (r *mutationResolver) ApproveProposal(ctx context.Context, id string, notes *string) (*Document, error) {
+	proposal, err := r.reviewService.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get proposal: %w", err)
+	}
+	if proposal == nil {
+		return nil, fmt.Errorf("proposal not found: %s", id)
+	}
+	vaultID, err := models.RecordIDString(proposal.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	doc, err := r.reviewService.ApproveAll(ctx, id, notes)
+	if err != nil {
+		return nil, err
+	}
+	return documentToGraphQL(doc), nil
+}
+
+// ApproveProposalHunks is the resolver for the approveProposalHunks field.
+func (r *mutationResolver) ApproveProposalHunks(ctx context.Context, input ApproveHunksInput) (*Document, error) {
+	proposal, err := r.reviewService.Get(ctx, input.ProposalID)
+	if err != nil {
+		return nil, fmt.Errorf("get proposal: %w", err)
+	}
+	if proposal == nil {
+		return nil, fmt.Errorf("proposal not found: %s", input.ProposalID)
+	}
+	vaultID, err := models.RecordIDString(proposal.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	doc, err := r.reviewService.ApproveHunks(ctx, input.ProposalID, input.HunkIndexes, input.Notes)
+	if err != nil {
+		return nil, err
+	}
+	return documentToGraphQL(doc), nil
+}
+
+// RejectProposal is the resolver for the rejectProposal field.
+func (r *mutationResolver) RejectProposal(ctx context.Context, id string, notes *string) (bool, error) {
+	proposal, err := r.reviewService.Get(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("get proposal: %w", err)
+	}
+	if proposal == nil {
+		return false, fmt.Errorf("proposal not found: %s", id)
+	}
+	vaultID, err := models.RecordIDString(proposal.Vault)
+	if err != nil {
+		return false, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return false, err
+	}
+	if err := r.reviewService.Reject(ctx, id, notes); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Me is the resolver for the me field.
 func (r *queryResolver) Me(ctx context.Context) (*Me, error) {
 	ac, err := auth.FromContext(ctx)
@@ -432,6 +591,42 @@ func (r *queryResolver) Templates(ctx context.Context, vaultID *string) ([]*Temp
 	return result, nil
 }
 
+// Proposal is the resolver for the proposal field.
+func (r *queryResolver) Proposal(ctx context.Context, id string) (*DocumentProposal, error) {
+	proposal, err := r.reviewService.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if proposal == nil {
+		return nil, nil
+	}
+	vaultID, err := models.RecordIDString(proposal.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	return proposalToGraphQL(proposal), nil
+}
+
+// Proposals is the resolver for the proposals field.
+func (r *queryResolver) Proposals(ctx context.Context, vaultID string, status *ProposalStatus) ([]*DocumentProposal, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	modelStatus := proposalStatusToModel(status)
+	proposals, err := r.reviewService.List(ctx, vaultID, modelStatus)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*DocumentProposal, len(proposals))
+	for i := range proposals {
+		result[i] = proposalToGraphQL(&proposals[i])
+	}
+	return result, nil
+}
+
 // Documents is the resolver for the documents field.
 func (r *vaultResolver) Documents(ctx context.Context, obj *Vault, folder *string, labels []string, docType *string) ([]*Document, error) {
 	docs, err := r.db.ListDocuments(ctx, db.ListDocumentsFilter{
@@ -467,6 +662,9 @@ func (r *vaultResolver) Folders(ctx context.Context, obj *Vault, parent *string)
 // Document returns DocumentResolver implementation.
 func (r *Resolver) Document() DocumentResolver { return &documentResolver{r} }
 
+// DocumentProposal returns DocumentProposalResolver implementation.
+func (r *Resolver) DocumentProposal() DocumentProposalResolver { return &documentProposalResolver{r} }
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -477,6 +675,7 @@ func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 func (r *Resolver) Vault() VaultResolver { return &vaultResolver{r} }
 
 type documentResolver struct{ *Resolver }
+type documentProposalResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type vaultResolver struct{ *Resolver }

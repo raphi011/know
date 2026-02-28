@@ -37,6 +37,7 @@ type Document {
   backlinks: [WikiLink!]!
   relations: [DocRelation!]!
   queryBlocks: [QueryBlock!]!
+  proposals(status: ProposalStatus): [DocumentProposal!]!
 }
 
 enum QueryFormat {
@@ -132,6 +133,70 @@ type ScrapeResult {
 }
 
 # =============================================================================
+# PROPOSAL TYPES
+# =============================================================================
+
+enum ProposalStatus {
+  PENDING
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+  CONFLICT
+  EXPIRED
+}
+
+enum DiffLineType {
+  CONTEXT
+  ADD
+  DELETE
+}
+
+type DocumentProposal {
+  id: ID!
+  vaultId: ID!
+  document: Document!
+  proposedContent: String!
+  description: String
+  source: String!
+  status: ProposalStatus!
+  originalHash: String!
+  hasConflict: Boolean!
+  reviewedAt: DateTime
+  reviewerNotes: String
+  createdAt: DateTime!
+  diff: ProposalDiff!
+}
+
+type ProposalDiff {
+  hunks: [DiffHunk!]!
+  hasConflict: Boolean!
+  stats: DiffStats!
+}
+
+type DiffStats {
+  additions: Int!
+  deletions: Int!
+  hunksCount: Int!
+}
+
+type DiffHunk {
+  index: Int!
+  oldStart: Int!
+  oldLines: Int!
+  newStart: Int!
+  newLines: Int!
+  header: String!
+  lines: [DiffLine!]!
+}
+
+type DiffLine {
+  type: DiffLineType!
+  content: String!
+  oldLineNo: Int
+  newLineNo: Int
+}
+
+# =============================================================================
 # INPUTS
 # =============================================================================
 
@@ -168,6 +233,20 @@ input TemplateInput {
   isAITemplate: Boolean
 }
 
+input ProposeDocumentUpdateInput {
+  vaultId: ID!
+  path: String!
+  proposedContent: String!
+  description: String
+  source: String
+}
+
+input ApproveHunksInput {
+  proposalId: ID!
+  hunkIndexes: [Int!]!
+  notes: String
+}
+
 # =============================================================================
 # QUERIES
 # =============================================================================
@@ -190,6 +269,10 @@ type Query {
   # Templates
   template(id: ID!): Template
   templates(vaultId: ID): [Template!]!
+
+  # Proposals
+  proposal(id: ID!): DocumentProposal
+  proposals(vaultId: ID!, status: ProposalStatus): [DocumentProposal!]!
 }
 
 # =============================================================================
@@ -214,4 +297,10 @@ type Mutation {
   # Templates
   createTemplate(input: TemplateInput!): Template!
   deleteTemplate(id: ID!): Boolean!
+
+  # Proposals
+  proposeDocumentUpdate(input: ProposeDocumentUpdateInput!): DocumentProposal!
+  approveProposal(id: ID!, notes: String): Document!
+  approveProposalHunks(input: ApproveHunksInput!): Document!
+  rejectProposal(id: ID!, notes: String): Boolean!
 }

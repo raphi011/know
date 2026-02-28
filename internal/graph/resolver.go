@@ -10,6 +10,7 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/document"
 	"github.com/raphaelgruber/memcp-go/internal/llm"
+	"github.com/raphaelgruber/memcp-go/internal/review"
 	"github.com/raphaelgruber/memcp-go/internal/search"
 	"github.com/raphaelgruber/memcp-go/internal/template"
 	"github.com/raphaelgruber/memcp-go/internal/vault"
@@ -22,6 +23,7 @@ type Resolver struct {
 	documentService *document.Service
 	searchService   *search.Service
 	templateService *template.Service
+	reviewService   *review.Service
 }
 
 // NewResolver creates a new resolver with all dependencies.
@@ -64,12 +66,15 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		"semantic_search", embedder != nil,
 	)
 
+	docService := document.NewService(dbClient, embedder)
+
 	return &Resolver{
 		db:              dbClient,
 		vaultService:    vault.NewService(dbClient),
-		documentService: document.NewService(dbClient, embedder),
+		documentService: docService,
 		searchService:   search.NewService(dbClient, embedder),
 		templateService: template.NewService(dbClient),
+		reviewService:   review.NewService(dbClient, docService),
 	}, nil
 }
 

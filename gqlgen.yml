@@ -61,3 +61,21 @@ models:
     model: github.com/raphaelgruber/memcp-go/internal/graph.QueryResult
   QueryFormat:
     model: github.com/raphaelgruber/memcp-go/internal/graph.QueryFormat
+  DocumentProposal:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.DocumentProposal
+  ProposalStatus:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ProposalStatus
+  ProposalDiff:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ProposalDiff
+  DiffStats:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.DiffStats
+  DiffHunk:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.DiffHunk
+  DiffLine:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.DiffLine
+  DiffLineType:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.DiffLineTypeEnum
+  ProposeDocumentUpdateInput:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ProposeDocumentUpdateInput
+  ApproveHunksInput:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ApproveHunksInput

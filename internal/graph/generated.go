@@ -40,6 +40,7 @@ type Config struct {
 
 type ResolverRoot interface {
 	Document() DocumentResolver
+	DocumentProposal() DocumentProposalResolver
 	Mutation() MutationResolver
 	Query() QueryResolver
 	Vault() VaultResolver
@@ -54,6 +55,29 @@ type ComplexityRoot struct {
 		Position    func(childComplexity int) int
 		Score       func(childComplexity int) int
 		Snippet     func(childComplexity int) int
+	}
+
+	DiffHunk struct {
+		Header   func(childComplexity int) int
+		Index    func(childComplexity int) int
+		Lines    func(childComplexity int) int
+		NewLines func(childComplexity int) int
+		NewStart func(childComplexity int) int
+		OldLines func(childComplexity int) int
+		OldStart func(childComplexity int) int
+	}
+
+	DiffLine struct {
+		Content   func(childComplexity int) int
+		NewLineNo func(childComplexity int) int
+		OldLineNo func(childComplexity int) int
+		Type      func(childComplexity int) int
+	}
+
+	DiffStats struct {
+		Additions  func(childComplexity int) int
+		Deletions  func(childComplexity int) int
+		HunksCount func(childComplexity int) int
 	}
 
 	DocRelation struct {
@@ -76,6 +100,7 @@ type ComplexityRoot struct {
 		Labels      func(childComplexity int) int
 		Metadata    func(childComplexity int) int
 		Path        func(childComplexity int) int
+		Proposals   func(childComplexity int, status *ProposalStatus) int
 		QueryBlocks func(childComplexity int) int
 		Relations   func(childComplexity int) int
 		Source      func(childComplexity int) int
@@ -84,6 +109,22 @@ type ComplexityRoot struct {
 		UpdatedAt   func(childComplexity int) int
 		VaultID     func(childComplexity int) int
 		WikiLinks   func(childComplexity int) int
+	}
+
+	DocumentProposal struct {
+		CreatedAt       func(childComplexity int) int
+		Description     func(childComplexity int) int
+		Diff            func(childComplexity int) int
+		Document        func(childComplexity int) int
+		HasConflict     func(childComplexity int) int
+		ID              func(childComplexity int) int
+		OriginalHash    func(childComplexity int) int
+		ProposedContent func(childComplexity int) int
+		ReviewedAt      func(childComplexity int) int
+		ReviewerNotes   func(childComplexity int) int
+		Source          func(childComplexity int) int
+		Status          func(childComplexity int) int
+		VaultID         func(childComplexity int) int
 	}
 
 	Folder struct {
@@ -98,22 +139,34 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		CreateDocument func(childComplexity int, vaultID string, file FileInput, source *string) int
-		CreateRelation func(childComplexity int, input RelationInput) int
-		CreateTemplate func(childComplexity int, input TemplateInput) int
-		CreateVault    func(childComplexity int, input VaultInput) int
-		DeleteDocument func(childComplexity int, vaultID string, path string) int
-		DeleteRelation func(childComplexity int, id string) int
-		DeleteTemplate func(childComplexity int, id string) int
-		DeleteVault    func(childComplexity int, id string) int
-		MoveDocument   func(childComplexity int, vaultID string, oldPath string, newPath string) int
-		UpdateDocument func(childComplexity int, vaultID string, path string, content string) int
+		ApproveProposal       func(childComplexity int, id string, notes *string) int
+		ApproveProposalHunks  func(childComplexity int, input ApproveHunksInput) int
+		CreateDocument        func(childComplexity int, vaultID string, file FileInput, source *string) int
+		CreateRelation        func(childComplexity int, input RelationInput) int
+		CreateTemplate        func(childComplexity int, input TemplateInput) int
+		CreateVault           func(childComplexity int, input VaultInput) int
+		DeleteDocument        func(childComplexity int, vaultID string, path string) int
+		DeleteRelation        func(childComplexity int, id string) int
+		DeleteTemplate        func(childComplexity int, id string) int
+		DeleteVault           func(childComplexity int, id string) int
+		MoveDocument          func(childComplexity int, vaultID string, oldPath string, newPath string) int
+		ProposeDocumentUpdate func(childComplexity int, input ProposeDocumentUpdateInput) int
+		RejectProposal        func(childComplexity int, id string, notes *string) int
+		UpdateDocument        func(childComplexity int, vaultID string, path string, content string) int
+	}
+
+	ProposalDiff struct {
+		HasConflict func(childComplexity int) int
+		Hunks       func(childComplexity int) int
+		Stats       func(childComplexity int) int
 	}
 
 	Query struct {
 		Document     func(childComplexity int, vaultID string, path string) int
 		DocumentByID func(childComplexity int, id string) int
 		Me           func(childComplexity int) int
+		Proposal     func(childComplexity int, id string) int
+		Proposals    func(childComplexity int, vaultID string, status *ProposalStatus) int
 		Search       func(childComplexity int, input SearchInput) int
 		Template     func(childComplexity int, id string) int
 		Templates    func(childComplexity int, vaultID *string) int
@@ -197,6 +250,14 @@ type DocumentResolver interface {
 	Backlinks(ctx context.Context, obj *Document) ([]*WikiLink, error)
 	Relations(ctx context.Context, obj *Document) ([]*DocRelation, error)
 	QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error)
+	Proposals(ctx context.Context, obj *Document, status *ProposalStatus) ([]*DocumentProposal, error)
+}
+type DocumentProposalResolver interface {
+	Document(ctx context.Context, obj *DocumentProposal) (*Document, error)
+
+	HasConflict(ctx context.Context, obj *DocumentProposal) (bool, error)
+
+	Diff(ctx context.Context, obj *DocumentProposal) (*ProposalDiff, error)
 }
 type MutationResolver interface {
 	CreateVault(ctx context.Context, input VaultInput) (*Vault, error)
@@ -209,6 +270,10 @@ type MutationResolver interface {
 	DeleteRelation(ctx context.Context, id string) (bool, error)
 	CreateTemplate(ctx context.Context, input TemplateInput) (*Template, error)
 	DeleteTemplate(ctx context.Context, id string) (bool, error)
+	ProposeDocumentUpdate(ctx context.Context, input ProposeDocumentUpdateInput) (*DocumentProposal, error)
+	ApproveProposal(ctx context.Context, id string, notes *string) (*Document, error)
+	ApproveProposalHunks(ctx context.Context, input ApproveHunksInput) (*Document, error)
+	RejectProposal(ctx context.Context, id string, notes *string) (bool, error)
 }
 type QueryResolver interface {
 	Me(ctx context.Context) (*Me, error)
@@ -219,6 +284,8 @@ type QueryResolver interface {
 	Search(ctx context.Context, input SearchInput) ([]*SearchResult, error)
 	Template(ctx context.Context, id string) (*Template, error)
 	Templates(ctx context.Context, vaultID *string) ([]*Template, error)
+	Proposal(ctx context.Context, id string) (*DocumentProposal, error)
+	Proposals(ctx context.Context, vaultID string, status *ProposalStatus) ([]*DocumentProposal, error)
 }
 type VaultResolver interface {
 	Documents(ctx context.Context, obj *Vault, folder *string, labels []string, docType *string) ([]*Document, error)
@@ -244,12 +311,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	_ = ec
 	switch typeName + "." + field {
 
-	case "ChunkMatch.snippet":
-		if e.complexity.ChunkMatch.Snippet == nil {
-			break
-		}
-
-		return e.complexity.ChunkMatch.Snippet(childComplexity), true
 	case "ChunkMatch.headingPath":
 		if e.complexity.ChunkMatch.HeadingPath == nil {
 			break
@@ -268,6 +329,99 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChunkMatch.Score(childComplexity), true
+	case "ChunkMatch.snippet":
+		if e.complexity.ChunkMatch.Snippet == nil {
+			break
+		}
+
+		return e.complexity.ChunkMatch.Snippet(childComplexity), true
+
+	case "DiffHunk.header":
+		if e.complexity.DiffHunk.Header == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.Header(childComplexity), true
+	case "DiffHunk.index":
+		if e.complexity.DiffHunk.Index == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.Index(childComplexity), true
+	case "DiffHunk.lines":
+		if e.complexity.DiffHunk.Lines == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.Lines(childComplexity), true
+	case "DiffHunk.newLines":
+		if e.complexity.DiffHunk.NewLines == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.NewLines(childComplexity), true
+	case "DiffHunk.newStart":
+		if e.complexity.DiffHunk.NewStart == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.NewStart(childComplexity), true
+	case "DiffHunk.oldLines":
+		if e.complexity.DiffHunk.OldLines == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.OldLines(childComplexity), true
+	case "DiffHunk.oldStart":
+		if e.complexity.DiffHunk.OldStart == nil {
+			break
+		}
+
+		return e.complexity.DiffHunk.OldStart(childComplexity), true
+
+	case "DiffLine.content":
+		if e.complexity.DiffLine.Content == nil {
+			break
+		}
+
+		return e.complexity.DiffLine.Content(childComplexity), true
+	case "DiffLine.newLineNo":
+		if e.complexity.DiffLine.NewLineNo == nil {
+			break
+		}
+
+		return e.complexity.DiffLine.NewLineNo(childComplexity), true
+	case "DiffLine.oldLineNo":
+		if e.complexity.DiffLine.OldLineNo == nil {
+			break
+		}
+
+		return e.complexity.DiffLine.OldLineNo(childComplexity), true
+	case "DiffLine.type":
+		if e.complexity.DiffLine.Type == nil {
+			break
+		}
+
+		return e.complexity.DiffLine.Type(childComplexity), true
+
+	case "DiffStats.additions":
+		if e.complexity.DiffStats.Additions == nil {
+			break
+		}
+
+		return e.complexity.DiffStats.Additions(childComplexity), true
+	case "DiffStats.deletions":
+		if e.complexity.DiffStats.Deletions == nil {
+			break
+		}
+
+		return e.complexity.DiffStats.Deletions(childComplexity), true
+	case "DiffStats.hunksCount":
+		if e.complexity.DiffStats.HunksCount == nil {
+			break
+		}
+
+		return e.complexity.DiffStats.HunksCount(childComplexity), true
 
 	case "DocRelation.createdAt":
 		if e.complexity.DocRelation.CreatedAt == nil {
@@ -366,6 +520,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Document.Path(childComplexity), true
+	case "Document.proposals":
+		if e.complexity.Document.Proposals == nil {
+			break
+		}
+
+		args, err := ec.field_Document_proposals_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Document.Proposals(childComplexity, args["status"].(*ProposalStatus)), true
 	case "Document.queryBlocks":
 		if e.complexity.Document.QueryBlocks == nil {
 			break
@@ -415,6 +580,85 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Document.WikiLinks(childComplexity), true
 
+	case "DocumentProposal.createdAt":
+		if e.complexity.DocumentProposal.CreatedAt == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.CreatedAt(childComplexity), true
+	case "DocumentProposal.description":
+		if e.complexity.DocumentProposal.Description == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.Description(childComplexity), true
+	case "DocumentProposal.diff":
+		if e.complexity.DocumentProposal.Diff == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.Diff(childComplexity), true
+	case "DocumentProposal.document":
+		if e.complexity.DocumentProposal.Document == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.Document(childComplexity), true
+	case "DocumentProposal.hasConflict":
+		if e.complexity.DocumentProposal.HasConflict == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.HasConflict(childComplexity), true
+	case "DocumentProposal.id":
+		if e.complexity.DocumentProposal.ID == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.ID(childComplexity), true
+	case "DocumentProposal.originalHash":
+		if e.complexity.DocumentProposal.OriginalHash == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.OriginalHash(childComplexity), true
+	case "DocumentProposal.proposedContent":
+		if e.complexity.DocumentProposal.ProposedContent == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.ProposedContent(childComplexity), true
+	case "DocumentProposal.reviewedAt":
+		if e.complexity.DocumentProposal.ReviewedAt == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.ReviewedAt(childComplexity), true
+	case "DocumentProposal.reviewerNotes":
+		if e.complexity.DocumentProposal.ReviewerNotes == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.ReviewerNotes(childComplexity), true
+	case "DocumentProposal.source":
+		if e.complexity.DocumentProposal.Source == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.Source(childComplexity), true
+	case "DocumentProposal.status":
+		if e.complexity.DocumentProposal.Status == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.Status(childComplexity), true
+	case "DocumentProposal.vaultId":
+		if e.complexity.DocumentProposal.VaultID == nil {
+			break
+		}
+
+		return e.complexity.DocumentProposal.VaultID(childComplexity), true
+
 	case "Folder.docCount":
 		if e.complexity.Folder.DocCount == nil {
 			break
@@ -447,6 +691,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Me.VaultAccess(childComplexity), true
 
+	case "Mutation.approveProposal":
+		if e.complexity.Mutation.ApproveProposal == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_approveProposal_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.ApproveProposal(childComplexity, args["id"].(string), args["notes"].(*string)), true
+	case "Mutation.approveProposalHunks":
+		if e.complexity.Mutation.ApproveProposalHunks == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_approveProposalHunks_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.ApproveProposalHunks(childComplexity, args["input"].(ApproveHunksInput)), true
 	case "Mutation.createDocument":
 		if e.complexity.Mutation.CreateDocument == nil {
 			break
@@ -546,6 +812,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.MoveDocument(childComplexity, args["vaultId"].(string), args["oldPath"].(string), args["newPath"].(string)), true
+	case "Mutation.proposeDocumentUpdate":
+		if e.complexity.Mutation.ProposeDocumentUpdate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_proposeDocumentUpdate_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.ProposeDocumentUpdate(childComplexity, args["input"].(ProposeDocumentUpdateInput)), true
+	case "Mutation.rejectProposal":
+		if e.complexity.Mutation.RejectProposal == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_rejectProposal_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.RejectProposal(childComplexity, args["id"].(string), args["notes"].(*string)), true
 	case "Mutation.updateDocument":
 		if e.complexity.Mutation.UpdateDocument == nil {
 			break
@@ -557,6 +845,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateDocument(childComplexity, args["vaultId"].(string), args["path"].(string), args["content"].(string)), true
+
+	case "ProposalDiff.hasConflict":
+		if e.complexity.ProposalDiff.HasConflict == nil {
+			break
+		}
+
+		return e.complexity.ProposalDiff.HasConflict(childComplexity), true
+	case "ProposalDiff.hunks":
+		if e.complexity.ProposalDiff.Hunks == nil {
+			break
+		}
+
+		return e.complexity.ProposalDiff.Hunks(childComplexity), true
+	case "ProposalDiff.stats":
+		if e.complexity.ProposalDiff.Stats == nil {
+			break
+		}
+
+		return e.complexity.ProposalDiff.Stats(childComplexity), true
 
 	case "Query.document":
 		if e.complexity.Query.Document == nil {
@@ -586,6 +893,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.Me(childComplexity), true
+	case "Query.proposal":
+		if e.complexity.Query.Proposal == nil {
+			break
+		}
+
+		args, err := ec.field_Query_proposal_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.Proposal(childComplexity, args["id"].(string)), true
+	case "Query.proposals":
+		if e.complexity.Query.Proposals == nil {
+			break
+		}
+
+		args, err := ec.field_Query_proposals_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.Proposals(childComplexity, args["vaultId"].(string), args["status"].(*ProposalStatus)), true
 	case "Query.search":
 		if e.complexity.Query.Search == nil {
 			break
@@ -939,7 +1268,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
 	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
+		ec.unmarshalInputApproveHunksInput,
 		ec.unmarshalInputFileInput,
+		ec.unmarshalInputProposeDocumentUpdateInput,
 		ec.unmarshalInputRelationInput,
 		ec.unmarshalInputSearchInput,
 		ec.unmarshalInputTemplateInput,
@@ -1060,6 +1391,44 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
 // region    ***************************** args.gotpl *****************************
 
+func (ec *executionContext) field_Document_proposals_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_approveProposalHunks_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNApproveHunksInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐApproveHunksInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_approveProposal_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "notes", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["notes"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createDocument_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1068,7 +1437,7 @@ func (ec *executionContext) field_Mutation_createDocument_args(ctx context.Conte
 		return nil, err
 	}
 	args["vaultId"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "file", ec.unmarshalNFileInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐFileInput)
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "file", ec.unmarshalNFileInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1084,7 +1453,7 @@ func (ec *executionContext) field_Mutation_createDocument_args(ctx context.Conte
 func (ec *executionContext) field_Mutation_createRelation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐRelationInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐRelationInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1095,7 +1464,7 @@ func (ec *executionContext) field_Mutation_createRelation_args(ctx context.Conte
 func (ec *executionContext) field_Mutation_createTemplate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNTemplateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplateInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNTemplateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1106,7 +1475,7 @@ func (ec *executionContext) field_Mutation_createTemplate_args(ctx context.Conte
 func (ec *executionContext) field_Mutation_createVault_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNVaultInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVaultInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNVaultInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1184,6 +1553,33 @@ func (ec *executionContext) field_Mutation_moveDocument_args(ctx context.Context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_proposeDocumentUpdate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNProposeDocumentUpdateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposeDocumentUpdateInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_rejectProposal_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "notes", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["notes"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updateDocument_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1243,10 +1639,37 @@ func (ec *executionContext) field_Query_document_args(ctx context.Context, rawAr
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_proposal_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_proposals_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_search_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNSearchInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐSearchInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNSearchInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1482,6 +1905,422 @@ func (ec *executionContext) fieldContext_ChunkMatch_score(_ context.Context, fie
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_index(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_index,
+		func(ctx context.Context) (any, error) {
+			return obj.Index, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_index(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_oldStart(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_oldStart,
+		func(ctx context.Context) (any, error) {
+			return obj.OldStart, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_oldStart(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_oldLines(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_oldLines,
+		func(ctx context.Context) (any, error) {
+			return obj.OldLines, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_oldLines(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_newStart(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_newStart,
+		func(ctx context.Context) (any, error) {
+			return obj.NewStart, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_newStart(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_newLines(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_newLines,
+		func(ctx context.Context) (any, error) {
+			return obj.NewLines, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_newLines(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_header(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_header,
+		func(ctx context.Context) (any, error) {
+			return obj.Header, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_header(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffHunk_lines(ctx context.Context, field graphql.CollectedField, obj *DiffHunk) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffHunk_lines,
+		func(ctx context.Context) (any, error) {
+			return obj.Lines, nil
+		},
+		nil,
+		ec.marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffHunk_lines(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffHunk",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "type":
+				return ec.fieldContext_DiffLine_type(ctx, field)
+			case "content":
+				return ec.fieldContext_DiffLine_content(ctx, field)
+			case "oldLineNo":
+				return ec.fieldContext_DiffLine_oldLineNo(ctx, field)
+			case "newLineNo":
+				return ec.fieldContext_DiffLine_newLineNo(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DiffLine", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffLine_type(ctx context.Context, field graphql.CollectedField, obj *DiffLine) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffLine_type,
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		ec.marshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineTypeEnum,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffLine_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffLine",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DiffLineType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffLine_content(ctx context.Context, field graphql.CollectedField, obj *DiffLine) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffLine_content,
+		func(ctx context.Context) (any, error) {
+			return obj.Content, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffLine_content(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffLine",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffLine_oldLineNo(ctx context.Context, field graphql.CollectedField, obj *DiffLine) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffLine_oldLineNo,
+		func(ctx context.Context) (any, error) {
+			return obj.OldLineNo, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffLine_oldLineNo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffLine",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffLine_newLineNo(ctx context.Context, field graphql.CollectedField, obj *DiffLine) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffLine_newLineNo,
+		func(ctx context.Context) (any, error) {
+			return obj.NewLineNo, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffLine_newLineNo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffLine",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffStats_additions(ctx context.Context, field graphql.CollectedField, obj *DiffStats) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffStats_additions,
+		func(ctx context.Context) (any, error) {
+			return obj.Additions, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffStats_additions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffStats",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffStats_deletions(ctx context.Context, field graphql.CollectedField, obj *DiffStats) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffStats_deletions,
+		func(ctx context.Context) (any, error) {
+			return obj.Deletions, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffStats_deletions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffStats",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DiffStats_hunksCount(ctx context.Context, field graphql.CollectedField, obj *DiffStats) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DiffStats_hunksCount,
+		func(ctx context.Context) (any, error) {
+			return obj.HunksCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DiffStats_hunksCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DiffStats",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -2077,7 +2916,7 @@ func (ec *executionContext) _Document_wikiLinks(ctx context.Context, field graph
 			return ec.resolvers.Document().WikiLinks(ctx, obj)
 		},
 		nil,
-		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐWikiLinkᚄ,
+		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLinkᚄ,
 		true,
 		true,
 	)
@@ -2118,7 +2957,7 @@ func (ec *executionContext) _Document_backlinks(ctx context.Context, field graph
 			return ec.resolvers.Document().Backlinks(ctx, obj)
 		},
 		nil,
-		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐWikiLinkᚄ,
+		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLinkᚄ,
 		true,
 		true,
 	)
@@ -2159,7 +2998,7 @@ func (ec *executionContext) _Document_relations(ctx context.Context, field graph
 			return ec.resolvers.Document().Relations(ctx, obj)
 		},
 		nil,
-		ec.marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocRelationᚄ,
+		ec.marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelationᚄ,
 		true,
 		true,
 	)
@@ -2202,7 +3041,7 @@ func (ec *executionContext) _Document_queryBlocks(ctx context.Context, field gra
 			return ec.resolvers.Document().QueryBlocks(ctx, obj)
 		},
 		nil,
-		ec.marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlockᚄ,
+		ec.marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlockᚄ,
 		true,
 		true,
 	)
@@ -2228,6 +3067,500 @@ func (ec *executionContext) fieldContext_Document_queryBlocks(_ context.Context,
 				return ec.fieldContext_QueryBlock_error(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type QueryBlock", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Document_proposals(ctx context.Context, field graphql.CollectedField, obj *Document) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Document_proposals,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Document().Proposals(ctx, obj, fc.Args["status"].(*ProposalStatus))
+		},
+		nil,
+		ec.marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposalᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Document_proposals(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Document",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DocumentProposal_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_DocumentProposal_vaultId(ctx, field)
+			case "document":
+				return ec.fieldContext_DocumentProposal_document(ctx, field)
+			case "proposedContent":
+				return ec.fieldContext_DocumentProposal_proposedContent(ctx, field)
+			case "description":
+				return ec.fieldContext_DocumentProposal_description(ctx, field)
+			case "source":
+				return ec.fieldContext_DocumentProposal_source(ctx, field)
+			case "status":
+				return ec.fieldContext_DocumentProposal_status(ctx, field)
+			case "originalHash":
+				return ec.fieldContext_DocumentProposal_originalHash(ctx, field)
+			case "hasConflict":
+				return ec.fieldContext_DocumentProposal_hasConflict(ctx, field)
+			case "reviewedAt":
+				return ec.fieldContext_DocumentProposal_reviewedAt(ctx, field)
+			case "reviewerNotes":
+				return ec.fieldContext_DocumentProposal_reviewerNotes(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_DocumentProposal_createdAt(ctx, field)
+			case "diff":
+				return ec.fieldContext_DocumentProposal_diff(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentProposal", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Document_proposals_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_id(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_vaultId(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_vaultId,
+		func(ctx context.Context) (any, error) {
+			return obj.VaultID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_vaultId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_document(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_document,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.DocumentProposal().Document(ctx, obj)
+		},
+		nil,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_document(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Document_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_Document_vaultId(ctx, field)
+			case "path":
+				return ec.fieldContext_Document_path(ctx, field)
+			case "title":
+				return ec.fieldContext_Document_title(ctx, field)
+			case "content":
+				return ec.fieldContext_Document_content(ctx, field)
+			case "contentBody":
+				return ec.fieldContext_Document_contentBody(ctx, field)
+			case "labels":
+				return ec.fieldContext_Document_labels(ctx, field)
+			case "docType":
+				return ec.fieldContext_Document_docType(ctx, field)
+			case "source":
+				return ec.fieldContext_Document_source(ctx, field)
+			case "sourcePath":
+				return ec.fieldContext_Document_sourcePath(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Document_contentHash(ctx, field)
+			case "metadata":
+				return ec.fieldContext_Document_metadata(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Document_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Document_updatedAt(ctx, field)
+			case "wikiLinks":
+				return ec.fieldContext_Document_wikiLinks(ctx, field)
+			case "backlinks":
+				return ec.fieldContext_Document_backlinks(ctx, field)
+			case "relations":
+				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_proposedContent(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_proposedContent,
+		func(ctx context.Context) (any, error) {
+			return obj.ProposedContent, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_proposedContent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_description(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_description,
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_source(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_source,
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_status(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ProposalStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_originalHash(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_originalHash,
+		func(ctx context.Context) (any, error) {
+			return obj.OriginalHash, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_originalHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_hasConflict(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_hasConflict,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.DocumentProposal().HasConflict(ctx, obj)
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_hasConflict(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_reviewedAt(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_reviewedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ReviewedAt, nil
+		},
+		nil,
+		ec.marshalODateTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_reviewedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_reviewerNotes(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_reviewerNotes,
+		func(ctx context.Context) (any, error) {
+			return obj.ReviewerNotes, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_reviewerNotes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_createdAt(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentProposal_diff(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentProposal_diff,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.DocumentProposal().Diff(ctx, obj)
+		},
+		nil,
+		ec.marshalNProposalDiff2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalDiff,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentProposal_diff(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentProposal",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hunks":
+				return ec.fieldContext_ProposalDiff_hunks(ctx, field)
+			case "hasConflict":
+				return ec.fieldContext_ProposalDiff_hasConflict(ctx, field)
+			case "stats":
+				return ec.fieldContext_ProposalDiff_stats(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ProposalDiff", field.Name)
 		},
 	}
 	return fc, nil
@@ -2330,7 +3663,7 @@ func (ec *executionContext) _Me_user(ctx context.Context, field graphql.Collecte
 			return obj.User, nil
 		},
 		nil,
-		ec.marshalNUser2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐUser,
+		ec.marshalNUser2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐUser,
 		true,
 		true,
 	)
@@ -2399,7 +3732,7 @@ func (ec *executionContext) _Mutation_createVault(ctx context.Context, field gra
 			return ec.resolvers.Mutation().CreateVault(ctx, fc.Args["input"].(VaultInput))
 		},
 		nil,
-		ec.marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVault,
+		ec.marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault,
 		true,
 		true,
 	)
@@ -2499,7 +3832,7 @@ func (ec *executionContext) _Mutation_createDocument(ctx context.Context, field 
 			return ec.resolvers.Mutation().CreateDocument(ctx, fc.Args["vaultId"].(string), fc.Args["file"].(FileInput), fc.Args["source"].(*string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -2549,6 +3882,8 @@ func (ec *executionContext) fieldContext_Mutation_createDocument(ctx context.Con
 				return ec.fieldContext_Document_relations(ctx, field)
 			case "queryBlocks":
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -2578,7 +3913,7 @@ func (ec *executionContext) _Mutation_updateDocument(ctx context.Context, field 
 			return ec.resolvers.Mutation().UpdateDocument(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string), fc.Args["content"].(string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -2628,6 +3963,8 @@ func (ec *executionContext) fieldContext_Mutation_updateDocument(ctx context.Con
 				return ec.fieldContext_Document_relations(ctx, field)
 			case "queryBlocks":
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -2657,7 +3994,7 @@ func (ec *executionContext) _Mutation_moveDocument(ctx context.Context, field gr
 			return ec.resolvers.Mutation().MoveDocument(ctx, fc.Args["vaultId"].(string), fc.Args["oldPath"].(string), fc.Args["newPath"].(string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -2707,6 +4044,8 @@ func (ec *executionContext) fieldContext_Mutation_moveDocument(ctx context.Conte
 				return ec.fieldContext_Document_relations(ctx, field)
 			case "queryBlocks":
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -2777,7 +4116,7 @@ func (ec *executionContext) _Mutation_createRelation(ctx context.Context, field 
 			return ec.resolvers.Mutation().CreateRelation(ctx, fc.Args["input"].(RelationInput))
 		},
 		nil,
-		ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocRelation,
+		ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation,
 		true,
 		true,
 	)
@@ -2873,7 +4212,7 @@ func (ec *executionContext) _Mutation_createTemplate(ctx context.Context, field 
 			return ec.resolvers.Mutation().CreateTemplate(ctx, fc.Args["input"].(TemplateInput))
 		},
 		nil,
-		ec.marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplate,
+		ec.marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate,
 		true,
 		true,
 	)
@@ -2962,6 +4301,389 @@ func (ec *executionContext) fieldContext_Mutation_deleteTemplate(ctx context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_proposeDocumentUpdate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_proposeDocumentUpdate,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().ProposeDocumentUpdate(ctx, fc.Args["input"].(ProposeDocumentUpdateInput))
+		},
+		nil,
+		ec.marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_proposeDocumentUpdate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DocumentProposal_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_DocumentProposal_vaultId(ctx, field)
+			case "document":
+				return ec.fieldContext_DocumentProposal_document(ctx, field)
+			case "proposedContent":
+				return ec.fieldContext_DocumentProposal_proposedContent(ctx, field)
+			case "description":
+				return ec.fieldContext_DocumentProposal_description(ctx, field)
+			case "source":
+				return ec.fieldContext_DocumentProposal_source(ctx, field)
+			case "status":
+				return ec.fieldContext_DocumentProposal_status(ctx, field)
+			case "originalHash":
+				return ec.fieldContext_DocumentProposal_originalHash(ctx, field)
+			case "hasConflict":
+				return ec.fieldContext_DocumentProposal_hasConflict(ctx, field)
+			case "reviewedAt":
+				return ec.fieldContext_DocumentProposal_reviewedAt(ctx, field)
+			case "reviewerNotes":
+				return ec.fieldContext_DocumentProposal_reviewerNotes(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_DocumentProposal_createdAt(ctx, field)
+			case "diff":
+				return ec.fieldContext_DocumentProposal_diff(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentProposal", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_proposeDocumentUpdate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_approveProposal(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_approveProposal,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().ApproveProposal(ctx, fc.Args["id"].(string), fc.Args["notes"].(*string))
+		},
+		nil,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_approveProposal(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Document_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_Document_vaultId(ctx, field)
+			case "path":
+				return ec.fieldContext_Document_path(ctx, field)
+			case "title":
+				return ec.fieldContext_Document_title(ctx, field)
+			case "content":
+				return ec.fieldContext_Document_content(ctx, field)
+			case "contentBody":
+				return ec.fieldContext_Document_contentBody(ctx, field)
+			case "labels":
+				return ec.fieldContext_Document_labels(ctx, field)
+			case "docType":
+				return ec.fieldContext_Document_docType(ctx, field)
+			case "source":
+				return ec.fieldContext_Document_source(ctx, field)
+			case "sourcePath":
+				return ec.fieldContext_Document_sourcePath(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Document_contentHash(ctx, field)
+			case "metadata":
+				return ec.fieldContext_Document_metadata(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Document_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Document_updatedAt(ctx, field)
+			case "wikiLinks":
+				return ec.fieldContext_Document_wikiLinks(ctx, field)
+			case "backlinks":
+				return ec.fieldContext_Document_backlinks(ctx, field)
+			case "relations":
+				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_approveProposal_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_approveProposalHunks(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_approveProposalHunks,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().ApproveProposalHunks(ctx, fc.Args["input"].(ApproveHunksInput))
+		},
+		nil,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_approveProposalHunks(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Document_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_Document_vaultId(ctx, field)
+			case "path":
+				return ec.fieldContext_Document_path(ctx, field)
+			case "title":
+				return ec.fieldContext_Document_title(ctx, field)
+			case "content":
+				return ec.fieldContext_Document_content(ctx, field)
+			case "contentBody":
+				return ec.fieldContext_Document_contentBody(ctx, field)
+			case "labels":
+				return ec.fieldContext_Document_labels(ctx, field)
+			case "docType":
+				return ec.fieldContext_Document_docType(ctx, field)
+			case "source":
+				return ec.fieldContext_Document_source(ctx, field)
+			case "sourcePath":
+				return ec.fieldContext_Document_sourcePath(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Document_contentHash(ctx, field)
+			case "metadata":
+				return ec.fieldContext_Document_metadata(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Document_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Document_updatedAt(ctx, field)
+			case "wikiLinks":
+				return ec.fieldContext_Document_wikiLinks(ctx, field)
+			case "backlinks":
+				return ec.fieldContext_Document_backlinks(ctx, field)
+			case "relations":
+				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_approveProposalHunks_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_rejectProposal(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_rejectProposal,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().RejectProposal(ctx, fc.Args["id"].(string), fc.Args["notes"].(*string))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_rejectProposal(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_rejectProposal_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ProposalDiff_hunks(ctx context.Context, field graphql.CollectedField, obj *ProposalDiff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ProposalDiff_hunks,
+		func(ctx context.Context) (any, error) {
+			return obj.Hunks, nil
+		},
+		nil,
+		ec.marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunkᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ProposalDiff_hunks(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ProposalDiff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "index":
+				return ec.fieldContext_DiffHunk_index(ctx, field)
+			case "oldStart":
+				return ec.fieldContext_DiffHunk_oldStart(ctx, field)
+			case "oldLines":
+				return ec.fieldContext_DiffHunk_oldLines(ctx, field)
+			case "newStart":
+				return ec.fieldContext_DiffHunk_newStart(ctx, field)
+			case "newLines":
+				return ec.fieldContext_DiffHunk_newLines(ctx, field)
+			case "header":
+				return ec.fieldContext_DiffHunk_header(ctx, field)
+			case "lines":
+				return ec.fieldContext_DiffHunk_lines(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DiffHunk", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ProposalDiff_hasConflict(ctx context.Context, field graphql.CollectedField, obj *ProposalDiff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ProposalDiff_hasConflict,
+		func(ctx context.Context) (any, error) {
+			return obj.HasConflict, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ProposalDiff_hasConflict(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ProposalDiff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ProposalDiff_stats(ctx context.Context, field graphql.CollectedField, obj *ProposalDiff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ProposalDiff_stats,
+		func(ctx context.Context) (any, error) {
+			return obj.Stats, nil
+		},
+		nil,
+		ec.marshalNDiffStats2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffStats,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ProposalDiff_stats(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ProposalDiff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "additions":
+				return ec.fieldContext_DiffStats_additions(ctx, field)
+			case "deletions":
+				return ec.fieldContext_DiffStats_deletions(ctx, field)
+			case "hunksCount":
+				return ec.fieldContext_DiffStats_hunksCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DiffStats", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_me(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2972,7 +4694,7 @@ func (ec *executionContext) _Query_me(ctx context.Context, field graphql.Collect
 			return ec.resolvers.Query().Me(ctx)
 		},
 		nil,
-		ec.marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐMe,
+		ec.marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐMe,
 		true,
 		true,
 	)
@@ -3008,7 +4730,7 @@ func (ec *executionContext) _Query_vault(ctx context.Context, field graphql.Coll
 			return ec.resolvers.Query().Vault(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalOVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVault,
+		ec.marshalOVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault,
 		true,
 		false,
 	)
@@ -3066,7 +4788,7 @@ func (ec *executionContext) _Query_vaults(ctx context.Context, field graphql.Col
 			return ec.resolvers.Query().Vaults(ctx)
 		},
 		nil,
-		ec.marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVaultᚄ,
+		ec.marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultᚄ,
 		true,
 		true,
 	)
@@ -3114,7 +4836,7 @@ func (ec *executionContext) _Query_document(ctx context.Context, field graphql.C
 			return ec.resolvers.Query().Document(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
 		},
 		nil,
-		ec.marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument,
+		ec.marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
 		true,
 		false,
 	)
@@ -3164,6 +4886,8 @@ func (ec *executionContext) fieldContext_Query_document(ctx context.Context, fie
 				return ec.fieldContext_Document_relations(ctx, field)
 			case "queryBlocks":
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -3193,7 +4917,7 @@ func (ec *executionContext) _Query_documentById(ctx context.Context, field graph
 			return ec.resolvers.Query().DocumentByID(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument,
+		ec.marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
 		true,
 		false,
 	)
@@ -3243,6 +4967,8 @@ func (ec *executionContext) fieldContext_Query_documentById(ctx context.Context,
 				return ec.fieldContext_Document_relations(ctx, field)
 			case "queryBlocks":
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -3272,7 +4998,7 @@ func (ec *executionContext) _Query_search(ctx context.Context, field graphql.Col
 			return ec.resolvers.Query().Search(ctx, fc.Args["input"].(SearchInput))
 		},
 		nil,
-		ec.marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐSearchResultᚄ,
+		ec.marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResultᚄ,
 		true,
 		true,
 	)
@@ -3329,7 +5055,7 @@ func (ec *executionContext) _Query_template(ctx context.Context, field graphql.C
 			return ec.resolvers.Query().Template(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalOTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplate,
+		ec.marshalOTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate,
 		true,
 		false,
 	)
@@ -3388,7 +5114,7 @@ func (ec *executionContext) _Query_templates(ctx context.Context, field graphql.
 			return ec.resolvers.Query().Templates(ctx, fc.Args["vaultId"].(*string))
 		},
 		nil,
-		ec.marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplateᚄ,
+		ec.marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateᚄ,
 		true,
 		true,
 	)
@@ -3430,6 +5156,144 @@ func (ec *executionContext) fieldContext_Query_templates(ctx context.Context, fi
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_templates_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_proposal(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_proposal,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().Proposal(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		ec.marshalODocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_proposal(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DocumentProposal_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_DocumentProposal_vaultId(ctx, field)
+			case "document":
+				return ec.fieldContext_DocumentProposal_document(ctx, field)
+			case "proposedContent":
+				return ec.fieldContext_DocumentProposal_proposedContent(ctx, field)
+			case "description":
+				return ec.fieldContext_DocumentProposal_description(ctx, field)
+			case "source":
+				return ec.fieldContext_DocumentProposal_source(ctx, field)
+			case "status":
+				return ec.fieldContext_DocumentProposal_status(ctx, field)
+			case "originalHash":
+				return ec.fieldContext_DocumentProposal_originalHash(ctx, field)
+			case "hasConflict":
+				return ec.fieldContext_DocumentProposal_hasConflict(ctx, field)
+			case "reviewedAt":
+				return ec.fieldContext_DocumentProposal_reviewedAt(ctx, field)
+			case "reviewerNotes":
+				return ec.fieldContext_DocumentProposal_reviewerNotes(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_DocumentProposal_createdAt(ctx, field)
+			case "diff":
+				return ec.fieldContext_DocumentProposal_diff(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentProposal", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_proposal_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_proposals(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_proposals,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().Proposals(ctx, fc.Args["vaultId"].(string), fc.Args["status"].(*ProposalStatus))
+		},
+		nil,
+		ec.marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposalᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_proposals(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DocumentProposal_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_DocumentProposal_vaultId(ctx, field)
+			case "document":
+				return ec.fieldContext_DocumentProposal_document(ctx, field)
+			case "proposedContent":
+				return ec.fieldContext_DocumentProposal_proposedContent(ctx, field)
+			case "description":
+				return ec.fieldContext_DocumentProposal_description(ctx, field)
+			case "source":
+				return ec.fieldContext_DocumentProposal_source(ctx, field)
+			case "status":
+				return ec.fieldContext_DocumentProposal_status(ctx, field)
+			case "originalHash":
+				return ec.fieldContext_DocumentProposal_originalHash(ctx, field)
+			case "hasConflict":
+				return ec.fieldContext_DocumentProposal_hasConflict(ctx, field)
+			case "reviewedAt":
+				return ec.fieldContext_DocumentProposal_reviewedAt(ctx, field)
+			case "reviewerNotes":
+				return ec.fieldContext_DocumentProposal_reviewerNotes(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_DocumentProposal_createdAt(ctx, field)
+			case "diff":
+				return ec.fieldContext_DocumentProposal_diff(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentProposal", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_proposals_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3612,7 +5476,7 @@ func (ec *executionContext) _QueryBlock_format(ctx context.Context, field graphq
 			return obj.Format, nil
 		},
 		nil,
-		ec.marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryFormat,
+		ec.marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryFormat,
 		true,
 		true,
 	)
@@ -3641,7 +5505,7 @@ func (ec *executionContext) _QueryBlock_results(ctx context.Context, field graph
 			return obj.Results, nil
 		},
 		nil,
-		ec.marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResultᚄ,
+		ec.marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResultᚄ,
 		true,
 		true,
 	)
@@ -4144,7 +6008,7 @@ func (ec *executionContext) _SearchResult_matchedChunks(ctx context.Context, fie
 			return obj.MatchedChunks, nil
 		},
 		nil,
-		ec.marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐChunkMatchᚄ,
+		ec.marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatchᚄ,
 		true,
 		true,
 	)
@@ -4706,7 +6570,7 @@ func (ec *executionContext) _Vault_documents(ctx context.Context, field graphql.
 			return ec.resolvers.Vault().Documents(ctx, obj, fc.Args["folder"].(*string), fc.Args["labels"].([]string), fc.Args["docType"].(*string))
 		},
 		nil,
-		ec.marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocumentᚄ,
+		ec.marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentᚄ,
 		true,
 		true,
 	)
@@ -4756,6 +6620,8 @@ func (ec *executionContext) fieldContext_Vault_documents(ctx context.Context, fi
 				return ec.fieldContext_Document_relations(ctx, field)
 			case "queryBlocks":
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -4785,7 +6651,7 @@ func (ec *executionContext) _Vault_folders(ctx context.Context, field graphql.Co
 			return ec.resolvers.Vault().Folders(ctx, obj, fc.Args["parent"].(*string))
 		},
 		nil,
-		ec.marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐFolderᚄ,
+		ec.marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolderᚄ,
 		true,
 		true,
 	)
@@ -6414,6 +8280,47 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputApproveHunksInput(ctx context.Context, obj any) (ApproveHunksInput, error) {
+	var it ApproveHunksInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"proposalId", "hunkIndexes", "notes"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "proposalId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("proposalId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProposalID = data
+		case "hunkIndexes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hunkIndexes"))
+			data, err := ec.unmarshalNInt2ᚕintᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HunkIndexes = data
+		case "notes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("notes"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Notes = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputFileInput(ctx context.Context, obj any) (FileInput, error) {
 	var it FileInput
 	asMap := map[string]any{}
@@ -6442,6 +8349,61 @@ func (ec *executionContext) unmarshalInputFileInput(ctx context.Context, obj any
 				return it, err
 			}
 			it.Content = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputProposeDocumentUpdateInput(ctx context.Context, obj any) (ProposeDocumentUpdateInput, error) {
+	var it ProposeDocumentUpdateInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"vaultId", "path", "proposedContent", "description", "source"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "vaultId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("vaultId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.VaultID = data
+		case "path":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("path"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Path = data
+		case "proposedContent":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("proposedContent"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProposedContent = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		case "source":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Source = data
 		}
 	}
 
@@ -6673,6 +8635,172 @@ func (ec *executionContext) _ChunkMatch(ctx context.Context, sel ast.SelectionSe
 			}
 		case "score":
 			out.Values[i] = ec._ChunkMatch_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var diffHunkImplementors = []string{"DiffHunk"}
+
+func (ec *executionContext) _DiffHunk(ctx context.Context, sel ast.SelectionSet, obj *DiffHunk) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, diffHunkImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DiffHunk")
+		case "index":
+			out.Values[i] = ec._DiffHunk_index(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldStart":
+			out.Values[i] = ec._DiffHunk_oldStart(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldLines":
+			out.Values[i] = ec._DiffHunk_oldLines(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newStart":
+			out.Values[i] = ec._DiffHunk_newStart(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newLines":
+			out.Values[i] = ec._DiffHunk_newLines(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "header":
+			out.Values[i] = ec._DiffHunk_header(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lines":
+			out.Values[i] = ec._DiffHunk_lines(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var diffLineImplementors = []string{"DiffLine"}
+
+func (ec *executionContext) _DiffLine(ctx context.Context, sel ast.SelectionSet, obj *DiffLine) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, diffLineImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DiffLine")
+		case "type":
+			out.Values[i] = ec._DiffLine_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "content":
+			out.Values[i] = ec._DiffLine_content(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldLineNo":
+			out.Values[i] = ec._DiffLine_oldLineNo(ctx, field, obj)
+		case "newLineNo":
+			out.Values[i] = ec._DiffLine_newLineNo(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var diffStatsImplementors = []string{"DiffStats"}
+
+func (ec *executionContext) _DiffStats(ctx context.Context, sel ast.SelectionSet, obj *DiffStats) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, diffStatsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DiffStats")
+		case "additions":
+			out.Values[i] = ec._DiffStats_additions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deletions":
+			out.Values[i] = ec._DiffStats_deletions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hunksCount":
+			out.Values[i] = ec._DiffStats_hunksCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -6976,6 +9104,225 @@ func (ec *executionContext) _Document(ctx context.Context, sel ast.SelectionSet,
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "proposals":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Document_proposals(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var documentProposalImplementors = []string{"DocumentProposal"}
+
+func (ec *executionContext) _DocumentProposal(ctx context.Context, sel ast.SelectionSet, obj *DocumentProposal) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, documentProposalImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DocumentProposal")
+		case "id":
+			out.Values[i] = ec._DocumentProposal_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "vaultId":
+			out.Values[i] = ec._DocumentProposal_vaultId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "document":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._DocumentProposal_document(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "proposedContent":
+			out.Values[i] = ec._DocumentProposal_proposedContent(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "description":
+			out.Values[i] = ec._DocumentProposal_description(ctx, field, obj)
+		case "source":
+			out.Values[i] = ec._DocumentProposal_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "status":
+			out.Values[i] = ec._DocumentProposal_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "originalHash":
+			out.Values[i] = ec._DocumentProposal_originalHash(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "hasConflict":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._DocumentProposal_hasConflict(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reviewedAt":
+			out.Values[i] = ec._DocumentProposal_reviewedAt(ctx, field, obj)
+		case "reviewerNotes":
+			out.Values[i] = ec._DocumentProposal_reviewerNotes(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._DocumentProposal_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "diff":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._DocumentProposal_diff(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -7181,6 +9528,83 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "proposeDocumentUpdate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_proposeDocumentUpdate(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "approveProposal":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_approveProposal(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "approveProposalHunks":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_approveProposalHunks(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rejectProposal":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_rejectProposal(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var proposalDiffImplementors = []string{"ProposalDiff"}
+
+func (ec *executionContext) _ProposalDiff(ctx context.Context, sel ast.SelectionSet, obj *ProposalDiff) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, proposalDiffImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ProposalDiff")
+		case "hunks":
+			out.Values[i] = ec._ProposalDiff_hunks(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasConflict":
+			out.Values[i] = ec._ProposalDiff_hasConflict(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "stats":
+			out.Values[i] = ec._ProposalDiff_stats(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -7375,6 +9799,47 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_templates(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "proposal":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_proposal(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "proposals":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_proposals(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -8293,6 +10758,11 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
+func (ec *executionContext) unmarshalNApproveHunksInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐApproveHunksInput(ctx context.Context, v any) (ApproveHunksInput, error) {
+	res, err := ec.unmarshalInputApproveHunksInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -8309,11 +10779,11 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐChunkMatch(ctx context.Context, sel ast.SelectionSet, v ChunkMatch) graphql.Marshaler {
+func (ec *executionContext) marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatch(ctx context.Context, sel ast.SelectionSet, v ChunkMatch) graphql.Marshaler {
 	return ec._ChunkMatch(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐChunkMatchᚄ(ctx context.Context, sel ast.SelectionSet, v []ChunkMatch) graphql.Marshaler {
+func (ec *executionContext) marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatchᚄ(ctx context.Context, sel ast.SelectionSet, v []ChunkMatch) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8337,7 +10807,7 @@ func (ec *executionContext) marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruber�
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐChunkMatch(ctx, sel, v[i])
+			ret[i] = ec.marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatch(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8373,11 +10843,7 @@ func (ec *executionContext) marshalNDateTime2timeᚐTime(ctx context.Context, se
 	return res
 }
 
-func (ec *executionContext) marshalNDocRelation2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v DocRelation) graphql.Marshaler {
-	return ec._DocRelation(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocRelationᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocRelation) graphql.Marshaler {
+func (ec *executionContext) marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunkᚄ(ctx context.Context, sel ast.SelectionSet, v []*DiffHunk) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8401,7 +10867,7 @@ func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgrub
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocRelation(ctx, sel, v[i])
+			ret[i] = ec.marshalNDiffHunk2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunk(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8421,7 +10887,146 @@ func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgrub
 	return ret
 }
 
-func (ec *executionContext) marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v *DocRelation) graphql.Marshaler {
+func (ec *executionContext) marshalNDiffHunk2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunk(ctx context.Context, sel ast.SelectionSet, v *DiffHunk) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DiffHunk(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineᚄ(ctx context.Context, sel ast.SelectionSet, v []*DiffLine) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDiffLine2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLine(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDiffLine2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLine(ctx context.Context, sel ast.SelectionSet, v *DiffLine) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DiffLine(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineTypeEnum(ctx context.Context, v any) (DiffLineTypeEnum, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := DiffLineTypeEnum(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineTypeEnum(ctx context.Context, sel ast.SelectionSet, v DiffLineTypeEnum) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNDiffStats2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffStats(ctx context.Context, sel ast.SelectionSet, v *DiffStats) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DiffStats(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDocRelation2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v DocRelation) graphql.Marshaler {
+	return ec._DocRelation(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelationᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocRelation) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v *DocRelation) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -8431,11 +11036,11 @@ func (ec *executionContext) marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruber�
 	return ec._DocRelation(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDocument2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v Document) graphql.Marshaler {
+func (ec *executionContext) marshalNDocument2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v Document) graphql.Marshaler {
 	return ec._Document(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocumentᚄ(ctx context.Context, sel ast.SelectionSet, v []*Document) graphql.Marshaler {
+func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentᚄ(ctx context.Context, sel ast.SelectionSet, v []*Document) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8459,7 +11064,7 @@ func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruber�
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument(ctx, sel, v[i])
+			ret[i] = ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8479,7 +11084,7 @@ func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
+func (ec *executionContext) marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -8489,7 +11094,65 @@ func (ec *executionContext) marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ec._Document(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNFileInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐFileInput(ctx context.Context, v any) (FileInput, error) {
+func (ec *executionContext) marshalNDocumentProposal2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v DocumentProposal) graphql.Marshaler {
+	return ec._DocumentProposal(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposalᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocumentProposal) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v *DocumentProposal) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DocumentProposal(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNFileInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileInput(ctx context.Context, v any) (FileInput, error) {
 	res, err := ec.unmarshalInputFileInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -8510,7 +11173,7 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 	return graphql.WrapContextMarshaler(ctx, res)
 }
 
-func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*Folder) graphql.Marshaler {
+func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*Folder) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8534,7 +11197,7 @@ func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋ
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNFolder2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐFolder(ctx, sel, v[i])
+			ret[i] = ec.marshalNFolder2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolder(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8554,7 +11217,7 @@ func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋ
 	return ret
 }
 
-func (ec *executionContext) marshalNFolder2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐFolder(ctx context.Context, sel ast.SelectionSet, v *Folder) graphql.Marshaler {
+func (ec *executionContext) marshalNFolder2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolder(ctx context.Context, sel ast.SelectionSet, v *Folder) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -8626,54 +11289,26 @@ func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.Selecti
 	return res
 }
 
-func (ec *executionContext) marshalNMe2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v Me) graphql.Marshaler {
-	return ec._Me(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v *Me) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+func (ec *executionContext) unmarshalNInt2ᚕintᚄ(ctx context.Context, v any) ([]int, error) {
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]int, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNInt2int(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
 		}
-		return graphql.Null
 	}
-	return ec._Me(ctx, sel, v)
+	return res, nil
 }
 
-func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlockᚄ(ctx context.Context, sel ast.SelectionSet, v []*QueryBlock) graphql.Marshaler {
+func (ec *executionContext) marshalNInt2ᚕintᚄ(ctx context.Context, sel ast.SelectionSet, v []int) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
 	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlock(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
+		ret[i] = ec.marshalNInt2int(ctx, sel, v[i])
 	}
-	wg.Wait()
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -8684,23 +11319,41 @@ func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgrube
 	return ret
 }
 
-func (ec *executionContext) marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryBlock(ctx context.Context, sel ast.SelectionSet, v *QueryBlock) graphql.Marshaler {
+func (ec *executionContext) marshalNMe2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v Me) graphql.Marshaler {
+	return ec._Me(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v *Me) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
 		}
 		return graphql.Null
 	}
-	return ec._QueryBlock(ctx, sel, v)
+	return ec._Me(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryFormat(ctx context.Context, v any) (QueryFormat, error) {
+func (ec *executionContext) marshalNProposalDiff2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalDiff(ctx context.Context, sel ast.SelectionSet, v ProposalDiff) graphql.Marshaler {
+	return ec._ProposalDiff(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNProposalDiff2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalDiff(ctx context.Context, sel ast.SelectionSet, v *ProposalDiff) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ProposalDiff(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (ProposalStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := QueryFormat(tmp)
+	res := ProposalStatus(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryFormat(ctx context.Context, sel ast.SelectionSet, v QueryFormat) graphql.Marshaler {
+func (ec *executionContext) marshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, sel ast.SelectionSet, v ProposalStatus) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -8711,11 +11364,12 @@ func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋm
 	return res
 }
 
-func (ec *executionContext) marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResult(ctx context.Context, sel ast.SelectionSet, v QueryResult) graphql.Marshaler {
-	return ec._QueryResult(ctx, sel, &v)
+func (ec *executionContext) unmarshalNProposeDocumentUpdateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposeDocumentUpdateInput(ctx context.Context, v any) (ProposeDocumentUpdateInput, error) {
+	res, err := ec.unmarshalInputProposeDocumentUpdateInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResultᚄ(ctx context.Context, sel ast.SelectionSet, v []QueryResult) graphql.Marshaler {
+func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlockᚄ(ctx context.Context, sel ast.SelectionSet, v []*QueryBlock) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8739,7 +11393,7 @@ func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruber�
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐQueryResult(ctx, sel, v[i])
+			ret[i] = ec.marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlock(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8759,17 +11413,92 @@ func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐRelationInput(ctx context.Context, v any) (RelationInput, error) {
+func (ec *executionContext) marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlock(ctx context.Context, sel ast.SelectionSet, v *QueryBlock) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._QueryBlock(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryFormat(ctx context.Context, v any) (QueryFormat, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := QueryFormat(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryFormat(ctx context.Context, sel ast.SelectionSet, v QueryFormat) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResult(ctx context.Context, sel ast.SelectionSet, v QueryResult) graphql.Marshaler {
+	return ec._QueryResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResultᚄ(ctx context.Context, sel ast.SelectionSet, v []QueryResult) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResult(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐRelationInput(ctx context.Context, v any) (RelationInput, error) {
 	res, err := ec.unmarshalInputRelationInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNSearchInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐSearchInput(ctx context.Context, v any) (SearchInput, error) {
+func (ec *executionContext) unmarshalNSearchInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchInput(ctx context.Context, v any) (SearchInput, error) {
 	res, err := ec.unmarshalInputSearchInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐSearchResultᚄ(ctx context.Context, sel ast.SelectionSet, v []*SearchResult) graphql.Marshaler {
+func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResultᚄ(ctx context.Context, sel ast.SelectionSet, v []*SearchResult) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8793,7 +11522,7 @@ func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgru
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNSearchResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐSearchResult(ctx, sel, v[i])
+			ret[i] = ec.marshalNSearchResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResult(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8813,7 +11542,7 @@ func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgru
 	return ret
 }
 
-func (ec *executionContext) marshalNSearchResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐSearchResult(ctx context.Context, sel ast.SelectionSet, v *SearchResult) graphql.Marshaler {
+func (ec *executionContext) marshalNSearchResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResult(ctx context.Context, sel ast.SelectionSet, v *SearchResult) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -8869,11 +11598,11 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	return ret
 }
 
-func (ec *executionContext) marshalNTemplate2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v Template) graphql.Marshaler {
+func (ec *executionContext) marshalNTemplate2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v Template) graphql.Marshaler {
 	return ec._Template(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplateᚄ(ctx context.Context, sel ast.SelectionSet, v []*Template) graphql.Marshaler {
+func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateᚄ(ctx context.Context, sel ast.SelectionSet, v []*Template) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8897,7 +11626,7 @@ func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruber�
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplate(ctx, sel, v[i])
+			ret[i] = ec.marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8917,7 +11646,7 @@ func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
+func (ec *executionContext) marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -8927,20 +11656,20 @@ func (ec *executionContext) marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ec._Template(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNTemplateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplateInput(ctx context.Context, v any) (TemplateInput, error) {
+func (ec *executionContext) unmarshalNTemplateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateInput(ctx context.Context, v any) (TemplateInput, error) {
 	res, err := ec.unmarshalInputTemplateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNUser2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐUser(ctx context.Context, sel ast.SelectionSet, v User) graphql.Marshaler {
+func (ec *executionContext) marshalNUser2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐUser(ctx context.Context, sel ast.SelectionSet, v User) graphql.Marshaler {
 	return ec._User(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNVault2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v Vault) graphql.Marshaler {
+func (ec *executionContext) marshalNVault2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v Vault) graphql.Marshaler {
 	return ec._Vault(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVaultᚄ(ctx context.Context, sel ast.SelectionSet, v []*Vault) graphql.Marshaler {
+func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultᚄ(ctx context.Context, sel ast.SelectionSet, v []*Vault) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -8964,7 +11693,7 @@ func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋm
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVault(ctx, sel, v[i])
+			ret[i] = ec.marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -8984,7 +11713,7 @@ func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ret
 }
 
-func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
+func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -8994,12 +11723,12 @@ func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemc
 	return ec._Vault(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNVaultInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVaultInput(ctx context.Context, v any) (VaultInput, error) {
+func (ec *executionContext) unmarshalNVaultInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultInput(ctx context.Context, v any) (VaultInput, error) {
 	res, err := ec.unmarshalInputVaultInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐWikiLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*WikiLink) graphql.Marshaler {
+func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*WikiLink) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -9023,7 +11752,7 @@ func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruber�
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNWikiLink2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐWikiLink(ctx, sel, v[i])
+			ret[i] = ec.marshalNWikiLink2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLink(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -9043,7 +11772,7 @@ func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNWikiLink2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐWikiLink(ctx context.Context, sel ast.SelectionSet, v *WikiLink) graphql.Marshaler {
+func (ec *executionContext) marshalNWikiLink2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLink(ctx context.Context, sel ast.SelectionSet, v *WikiLink) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -9336,11 +12065,36 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
-func (ec *executionContext) marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
+func (ec *executionContext) unmarshalODateTime2ᚖtimeᚐTime(ctx context.Context, v any) (*time.Time, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalTime(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalODateTime2ᚖtimeᚐTime(ctx context.Context, sel ast.SelectionSet, v *time.Time) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalTime(*v)
+	return res
+}
+
+func (ec *executionContext) marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Document(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalODocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v *DocumentProposal) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DocumentProposal(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOID2ᚖstring(ctx context.Context, v any) (*string, error) {
@@ -9394,6 +12148,25 @@ func (ec *executionContext) marshalOJSON2map(ctx context.Context, sel ast.Select
 	_ = sel
 	_ = ctx
 	res := graphql.MarshalMap(v)
+	return res
+}
+
+func (ec *executionContext) unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (*ProposalStatus, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := ProposalStatus(tmp)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, sel ast.SelectionSet, v *ProposalStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(*v))
 	return res
 }
 
@@ -9451,14 +12224,14 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	return res
 }
 
-func (ec *executionContext) marshalOTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
+func (ec *executionContext) marshalOTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Template(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋv2ᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
+func (ec *executionContext) marshalOVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

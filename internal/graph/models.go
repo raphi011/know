@@ -124,6 +124,122 @@ type QueryResult struct {
 	Fields map[string]any `json:"fields,omitempty"`
 }
 
+// Proposal types
+
+type DocumentProposal struct {
+	ID              string    `json:"id"`
+	VaultID         string    `json:"vaultId"`
+	DocumentID      string    `json:"documentId"`
+	ProposedContent string    `json:"proposedContent"`
+	Description     *string   `json:"description,omitempty"`
+	Source          string    `json:"source"`
+	Status          ProposalStatus `json:"status"`
+	OriginalHash    string    `json:"originalHash"`
+	ReviewedAt      *time.Time `json:"reviewedAt,omitempty"`
+	ReviewerNotes   *string   `json:"reviewerNotes,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+type ProposalStatus string
+
+const (
+	ProposalStatusPending           ProposalStatus = "PENDING"
+	ProposalStatusApproved          ProposalStatus = "APPROVED"
+	ProposalStatusPartiallyApproved ProposalStatus = "PARTIALLY_APPROVED"
+	ProposalStatusRejected          ProposalStatus = "REJECTED"
+	ProposalStatusConflict          ProposalStatus = "CONFLICT"
+	ProposalStatusExpired           ProposalStatus = "EXPIRED"
+)
+
+var AllProposalStatus = []ProposalStatus{
+	ProposalStatusPending,
+	ProposalStatusApproved,
+	ProposalStatusPartiallyApproved,
+	ProposalStatusRejected,
+	ProposalStatusConflict,
+	ProposalStatusExpired,
+}
+
+func (e ProposalStatus) IsValid() bool {
+	switch e {
+	case ProposalStatusPending, ProposalStatusApproved, ProposalStatusPartiallyApproved,
+		ProposalStatusRejected, ProposalStatusConflict, ProposalStatusExpired:
+		return true
+	}
+	return false
+}
+
+func (e ProposalStatus) String() string { return string(e) }
+
+type ProposalDiff struct {
+	Hunks       []*DiffHunk `json:"hunks"`
+	HasConflict bool        `json:"hasConflict"`
+	Stats       *DiffStats  `json:"stats"`
+}
+
+type DiffStats struct {
+	Additions  int `json:"additions"`
+	Deletions  int `json:"deletions"`
+	HunksCount int `json:"hunksCount"`
+}
+
+type DiffHunk struct {
+	Index    int         `json:"index"`
+	OldStart int         `json:"oldStart"`
+	OldLines int         `json:"oldLines"`
+	NewStart int         `json:"newStart"`
+	NewLines int         `json:"newLines"`
+	Header   string      `json:"header"`
+	Lines    []*DiffLine `json:"lines"`
+}
+
+type DiffLine struct {
+	Type      DiffLineTypeEnum `json:"type"`
+	Content   string           `json:"content"`
+	OldLineNo *int             `json:"oldLineNo,omitempty"`
+	NewLineNo *int             `json:"newLineNo,omitempty"`
+}
+
+type DiffLineTypeEnum string
+
+const (
+	DiffLineTypeContext DiffLineTypeEnum = "CONTEXT"
+	DiffLineTypeAdd     DiffLineTypeEnum = "ADD"
+	DiffLineTypeDelete  DiffLineTypeEnum = "DELETE"
+)
+
+var AllDiffLineType = []DiffLineTypeEnum{
+	DiffLineTypeContext,
+	DiffLineTypeAdd,
+	DiffLineTypeDelete,
+}
+
+func (e DiffLineTypeEnum) IsValid() bool {
+	switch e {
+	case DiffLineTypeContext, DiffLineTypeAdd, DiffLineTypeDelete:
+		return true
+	}
+	return false
+}
+
+func (e DiffLineTypeEnum) String() string { return string(e) }
+
+// Proposal input types
+
+type ProposeDocumentUpdateInput struct {
+	VaultID         string  `json:"vaultId"`
+	Path            string  `json:"path"`
+	ProposedContent string  `json:"proposedContent"`
+	Description     *string `json:"description,omitempty"`
+	Source          *string `json:"source,omitempty"`
+}
+
+type ApproveHunksInput struct {
+	ProposalID  string `json:"proposalId"`
+	HunkIndexes []int  `json:"hunkIndexes"`
+	Notes       *string `json:"notes,omitempty"`
+}
+
 // Input types
 
 type VaultInput struct {

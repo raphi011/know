@@ -137,6 +137,32 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_template_vault_name ON template FIELDS vault, name UNIQUE;
 
     -- ==========================================================================
+    -- DOCUMENT_PROPOSAL TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS document_proposal SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS vault           ON document_proposal TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS document        ON document_proposal TYPE record<document>;
+    DEFINE FIELD IF NOT EXISTS proposed_content ON document_proposal TYPE string;
+    DEFINE FIELD IF NOT EXISTS description     ON document_proposal TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS source          ON document_proposal TYPE string DEFAULT "ai_suggested";
+    DEFINE FIELD IF NOT EXISTS status          ON document_proposal TYPE string DEFAULT "pending";
+    DEFINE FIELD IF NOT EXISTS original_hash   ON document_proposal TYPE string;
+    DEFINE FIELD IF NOT EXISTS reviewed_at     ON document_proposal TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS reviewer_notes  ON document_proposal TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS created_at      ON document_proposal TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_proposal_vault    ON document_proposal FIELDS vault;
+    DEFINE INDEX IF NOT EXISTS idx_proposal_document ON document_proposal FIELDS document;
+    DEFINE INDEX IF NOT EXISTS idx_proposal_status   ON document_proposal FIELDS status;
+
+    -- Cascade: delete proposals when document is deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_document_proposals ON document
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM document_proposal WHERE document = $before.id
+    };
+
+    -- ==========================================================================
     -- API_TOKEN TABLE
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS api_token SCHEMAFULL;
