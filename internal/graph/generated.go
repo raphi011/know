@@ -3336,7 +3336,7 @@ func (ec *executionContext) _DocumentProposal_source(ctx context.Context, field 
 			return obj.Source, nil
 		},
 		nil,
-		ec.marshalNString2string,
+		ec.marshalNProposalSource2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum,
 		true,
 		true,
 	)
@@ -3349,7 +3349,7 @@ func (ec *executionContext) fieldContext_DocumentProposal_source(_ context.Conte
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+			return nil, errors.New("field of type ProposalSource does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8399,7 +8399,7 @@ func (ec *executionContext) unmarshalInputProposeDocumentUpdateInput(ctx context
 			it.Description = data
 		case "source":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
-			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			data, err := ec.unmarshalOProposalSource2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -11347,6 +11347,23 @@ func (ec *executionContext) marshalNProposalDiff2ᚖgithubᚗcomᚋraphaelgruber
 	return ec._ProposalDiff(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNProposalSource2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, v any) (ProposalSourceEnum, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := ProposalSourceEnum(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNProposalSource2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, sel ast.SelectionSet, v ProposalSourceEnum) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
 func (ec *executionContext) unmarshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (ProposalStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := ProposalStatus(tmp)
@@ -12148,6 +12165,25 @@ func (ec *executionContext) marshalOJSON2map(ctx context.Context, sel ast.Select
 	_ = sel
 	_ = ctx
 	res := graphql.MarshalMap(v)
+	return res
+}
+
+func (ec *executionContext) unmarshalOProposalSource2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, v any) (*ProposalSourceEnum, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := ProposalSourceEnum(tmp)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOProposalSource2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, sel ast.SelectionSet, v *ProposalSourceEnum) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(*v))
 	return res
 }
 

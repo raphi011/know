@@ -291,18 +291,20 @@ func proposalToGraphQL(p *models.DocumentProposal) *DocumentProposal {
 	}
 	id, err := models.RecordIDString(p.ID)
 	if err != nil {
-		slog.Warn("unexpected proposal ID format", "error", err)
+		slog.Warn("unexpected proposal ID format", "raw_id", fmt.Sprintf("%v", p.ID.ID), "error", err)
 		id = fmt.Sprintf("%v", p.ID.ID)
 	}
 	vaultID, err := models.RecordIDString(p.Vault)
 	if err != nil {
-		slog.Warn("unexpected proposal vault ID format", "error", err)
+		slog.Warn("unexpected proposal vault ID format", "raw_id", fmt.Sprintf("%v", p.Vault.ID), "error", err)
 		vaultID = fmt.Sprintf("%v", p.Vault.ID)
 	}
 
 	// Map DB status to GraphQL enum
 	var status ProposalStatus
 	switch p.Status {
+	case models.ProposalPending:
+		status = ProposalStatusPending
 	case models.ProposalApproved:
 		status = ProposalStatusApproved
 	case models.ProposalPartiallyApproved:
@@ -314,12 +316,27 @@ func proposalToGraphQL(p *models.DocumentProposal) *DocumentProposal {
 	case models.ProposalExpired:
 		status = ProposalStatusExpired
 	default:
+		slog.Warn("unknown proposal status, defaulting to PENDING", "status", string(p.Status))
 		status = ProposalStatusPending
+	}
+
+	// Map DB source to GraphQL enum
+	var source ProposalSourceEnum
+	switch p.Source {
+	case models.ProposalSourceAISuggested:
+		source = ProposalSourceAISuggested
+	case models.ProposalSourceAIGenerated:
+		source = ProposalSourceAIGenerated
+	case models.ProposalSourceImport:
+		source = ProposalSourceImport
+	default:
+		slog.Warn("unknown proposal source, defaulting to AI_SUGGESTED", "source", string(p.Source))
+		source = ProposalSourceAISuggested
 	}
 
 	docID, err := models.RecordIDString(p.Document)
 	if err != nil {
-		slog.Warn("unexpected proposal document ID format", "error", err)
+		slog.Warn("unexpected proposal document ID format", "raw_id", fmt.Sprintf("%v", p.Document.ID), "error", err)
 		docID = fmt.Sprintf("%v", p.Document.ID)
 	}
 
@@ -329,7 +346,7 @@ func proposalToGraphQL(p *models.DocumentProposal) *DocumentProposal {
 		DocumentID:      docID,
 		ProposedContent: p.ProposedContent,
 		Description:     p.Description,
-		Source:          string(p.Source),
+		Source:          source,
 		Status:          status,
 		OriginalHash:    p.OriginalHash,
 		ReviewedAt:      p.ReviewedAt,
@@ -357,9 +374,27 @@ func proposalStatusToModel(s *ProposalStatus) *models.ProposalStatus {
 	case ProposalStatusExpired:
 		ms = models.ProposalExpired
 	default:
+		slog.Warn("unknown GraphQL proposal status, defaulting to pending", "status", string(*s))
 		ms = models.ProposalPending
 	}
 	return &ms
+}
+
+func proposalSourceToModel(s *ProposalSourceEnum) models.ProposalSource {
+	if s == nil {
+		return models.ProposalSourceAISuggested
+	}
+	switch *s {
+	case ProposalSourceAISuggested:
+		return models.ProposalSourceAISuggested
+	case ProposalSourceAIGenerated:
+		return models.ProposalSourceAIGenerated
+	case ProposalSourceImport:
+		return models.ProposalSourceImport
+	default:
+		slog.Warn("unknown GraphQL proposal source, defaulting to ai_suggested", "source", string(*s))
+		return models.ProposalSourceAISuggested
+	}
 }
 
 func diffResultToGraphQL(dr *review.DiffResult) *ProposalDiff {

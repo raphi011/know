@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/raphaelgruber/memcp-go/internal/db"
 	"github.com/raphaelgruber/memcp-go/internal/document"
@@ -39,19 +40,28 @@ func (s *Service) Create(ctx context.Context, vaultID, documentID, proposedConte
 		return nil, fmt.Errorf("document not found: %s", documentID)
 	}
 
+	if doc.Content == proposedContent {
+		return nil, fmt.Errorf("proposed content is identical to current document content")
+	}
+
 	originalHash := ""
 	if doc.ContentHash != nil {
 		originalHash = *doc.ContentHash
 	}
 
-	return s.db.CreateProposal(ctx, models.DocumentProposalInput{
+	input := models.DocumentProposalInput{
 		VaultID:         vaultID,
 		DocumentID:      documentID,
 		ProposedContent: proposedContent,
 		Description:     description,
 		Source:          source,
 		OriginalHash:    originalHash,
-	})
+	}
+	if err := input.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid proposal input: %w", err)
+	}
+
+	return s.db.CreateProposal(ctx, input)
 }
 
 // CreateByPath stores a new proposal by looking up the document by vault+path.
@@ -97,7 +107,8 @@ func (s *Service) ListForDocument(ctx context.Context, documentID string, status
 	return s.db.ListProposalsByDocument(ctx, documentID, statusStr)
 }
 
-// Diff computes the diff between the current document and the proposal.
+// Diff computes the diff between the current document content and the proposal,
+// and detects conflicts by comparing content hashes.
 func (s *Service) Diff(ctx context.Context, proposal *models.DocumentProposal) (*DiffResult, error) {
 	docID, err := models.RecordIDString(proposal.Document)
 	if err != nil {
@@ -112,7 +123,6 @@ func (s *Service) Diff(ctx context.Context, proposal *models.DocumentProposal) (
 		return nil, fmt.Errorf("document not found: %s", docID)
 	}
 
-	// Check for conflict
 	currentHash := ""
 	if doc.ContentHash != nil {
 		currentHash = *doc.ContentHash
@@ -141,6 +151,10 @@ func (s *Service) ApproveAll(ctx context.Context, proposalID string, notes *stri
 		return nil, fmt.Errorf("proposal not found: %s", proposalID)
 	}
 
+	if !proposal.Status.CanTransitionTo(models.ProposalApproved) {
+		return nil, fmt.Errorf("proposal %s has status %q, cannot approve", proposalID, proposal.Status)
+	}
+
 	vaultID, err := models.RecordIDString(proposal.Vault)
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID: %w", err)
@@ -157,6 +171,18 @@ func (s *Service) ApproveAll(ctx context.Context, proposalID string, notes *stri
 	}
 	if doc == nil {
 		return nil, fmt.Errorf("document not found: %s", docID)
+	}
+
+	// Check for conflict before applying
+	currentHash := ""
+	if doc.ContentHash != nil {
+		currentHash = *doc.ContentHash
+	}
+	if proposal.OriginalHash != "" && currentHash != "" && proposal.OriginalHash != currentHash {
+		if markErr := s.db.UpdateProposalStatus(ctx, proposalID, models.ProposalConflict, nil); markErr != nil {
+			slog.Warn("failed to mark proposal as conflict", "proposal_id", proposalID, "error", markErr)
+		}
+		return nil, fmt.Errorf("proposal conflicts with current document: original_hash=%s, current_hash=%s", proposal.OriginalHash, currentHash)
 	}
 
 	// Apply via document service (re-parses, re-chunks, re-embeds)
@@ -165,8 +191,13 @@ func (s *Service) ApproveAll(ctx context.Context, proposalID string, notes *stri
 		return nil, fmt.Errorf("apply proposal: %w", err)
 	}
 
-	if err := s.db.UpdateProposalStatus(ctx, proposalID, string(models.ProposalApproved), notes); err != nil {
-		return nil, fmt.Errorf("update proposal status: %w", err)
+	if err := s.db.UpdateProposalStatus(ctx, proposalID, models.ProposalApproved, notes); err != nil {
+		slog.Error("document updated but proposal status update failed",
+			"proposal_id", proposalID,
+			"document_path", doc.Path,
+			"error", err,
+		)
+		return nil, fmt.Errorf("update proposal status (document was already updated): %w", err)
 	}
 
 	return updated, nil
@@ -174,12 +205,20 @@ func (s *Service) ApproveAll(ctx context.Context, proposalID string, notes *stri
 
 // ApproveHunks approves specific hunks, merges them, and updates the document.
 func (s *Service) ApproveHunks(ctx context.Context, proposalID string, hunkIndexes []int, notes *string) (*models.Document, error) {
+	if len(hunkIndexes) == 0 {
+		return nil, fmt.Errorf("hunkIndexes must not be empty")
+	}
+
 	proposal, err := s.db.GetProposal(ctx, proposalID)
 	if err != nil {
 		return nil, fmt.Errorf("get proposal: %w", err)
 	}
 	if proposal == nil {
 		return nil, fmt.Errorf("proposal not found: %s", proposalID)
+	}
+
+	if !proposal.Status.CanTransitionTo(models.ProposalPartiallyApproved) {
+		return nil, fmt.Errorf("proposal %s has status %q, cannot partially approve", proposalID, proposal.Status)
 	}
 
 	vaultID, err := models.RecordIDString(proposal.Vault)
@@ -198,6 +237,18 @@ func (s *Service) ApproveHunks(ctx context.Context, proposalID string, hunkIndex
 	}
 	if doc == nil {
 		return nil, fmt.Errorf("document not found: %s", docID)
+	}
+
+	// Check for conflict before applying
+	currentHash := ""
+	if doc.ContentHash != nil {
+		currentHash = *doc.ContentHash
+	}
+	if proposal.OriginalHash != "" && currentHash != "" && proposal.OriginalHash != currentHash {
+		if markErr := s.db.UpdateProposalStatus(ctx, proposalID, models.ProposalConflict, nil); markErr != nil {
+			slog.Warn("failed to mark proposal as conflict", "proposal_id", proposalID, "error", markErr)
+		}
+		return nil, fmt.Errorf("proposal conflicts with current document: original_hash=%s, current_hash=%s", proposal.OriginalHash, currentHash)
 	}
 
 	// Compute hunks against current document content
@@ -218,8 +269,13 @@ func (s *Service) ApproveHunks(ctx context.Context, proposalID string, hunkIndex
 		return nil, fmt.Errorf("apply merged content: %w", err)
 	}
 
-	if err := s.db.UpdateProposalStatus(ctx, proposalID, string(models.ProposalPartiallyApproved), notes); err != nil {
-		return nil, fmt.Errorf("update proposal status: %w", err)
+	if err := s.db.UpdateProposalStatus(ctx, proposalID, models.ProposalPartiallyApproved, notes); err != nil {
+		slog.Error("document updated but proposal status update failed",
+			"proposal_id", proposalID,
+			"document_path", doc.Path,
+			"error", err,
+		)
+		return nil, fmt.Errorf("update proposal status (document was already updated): %w", err)
 	}
 
 	return updated, nil
@@ -235,5 +291,9 @@ func (s *Service) Reject(ctx context.Context, proposalID string, notes *string) 
 		return fmt.Errorf("proposal not found: %s", proposalID)
 	}
 
-	return s.db.UpdateProposalStatus(ctx, proposalID, string(models.ProposalRejected), notes)
+	if !proposal.Status.CanTransitionTo(models.ProposalRejected) {
+		return fmt.Errorf("proposal %s has status %q, cannot reject", proposalID, proposal.Status)
+	}
+
+	return s.db.UpdateProposalStatus(ctx, proposalID, models.ProposalRejected, notes)
 }

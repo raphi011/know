@@ -75,6 +75,8 @@ models:
     model: github.com/raphaelgruber/memcp-go/internal/graph.DiffLine
   DiffLineType:
     model: github.com/raphaelgruber/memcp-go/internal/graph.DiffLineTypeEnum
+  ProposalSource:
+    model: github.com/raphaelgruber/memcp-go/internal/graph.ProposalSourceEnum
   ProposeDocumentUpdateInput:
     model: github.com/raphaelgruber/memcp-go/internal/graph.ProposeDocumentUpdateInput
   ApproveHunksInput:

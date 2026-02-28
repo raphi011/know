@@ -313,6 +313,66 @@ The Vite dev server proxies `/query` requests to the Go server on port 8484.
 # - Conversations persist across page reloads
 ```
 
+## Document Proposals (Agent Approval System)
+
+AI agents can propose updates to existing documents, with a human-in-the-loop review system for approving or rejecting individual diff hunks.
+
+### Example Prompts
+
+```graphql
+# Agent proposes an update to a document
+mutation {
+  proposeDocumentUpdate(input: {
+    vaultId: "vault-id"
+    path: "docs/architecture.md"
+    proposedContent: "# Architecture\n\nUpdated content..."
+    description: "Added caching layer section"
+    source: AI_SUGGESTED
+  }) {
+    id
+    status
+    diff {
+      stats { additions deletions hunksCount }
+      hunks { index header lines { type content } }
+    }
+  }
+}
+
+# List pending proposals
+query {
+  proposals(vaultId: "vault-id", status: PENDING) {
+    id
+    document { path title }
+    description
+    hasConflict
+    diff { stats { additions deletions } }
+  }
+}
+
+# Approve entire proposal
+mutation {
+  approveProposal(id: "proposal-id", notes: "Looks good") {
+    id path content
+  }
+}
+
+# Approve specific hunks (like git add -p)
+mutation {
+  approveProposalHunks(input: {
+    proposalId: "proposal-id"
+    hunkIndexes: [0, 2]
+    notes: "Accepted intro changes, skipped conclusion"
+  }) {
+    id path content
+  }
+}
+
+# Reject a proposal
+mutation {
+  rejectProposal(id: "proposal-id", notes: "Needs more detail")
+}
+```
+
 ## Architecture
 
 ```

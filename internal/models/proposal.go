@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -26,6 +27,23 @@ func (s ProposalStatus) Valid() bool {
 		return true
 	}
 	return false
+}
+
+// CanTransitionTo returns true if transitioning from s to target is valid.
+func (s ProposalStatus) CanTransitionTo(target ProposalStatus) bool {
+	switch s {
+	case ProposalPending:
+		return target == ProposalApproved ||
+			target == ProposalPartiallyApproved ||
+			target == ProposalRejected ||
+			target == ProposalConflict
+	case ProposalConflict:
+		return target == ProposalApproved ||
+			target == ProposalPartiallyApproved ||
+			target == ProposalRejected
+	default:
+		return false // approved, rejected, partially_approved, expired are terminal
+	}
 }
 
 // ProposalSource indicates how a proposal was created.
@@ -69,4 +87,21 @@ type DocumentProposalInput struct {
 	Description     *string        `json:"description,omitempty"`
 	Source          ProposalSource `json:"source"`
 	OriginalHash    string         `json:"original_hash"`
+}
+
+// Validate checks that all required fields are populated and valid.
+func (i DocumentProposalInput) Validate() error {
+	if i.VaultID == "" {
+		return fmt.Errorf("vault ID is required")
+	}
+	if i.DocumentID == "" {
+		return fmt.Errorf("document ID is required")
+	}
+	if i.ProposedContent == "" {
+		return fmt.Errorf("proposed content is required")
+	}
+	if !i.Source.Valid() {
+		return fmt.Errorf("invalid proposal source: %q", i.Source)
+	}
+	return nil
 }

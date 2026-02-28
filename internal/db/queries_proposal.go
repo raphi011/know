@@ -108,7 +108,7 @@ func (c *Client) ListProposalsByDocument(ctx context.Context, documentID string,
 	return (*results)[0].Result, nil
 }
 
-func (c *Client) UpdateProposalStatus(ctx context.Context, id string, status string, notes *string) error {
+func (c *Client) UpdateProposalStatus(ctx context.Context, id string, status models.ProposalStatus, notes *string) error {
 	start := c.startOp()
 	defer c.recordTiming("db.update_proposal_status", start)
 
@@ -117,24 +117,19 @@ func (c *Client) UpdateProposalStatus(ctx context.Context, id string, status str
 			status = $status,
 			reviewer_notes = $notes,
 			reviewed_at = time::now()
+		RETURN AFTER
 	`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+	results, err := surrealdb.Query[[]models.DocumentProposal](ctx, c.DB(), sql, map[string]any{
 		"id":     id,
-		"status": status,
+		"status": string(status),
 		"notes":  optionalString(notes),
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("update proposal status: %w", err)
 	}
-	return nil
-}
-
-func (c *Client) DeleteProposal(ctx context.Context, id string) error {
-	start := c.startOp()
-	defer c.recordTiming("db.delete_proposal", start)
-
-	sql := `DELETE type::record("document_proposal", $id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
-		return fmt.Errorf("delete proposal: %w", err)
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return fmt.Errorf("update proposal status: proposal not found: %s", id)
 	}
 	return nil
 }
+

@@ -132,7 +132,7 @@ type DocumentProposal struct {
 	DocumentID      string    `json:"documentId"`
 	ProposedContent string    `json:"proposedContent"`
 	Description     *string   `json:"description,omitempty"`
-	Source          string    `json:"source"`
+	Source          ProposalSourceEnum `json:"source"`
 	Status          ProposalStatus `json:"status"`
 	OriginalHash    string    `json:"originalHash"`
 	ReviewedAt      *time.Time `json:"reviewedAt,omitempty"`
@@ -224,14 +224,39 @@ func (e DiffLineTypeEnum) IsValid() bool {
 
 func (e DiffLineTypeEnum) String() string { return string(e) }
 
+// ProposalSourceEnum represents how a proposal was created (GraphQL enum).
+type ProposalSourceEnum string
+
+const (
+	ProposalSourceAISuggested ProposalSourceEnum = "AI_SUGGESTED"
+	ProposalSourceAIGenerated ProposalSourceEnum = "AI_GENERATED"
+	ProposalSourceImport      ProposalSourceEnum = "IMPORT"
+)
+
+var AllProposalSource = []ProposalSourceEnum{
+	ProposalSourceAISuggested,
+	ProposalSourceAIGenerated,
+	ProposalSourceImport,
+}
+
+func (e ProposalSourceEnum) IsValid() bool {
+	switch e {
+	case ProposalSourceAISuggested, ProposalSourceAIGenerated, ProposalSourceImport:
+		return true
+	}
+	return false
+}
+
+func (e ProposalSourceEnum) String() string { return string(e) }
+
 // Proposal input types
 
 type ProposeDocumentUpdateInput struct {
-	VaultID         string  `json:"vaultId"`
-	Path            string  `json:"path"`
-	ProposedContent string  `json:"proposedContent"`
-	Description     *string `json:"description,omitempty"`
-	Source          *string `json:"source,omitempty"`
+	VaultID         string              `json:"vaultId"`
+	Path            string              `json:"path"`
+	ProposedContent string              `json:"proposedContent"`
+	Description     *string             `json:"description,omitempty"`
+	Source          *ProposalSourceEnum `json:"source,omitempty"`
 }
 
 type ApproveHunksInput struct {

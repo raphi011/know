@@ -15,6 +15,7 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/raphaelgruber/memcp-go/internal/parser"
 	"github.com/raphaelgruber/memcp-go/internal/search"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // WikiLinks is the resolver for the wikiLinks field.
@@ -106,35 +107,29 @@ func (r *documentProposalResolver) Document(ctx context.Context, obj *DocumentPr
 
 // HasConflict is the resolver for the hasConflict field.
 func (r *documentProposalResolver) HasConflict(ctx context.Context, obj *DocumentProposal) (bool, error) {
-	proposal, err := r.reviewService.Get(ctx, obj.ID)
-	if err != nil {
-		return false, fmt.Errorf("get proposal: %w", err)
-	}
-	if proposal == nil {
-		return false, fmt.Errorf("proposal not found: %s", obj.ID)
-	}
 	doc, err := r.db.GetDocumentByID(ctx, obj.DocumentID)
 	if err != nil {
 		return false, fmt.Errorf("get document: %w", err)
 	}
 	if doc == nil {
-		return false, nil
+		// Document was deleted — definite conflict
+		return true, nil
 	}
 	currentHash := ""
 	if doc.ContentHash != nil {
 		currentHash = *doc.ContentHash
 	}
-	return proposal.OriginalHash != "" && currentHash != "" && proposal.OriginalHash != currentHash, nil
+	return obj.OriginalHash != "" && currentHash != "" && obj.OriginalHash != currentHash, nil
 }
 
 // Diff is the resolver for the diff field.
 func (r *documentProposalResolver) Diff(ctx context.Context, obj *DocumentProposal) (*ProposalDiff, error) {
-	proposal, err := r.reviewService.Get(ctx, obj.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get proposal: %w", err)
-	}
-	if proposal == nil {
-		return nil, fmt.Errorf("proposal not found: %s", obj.ID)
+	// Reconstruct the minimal models.DocumentProposal from the GraphQL object
+	// to avoid a redundant DB round-trip.
+	proposal := &models.DocumentProposal{
+		ProposedContent: obj.ProposedContent,
+		OriginalHash:    obj.OriginalHash,
+		Document:        surrealmodels.RecordID{Table: "document", ID: obj.DocumentID},
 	}
 	diffResult, err := r.reviewService.Diff(ctx, proposal)
 	if err != nil {
@@ -363,13 +358,7 @@ func (r *mutationResolver) ProposeDocumentUpdate(ctx context.Context, input Prop
 	if err := auth.RequireVaultAccess(ctx, input.VaultID); err != nil {
 		return nil, err
 	}
-	source := models.ProposalSourceAISuggested
-	if input.Source != nil {
-		source = models.ProposalSource(*input.Source)
-		if !source.Valid() {
-			return nil, fmt.Errorf("invalid proposal source: %q", *input.Source)
-		}
-	}
+	source := proposalSourceToModel(input.Source)
 	proposal, err := r.reviewService.CreateByPath(ctx, input.VaultID, input.Path, input.ProposedContent, input.Description, source)
 	if err != nil {
 		return nil, err

@@ -21,7 +21,6 @@ DEFINE FIELD IF NOT EXISTS proposed_content ON document_proposal TYPE string;
 DEFINE FIELD IF NOT EXISTS description  ON document_proposal TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS source       ON document_proposal TYPE string DEFAULT "ai_suggested";
 DEFINE FIELD IF NOT EXISTS status       ON document_proposal TYPE string DEFAULT "pending";
-    -- pending | approved | partially_approved | rejected | conflict | expired
 DEFINE FIELD IF NOT EXISTS original_hash ON document_proposal TYPE string;
     -- content_hash of document at proposal time — for conflict detection
 DEFINE FIELD IF NOT EXISTS reviewed_at  ON document_proposal TYPE option<datetime>;
@@ -98,7 +97,7 @@ type DocumentProposalInput struct {
 
 ### Library: `github.com/pmezard/go-difflib`
 
-Already an indirect dependency. Provides `difflib.UnifiedDiff` which computes standard unified diffs with configurable context lines.
+Direct dependency. Provides `difflib.NewMatcher` + `GetGroupedOpCodes` for structured opcode-based diff computation.
 
 ### Diff Types (computed, not stored)
 
@@ -150,12 +149,13 @@ func ApplyHunks(original string, hunks []Hunk, acceptedIndexes []int) (string, e
 
 Algorithm:
 1. Split original into lines
-2. Sort accepted hunk indexes
-3. Walk through all hunks in order. For each hunk:
-   - If **accepted**: apply the changes (delete old lines, insert new lines) with offset tracking
-   - If **rejected**: keep original lines unchanged
-4. Join lines back into string
-5. Return the merged result
+2. Build a set of accepted indexes for O(1) lookup. Sort all hunks by `OldStart` to process in document order
+3. Walk through all hunks in order, maintaining a cursor (`origPos`) into the original lines. For each hunk:
+   - Copy unchanged lines before the hunk
+   - If **accepted**: emit context and added lines, skip deleted lines
+   - If **rejected**: emit context and deleted lines (original), skip added lines
+4. Copy remaining lines after the last hunk
+5. Join lines back into string and return the merged result
 
 This is equivalent to how `git apply --cached` works with partial patches — hunks are independent units that can be individually toggled.
 
@@ -177,8 +177,12 @@ type Service struct {
 
 func NewService(db *db.Client, docService *document.Service) *Service
 
-// Create stores a new document proposal.
-func (s *Service) Create(ctx context.Context, input models.DocumentProposalInput) (*models.DocumentProposal, error)
+// Create stores a new document proposal, capturing the document's current content hash.
+// Returns error if proposed content is identical to current document content.
+func (s *Service) Create(ctx context.Context, vaultID, documentID, proposedContent string, description *string, source models.ProposalSource) (*models.DocumentProposal, error)
+
+// CreateByPath stores a new proposal by looking up the document by vault+path.
+func (s *Service) CreateByPath(ctx context.Context, vaultID, path, proposedContent string, description *string, source models.ProposalSource) (*models.DocumentProposal, error)
 
 // Get retrieves a single proposal by ID.
 func (s *Service) Get(ctx context.Context, id string) (*models.DocumentProposal, error)
@@ -186,28 +190,30 @@ func (s *Service) Get(ctx context.Context, id string) (*models.DocumentProposal,
 // List returns proposals for a vault, optionally filtered by status.
 func (s *Service) List(ctx context.Context, vaultID string, status *models.ProposalStatus) ([]models.DocumentProposal, error)
 
-// ListForDocument returns proposals for a specific document.
-func (s *Service) ListForDocument(ctx context.Context, documentID string) ([]models.DocumentProposal, error)
+// ListForDocument returns proposals for a specific document, optionally filtered by status.
+func (s *Service) ListForDocument(ctx context.Context, documentID string, status *models.ProposalStatus) ([]models.DocumentProposal, error)
 
-// Diff computes hunks between the current document and the proposal.
-// Returns conflict error if document has changed since proposal.
-func (s *Service) Diff(ctx context.Context, proposalID string) (*DiffResult, error)
+// Diff computes the diff between the current document content and the proposal,
+// and detects conflicts by comparing content hashes.
+func (s *Service) Diff(ctx context.Context, proposal *models.DocumentProposal) (*DiffResult, error)
 
 // DiffResult contains the computed diff for a proposal.
 type DiffResult struct {
-    Hunks        []Hunk
-    HasConflict  bool    // true if document changed since proposal
-    OriginalHash string  // hash at proposal time
-    CurrentHash  string  // hash now
+    Hunks       []Hunk
+    HasConflict bool      // true if document changed since proposal
+    Stats       DiffStats // additions, deletions, hunks count
 }
 
 // ApproveAll approves the entire proposal and applies it to the document.
+// Returns error if proposal is not in a reviewable state or conflicts with current document.
 func (s *Service) ApproveAll(ctx context.Context, proposalID string, notes *string) (*models.Document, error)
 
 // ApproveHunks approves specific hunks, merges them, and updates the document.
+// Returns error if hunkIndexes is empty, proposal is not reviewable, or conflicts exist.
 func (s *Service) ApproveHunks(ctx context.Context, proposalID string, hunkIndexes []int, notes *string) (*models.Document, error)
 
 // Reject marks a proposal as rejected.
+// Returns error if proposal is not in a reviewable state.
 func (s *Service) Reject(ctx context.Context, proposalID string, notes *string) error
 ```
 
@@ -264,7 +270,7 @@ type DocumentProposal {
   document: Document!
   proposedContent: String!
   description: String
-  source: String!
+  source: ProposalSource!
   status: ProposalStatus!
   originalHash: String!
   hasConflict: Boolean!
@@ -318,7 +324,7 @@ input ProposeDocumentUpdateInput {
   path: String!                 # identify document by path
   proposedContent: String!
   description: String
-  source: String                # defaults to "ai_suggested"
+  source: ProposalSource        # defaults to AI_SUGGESTED
 }
 
 input ApproveHunksInput {
@@ -330,6 +336,9 @@ input ApproveHunksInput {
 # =============================================================================
 # QUERIES
 # =============================================================================
+
+# NOTE: The design uses `extend type` for illustration. In the implementation,
+# these are merged into the single schema.graphqls file.
 
 extend type Query {
   # Get a single proposal with computed diff
@@ -368,12 +377,11 @@ extend type Mutation {
 ## Database Queries: `internal/db/queries_proposal.go`
 
 ```go
-func (c *Client) CreateProposal(ctx, input models.DocumentProposalInput) (*models.DocumentProposal, error)
-func (c *Client) GetProposal(ctx, id string) (*models.DocumentProposal, error)
-func (c *Client) ListProposals(ctx, vaultID string, status *string) ([]models.DocumentProposal, error)
-func (c *Client) ListProposalsByDocument(ctx, documentID string) ([]models.DocumentProposal, error)
-func (c *Client) UpdateProposalStatus(ctx, id string, status string, notes *string) error
-func (c *Client) DeleteProposal(ctx, id string) error
+func (c *Client) CreateProposal(ctx context.Context, input models.DocumentProposalInput) (*models.DocumentProposal, error)
+func (c *Client) GetProposal(ctx context.Context, id string) (*models.DocumentProposal, error)
+func (c *Client) ListProposals(ctx context.Context, vaultID string, status *string) ([]models.DocumentProposal, error)
+func (c *Client) ListProposalsByDocument(ctx context.Context, documentID string, status *string) ([]models.DocumentProposal, error)
+func (c *Client) UpdateProposalStatus(ctx context.Context, id string, status models.ProposalStatus, notes *string) error
 ```
 
 ---
@@ -399,8 +407,8 @@ func (c *Client) DeleteProposal(ctx, id string) error
 10. `internal/graph/schema.resolvers.go` — Implement resolvers
 11. `internal/graph/resolver.go` — Wire up `review.Service`
 
-### Step 5: Integration test
-12. `internal/integration/proposal_test.go` — Full lifecycle test
+### Step 5: Integration test (TODO)
+12. `internal/integration/proposal_test.go` — Full lifecycle test (not yet implemented)
 
 ---
 
@@ -415,7 +423,7 @@ mutation {
     path: "docs/architecture.md"
     proposedContent: "# Architecture\n\nUpdated content..."
     description: "Added section on caching layer and updated deployment diagram"
-    source: "ai_suggested"
+    source: AI_SUGGESTED
   }) {
     id
     status
@@ -486,7 +494,7 @@ mutation {
 | Conflict detection | Hash comparison | `original_hash` vs current `content_hash` |
 | Diff library | `pmezard/go-difflib` | Already indirect dep, standard unified diff |
 | Hunk granularity | Line-level | Like git — most precise, familiar to developers |
-| Partial approval merge | Accepted-hunk-only apply | Walk hunks, apply accepted, skip rejected, track line offsets |
+| Partial approval merge | Accepted-hunk-only apply | Walk hunks in order, emit context+added for accepted, context+deleted for rejected |
 | Review UI | Separate web project | API-first; GraphQL provides all diff data for any frontend |
 | Cascade delete | SurrealDB event | Proposals auto-deleted when document is deleted |
 | Vault scoping | Via document | Proposals inherit vault scope from their document |

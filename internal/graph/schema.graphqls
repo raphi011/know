@@ -145,6 +145,12 @@ enum ProposalStatus {
   EXPIRED
 }
 
+enum ProposalSource {
+  AI_SUGGESTED
+  AI_GENERATED
+  IMPORT
+}
+
 enum DiffLineType {
   CONTEXT
   ADD
@@ -157,7 +163,7 @@ type DocumentProposal {
   document: Document!
   proposedContent: String!
   description: String
-  source: String!
+  source: ProposalSource!
   status: ProposalStatus!
   originalHash: String!
   hasConflict: Boolean!
@@ -238,7 +244,7 @@ input ProposeDocumentUpdateInput {
   path: String!
   proposedContent: String!
   description: String
-  source: String
+  source: ProposalSource
 }
 
 input ApproveHunksInput {

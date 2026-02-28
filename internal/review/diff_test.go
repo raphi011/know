@@ -1,6 +1,7 @@
 package review
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -255,20 +256,185 @@ func TestComputeStats(t *testing.T) {
 	}
 }
 
+func TestApplyHunks_InsertionOnly(t *testing.T) {
+	original := "line 1\nline 2\nline 3\n"
+	proposed := "line 1\nline 2\nnew line A\nnew line B\nline 3\n"
+
+	hunks, err := ComputeHunks(original, proposed, 3)
+	if err != nil {
+		t.Fatalf("ComputeHunks: %v", err)
+	}
+	if len(hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(hunks))
+	}
+
+	// Accept the insertion
+	result, err := ApplyHunks(original, hunks, []int{0})
+	if err != nil {
+		t.Fatalf("ApplyHunks: %v", err)
+	}
+	if result != proposed {
+		t.Errorf("expected %q, got %q", proposed, result)
+	}
+
+	// Reject the insertion
+	result, err = ApplyHunks(original, hunks, nil)
+	if err != nil {
+		t.Fatalf("ApplyHunks reject: %v", err)
+	}
+	if result != original {
+		t.Errorf("expected original %q, got %q", original, result)
+	}
+}
+
+func TestApplyHunks_DeletionOnly(t *testing.T) {
+	original := "line 1\nline 2\nline 3\nline 4\nline 5\n"
+	proposed := "line 1\nline 5\n"
+
+	hunks, err := ComputeHunks(original, proposed, 3)
+	if err != nil {
+		t.Fatalf("ComputeHunks: %v", err)
+	}
+	if len(hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(hunks))
+	}
+
+	// Accept the deletion
+	result, err := ApplyHunks(original, hunks, []int{0})
+	if err != nil {
+		t.Fatalf("ApplyHunks: %v", err)
+	}
+	if result != proposed {
+		t.Errorf("expected %q, got %q", proposed, result)
+	}
+
+	// Reject the deletion
+	result, err = ApplyHunks(original, hunks, nil)
+	if err != nil {
+		t.Fatalf("ApplyHunks reject: %v", err)
+	}
+	if result != original {
+		t.Errorf("expected original %q, got %q", original, result)
+	}
+}
+
+func TestApplyHunks_MixedInsertionAndDeletion(t *testing.T) {
+	// Two hunks far apart: first is insertion-only, second is deletion-only
+	var lines []string
+	for i := 1; i <= 20; i++ {
+		lines = append(lines, lineN(i))
+	}
+	original := joinLines(lines)
+
+	// Insert after line 2, delete lines 17-18
+	modified := make([]string, 0, 20)
+	modified = append(modified, lines[:2]...)
+	modified = append(modified, "INSERTED\n")
+	modified = append(modified, lines[2:16]...)
+	modified = append(modified, lines[18:]...)
+	proposed := joinLines(modified)
+
+	hunks, err := ComputeHunks(original, proposed, 3)
+	if err != nil {
+		t.Fatalf("ComputeHunks: %v", err)
+	}
+	if len(hunks) < 2 {
+		t.Fatalf("expected at least 2 hunks, got %d", len(hunks))
+	}
+
+	// Accept only the insertion hunk (first)
+	result, err := ApplyHunks(original, hunks, []int{0})
+	if err != nil {
+		t.Fatalf("ApplyHunks: %v", err)
+	}
+	// Should have the inserted line but keep the deleted lines
+	expected := make([]string, 0, 21)
+	expected = append(expected, lines[:2]...)
+	expected = append(expected, "INSERTED\n")
+	expected = append(expected, lines[2:]...)
+	if result != joinLines(expected) {
+		t.Errorf("partial accept mismatch.\nexpected: %q\ngot:      %q", joinLines(expected), result)
+	}
+}
+
+func TestApplyHunks_EmptyOriginal(t *testing.T) {
+	original := ""
+	proposed := "new line 1\nnew line 2\n"
+
+	hunks, err := ComputeHunks(original, proposed, 3)
+	if err != nil {
+		t.Fatalf("ComputeHunks: %v", err)
+	}
+
+	result, err := ApplyHunks(original, hunks, []int{0})
+	if err != nil {
+		t.Fatalf("ApplyHunks: %v", err)
+	}
+	if result != proposed {
+		t.Errorf("expected %q, got %q", proposed, result)
+	}
+}
+
+func TestApplyHunks_EmptyProposed(t *testing.T) {
+	original := "line 1\nline 2\n"
+	proposed := ""
+
+	hunks, err := ComputeHunks(original, proposed, 3)
+	if err != nil {
+		t.Fatalf("ComputeHunks: %v", err)
+	}
+
+	result, err := ApplyHunks(original, hunks, []int{0})
+	if err != nil {
+		t.Fatalf("ApplyHunks: %v", err)
+	}
+	if result != proposed {
+		t.Errorf("expected %q, got %q", proposed, result)
+	}
+}
+
+func TestSplitLines_NoTrailingNewline(t *testing.T) {
+	lines := splitLines("line 1\nline 2")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
+	}
+	if lines[0] != "line 1\n" {
+		t.Errorf("expected %q, got %q", "line 1\n", lines[0])
+	}
+	if lines[1] != "line 2" {
+		t.Errorf("expected %q, got %q", "line 2", lines[1])
+	}
+}
+
+func TestSplitLines_Empty(t *testing.T) {
+	lines := splitLines("")
+	if lines != nil {
+		t.Errorf("expected nil, got %v", lines)
+	}
+}
+
+func TestApplyHunks_NoTrailingNewline(t *testing.T) {
+	original := "line 1\nline 2\nline 3"
+	proposed := "line 1\nchanged\nline 3"
+
+	hunks, err := ComputeHunks(original, proposed, 3)
+	if err != nil {
+		t.Fatalf("ComputeHunks: %v", err)
+	}
+
+	result, err := ApplyHunks(original, hunks, []int{0})
+	if err != nil {
+		t.Fatalf("ApplyHunks: %v", err)
+	}
+	if result != proposed {
+		t.Errorf("expected %q, got %q", proposed, result)
+	}
+}
+
 // Helpers
 
 func lineN(n int) string {
-	return "line " + itoa(n) + "\n"
-}
-
-func itoa(n int) string {
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	if n < 10 {
-		return string(rune('0' + n))
-	}
-	return itoa(n/10) + string(rune('0'+n%10))
+	return "line " + strconv.Itoa(n) + "\n"
 }
 
 func joinLines(lines []string) string {
