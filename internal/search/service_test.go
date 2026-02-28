@@ -245,3 +245,21 @@ func TestRRFFusion_SnippetTruncation(t *testing.T) {
 		t.Errorf("snippet should be truncated, got length %d", len(snippet))
 	}
 }
+
+func TestRRFFusion_NilMatchedChunks(t *testing.T) {
+	// BM25-only results should have non-nil empty MatchedChunks
+	bm25 := []db.DocumentWithScore{
+		docWithScore("a", "Doc A", 5.0),
+	}
+
+	results := rrfFusion(bm25, nil, nil, 10)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].MatchedChunks == nil {
+		t.Error("MatchedChunks should be empty slice, not nil")
+	}
+	if len(results[0].MatchedChunks) != 0 {
+		t.Errorf("expected 0 matched chunks, got %d", len(results[0].MatchedChunks))
+	}
+}
