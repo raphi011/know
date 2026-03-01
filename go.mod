@@ -1,6 +1,6 @@
 module github.com/raphaelgruber/memcp-go
 
-go 1.25.5
+go 1.26.0
 
 tool github.com/99designs/gqlgen
 
