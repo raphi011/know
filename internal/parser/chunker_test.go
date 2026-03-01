@@ -157,11 +157,11 @@ func TestChunkMarkdown_LongContentWithEmptySections(t *testing.T) {
 
 func TestApplyOverlap_SemanticBoundaries(t *testing.T) {
 	tests := []struct {
-		name           string
-		chunks         []ChunkResult
-		overlap        int
-		wantContains   []string // strings that should appear in second chunk
-		wantNotPrefix  []string // strings that should NOT be at the start of second chunk
+		name          string
+		chunks        []ChunkResult
+		overlap       int
+		wantContains  []string // strings that should appear in second chunk
+		wantNotPrefix []string // strings that should NOT be at the start of second chunk
 	}{
 		{
 			name: "prefers sentence boundary over word boundary",

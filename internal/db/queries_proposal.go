@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 )
 
@@ -132,4 +132,3 @@ func (c *Client) UpdateProposalStatus(ctx context.Context, id string, status mod
 	}
 	return nil
 }
-

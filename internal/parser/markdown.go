@@ -27,12 +27,12 @@ type MarkdownDoc struct {
 
 // Section represents a heading and its content.
 type Section struct {
-	Level   int       // 1-6 for h1-h6
-	Heading string    // The heading text
-	Path    string    // Full path like "## Setup > ### Install"
-	Content string    // Content under this heading
-	Start   int       // Line number where section starts
-	End     int       // Line number where section ends
+	Level   int    // 1-6 for h1-h6
+	Heading string // The heading text
+	Path    string // Full path like "## Setup > ### Install"
+	Content string // Content under this heading
+	Start   int    // Line number where section starts
+	End     int    // Line number where section ends
 }
 
 // ParseMarkdown parses a Markdown document into structured form.

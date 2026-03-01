@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/raphaelgruber/memcp-go/internal/metrics"
+	"github.com/raphi011/knowhow/internal/metrics"
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/contrib/rews"
 	"github.com/surrealdb/surrealdb.go/pkg/connection"
@@ -44,7 +44,7 @@ type Client struct {
 	cfg        Config
 	logger     logger.Logger
 	metrics    *metrics.Collector
-	lastActive atomic.Int64 // Unix timestamp of last DB operation (for idle detection)
+	lastActive atomic.Int64  // Unix timestamp of last DB operation (for idle detection)
 	done       chan struct{} // closed on Close() to stop monitorConnection goroutine
 }
 
@@ -65,8 +65,8 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 	// Create rews connection with auto-reconnect using gorillaws
 	// Note: gorillaws requires ws:// or wss:// URL without /rpc suffix (it adds /rpc internally)
 	baseURL := cfg.URL
-	if strings.HasSuffix(baseURL, "/rpc") {
-		baseURL = strings.TrimSuffix(baseURL, "/rpc")
+	if before, ok := strings.CutSuffix(baseURL, "/rpc"); ok {
+		baseURL = before
 	}
 
 	var connAttempt atomic.Int64
@@ -213,9 +213,9 @@ func (c *Client) monitorConnection() {
 							"consecutive", consecutiveFailures,
 							"idle_for", idleDuration.Round(time.Second))
 						// Force close to trigger rews auto-reconnect on next operation
-				if closeErr := c.conn.Close(context.Background()); closeErr != nil {
-					c.logger.Debug("failed to close connection for reconnect", "error", closeErr)
-				}
+						if closeErr := c.conn.Close(context.Background()); closeErr != nil {
+							c.logger.Debug("failed to close connection for reconnect", "error", closeErr)
+						}
 						consecutiveFailures = 0
 					}
 					// Silent on first failure - transient issues are common under load

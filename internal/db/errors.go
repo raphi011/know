@@ -3,10 +3,6 @@ package db
 
 import (
 	"errors"
-	"fmt"
-	"strings"
-
-	"github.com/surrealdb/surrealdb.go"
 )
 
 // Sentinel errors for database operations.
@@ -25,26 +21,3 @@ var (
 	// ErrNotFound indicates the requested entity does not exist.
 	ErrNotFound = errors.New("entity not found")
 )
-
-// wrapQueryError inspects a SurrealDB error and wraps it with the appropriate
-// sentinel error if it's a known query error type. Returns the original error
-// if it's not a QueryError or doesn't match known patterns.
-func wrapQueryError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	// Extract QueryError if present - this is a database-level error
-	var queryErr *surrealdb.QueryError
-	if errors.As(err, &queryErr) {
-		msg := queryErr.Message
-		if strings.Contains(msg, "already exists") {
-			return fmt.Errorf("%w: %s", ErrEntityAlreadyExists, msg)
-		}
-		if strings.Contains(msg, "Transaction conflict") {
-			return fmt.Errorf("%w: %s", ErrTransactionConflict, msg)
-		}
-	}
-
-	return err
-}

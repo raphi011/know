@@ -1,10 +1,11 @@
 package search
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
@@ -174,9 +175,9 @@ func TestRRFFusion_LightweightFields(t *testing.T) {
 	bm25 := []db.DocumentWithScore{
 		{
 			Document: models.Document{
-				ID:    rid("document", "abc"),
-				Title: "My Doc",
-				Path:  "notes/my-doc.md",
+				ID:     rid("document", "abc"),
+				Title:  "My Doc",
+				Path:   "notes/my-doc.md",
 				Labels: []string{"go", "test"},
 			},
 			Score: 5.0,
@@ -209,11 +210,11 @@ func TestTruncateSnippet(t *testing.T) {
 	}
 
 	// Build a long string
-	long := ""
-	for i := 0; i < 50; i++ {
-		long += "word "
+	var long strings.Builder
+	for range 50 {
+		long.WriteString("word ")
 	}
-	got := truncateSnippet(long, 50)
+	got := truncateSnippet(long.String(), 50)
 	if len(got) > 55 { // 50 + ellipsis + tolerance
 		t.Errorf("expected truncated string, got length %d", len(got))
 	}
@@ -224,16 +225,16 @@ func TestTruncateSnippet(t *testing.T) {
 
 func TestRRFFusion_SnippetTruncation(t *testing.T) {
 	// Build chunk content longer than maxSnippetLen
-	longContent := ""
-	for i := 0; i < 100; i++ {
-		longContent += "word "
+	var longContent strings.Builder
+	for range 100 {
+		longContent.WriteString("word ")
 	}
 
 	bm25 := []db.DocumentWithScore{
 		docWithScore("a", "Doc A", 5.0),
 	}
 	chunks := []db.ChunkWithScore{
-		chunkWithScore("a", longContent, 0.9),
+		chunkWithScore("a", longContent.String(), 0.9),
 	}
 
 	results := rrfFusion(bm25, chunks, nil, 10)

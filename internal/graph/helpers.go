@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/models"
-	"github.com/raphaelgruber/memcp-go/internal/parser"
-	"github.com/raphaelgruber/memcp-go/internal/review"
-	"github.com/raphaelgruber/memcp-go/internal/search"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/parser"
+	"github.com/raphi011/knowhow/internal/review"
+	"github.com/raphi011/knowhow/internal/search"
 )
 
 func vaultToGraphQL(v *models.Vault) *Vault {

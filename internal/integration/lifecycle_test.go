@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphaelgruber/memcp-go/internal/auth"
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/document"
-	"github.com/raphaelgruber/memcp-go/internal/models"
-	"github.com/raphaelgruber/memcp-go/internal/search"
-	"github.com/raphaelgruber/memcp-go/internal/vault"
+	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/search"
+	"github.com/raphi011/knowhow/internal/vault"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )

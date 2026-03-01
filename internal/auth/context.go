@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"slices"
 )
 
 type contextKey struct{}
@@ -33,10 +34,8 @@ func RequireVaultAccess(ctx context.Context, vaultID string) error {
 	if err != nil {
 		return err
 	}
-	for _, id := range ac.VaultAccess {
-		if id == vaultID {
-			return nil
-		}
+	if slices.Contains(ac.VaultAccess, vaultID) {
+		return nil
 	}
 	return fmt.Errorf("forbidden: no access to vault %s", vaultID)
 }

@@ -10,8 +10,8 @@ import (
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	"github.com/raphaelgruber/memcp-go/internal/config"
-	"github.com/raphaelgruber/memcp-go/internal/metrics"
+	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/metrics"
 	"github.com/tmc/langchaingo/embeddings"
 	bedrockembed "github.com/tmc/langchaingo/embeddings/bedrock"
 	"github.com/tmc/langchaingo/llms/googleai"
@@ -49,7 +49,7 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 
 	case config.ProviderGoogleAI:
 		if cfg.GoogleAIAPIKey == "" {
-			return nil, fmt.Errorf("Google AI API key required (GOOGLE_AI_API_KEY)")
+			return nil, fmt.Errorf("google AI API key required (GOOGLE_AI_API_KEY)")
 		}
 		llm, googleErr := googleai.New(ctx,
 			googleai.WithAPIKey(cfg.GoogleAIAPIKey),
@@ -65,7 +65,7 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 
 	case config.ProviderOpenAI:
 		if cfg.OpenAIAPIKey == "" {
-			return nil, fmt.Errorf("OpenAI API key required")
+			return nil, fmt.Errorf("openAI API key required")
 		}
 		llm, openaiErr := openai.New(
 			openai.WithToken(cfg.OpenAIAPIKey),
@@ -84,7 +84,7 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 		// Voyage AI (acquired by Anthropic) exposes an OpenAI-compatible
 		// embeddings endpoint at https://api.voyageai.com/v1.
 		if cfg.AnthropicAPIKey == "" {
-			return nil, fmt.Errorf("Anthropic API key required (used for Voyage AI embeddings)")
+			return nil, fmt.Errorf("anthropic API key required (used for Voyage AI embeddings)")
 		}
 		llm, voyageErr := openai.New(
 			openai.WithToken(cfg.AnthropicAPIKey),

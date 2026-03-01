@@ -33,7 +33,7 @@ func TestEmbeddingWorker_StopsOnContextCancel(t *testing.T) {
 func TestEmbeddingWorker_TicksImmediatelyOnStartup(t *testing.T) {
 	// Verify that the worker processes a tick immediately before entering the ticker loop,
 	// not waiting for the first interval to elapse.
-	svc := &Service{} // nil embedder → EmbedPendingChunks returns (0, nil)
+	svc := &Service{}                                     // nil embedder → EmbedPendingChunks returns (0, nil)
 	worker := NewEmbeddingWorker(svc, 10*time.Second, 10) // very long interval
 
 	ctx, cancel := context.WithCancel(context.Background())

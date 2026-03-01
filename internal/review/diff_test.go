@@ -62,7 +62,7 @@ func TestComputeHunks_MultipleHunks(t *testing.T) {
 
 	modified := make([]string, len(lines))
 	copy(modified, lines)
-	modified[1] = "CHANGED 2\n"  // change line 2
+	modified[1] = "CHANGED 2\n"   // change line 2
 	modified[17] = "CHANGED 18\n" // change line 18
 	proposed := joinLines(modified)
 

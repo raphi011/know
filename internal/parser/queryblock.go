@@ -88,9 +88,9 @@ func parseQueryBlock(raw string) QueryBlock {
 
 	hasShow := false
 	hasValidLine := false
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	lines := strings.SplitSeq(strings.TrimSpace(raw), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

@@ -16,9 +16,9 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
-	"github.com/raphaelgruber/memcp-go/internal/config"
-	"github.com/raphaelgruber/memcp-go/internal/auth"
-	"github.com/raphaelgruber/memcp-go/internal/graph"
+	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/graph"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 

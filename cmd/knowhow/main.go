@@ -42,7 +42,7 @@ func envOrDefault(key, def string) string {
 
 func requireToken() error {
 	if apiToken == "" {
-		return fmt.Errorf("API token required: set KNOWHOW_V2_TOKEN or use --token")
+		return fmt.Errorf("api token required: set KNOWHOW_V2_TOKEN or use --token")
 	}
 	return nil
 }

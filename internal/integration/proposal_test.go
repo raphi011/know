@@ -2,12 +2,13 @@ package integration
 
 import (
 	"context"
+	"strings"
 	"testing"
 
-	"github.com/raphaelgruber/memcp-go/internal/document"
-	"github.com/raphaelgruber/memcp-go/internal/models"
-	"github.com/raphaelgruber/memcp-go/internal/review"
-	"github.com/raphaelgruber/memcp-go/internal/vault"
+	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/review"
+	"github.com/raphi011/knowhow/internal/vault"
 )
 
 // TestProposalLifecycle exercises: create proposal, diff, approve-all,
@@ -171,27 +172,27 @@ func TestProposalLifecycle(t *testing.T) {
 	// --- Test: partial approval (ApproveHunks) ---
 
 	// First, update the doc to have enough content for multiple hunks
-	var longContent string
+	var longContent strings.Builder
 	for i := 1; i <= 20; i++ {
-		longContent += "line " + itoa(i) + "\n"
+		longContent.WriteString("line " + itoa(i) + "\n")
 	}
-	_, err = docSvc.Update(ctx, vaultID, "/docs/test.md", longContent)
+	_, err = docSvc.Update(ctx, vaultID, "/docs/test.md", longContent.String())
 	if err != nil {
 		t.Fatalf("update doc for partial: %v", err)
 	}
 
 	// Create proposal that changes two distant lines
-	var modifiedContent string
+	var modifiedContent strings.Builder
 	for i := 1; i <= 20; i++ {
 		if i == 2 {
-			modifiedContent += "CHANGED 2\n"
+			modifiedContent.WriteString("CHANGED 2\n")
 		} else if i == 18 {
-			modifiedContent += "CHANGED 18\n"
+			modifiedContent.WriteString("CHANGED 18\n")
 		} else {
-			modifiedContent += "line " + itoa(i) + "\n"
+			modifiedContent.WriteString("line " + itoa(i) + "\n")
 		}
 	}
-	partialProposal, err := reviewSvc.Create(ctx, vaultID, docID, modifiedContent, nil, models.ProposalSourceAIGenerated)
+	partialProposal, err := reviewSvc.Create(ctx, vaultID, docID, modifiedContent.String(), nil, models.ProposalSourceAIGenerated)
 	if err != nil {
 		t.Fatalf("create partial proposal: %v", err)
 	}

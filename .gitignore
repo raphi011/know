@@ -4,7 +4,6 @@
 *.dll
 *.so
 *.dylib
-memcp
 /knowhow
 /knowhow-server
 /bootstrap

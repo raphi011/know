@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,20 +22,10 @@ import (
 
 // NewExecutableSchema creates an ExecutableSchema from the ResolverRoot interface.
 func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
-	return &executableSchema{
-		schema:     cfg.Schema,
-		resolvers:  cfg.Resolvers,
-		directives: cfg.Directives,
-		complexity: cfg.Complexity,
-	}
+	return &executableSchema{SchemaData: cfg.Schema, Resolvers: cfg.Resolvers, Directives: cfg.Directives, ComplexityRoot: cfg.Complexity}
 }
 
-type Config struct {
-	Schema     *ast.Schema
-	Resolvers  ResolverRoot
-	Directives DirectiveRoot
-	Complexity ComplexityRoot
-}
+type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
 	Document() DocumentResolver
@@ -292,236 +281,231 @@ type VaultResolver interface {
 	Folders(ctx context.Context, obj *Vault, parent *string) ([]*Folder, error)
 }
 
-type executableSchema struct {
-	schema     *ast.Schema
-	resolvers  ResolverRoot
-	directives DirectiveRoot
-	complexity ComplexityRoot
-}
+type executableSchema graphql.ExecutableSchemaState[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 func (e *executableSchema) Schema() *ast.Schema {
-	if e.schema != nil {
-		return e.schema
+	if e.SchemaData != nil {
+		return e.SchemaData
 	}
 	return parsedSchema
 }
 
 func (e *executableSchema) Complexity(ctx context.Context, typeName, field string, childComplexity int, rawArgs map[string]any) (int, bool) {
-	ec := executionContext{nil, e, 0, 0, nil}
+	ec := newExecutionContext(nil, e, nil)
 	_ = ec
 	switch typeName + "." + field {
 
 	case "ChunkMatch.headingPath":
-		if e.complexity.ChunkMatch.HeadingPath == nil {
+		if e.ComplexityRoot.ChunkMatch.HeadingPath == nil {
 			break
 		}
 
-		return e.complexity.ChunkMatch.HeadingPath(childComplexity), true
+		return e.ComplexityRoot.ChunkMatch.HeadingPath(childComplexity), true
 	case "ChunkMatch.position":
-		if e.complexity.ChunkMatch.Position == nil {
+		if e.ComplexityRoot.ChunkMatch.Position == nil {
 			break
 		}
 
-		return e.complexity.ChunkMatch.Position(childComplexity), true
+		return e.ComplexityRoot.ChunkMatch.Position(childComplexity), true
 	case "ChunkMatch.score":
-		if e.complexity.ChunkMatch.Score == nil {
+		if e.ComplexityRoot.ChunkMatch.Score == nil {
 			break
 		}
 
-		return e.complexity.ChunkMatch.Score(childComplexity), true
+		return e.ComplexityRoot.ChunkMatch.Score(childComplexity), true
 	case "ChunkMatch.snippet":
-		if e.complexity.ChunkMatch.Snippet == nil {
+		if e.ComplexityRoot.ChunkMatch.Snippet == nil {
 			break
 		}
 
-		return e.complexity.ChunkMatch.Snippet(childComplexity), true
+		return e.ComplexityRoot.ChunkMatch.Snippet(childComplexity), true
 
 	case "DiffHunk.header":
-		if e.complexity.DiffHunk.Header == nil {
+		if e.ComplexityRoot.DiffHunk.Header == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.Header(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.Header(childComplexity), true
 	case "DiffHunk.index":
-		if e.complexity.DiffHunk.Index == nil {
+		if e.ComplexityRoot.DiffHunk.Index == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.Index(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.Index(childComplexity), true
 	case "DiffHunk.lines":
-		if e.complexity.DiffHunk.Lines == nil {
+		if e.ComplexityRoot.DiffHunk.Lines == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.Lines(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.Lines(childComplexity), true
 	case "DiffHunk.newLines":
-		if e.complexity.DiffHunk.NewLines == nil {
+		if e.ComplexityRoot.DiffHunk.NewLines == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.NewLines(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.NewLines(childComplexity), true
 	case "DiffHunk.newStart":
-		if e.complexity.DiffHunk.NewStart == nil {
+		if e.ComplexityRoot.DiffHunk.NewStart == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.NewStart(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.NewStart(childComplexity), true
 	case "DiffHunk.oldLines":
-		if e.complexity.DiffHunk.OldLines == nil {
+		if e.ComplexityRoot.DiffHunk.OldLines == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.OldLines(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.OldLines(childComplexity), true
 	case "DiffHunk.oldStart":
-		if e.complexity.DiffHunk.OldStart == nil {
+		if e.ComplexityRoot.DiffHunk.OldStart == nil {
 			break
 		}
 
-		return e.complexity.DiffHunk.OldStart(childComplexity), true
+		return e.ComplexityRoot.DiffHunk.OldStart(childComplexity), true
 
 	case "DiffLine.content":
-		if e.complexity.DiffLine.Content == nil {
+		if e.ComplexityRoot.DiffLine.Content == nil {
 			break
 		}
 
-		return e.complexity.DiffLine.Content(childComplexity), true
+		return e.ComplexityRoot.DiffLine.Content(childComplexity), true
 	case "DiffLine.newLineNo":
-		if e.complexity.DiffLine.NewLineNo == nil {
+		if e.ComplexityRoot.DiffLine.NewLineNo == nil {
 			break
 		}
 
-		return e.complexity.DiffLine.NewLineNo(childComplexity), true
+		return e.ComplexityRoot.DiffLine.NewLineNo(childComplexity), true
 	case "DiffLine.oldLineNo":
-		if e.complexity.DiffLine.OldLineNo == nil {
+		if e.ComplexityRoot.DiffLine.OldLineNo == nil {
 			break
 		}
 
-		return e.complexity.DiffLine.OldLineNo(childComplexity), true
+		return e.ComplexityRoot.DiffLine.OldLineNo(childComplexity), true
 	case "DiffLine.type":
-		if e.complexity.DiffLine.Type == nil {
+		if e.ComplexityRoot.DiffLine.Type == nil {
 			break
 		}
 
-		return e.complexity.DiffLine.Type(childComplexity), true
+		return e.ComplexityRoot.DiffLine.Type(childComplexity), true
 
 	case "DiffStats.additions":
-		if e.complexity.DiffStats.Additions == nil {
+		if e.ComplexityRoot.DiffStats.Additions == nil {
 			break
 		}
 
-		return e.complexity.DiffStats.Additions(childComplexity), true
+		return e.ComplexityRoot.DiffStats.Additions(childComplexity), true
 	case "DiffStats.deletions":
-		if e.complexity.DiffStats.Deletions == nil {
+		if e.ComplexityRoot.DiffStats.Deletions == nil {
 			break
 		}
 
-		return e.complexity.DiffStats.Deletions(childComplexity), true
+		return e.ComplexityRoot.DiffStats.Deletions(childComplexity), true
 	case "DiffStats.hunksCount":
-		if e.complexity.DiffStats.HunksCount == nil {
+		if e.ComplexityRoot.DiffStats.HunksCount == nil {
 			break
 		}
 
-		return e.complexity.DiffStats.HunksCount(childComplexity), true
+		return e.ComplexityRoot.DiffStats.HunksCount(childComplexity), true
 
 	case "DocRelation.createdAt":
-		if e.complexity.DocRelation.CreatedAt == nil {
+		if e.ComplexityRoot.DocRelation.CreatedAt == nil {
 			break
 		}
 
-		return e.complexity.DocRelation.CreatedAt(childComplexity), true
+		return e.ComplexityRoot.DocRelation.CreatedAt(childComplexity), true
 	case "DocRelation.fromDocId":
-		if e.complexity.DocRelation.FromDocID == nil {
+		if e.ComplexityRoot.DocRelation.FromDocID == nil {
 			break
 		}
 
-		return e.complexity.DocRelation.FromDocID(childComplexity), true
+		return e.ComplexityRoot.DocRelation.FromDocID(childComplexity), true
 	case "DocRelation.id":
-		if e.complexity.DocRelation.ID == nil {
+		if e.ComplexityRoot.DocRelation.ID == nil {
 			break
 		}
 
-		return e.complexity.DocRelation.ID(childComplexity), true
+		return e.ComplexityRoot.DocRelation.ID(childComplexity), true
 	case "DocRelation.relType":
-		if e.complexity.DocRelation.RelType == nil {
+		if e.ComplexityRoot.DocRelation.RelType == nil {
 			break
 		}
 
-		return e.complexity.DocRelation.RelType(childComplexity), true
+		return e.ComplexityRoot.DocRelation.RelType(childComplexity), true
 	case "DocRelation.source":
-		if e.complexity.DocRelation.Source == nil {
+		if e.ComplexityRoot.DocRelation.Source == nil {
 			break
 		}
 
-		return e.complexity.DocRelation.Source(childComplexity), true
+		return e.ComplexityRoot.DocRelation.Source(childComplexity), true
 	case "DocRelation.toDocId":
-		if e.complexity.DocRelation.ToDocID == nil {
+		if e.ComplexityRoot.DocRelation.ToDocID == nil {
 			break
 		}
 
-		return e.complexity.DocRelation.ToDocID(childComplexity), true
+		return e.ComplexityRoot.DocRelation.ToDocID(childComplexity), true
 
 	case "Document.backlinks":
-		if e.complexity.Document.Backlinks == nil {
+		if e.ComplexityRoot.Document.Backlinks == nil {
 			break
 		}
 
-		return e.complexity.Document.Backlinks(childComplexity), true
+		return e.ComplexityRoot.Document.Backlinks(childComplexity), true
 	case "Document.content":
-		if e.complexity.Document.Content == nil {
+		if e.ComplexityRoot.Document.Content == nil {
 			break
 		}
 
-		return e.complexity.Document.Content(childComplexity), true
+		return e.ComplexityRoot.Document.Content(childComplexity), true
 	case "Document.contentBody":
-		if e.complexity.Document.ContentBody == nil {
+		if e.ComplexityRoot.Document.ContentBody == nil {
 			break
 		}
 
-		return e.complexity.Document.ContentBody(childComplexity), true
+		return e.ComplexityRoot.Document.ContentBody(childComplexity), true
 	case "Document.contentHash":
-		if e.complexity.Document.ContentHash == nil {
+		if e.ComplexityRoot.Document.ContentHash == nil {
 			break
 		}
 
-		return e.complexity.Document.ContentHash(childComplexity), true
+		return e.ComplexityRoot.Document.ContentHash(childComplexity), true
 	case "Document.createdAt":
-		if e.complexity.Document.CreatedAt == nil {
+		if e.ComplexityRoot.Document.CreatedAt == nil {
 			break
 		}
 
-		return e.complexity.Document.CreatedAt(childComplexity), true
+		return e.ComplexityRoot.Document.CreatedAt(childComplexity), true
 	case "Document.docType":
-		if e.complexity.Document.DocType == nil {
+		if e.ComplexityRoot.Document.DocType == nil {
 			break
 		}
 
-		return e.complexity.Document.DocType(childComplexity), true
+		return e.ComplexityRoot.Document.DocType(childComplexity), true
 	case "Document.id":
-		if e.complexity.Document.ID == nil {
+		if e.ComplexityRoot.Document.ID == nil {
 			break
 		}
 
-		return e.complexity.Document.ID(childComplexity), true
+		return e.ComplexityRoot.Document.ID(childComplexity), true
 	case "Document.labels":
-		if e.complexity.Document.Labels == nil {
+		if e.ComplexityRoot.Document.Labels == nil {
 			break
 		}
 
-		return e.complexity.Document.Labels(childComplexity), true
+		return e.ComplexityRoot.Document.Labels(childComplexity), true
 	case "Document.metadata":
-		if e.complexity.Document.Metadata == nil {
+		if e.ComplexityRoot.Document.Metadata == nil {
 			break
 		}
 
-		return e.complexity.Document.Metadata(childComplexity), true
+		return e.ComplexityRoot.Document.Metadata(childComplexity), true
 	case "Document.path":
-		if e.complexity.Document.Path == nil {
+		if e.ComplexityRoot.Document.Path == nil {
 			break
 		}
 
-		return e.complexity.Document.Path(childComplexity), true
+		return e.ComplexityRoot.Document.Path(childComplexity), true
 	case "Document.proposals":
-		if e.complexity.Document.Proposals == nil {
+		if e.ComplexityRoot.Document.Proposals == nil {
 			break
 		}
 
@@ -530,169 +514,169 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Document.Proposals(childComplexity, args["status"].(*ProposalStatus)), true
+		return e.ComplexityRoot.Document.Proposals(childComplexity, args["status"].(*ProposalStatus)), true
 	case "Document.queryBlocks":
-		if e.complexity.Document.QueryBlocks == nil {
+		if e.ComplexityRoot.Document.QueryBlocks == nil {
 			break
 		}
 
-		return e.complexity.Document.QueryBlocks(childComplexity), true
+		return e.ComplexityRoot.Document.QueryBlocks(childComplexity), true
 	case "Document.relations":
-		if e.complexity.Document.Relations == nil {
+		if e.ComplexityRoot.Document.Relations == nil {
 			break
 		}
 
-		return e.complexity.Document.Relations(childComplexity), true
+		return e.ComplexityRoot.Document.Relations(childComplexity), true
 	case "Document.source":
-		if e.complexity.Document.Source == nil {
+		if e.ComplexityRoot.Document.Source == nil {
 			break
 		}
 
-		return e.complexity.Document.Source(childComplexity), true
+		return e.ComplexityRoot.Document.Source(childComplexity), true
 	case "Document.sourcePath":
-		if e.complexity.Document.SourcePath == nil {
+		if e.ComplexityRoot.Document.SourcePath == nil {
 			break
 		}
 
-		return e.complexity.Document.SourcePath(childComplexity), true
+		return e.ComplexityRoot.Document.SourcePath(childComplexity), true
 	case "Document.title":
-		if e.complexity.Document.Title == nil {
+		if e.ComplexityRoot.Document.Title == nil {
 			break
 		}
 
-		return e.complexity.Document.Title(childComplexity), true
+		return e.ComplexityRoot.Document.Title(childComplexity), true
 	case "Document.updatedAt":
-		if e.complexity.Document.UpdatedAt == nil {
+		if e.ComplexityRoot.Document.UpdatedAt == nil {
 			break
 		}
 
-		return e.complexity.Document.UpdatedAt(childComplexity), true
+		return e.ComplexityRoot.Document.UpdatedAt(childComplexity), true
 	case "Document.vaultId":
-		if e.complexity.Document.VaultID == nil {
+		if e.ComplexityRoot.Document.VaultID == nil {
 			break
 		}
 
-		return e.complexity.Document.VaultID(childComplexity), true
+		return e.ComplexityRoot.Document.VaultID(childComplexity), true
 	case "Document.wikiLinks":
-		if e.complexity.Document.WikiLinks == nil {
+		if e.ComplexityRoot.Document.WikiLinks == nil {
 			break
 		}
 
-		return e.complexity.Document.WikiLinks(childComplexity), true
+		return e.ComplexityRoot.Document.WikiLinks(childComplexity), true
 
 	case "DocumentProposal.createdAt":
-		if e.complexity.DocumentProposal.CreatedAt == nil {
+		if e.ComplexityRoot.DocumentProposal.CreatedAt == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.CreatedAt(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.CreatedAt(childComplexity), true
 	case "DocumentProposal.description":
-		if e.complexity.DocumentProposal.Description == nil {
+		if e.ComplexityRoot.DocumentProposal.Description == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.Description(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.Description(childComplexity), true
 	case "DocumentProposal.diff":
-		if e.complexity.DocumentProposal.Diff == nil {
+		if e.ComplexityRoot.DocumentProposal.Diff == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.Diff(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.Diff(childComplexity), true
 	case "DocumentProposal.document":
-		if e.complexity.DocumentProposal.Document == nil {
+		if e.ComplexityRoot.DocumentProposal.Document == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.Document(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.Document(childComplexity), true
 	case "DocumentProposal.hasConflict":
-		if e.complexity.DocumentProposal.HasConflict == nil {
+		if e.ComplexityRoot.DocumentProposal.HasConflict == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.HasConflict(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.HasConflict(childComplexity), true
 	case "DocumentProposal.id":
-		if e.complexity.DocumentProposal.ID == nil {
+		if e.ComplexityRoot.DocumentProposal.ID == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.ID(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.ID(childComplexity), true
 	case "DocumentProposal.originalHash":
-		if e.complexity.DocumentProposal.OriginalHash == nil {
+		if e.ComplexityRoot.DocumentProposal.OriginalHash == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.OriginalHash(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.OriginalHash(childComplexity), true
 	case "DocumentProposal.proposedContent":
-		if e.complexity.DocumentProposal.ProposedContent == nil {
+		if e.ComplexityRoot.DocumentProposal.ProposedContent == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.ProposedContent(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.ProposedContent(childComplexity), true
 	case "DocumentProposal.reviewedAt":
-		if e.complexity.DocumentProposal.ReviewedAt == nil {
+		if e.ComplexityRoot.DocumentProposal.ReviewedAt == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.ReviewedAt(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.ReviewedAt(childComplexity), true
 	case "DocumentProposal.reviewerNotes":
-		if e.complexity.DocumentProposal.ReviewerNotes == nil {
+		if e.ComplexityRoot.DocumentProposal.ReviewerNotes == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.ReviewerNotes(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.ReviewerNotes(childComplexity), true
 	case "DocumentProposal.source":
-		if e.complexity.DocumentProposal.Source == nil {
+		if e.ComplexityRoot.DocumentProposal.Source == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.Source(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.Source(childComplexity), true
 	case "DocumentProposal.status":
-		if e.complexity.DocumentProposal.Status == nil {
+		if e.ComplexityRoot.DocumentProposal.Status == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.Status(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.Status(childComplexity), true
 	case "DocumentProposal.vaultId":
-		if e.complexity.DocumentProposal.VaultID == nil {
+		if e.ComplexityRoot.DocumentProposal.VaultID == nil {
 			break
 		}
 
-		return e.complexity.DocumentProposal.VaultID(childComplexity), true
+		return e.ComplexityRoot.DocumentProposal.VaultID(childComplexity), true
 
 	case "Folder.docCount":
-		if e.complexity.Folder.DocCount == nil {
+		if e.ComplexityRoot.Folder.DocCount == nil {
 			break
 		}
 
-		return e.complexity.Folder.DocCount(childComplexity), true
+		return e.ComplexityRoot.Folder.DocCount(childComplexity), true
 	case "Folder.name":
-		if e.complexity.Folder.Name == nil {
+		if e.ComplexityRoot.Folder.Name == nil {
 			break
 		}
 
-		return e.complexity.Folder.Name(childComplexity), true
+		return e.ComplexityRoot.Folder.Name(childComplexity), true
 	case "Folder.path":
-		if e.complexity.Folder.Path == nil {
+		if e.ComplexityRoot.Folder.Path == nil {
 			break
 		}
 
-		return e.complexity.Folder.Path(childComplexity), true
+		return e.ComplexityRoot.Folder.Path(childComplexity), true
 
 	case "Me.user":
-		if e.complexity.Me.User == nil {
+		if e.ComplexityRoot.Me.User == nil {
 			break
 		}
 
-		return e.complexity.Me.User(childComplexity), true
+		return e.ComplexityRoot.Me.User(childComplexity), true
 	case "Me.vaultAccess":
-		if e.complexity.Me.VaultAccess == nil {
+		if e.ComplexityRoot.Me.VaultAccess == nil {
 			break
 		}
 
-		return e.complexity.Me.VaultAccess(childComplexity), true
+		return e.ComplexityRoot.Me.VaultAccess(childComplexity), true
 
 	case "Mutation.approveProposal":
-		if e.complexity.Mutation.ApproveProposal == nil {
+		if e.ComplexityRoot.Mutation.ApproveProposal == nil {
 			break
 		}
 
@@ -701,9 +685,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.ApproveProposal(childComplexity, args["id"].(string), args["notes"].(*string)), true
+		return e.ComplexityRoot.Mutation.ApproveProposal(childComplexity, args["id"].(string), args["notes"].(*string)), true
 	case "Mutation.approveProposalHunks":
-		if e.complexity.Mutation.ApproveProposalHunks == nil {
+		if e.ComplexityRoot.Mutation.ApproveProposalHunks == nil {
 			break
 		}
 
@@ -712,9 +696,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.ApproveProposalHunks(childComplexity, args["input"].(ApproveHunksInput)), true
+		return e.ComplexityRoot.Mutation.ApproveProposalHunks(childComplexity, args["input"].(ApproveHunksInput)), true
 	case "Mutation.createDocument":
-		if e.complexity.Mutation.CreateDocument == nil {
+		if e.ComplexityRoot.Mutation.CreateDocument == nil {
 			break
 		}
 
@@ -723,9 +707,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateDocument(childComplexity, args["vaultId"].(string), args["file"].(FileInput), args["source"].(*string)), true
+		return e.ComplexityRoot.Mutation.CreateDocument(childComplexity, args["vaultId"].(string), args["file"].(FileInput), args["source"].(*string)), true
 	case "Mutation.createRelation":
-		if e.complexity.Mutation.CreateRelation == nil {
+		if e.ComplexityRoot.Mutation.CreateRelation == nil {
 			break
 		}
 
@@ -734,9 +718,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateRelation(childComplexity, args["input"].(RelationInput)), true
+		return e.ComplexityRoot.Mutation.CreateRelation(childComplexity, args["input"].(RelationInput)), true
 	case "Mutation.createTemplate":
-		if e.complexity.Mutation.CreateTemplate == nil {
+		if e.ComplexityRoot.Mutation.CreateTemplate == nil {
 			break
 		}
 
@@ -745,9 +729,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateTemplate(childComplexity, args["input"].(TemplateInput)), true
+		return e.ComplexityRoot.Mutation.CreateTemplate(childComplexity, args["input"].(TemplateInput)), true
 	case "Mutation.createVault":
-		if e.complexity.Mutation.CreateVault == nil {
+		if e.ComplexityRoot.Mutation.CreateVault == nil {
 			break
 		}
 
@@ -756,9 +740,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateVault(childComplexity, args["input"].(VaultInput)), true
+		return e.ComplexityRoot.Mutation.CreateVault(childComplexity, args["input"].(VaultInput)), true
 	case "Mutation.deleteDocument":
-		if e.complexity.Mutation.DeleteDocument == nil {
+		if e.ComplexityRoot.Mutation.DeleteDocument == nil {
 			break
 		}
 
@@ -767,9 +751,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.DeleteDocument(childComplexity, args["vaultId"].(string), args["path"].(string)), true
+		return e.ComplexityRoot.Mutation.DeleteDocument(childComplexity, args["vaultId"].(string), args["path"].(string)), true
 	case "Mutation.deleteRelation":
-		if e.complexity.Mutation.DeleteRelation == nil {
+		if e.ComplexityRoot.Mutation.DeleteRelation == nil {
 			break
 		}
 
@@ -778,9 +762,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.DeleteRelation(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Mutation.DeleteRelation(childComplexity, args["id"].(string)), true
 	case "Mutation.deleteTemplate":
-		if e.complexity.Mutation.DeleteTemplate == nil {
+		if e.ComplexityRoot.Mutation.DeleteTemplate == nil {
 			break
 		}
 
@@ -789,9 +773,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.DeleteTemplate(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Mutation.DeleteTemplate(childComplexity, args["id"].(string)), true
 	case "Mutation.deleteVault":
-		if e.complexity.Mutation.DeleteVault == nil {
+		if e.ComplexityRoot.Mutation.DeleteVault == nil {
 			break
 		}
 
@@ -800,9 +784,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.DeleteVault(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Mutation.DeleteVault(childComplexity, args["id"].(string)), true
 	case "Mutation.moveDocument":
-		if e.complexity.Mutation.MoveDocument == nil {
+		if e.ComplexityRoot.Mutation.MoveDocument == nil {
 			break
 		}
 
@@ -811,9 +795,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.MoveDocument(childComplexity, args["vaultId"].(string), args["oldPath"].(string), args["newPath"].(string)), true
+		return e.ComplexityRoot.Mutation.MoveDocument(childComplexity, args["vaultId"].(string), args["oldPath"].(string), args["newPath"].(string)), true
 	case "Mutation.proposeDocumentUpdate":
-		if e.complexity.Mutation.ProposeDocumentUpdate == nil {
+		if e.ComplexityRoot.Mutation.ProposeDocumentUpdate == nil {
 			break
 		}
 
@@ -822,9 +806,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.ProposeDocumentUpdate(childComplexity, args["input"].(ProposeDocumentUpdateInput)), true
+		return e.ComplexityRoot.Mutation.ProposeDocumentUpdate(childComplexity, args["input"].(ProposeDocumentUpdateInput)), true
 	case "Mutation.rejectProposal":
-		if e.complexity.Mutation.RejectProposal == nil {
+		if e.ComplexityRoot.Mutation.RejectProposal == nil {
 			break
 		}
 
@@ -833,9 +817,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.RejectProposal(childComplexity, args["id"].(string), args["notes"].(*string)), true
+		return e.ComplexityRoot.Mutation.RejectProposal(childComplexity, args["id"].(string), args["notes"].(*string)), true
 	case "Mutation.updateDocument":
-		if e.complexity.Mutation.UpdateDocument == nil {
+		if e.ComplexityRoot.Mutation.UpdateDocument == nil {
 			break
 		}
 
@@ -844,29 +828,29 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.UpdateDocument(childComplexity, args["vaultId"].(string), args["path"].(string), args["content"].(string)), true
+		return e.ComplexityRoot.Mutation.UpdateDocument(childComplexity, args["vaultId"].(string), args["path"].(string), args["content"].(string)), true
 
 	case "ProposalDiff.hasConflict":
-		if e.complexity.ProposalDiff.HasConflict == nil {
+		if e.ComplexityRoot.ProposalDiff.HasConflict == nil {
 			break
 		}
 
-		return e.complexity.ProposalDiff.HasConflict(childComplexity), true
+		return e.ComplexityRoot.ProposalDiff.HasConflict(childComplexity), true
 	case "ProposalDiff.hunks":
-		if e.complexity.ProposalDiff.Hunks == nil {
+		if e.ComplexityRoot.ProposalDiff.Hunks == nil {
 			break
 		}
 
-		return e.complexity.ProposalDiff.Hunks(childComplexity), true
+		return e.ComplexityRoot.ProposalDiff.Hunks(childComplexity), true
 	case "ProposalDiff.stats":
-		if e.complexity.ProposalDiff.Stats == nil {
+		if e.ComplexityRoot.ProposalDiff.Stats == nil {
 			break
 		}
 
-		return e.complexity.ProposalDiff.Stats(childComplexity), true
+		return e.ComplexityRoot.ProposalDiff.Stats(childComplexity), true
 
 	case "Query.document":
-		if e.complexity.Query.Document == nil {
+		if e.ComplexityRoot.Query.Document == nil {
 			break
 		}
 
@@ -875,9 +859,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Document(childComplexity, args["vaultId"].(string), args["path"].(string)), true
+		return e.ComplexityRoot.Query.Document(childComplexity, args["vaultId"].(string), args["path"].(string)), true
 	case "Query.documentById":
-		if e.complexity.Query.DocumentByID == nil {
+		if e.ComplexityRoot.Query.DocumentByID == nil {
 			break
 		}
 
@@ -886,15 +870,16 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.DocumentByID(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Query.DocumentByID(childComplexity, args["id"].(string)), true
+
 	case "Query.me":
-		if e.complexity.Query.Me == nil {
+		if e.ComplexityRoot.Query.Me == nil {
 			break
 		}
 
-		return e.complexity.Query.Me(childComplexity), true
+		return e.ComplexityRoot.Query.Me(childComplexity), true
 	case "Query.proposal":
-		if e.complexity.Query.Proposal == nil {
+		if e.ComplexityRoot.Query.Proposal == nil {
 			break
 		}
 
@@ -903,9 +888,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Proposal(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Query.Proposal(childComplexity, args["id"].(string)), true
 	case "Query.proposals":
-		if e.complexity.Query.Proposals == nil {
+		if e.ComplexityRoot.Query.Proposals == nil {
 			break
 		}
 
@@ -914,9 +899,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Proposals(childComplexity, args["vaultId"].(string), args["status"].(*ProposalStatus)), true
+		return e.ComplexityRoot.Query.Proposals(childComplexity, args["vaultId"].(string), args["status"].(*ProposalStatus)), true
 	case "Query.search":
-		if e.complexity.Query.Search == nil {
+		if e.ComplexityRoot.Query.Search == nil {
 			break
 		}
 
@@ -925,9 +910,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Search(childComplexity, args["input"].(SearchInput)), true
+		return e.ComplexityRoot.Query.Search(childComplexity, args["input"].(SearchInput)), true
 	case "Query.template":
-		if e.complexity.Query.Template == nil {
+		if e.ComplexityRoot.Query.Template == nil {
 			break
 		}
 
@@ -936,9 +921,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Template(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Query.Template(childComplexity, args["id"].(string)), true
 	case "Query.templates":
-		if e.complexity.Query.Templates == nil {
+		if e.ComplexityRoot.Query.Templates == nil {
 			break
 		}
 
@@ -947,9 +932,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Templates(childComplexity, args["vaultId"].(*string)), true
+		return e.ComplexityRoot.Query.Templates(childComplexity, args["vaultId"].(*string)), true
 	case "Query.vault":
-		if e.complexity.Query.Vault == nil {
+		if e.ComplexityRoot.Query.Vault == nil {
 			break
 		}
 
@@ -958,238 +943,238 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.Vault(childComplexity, args["id"].(string)), true
+		return e.ComplexityRoot.Query.Vault(childComplexity, args["id"].(string)), true
 	case "Query.vaults":
-		if e.complexity.Query.Vaults == nil {
+		if e.ComplexityRoot.Query.Vaults == nil {
 			break
 		}
 
-		return e.complexity.Query.Vaults(childComplexity), true
+		return e.ComplexityRoot.Query.Vaults(childComplexity), true
 
 	case "QueryBlock.error":
-		if e.complexity.QueryBlock.Error == nil {
+		if e.ComplexityRoot.QueryBlock.Error == nil {
 			break
 		}
 
-		return e.complexity.QueryBlock.Error(childComplexity), true
+		return e.ComplexityRoot.QueryBlock.Error(childComplexity), true
 	case "QueryBlock.format":
-		if e.complexity.QueryBlock.Format == nil {
+		if e.ComplexityRoot.QueryBlock.Format == nil {
 			break
 		}
 
-		return e.complexity.QueryBlock.Format(childComplexity), true
+		return e.ComplexityRoot.QueryBlock.Format(childComplexity), true
 	case "QueryBlock.index":
-		if e.complexity.QueryBlock.Index == nil {
+		if e.ComplexityRoot.QueryBlock.Index == nil {
 			break
 		}
 
-		return e.complexity.QueryBlock.Index(childComplexity), true
+		return e.ComplexityRoot.QueryBlock.Index(childComplexity), true
 	case "QueryBlock.rawQuery":
-		if e.complexity.QueryBlock.RawQuery == nil {
+		if e.ComplexityRoot.QueryBlock.RawQuery == nil {
 			break
 		}
 
-		return e.complexity.QueryBlock.RawQuery(childComplexity), true
+		return e.ComplexityRoot.QueryBlock.RawQuery(childComplexity), true
 	case "QueryBlock.results":
-		if e.complexity.QueryBlock.Results == nil {
+		if e.ComplexityRoot.QueryBlock.Results == nil {
 			break
 		}
 
-		return e.complexity.QueryBlock.Results(childComplexity), true
+		return e.ComplexityRoot.QueryBlock.Results(childComplexity), true
 
 	case "QueryResult.docId":
-		if e.complexity.QueryResult.DocID == nil {
+		if e.ComplexityRoot.QueryResult.DocID == nil {
 			break
 		}
 
-		return e.complexity.QueryResult.DocID(childComplexity), true
+		return e.ComplexityRoot.QueryResult.DocID(childComplexity), true
 	case "QueryResult.fields":
-		if e.complexity.QueryResult.Fields == nil {
+		if e.ComplexityRoot.QueryResult.Fields == nil {
 			break
 		}
 
-		return e.complexity.QueryResult.Fields(childComplexity), true
+		return e.ComplexityRoot.QueryResult.Fields(childComplexity), true
 	case "QueryResult.path":
-		if e.complexity.QueryResult.Path == nil {
+		if e.ComplexityRoot.QueryResult.Path == nil {
 			break
 		}
 
-		return e.complexity.QueryResult.Path(childComplexity), true
+		return e.ComplexityRoot.QueryResult.Path(childComplexity), true
 	case "QueryResult.title":
-		if e.complexity.QueryResult.Title == nil {
+		if e.ComplexityRoot.QueryResult.Title == nil {
 			break
 		}
 
-		return e.complexity.QueryResult.Title(childComplexity), true
+		return e.ComplexityRoot.QueryResult.Title(childComplexity), true
 
 	case "ScrapeResult.chunksCreated":
-		if e.complexity.ScrapeResult.ChunksCreated == nil {
+		if e.ComplexityRoot.ScrapeResult.ChunksCreated == nil {
 			break
 		}
 
-		return e.complexity.ScrapeResult.ChunksCreated(childComplexity), true
+		return e.ComplexityRoot.ScrapeResult.ChunksCreated(childComplexity), true
 	case "ScrapeResult.documentsCreated":
-		if e.complexity.ScrapeResult.DocumentsCreated == nil {
+		if e.ComplexityRoot.ScrapeResult.DocumentsCreated == nil {
 			break
 		}
 
-		return e.complexity.ScrapeResult.DocumentsCreated(childComplexity), true
+		return e.ComplexityRoot.ScrapeResult.DocumentsCreated(childComplexity), true
 	case "ScrapeResult.errors":
-		if e.complexity.ScrapeResult.Errors == nil {
+		if e.ComplexityRoot.ScrapeResult.Errors == nil {
 			break
 		}
 
-		return e.complexity.ScrapeResult.Errors(childComplexity), true
+		return e.ComplexityRoot.ScrapeResult.Errors(childComplexity), true
 	case "ScrapeResult.filesProcessed":
-		if e.complexity.ScrapeResult.FilesProcessed == nil {
+		if e.ComplexityRoot.ScrapeResult.FilesProcessed == nil {
 			break
 		}
 
-		return e.complexity.ScrapeResult.FilesProcessed(childComplexity), true
+		return e.ComplexityRoot.ScrapeResult.FilesProcessed(childComplexity), true
 	case "ScrapeResult.filesSkipped":
-		if e.complexity.ScrapeResult.FilesSkipped == nil {
+		if e.ComplexityRoot.ScrapeResult.FilesSkipped == nil {
 			break
 		}
 
-		return e.complexity.ScrapeResult.FilesSkipped(childComplexity), true
+		return e.ComplexityRoot.ScrapeResult.FilesSkipped(childComplexity), true
 
 	case "SearchResult.docType":
-		if e.complexity.SearchResult.DocType == nil {
+		if e.ComplexityRoot.SearchResult.DocType == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.DocType(childComplexity), true
+		return e.ComplexityRoot.SearchResult.DocType(childComplexity), true
 	case "SearchResult.documentId":
-		if e.complexity.SearchResult.DocumentID == nil {
+		if e.ComplexityRoot.SearchResult.DocumentID == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.DocumentID(childComplexity), true
+		return e.ComplexityRoot.SearchResult.DocumentID(childComplexity), true
 	case "SearchResult.labels":
-		if e.complexity.SearchResult.Labels == nil {
+		if e.ComplexityRoot.SearchResult.Labels == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.Labels(childComplexity), true
+		return e.ComplexityRoot.SearchResult.Labels(childComplexity), true
 	case "SearchResult.matchedChunks":
-		if e.complexity.SearchResult.MatchedChunks == nil {
+		if e.ComplexityRoot.SearchResult.MatchedChunks == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.MatchedChunks(childComplexity), true
+		return e.ComplexityRoot.SearchResult.MatchedChunks(childComplexity), true
 	case "SearchResult.path":
-		if e.complexity.SearchResult.Path == nil {
+		if e.ComplexityRoot.SearchResult.Path == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.Path(childComplexity), true
+		return e.ComplexityRoot.SearchResult.Path(childComplexity), true
 	case "SearchResult.score":
-		if e.complexity.SearchResult.Score == nil {
+		if e.ComplexityRoot.SearchResult.Score == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.Score(childComplexity), true
+		return e.ComplexityRoot.SearchResult.Score(childComplexity), true
 	case "SearchResult.title":
-		if e.complexity.SearchResult.Title == nil {
+		if e.ComplexityRoot.SearchResult.Title == nil {
 			break
 		}
 
-		return e.complexity.SearchResult.Title(childComplexity), true
+		return e.ComplexityRoot.SearchResult.Title(childComplexity), true
 
 	case "Template.content":
-		if e.complexity.Template.Content == nil {
+		if e.ComplexityRoot.Template.Content == nil {
 			break
 		}
 
-		return e.complexity.Template.Content(childComplexity), true
+		return e.ComplexityRoot.Template.Content(childComplexity), true
 	case "Template.createdAt":
-		if e.complexity.Template.CreatedAt == nil {
+		if e.ComplexityRoot.Template.CreatedAt == nil {
 			break
 		}
 
-		return e.complexity.Template.CreatedAt(childComplexity), true
+		return e.ComplexityRoot.Template.CreatedAt(childComplexity), true
 	case "Template.description":
-		if e.complexity.Template.Description == nil {
+		if e.ComplexityRoot.Template.Description == nil {
 			break
 		}
 
-		return e.complexity.Template.Description(childComplexity), true
+		return e.ComplexityRoot.Template.Description(childComplexity), true
 	case "Template.id":
-		if e.complexity.Template.ID == nil {
+		if e.ComplexityRoot.Template.ID == nil {
 			break
 		}
 
-		return e.complexity.Template.ID(childComplexity), true
+		return e.ComplexityRoot.Template.ID(childComplexity), true
 	case "Template.isAITemplate":
-		if e.complexity.Template.IsAITemplate == nil {
+		if e.ComplexityRoot.Template.IsAITemplate == nil {
 			break
 		}
 
-		return e.complexity.Template.IsAITemplate(childComplexity), true
+		return e.ComplexityRoot.Template.IsAITemplate(childComplexity), true
 	case "Template.name":
-		if e.complexity.Template.Name == nil {
+		if e.ComplexityRoot.Template.Name == nil {
 			break
 		}
 
-		return e.complexity.Template.Name(childComplexity), true
+		return e.ComplexityRoot.Template.Name(childComplexity), true
 	case "Template.updatedAt":
-		if e.complexity.Template.UpdatedAt == nil {
+		if e.ComplexityRoot.Template.UpdatedAt == nil {
 			break
 		}
 
-		return e.complexity.Template.UpdatedAt(childComplexity), true
+		return e.ComplexityRoot.Template.UpdatedAt(childComplexity), true
 	case "Template.vaultId":
-		if e.complexity.Template.VaultID == nil {
+		if e.ComplexityRoot.Template.VaultID == nil {
 			break
 		}
 
-		return e.complexity.Template.VaultID(childComplexity), true
+		return e.ComplexityRoot.Template.VaultID(childComplexity), true
 
 	case "User.createdAt":
-		if e.complexity.User.CreatedAt == nil {
+		if e.ComplexityRoot.User.CreatedAt == nil {
 			break
 		}
 
-		return e.complexity.User.CreatedAt(childComplexity), true
+		return e.ComplexityRoot.User.CreatedAt(childComplexity), true
 	case "User.email":
-		if e.complexity.User.Email == nil {
+		if e.ComplexityRoot.User.Email == nil {
 			break
 		}
 
-		return e.complexity.User.Email(childComplexity), true
+		return e.ComplexityRoot.User.Email(childComplexity), true
 	case "User.id":
-		if e.complexity.User.ID == nil {
+		if e.ComplexityRoot.User.ID == nil {
 			break
 		}
 
-		return e.complexity.User.ID(childComplexity), true
+		return e.ComplexityRoot.User.ID(childComplexity), true
 	case "User.name":
-		if e.complexity.User.Name == nil {
+		if e.ComplexityRoot.User.Name == nil {
 			break
 		}
 
-		return e.complexity.User.Name(childComplexity), true
+		return e.ComplexityRoot.User.Name(childComplexity), true
 
 	case "Vault.createdAt":
-		if e.complexity.Vault.CreatedAt == nil {
+		if e.ComplexityRoot.Vault.CreatedAt == nil {
 			break
 		}
 
-		return e.complexity.Vault.CreatedAt(childComplexity), true
+		return e.ComplexityRoot.Vault.CreatedAt(childComplexity), true
 	case "Vault.createdBy":
-		if e.complexity.Vault.CreatedBy == nil {
+		if e.ComplexityRoot.Vault.CreatedBy == nil {
 			break
 		}
 
-		return e.complexity.Vault.CreatedBy(childComplexity), true
+		return e.ComplexityRoot.Vault.CreatedBy(childComplexity), true
 	case "Vault.description":
-		if e.complexity.Vault.Description == nil {
+		if e.ComplexityRoot.Vault.Description == nil {
 			break
 		}
 
-		return e.complexity.Vault.Description(childComplexity), true
+		return e.ComplexityRoot.Vault.Description(childComplexity), true
 	case "Vault.documents":
-		if e.complexity.Vault.Documents == nil {
+		if e.ComplexityRoot.Vault.Documents == nil {
 			break
 		}
 
@@ -1198,9 +1183,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Vault.Documents(childComplexity, args["folder"].(*string), args["labels"].([]string), args["docType"].(*string)), true
+		return e.ComplexityRoot.Vault.Documents(childComplexity, args["folder"].(*string), args["labels"].([]string), args["docType"].(*string)), true
 	case "Vault.folders":
-		if e.complexity.Vault.Folders == nil {
+		if e.ComplexityRoot.Vault.Folders == nil {
 			break
 		}
 
@@ -1209,56 +1194,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Vault.Folders(childComplexity, args["parent"].(*string)), true
+		return e.ComplexityRoot.Vault.Folders(childComplexity, args["parent"].(*string)), true
 	case "Vault.id":
-		if e.complexity.Vault.ID == nil {
+		if e.ComplexityRoot.Vault.ID == nil {
 			break
 		}
 
-		return e.complexity.Vault.ID(childComplexity), true
+		return e.ComplexityRoot.Vault.ID(childComplexity), true
 	case "Vault.name":
-		if e.complexity.Vault.Name == nil {
+		if e.ComplexityRoot.Vault.Name == nil {
 			break
 		}
 
-		return e.complexity.Vault.Name(childComplexity), true
+		return e.ComplexityRoot.Vault.Name(childComplexity), true
 	case "Vault.updatedAt":
-		if e.complexity.Vault.UpdatedAt == nil {
+		if e.ComplexityRoot.Vault.UpdatedAt == nil {
 			break
 		}
 
-		return e.complexity.Vault.UpdatedAt(childComplexity), true
+		return e.ComplexityRoot.Vault.UpdatedAt(childComplexity), true
 
 	case "WikiLink.fromDocId":
-		if e.complexity.WikiLink.FromDocID == nil {
+		if e.ComplexityRoot.WikiLink.FromDocID == nil {
 			break
 		}
 
-		return e.complexity.WikiLink.FromDocID(childComplexity), true
+		return e.ComplexityRoot.WikiLink.FromDocID(childComplexity), true
 	case "WikiLink.id":
-		if e.complexity.WikiLink.ID == nil {
+		if e.ComplexityRoot.WikiLink.ID == nil {
 			break
 		}
 
-		return e.complexity.WikiLink.ID(childComplexity), true
+		return e.ComplexityRoot.WikiLink.ID(childComplexity), true
 	case "WikiLink.rawTarget":
-		if e.complexity.WikiLink.RawTarget == nil {
+		if e.ComplexityRoot.WikiLink.RawTarget == nil {
 			break
 		}
 
-		return e.complexity.WikiLink.RawTarget(childComplexity), true
+		return e.ComplexityRoot.WikiLink.RawTarget(childComplexity), true
 	case "WikiLink.resolved":
-		if e.complexity.WikiLink.Resolved == nil {
+		if e.ComplexityRoot.WikiLink.Resolved == nil {
 			break
 		}
 
-		return e.complexity.WikiLink.Resolved(childComplexity), true
+		return e.ComplexityRoot.WikiLink.Resolved(childComplexity), true
 	case "WikiLink.toDocId":
-		if e.complexity.WikiLink.ToDocID == nil {
+		if e.ComplexityRoot.WikiLink.ToDocID == nil {
 			break
 		}
 
-		return e.complexity.WikiLink.ToDocID(childComplexity), true
+		return e.ComplexityRoot.WikiLink.ToDocID(childComplexity), true
 
 	}
 	return 0, false
@@ -1266,7 +1251,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
-	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
+	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputApproveHunksInput,
 		ec.unmarshalInputFileInput,
@@ -1288,9 +1273,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 				ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
 				data = ec._Query(ctx, opCtx.Operation.SelectionSet)
 			} else {
-				if atomic.LoadInt32(&ec.pendingDeferred) > 0 {
-					result := <-ec.deferredResults
-					atomic.AddInt32(&ec.pendingDeferred, -1)
+				if atomic.LoadInt32(&ec.PendingDeferred) > 0 {
+					result := <-ec.DeferredResults
+					atomic.AddInt32(&ec.PendingDeferred, -1)
 					data = result.Result
 					response.Path = result.Path
 					response.Label = result.Label
@@ -1302,8 +1287,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 			var buf bytes.Buffer
 			data.MarshalGQL(&buf)
 			response.Data = buf.Bytes()
-			if atomic.LoadInt32(&ec.deferred) > 0 {
-				hasNext := atomic.LoadInt32(&ec.pendingDeferred) > 0
+			if atomic.LoadInt32(&ec.Deferred) > 0 {
+				hasNext := atomic.LoadInt32(&ec.PendingDeferred) > 0
 				response.HasNext = &hasNext
 			}
 
@@ -1331,44 +1316,22 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 }
 
 type executionContext struct {
-	*graphql.OperationContext
-	*executableSchema
-	deferred        int32
-	pendingDeferred int32
-	deferredResults chan graphql.DeferredResult
+	*graphql.ExecutionContextState[ResolverRoot, DirectiveRoot, ComplexityRoot]
 }
 
-func (ec *executionContext) processDeferredGroup(dg graphql.DeferredGroup) {
-	atomic.AddInt32(&ec.pendingDeferred, 1)
-	go func() {
-		ctx := graphql.WithFreshResponseContext(dg.Context)
-		dg.FieldSet.Dispatch(ctx)
-		ds := graphql.DeferredResult{
-			Path:   dg.Path,
-			Label:  dg.Label,
-			Result: dg.FieldSet,
-			Errors: graphql.GetErrors(ctx),
-		}
-		// null fields should bubble up
-		if dg.FieldSet.Invalids > 0 {
-			ds.Result = graphql.Null
-		}
-		ec.deferredResults <- ds
-	}()
-}
-
-func (ec *executionContext) introspectSchema() (*introspection.Schema, error) {
-	if ec.DisableIntrospection {
-		return nil, errors.New("introspection disabled")
+func newExecutionContext(
+	opCtx *graphql.OperationContext,
+	execSchema *executableSchema,
+	deferredResults chan graphql.DeferredResult,
+) executionContext {
+	return executionContext{
+		ExecutionContextState: graphql.NewExecutionContextState[ResolverRoot, DirectiveRoot, ComplexityRoot](
+			opCtx,
+			(*graphql.ExecutableSchemaState[ResolverRoot, DirectiveRoot, ComplexityRoot])(execSchema),
+			parsedSchema,
+			deferredResults,
+		),
 	}
-	return introspection.WrapSchema(ec.Schema()), nil
-}
-
-func (ec *executionContext) introspectType(name string) (*introspection.Type, error) {
-	if ec.DisableIntrospection {
-		return nil, errors.New("introspection disabled")
-	}
-	return introspection.WrapTypeFromDef(ec.Schema(), ec.Schema().Types[name]), nil
 }
 
 //go:embed "schema.graphqls"
@@ -1394,7 +1357,7 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 func (ec *executionContext) field_Document_proposals_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus)
 	if err != nil {
 		return nil, err
 	}
@@ -1405,7 +1368,7 @@ func (ec *executionContext) field_Document_proposals_args(ctx context.Context, r
 func (ec *executionContext) field_Mutation_approveProposalHunks_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNApproveHunksInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐApproveHunksInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNApproveHunksInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐApproveHunksInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1437,7 +1400,7 @@ func (ec *executionContext) field_Mutation_createDocument_args(ctx context.Conte
 		return nil, err
 	}
 	args["vaultId"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "file", ec.unmarshalNFileInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileInput)
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "file", ec.unmarshalNFileInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFileInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1453,7 +1416,7 @@ func (ec *executionContext) field_Mutation_createDocument_args(ctx context.Conte
 func (ec *executionContext) field_Mutation_createRelation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐRelationInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRelationInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐRelationInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1464,7 +1427,7 @@ func (ec *executionContext) field_Mutation_createRelation_args(ctx context.Conte
 func (ec *executionContext) field_Mutation_createTemplate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNTemplateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNTemplateInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplateInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1475,7 +1438,7 @@ func (ec *executionContext) field_Mutation_createTemplate_args(ctx context.Conte
 func (ec *executionContext) field_Mutation_createVault_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNVaultInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNVaultInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1556,7 +1519,7 @@ func (ec *executionContext) field_Mutation_moveDocument_args(ctx context.Context
 func (ec *executionContext) field_Mutation_proposeDocumentUpdate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNProposeDocumentUpdateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposeDocumentUpdateInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNProposeDocumentUpdateInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposeDocumentUpdateInput)
 	if err != nil {
 		return nil, err
 	}
@@ -1658,7 +1621,7 @@ func (ec *executionContext) field_Query_proposals_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["vaultId"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus)
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus)
 	if err != nil {
 		return nil, err
 	}
@@ -1669,7 +1632,7 @@ func (ec *executionContext) field_Query_proposals_args(ctx context.Context, rawA
 func (ec *executionContext) field_Query_search_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNSearchInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNSearchInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSearchInput)
 	if err != nil {
 		return nil, err
 	}
@@ -2094,7 +2057,7 @@ func (ec *executionContext) _DiffHunk_lines(ctx context.Context, field graphql.C
 			return obj.Lines, nil
 		},
 		nil,
-		ec.marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineᚄ,
+		ec.marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLineᚄ,
 		true,
 		true,
 	)
@@ -2133,7 +2096,7 @@ func (ec *executionContext) _DiffLine_type(ctx context.Context, field graphql.Co
 			return obj.Type, nil
 		},
 		nil,
-		ec.marshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineTypeEnum,
+		ec.marshalNDiffLineType2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLineTypeEnum,
 		true,
 		true,
 	)
@@ -2913,10 +2876,10 @@ func (ec *executionContext) _Document_wikiLinks(ctx context.Context, field graph
 		field,
 		ec.fieldContext_Document_wikiLinks,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Document().WikiLinks(ctx, obj)
+			return ec.Resolvers.Document().WikiLinks(ctx, obj)
 		},
 		nil,
-		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLinkᚄ,
+		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐWikiLinkᚄ,
 		true,
 		true,
 	)
@@ -2954,10 +2917,10 @@ func (ec *executionContext) _Document_backlinks(ctx context.Context, field graph
 		field,
 		ec.fieldContext_Document_backlinks,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Document().Backlinks(ctx, obj)
+			return ec.Resolvers.Document().Backlinks(ctx, obj)
 		},
 		nil,
-		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLinkᚄ,
+		ec.marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐWikiLinkᚄ,
 		true,
 		true,
 	)
@@ -2995,10 +2958,10 @@ func (ec *executionContext) _Document_relations(ctx context.Context, field graph
 		field,
 		ec.fieldContext_Document_relations,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Document().Relations(ctx, obj)
+			return ec.Resolvers.Document().Relations(ctx, obj)
 		},
 		nil,
-		ec.marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelationᚄ,
+		ec.marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocRelationᚄ,
 		true,
 		true,
 	)
@@ -3038,10 +3001,10 @@ func (ec *executionContext) _Document_queryBlocks(ctx context.Context, field gra
 		field,
 		ec.fieldContext_Document_queryBlocks,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Document().QueryBlocks(ctx, obj)
+			return ec.Resolvers.Document().QueryBlocks(ctx, obj)
 		},
 		nil,
-		ec.marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlockᚄ,
+		ec.marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryBlockᚄ,
 		true,
 		true,
 	)
@@ -3080,10 +3043,10 @@ func (ec *executionContext) _Document_proposals(ctx context.Context, field graph
 		ec.fieldContext_Document_proposals,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Document().Proposals(ctx, obj, fc.Args["status"].(*ProposalStatus))
+			return ec.Resolvers.Document().Proposals(ctx, obj, fc.Args["status"].(*ProposalStatus))
 		},
 		nil,
-		ec.marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposalᚄ,
+		ec.marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposalᚄ,
 		true,
 		true,
 	)
@@ -3206,10 +3169,10 @@ func (ec *executionContext) _DocumentProposal_document(ctx context.Context, fiel
 		field,
 		ec.fieldContext_DocumentProposal_document,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.DocumentProposal().Document(ctx, obj)
+			return ec.Resolvers.DocumentProposal().Document(ctx, obj)
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -3336,7 +3299,7 @@ func (ec *executionContext) _DocumentProposal_source(ctx context.Context, field 
 			return obj.Source, nil
 		},
 		nil,
-		ec.marshalNProposalSource2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum,
+		ec.marshalNProposalSource2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalSourceEnum,
 		true,
 		true,
 	)
@@ -3365,7 +3328,7 @@ func (ec *executionContext) _DocumentProposal_status(ctx context.Context, field 
 			return obj.Status, nil
 		},
 		nil,
-		ec.marshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus,
+		ec.marshalNProposalStatus2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus,
 		true,
 		true,
 	)
@@ -3420,7 +3383,7 @@ func (ec *executionContext) _DocumentProposal_hasConflict(ctx context.Context, f
 		field,
 		ec.fieldContext_DocumentProposal_hasConflict,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.DocumentProposal().HasConflict(ctx, obj)
+			return ec.Resolvers.DocumentProposal().HasConflict(ctx, obj)
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -3536,10 +3499,10 @@ func (ec *executionContext) _DocumentProposal_diff(ctx context.Context, field gr
 		field,
 		ec.fieldContext_DocumentProposal_diff,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.DocumentProposal().Diff(ctx, obj)
+			return ec.Resolvers.DocumentProposal().Diff(ctx, obj)
 		},
 		nil,
-		ec.marshalNProposalDiff2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalDiff,
+		ec.marshalNProposalDiff2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalDiff,
 		true,
 		true,
 	)
@@ -3663,7 +3626,7 @@ func (ec *executionContext) _Me_user(ctx context.Context, field graphql.Collecte
 			return obj.User, nil
 		},
 		nil,
-		ec.marshalNUser2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐUser,
+		ec.marshalNUser2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐUser,
 		true,
 		true,
 	)
@@ -3729,10 +3692,10 @@ func (ec *executionContext) _Mutation_createVault(ctx context.Context, field gra
 		ec.fieldContext_Mutation_createVault,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().CreateVault(ctx, fc.Args["input"].(VaultInput))
+			return ec.Resolvers.Mutation().CreateVault(ctx, fc.Args["input"].(VaultInput))
 		},
 		nil,
-		ec.marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault,
+		ec.marshalNVault2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault,
 		true,
 		true,
 	)
@@ -3788,7 +3751,7 @@ func (ec *executionContext) _Mutation_deleteVault(ctx context.Context, field gra
 		ec.fieldContext_Mutation_deleteVault,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().DeleteVault(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Mutation().DeleteVault(ctx, fc.Args["id"].(string))
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -3829,10 +3792,10 @@ func (ec *executionContext) _Mutation_createDocument(ctx context.Context, field 
 		ec.fieldContext_Mutation_createDocument,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().CreateDocument(ctx, fc.Args["vaultId"].(string), fc.Args["file"].(FileInput), fc.Args["source"].(*string))
+			return ec.Resolvers.Mutation().CreateDocument(ctx, fc.Args["vaultId"].(string), fc.Args["file"].(FileInput), fc.Args["source"].(*string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -3910,10 +3873,10 @@ func (ec *executionContext) _Mutation_updateDocument(ctx context.Context, field 
 		ec.fieldContext_Mutation_updateDocument,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().UpdateDocument(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string), fc.Args["content"].(string))
+			return ec.Resolvers.Mutation().UpdateDocument(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string), fc.Args["content"].(string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -3991,10 +3954,10 @@ func (ec *executionContext) _Mutation_moveDocument(ctx context.Context, field gr
 		ec.fieldContext_Mutation_moveDocument,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().MoveDocument(ctx, fc.Args["vaultId"].(string), fc.Args["oldPath"].(string), fc.Args["newPath"].(string))
+			return ec.Resolvers.Mutation().MoveDocument(ctx, fc.Args["vaultId"].(string), fc.Args["oldPath"].(string), fc.Args["newPath"].(string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -4072,7 +4035,7 @@ func (ec *executionContext) _Mutation_deleteDocument(ctx context.Context, field 
 		ec.fieldContext_Mutation_deleteDocument,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().DeleteDocument(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
+			return ec.Resolvers.Mutation().DeleteDocument(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -4113,10 +4076,10 @@ func (ec *executionContext) _Mutation_createRelation(ctx context.Context, field 
 		ec.fieldContext_Mutation_createRelation,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().CreateRelation(ctx, fc.Args["input"].(RelationInput))
+			return ec.Resolvers.Mutation().CreateRelation(ctx, fc.Args["input"].(RelationInput))
 		},
 		nil,
-		ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation,
+		ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocRelation,
 		true,
 		true,
 	)
@@ -4168,7 +4131,7 @@ func (ec *executionContext) _Mutation_deleteRelation(ctx context.Context, field 
 		ec.fieldContext_Mutation_deleteRelation,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().DeleteRelation(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Mutation().DeleteRelation(ctx, fc.Args["id"].(string))
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -4209,10 +4172,10 @@ func (ec *executionContext) _Mutation_createTemplate(ctx context.Context, field 
 		ec.fieldContext_Mutation_createTemplate,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().CreateTemplate(ctx, fc.Args["input"].(TemplateInput))
+			return ec.Resolvers.Mutation().CreateTemplate(ctx, fc.Args["input"].(TemplateInput))
 		},
 		nil,
-		ec.marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate,
+		ec.marshalNTemplate2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate,
 		true,
 		true,
 	)
@@ -4268,7 +4231,7 @@ func (ec *executionContext) _Mutation_deleteTemplate(ctx context.Context, field 
 		ec.fieldContext_Mutation_deleteTemplate,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().DeleteTemplate(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Mutation().DeleteTemplate(ctx, fc.Args["id"].(string))
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -4309,10 +4272,10 @@ func (ec *executionContext) _Mutation_proposeDocumentUpdate(ctx context.Context,
 		ec.fieldContext_Mutation_proposeDocumentUpdate,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().ProposeDocumentUpdate(ctx, fc.Args["input"].(ProposeDocumentUpdateInput))
+			return ec.Resolvers.Mutation().ProposeDocumentUpdate(ctx, fc.Args["input"].(ProposeDocumentUpdateInput))
 		},
 		nil,
-		ec.marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal,
+		ec.marshalNDocumentProposal2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposal,
 		true,
 		true,
 	)
@@ -4378,10 +4341,10 @@ func (ec *executionContext) _Mutation_approveProposal(ctx context.Context, field
 		ec.fieldContext_Mutation_approveProposal,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().ApproveProposal(ctx, fc.Args["id"].(string), fc.Args["notes"].(*string))
+			return ec.Resolvers.Mutation().ApproveProposal(ctx, fc.Args["id"].(string), fc.Args["notes"].(*string))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -4459,10 +4422,10 @@ func (ec *executionContext) _Mutation_approveProposalHunks(ctx context.Context, 
 		ec.fieldContext_Mutation_approveProposalHunks,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().ApproveProposalHunks(ctx, fc.Args["input"].(ApproveHunksInput))
+			return ec.Resolvers.Mutation().ApproveProposalHunks(ctx, fc.Args["input"].(ApproveHunksInput))
 		},
 		nil,
-		ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		true,
 	)
@@ -4540,7 +4503,7 @@ func (ec *executionContext) _Mutation_rejectProposal(ctx context.Context, field 
 		ec.fieldContext_Mutation_rejectProposal,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().RejectProposal(ctx, fc.Args["id"].(string), fc.Args["notes"].(*string))
+			return ec.Resolvers.Mutation().RejectProposal(ctx, fc.Args["id"].(string), fc.Args["notes"].(*string))
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -4583,7 +4546,7 @@ func (ec *executionContext) _ProposalDiff_hunks(ctx context.Context, field graph
 			return obj.Hunks, nil
 		},
 		nil,
-		ec.marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunkᚄ,
+		ec.marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffHunkᚄ,
 		true,
 		true,
 	)
@@ -4657,7 +4620,7 @@ func (ec *executionContext) _ProposalDiff_stats(ctx context.Context, field graph
 			return obj.Stats, nil
 		},
 		nil,
-		ec.marshalNDiffStats2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffStats,
+		ec.marshalNDiffStats2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffStats,
 		true,
 		true,
 	)
@@ -4691,10 +4654,10 @@ func (ec *executionContext) _Query_me(ctx context.Context, field graphql.Collect
 		field,
 		ec.fieldContext_Query_me,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Query().Me(ctx)
+			return ec.Resolvers.Query().Me(ctx)
 		},
 		nil,
-		ec.marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐMe,
+		ec.marshalNMe2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐMe,
 		true,
 		true,
 	)
@@ -4727,10 +4690,10 @@ func (ec *executionContext) _Query_vault(ctx context.Context, field graphql.Coll
 		ec.fieldContext_Query_vault,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Vault(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Query().Vault(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalOVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault,
+		ec.marshalOVault2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault,
 		true,
 		false,
 	)
@@ -4785,10 +4748,10 @@ func (ec *executionContext) _Query_vaults(ctx context.Context, field graphql.Col
 		field,
 		ec.fieldContext_Query_vaults,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.Query().Vaults(ctx)
+			return ec.Resolvers.Query().Vaults(ctx)
 		},
 		nil,
-		ec.marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultᚄ,
+		ec.marshalNVault2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultᚄ,
 		true,
 		true,
 	)
@@ -4833,10 +4796,10 @@ func (ec *executionContext) _Query_document(ctx context.Context, field graphql.C
 		ec.fieldContext_Query_document,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Document(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
+			return ec.Resolvers.Query().Document(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
 		},
 		nil,
-		ec.marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalODocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		false,
 	)
@@ -4914,10 +4877,10 @@ func (ec *executionContext) _Query_documentById(ctx context.Context, field graph
 		ec.fieldContext_Query_documentById,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().DocumentByID(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Query().DocumentByID(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument,
+		ec.marshalODocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
 		true,
 		false,
 	)
@@ -4995,10 +4958,10 @@ func (ec *executionContext) _Query_search(ctx context.Context, field graphql.Col
 		ec.fieldContext_Query_search,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Search(ctx, fc.Args["input"].(SearchInput))
+			return ec.Resolvers.Query().Search(ctx, fc.Args["input"].(SearchInput))
 		},
 		nil,
-		ec.marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResultᚄ,
+		ec.marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSearchResultᚄ,
 		true,
 		true,
 	)
@@ -5052,10 +5015,10 @@ func (ec *executionContext) _Query_template(ctx context.Context, field graphql.C
 		ec.fieldContext_Query_template,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Template(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Query().Template(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalOTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate,
+		ec.marshalOTemplate2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate,
 		true,
 		false,
 	)
@@ -5111,10 +5074,10 @@ func (ec *executionContext) _Query_templates(ctx context.Context, field graphql.
 		ec.fieldContext_Query_templates,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Templates(ctx, fc.Args["vaultId"].(*string))
+			return ec.Resolvers.Query().Templates(ctx, fc.Args["vaultId"].(*string))
 		},
 		nil,
-		ec.marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateᚄ,
+		ec.marshalNTemplate2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplateᚄ,
 		true,
 		true,
 	)
@@ -5170,10 +5133,10 @@ func (ec *executionContext) _Query_proposal(ctx context.Context, field graphql.C
 		ec.fieldContext_Query_proposal,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Proposal(ctx, fc.Args["id"].(string))
+			return ec.Resolvers.Query().Proposal(ctx, fc.Args["id"].(string))
 		},
 		nil,
-		ec.marshalODocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal,
+		ec.marshalODocumentProposal2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposal,
 		true,
 		false,
 	)
@@ -5239,10 +5202,10 @@ func (ec *executionContext) _Query_proposals(ctx context.Context, field graphql.
 		ec.fieldContext_Query_proposals,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().Proposals(ctx, fc.Args["vaultId"].(string), fc.Args["status"].(*ProposalStatus))
+			return ec.Resolvers.Query().Proposals(ctx, fc.Args["vaultId"].(string), fc.Args["status"].(*ProposalStatus))
 		},
 		nil,
-		ec.marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposalᚄ,
+		ec.marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposalᚄ,
 		true,
 		true,
 	)
@@ -5308,7 +5271,7 @@ func (ec *executionContext) _Query___type(ctx context.Context, field graphql.Col
 		ec.fieldContext_Query___type,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.introspectType(fc.Args["name"].(string))
+			return ec.IntrospectType(fc.Args["name"].(string))
 		},
 		nil,
 		ec.marshalO__Type2ᚖgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐType,
@@ -5372,7 +5335,7 @@ func (ec *executionContext) _Query___schema(ctx context.Context, field graphql.C
 		field,
 		ec.fieldContext_Query___schema,
 		func(ctx context.Context) (any, error) {
-			return ec.introspectSchema()
+			return ec.IntrospectSchema()
 		},
 		nil,
 		ec.marshalO__Schema2ᚖgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐSchema,
@@ -5476,7 +5439,7 @@ func (ec *executionContext) _QueryBlock_format(ctx context.Context, field graphq
 			return obj.Format, nil
 		},
 		nil,
-		ec.marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryFormat,
+		ec.marshalNQueryFormat2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryFormat,
 		true,
 		true,
 	)
@@ -5505,7 +5468,7 @@ func (ec *executionContext) _QueryBlock_results(ctx context.Context, field graph
 			return obj.Results, nil
 		},
 		nil,
-		ec.marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResultᚄ,
+		ec.marshalNQueryResult2ᚕgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryResultᚄ,
 		true,
 		true,
 	)
@@ -6008,7 +5971,7 @@ func (ec *executionContext) _SearchResult_matchedChunks(ctx context.Context, fie
 			return obj.MatchedChunks, nil
 		},
 		nil,
-		ec.marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatchᚄ,
+		ec.marshalNChunkMatch2ᚕgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐChunkMatchᚄ,
 		true,
 		true,
 	)
@@ -6567,10 +6530,10 @@ func (ec *executionContext) _Vault_documents(ctx context.Context, field graphql.
 		ec.fieldContext_Vault_documents,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Vault().Documents(ctx, obj, fc.Args["folder"].(*string), fc.Args["labels"].([]string), fc.Args["docType"].(*string))
+			return ec.Resolvers.Vault().Documents(ctx, obj, fc.Args["folder"].(*string), fc.Args["labels"].([]string), fc.Args["docType"].(*string))
 		},
 		nil,
-		ec.marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentᚄ,
+		ec.marshalNDocument2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentᚄ,
 		true,
 		true,
 	)
@@ -6648,10 +6611,10 @@ func (ec *executionContext) _Vault_folders(ctx context.Context, field graphql.Co
 		ec.fieldContext_Vault_folders,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Vault().Folders(ctx, obj, fc.Args["parent"].(*string))
+			return ec.Resolvers.Vault().Folders(ctx, obj, fc.Args["parent"].(*string))
 		},
 		nil,
-		ec.marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolderᚄ,
+		ec.marshalNFolder2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolderᚄ,
 		true,
 		true,
 	)
@@ -8317,7 +8280,6 @@ func (ec *executionContext) unmarshalInputApproveHunksInput(ctx context.Context,
 			it.Notes = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8351,7 +8313,6 @@ func (ec *executionContext) unmarshalInputFileInput(ctx context.Context, obj any
 			it.Content = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8399,14 +8360,13 @@ func (ec *executionContext) unmarshalInputProposeDocumentUpdateInput(ctx context
 			it.Description = data
 		case "source":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
-			data, err := ec.unmarshalOProposalSource2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx, v)
+			data, err := ec.unmarshalOProposalSource2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalSourceEnum(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Source = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8447,7 +8407,6 @@ func (ec *executionContext) unmarshalInputRelationInput(ctx context.Context, obj
 			it.RelType = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8509,7 +8468,6 @@ func (ec *executionContext) unmarshalInputSearchInput(ctx context.Context, obj a
 			it.Limit = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8564,7 +8522,6 @@ func (ec *executionContext) unmarshalInputTemplateInput(ctx context.Context, obj
 			it.IsAITemplate = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8598,7 +8555,6 @@ func (ec *executionContext) unmarshalInputVaultInput(ctx context.Context, obj an
 			it.Description = data
 		}
 	}
-
 	return it, nil
 }
 
@@ -8647,10 +8603,10 @@ func (ec *executionContext) _ChunkMatch(ctx context.Context, sel ast.SelectionSe
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -8716,10 +8672,10 @@ func (ec *executionContext) _DiffHunk(ctx context.Context, sel ast.SelectionSet,
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -8764,10 +8720,10 @@ func (ec *executionContext) _DiffLine(ctx context.Context, sel ast.SelectionSet,
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -8813,10 +8769,10 @@ func (ec *executionContext) _DiffStats(ctx context.Context, sel ast.SelectionSet
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -8877,10 +8833,10 @@ func (ec *executionContext) _DocRelation(ctx context.Context, sel ast.SelectionS
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9149,10 +9105,10 @@ func (ec *executionContext) _Document(ctx context.Context, sel ast.SelectionSet,
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9332,10 +9288,10 @@ func (ec *executionContext) _DocumentProposal(ctx context.Context, sel ast.Selec
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9381,10 +9337,10 @@ func (ec *executionContext) _Folder(ctx context.Context, sel ast.SelectionSet, o
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9425,10 +9381,10 @@ func (ec *executionContext) _Me(ctx context.Context, sel ast.SelectionSet, obj *
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9565,10 +9521,10 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9614,10 +9570,10 @@ func (ec *executionContext) _ProposalDiff(ctx context.Context, sel ast.Selection
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9869,10 +9825,10 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9925,10 +9881,10 @@ func (ec *executionContext) _QueryBlock(ctx context.Context, sel ast.SelectionSe
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -9976,10 +9932,10 @@ func (ec *executionContext) _QueryResult(ctx context.Context, sel ast.SelectionS
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10035,10 +9991,10 @@ func (ec *executionContext) _ScrapeResult(ctx context.Context, sel ast.Selection
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10101,10 +10057,10 @@ func (ec *executionContext) _SearchResult(ctx context.Context, sel ast.Selection
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10169,10 +10125,10 @@ func (ec *executionContext) _Template(ctx context.Context, sel ast.SelectionSet,
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10220,10 +10176,10 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10353,10 +10309,10 @@ func (ec *executionContext) _Vault(ctx context.Context, sel ast.SelectionSet, ob
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10409,10 +10365,10 @@ func (ec *executionContext) _WikiLink(ctx context.Context, sel ast.SelectionSet,
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10465,10 +10421,10 @@ func (ec *executionContext) ___Directive(ctx context.Context, sel ast.SelectionS
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10513,10 +10469,10 @@ func (ec *executionContext) ___EnumValue(ctx context.Context, sel ast.SelectionS
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10571,10 +10527,10 @@ func (ec *executionContext) ___Field(ctx context.Context, sel ast.SelectionSet, 
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10626,10 +10582,10 @@ func (ec *executionContext) ___InputValue(ctx context.Context, sel ast.Selection
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10681,10 +10637,10 @@ func (ec *executionContext) ___Schema(ctx context.Context, sel ast.SelectionSet,
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10740,10 +10696,10 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 		return graphql.Null
 	}
 
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
 
 	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
 			Label:    label,
 			Path:     graphql.GetPath(ctx),
 			FieldSet: dfs,
@@ -10758,7 +10714,7 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) unmarshalNApproveHunksInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐApproveHunksInput(ctx context.Context, v any) (ApproveHunksInput, error) {
+func (ec *executionContext) unmarshalNApproveHunksInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐApproveHunksInput(ctx context.Context, v any) (ApproveHunksInput, error) {
 	res, err := ec.unmarshalInputApproveHunksInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -10779,44 +10735,16 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatch(ctx context.Context, sel ast.SelectionSet, v ChunkMatch) graphql.Marshaler {
+func (ec *executionContext) marshalNChunkMatch2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐChunkMatch(ctx context.Context, sel ast.SelectionSet, v ChunkMatch) graphql.Marshaler {
 	return ec._ChunkMatch(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNChunkMatch2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatchᚄ(ctx context.Context, sel ast.SelectionSet, v []ChunkMatch) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNChunkMatch2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐChunkMatch(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNChunkMatch2ᚕgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐChunkMatchᚄ(ctx context.Context, sel ast.SelectionSet, v []ChunkMatch) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNChunkMatch2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐChunkMatch(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -10843,40 +10771,12 @@ func (ec *executionContext) marshalNDateTime2timeᚐTime(ctx context.Context, se
 	return res
 }
 
-func (ec *executionContext) marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunkᚄ(ctx context.Context, sel ast.SelectionSet, v []*DiffHunk) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNDiffHunk2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunk(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffHunkᚄ(ctx context.Context, sel ast.SelectionSet, v []*DiffHunk) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDiffHunk2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffHunk(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -10887,7 +10787,7 @@ func (ec *executionContext) marshalNDiffHunk2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNDiffHunk2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffHunk(ctx context.Context, sel ast.SelectionSet, v *DiffHunk) graphql.Marshaler {
+func (ec *executionContext) marshalNDiffHunk2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffHunk(ctx context.Context, sel ast.SelectionSet, v *DiffHunk) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -10897,40 +10797,12 @@ func (ec *executionContext) marshalNDiffHunk2ᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ec._DiffHunk(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineᚄ(ctx context.Context, sel ast.SelectionSet, v []*DiffLine) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNDiffLine2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLine(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLineᚄ(ctx context.Context, sel ast.SelectionSet, v []*DiffLine) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDiffLine2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLine(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -10941,7 +10813,7 @@ func (ec *executionContext) marshalNDiffLine2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNDiffLine2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLine(ctx context.Context, sel ast.SelectionSet, v *DiffLine) graphql.Marshaler {
+func (ec *executionContext) marshalNDiffLine2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLine(ctx context.Context, sel ast.SelectionSet, v *DiffLine) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -10951,13 +10823,13 @@ func (ec *executionContext) marshalNDiffLine2ᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ec._DiffLine(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineTypeEnum(ctx context.Context, v any) (DiffLineTypeEnum, error) {
+func (ec *executionContext) unmarshalNDiffLineType2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLineTypeEnum(ctx context.Context, v any) (DiffLineTypeEnum, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := DiffLineTypeEnum(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffLineTypeEnum(ctx context.Context, sel ast.SelectionSet, v DiffLineTypeEnum) graphql.Marshaler {
+func (ec *executionContext) marshalNDiffLineType2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffLineTypeEnum(ctx context.Context, sel ast.SelectionSet, v DiffLineTypeEnum) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -10968,7 +10840,7 @@ func (ec *executionContext) marshalNDiffLineType2githubᚗcomᚋraphaelgruberᚋ
 	return res
 }
 
-func (ec *executionContext) marshalNDiffStats2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDiffStats(ctx context.Context, sel ast.SelectionSet, v *DiffStats) graphql.Marshaler {
+func (ec *executionContext) marshalNDiffStats2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDiffStats(ctx context.Context, sel ast.SelectionSet, v *DiffStats) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -10978,44 +10850,16 @@ func (ec *executionContext) marshalNDiffStats2ᚖgithubᚗcomᚋraphaelgruberᚋ
 	return ec._DiffStats(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDocRelation2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v DocRelation) graphql.Marshaler {
+func (ec *executionContext) marshalNDocRelation2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v DocRelation) graphql.Marshaler {
 	return ec._DocRelation(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelationᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocRelation) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocRelationᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocRelation) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDocRelation2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocRelation(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11026,7 +10870,7 @@ func (ec *executionContext) marshalNDocRelation2ᚕᚖgithubᚗcomᚋraphaelgrub
 	return ret
 }
 
-func (ec *executionContext) marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v *DocRelation) graphql.Marshaler {
+func (ec *executionContext) marshalNDocRelation2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocRelation(ctx context.Context, sel ast.SelectionSet, v *DocRelation) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11036,44 +10880,16 @@ func (ec *executionContext) marshalNDocRelation2ᚖgithubᚗcomᚋraphaelgruber�
 	return ec._DocRelation(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDocument2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v Document) graphql.Marshaler {
+func (ec *executionContext) marshalNDocument2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v Document) graphql.Marshaler {
 	return ec._Document(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentᚄ(ctx context.Context, sel ast.SelectionSet, v []*Document) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentᚄ(ctx context.Context, sel ast.SelectionSet, v []*Document) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11084,7 +10900,7 @@ func (ec *executionContext) marshalNDocument2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
+func (ec *executionContext) marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11094,44 +10910,16 @@ func (ec *executionContext) marshalNDocument2ᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ec._Document(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDocumentProposal2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v DocumentProposal) graphql.Marshaler {
+func (ec *executionContext) marshalNDocumentProposal2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v DocumentProposal) graphql.Marshaler {
 	return ec._DocumentProposal(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposalᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocumentProposal) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposalᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocumentProposal) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDocumentProposal2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposal(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11142,7 +10930,7 @@ func (ec *executionContext) marshalNDocumentProposal2ᚕᚖgithubᚗcomᚋraphae
 	return ret
 }
 
-func (ec *executionContext) marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v *DocumentProposal) graphql.Marshaler {
+func (ec *executionContext) marshalNDocumentProposal2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v *DocumentProposal) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11152,7 +10940,7 @@ func (ec *executionContext) marshalNDocumentProposal2ᚖgithubᚗcomᚋraphaelgr
 	return ec._DocumentProposal(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNFileInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFileInput(ctx context.Context, v any) (FileInput, error) {
+func (ec *executionContext) unmarshalNFileInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFileInput(ctx context.Context, v any) (FileInput, error) {
 	res, err := ec.unmarshalInputFileInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -11173,40 +10961,12 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 	return graphql.WrapContextMarshaler(ctx, res)
 }
 
-func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*Folder) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNFolder2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolder(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*Folder) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNFolder2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolder(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11217,7 +10977,7 @@ func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphaelgruberᚋ
 	return ret
 }
 
-func (ec *executionContext) marshalNFolder2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐFolder(ctx context.Context, sel ast.SelectionSet, v *Folder) graphql.Marshaler {
+func (ec *executionContext) marshalNFolder2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolder(ctx context.Context, sel ast.SelectionSet, v *Folder) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11319,11 +11079,11 @@ func (ec *executionContext) marshalNInt2ᚕintᚄ(ctx context.Context, sel ast.S
 	return ret
 }
 
-func (ec *executionContext) marshalNMe2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v Me) graphql.Marshaler {
+func (ec *executionContext) marshalNMe2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v Me) graphql.Marshaler {
 	return ec._Me(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v *Me) graphql.Marshaler {
+func (ec *executionContext) marshalNMe2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐMe(ctx context.Context, sel ast.SelectionSet, v *Me) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11333,11 +11093,11 @@ func (ec *executionContext) marshalNMe2ᚖgithubᚗcomᚋraphaelgruberᚋmemcp�
 	return ec._Me(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNProposalDiff2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalDiff(ctx context.Context, sel ast.SelectionSet, v ProposalDiff) graphql.Marshaler {
+func (ec *executionContext) marshalNProposalDiff2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalDiff(ctx context.Context, sel ast.SelectionSet, v ProposalDiff) graphql.Marshaler {
 	return ec._ProposalDiff(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNProposalDiff2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalDiff(ctx context.Context, sel ast.SelectionSet, v *ProposalDiff) graphql.Marshaler {
+func (ec *executionContext) marshalNProposalDiff2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalDiff(ctx context.Context, sel ast.SelectionSet, v *ProposalDiff) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11347,13 +11107,13 @@ func (ec *executionContext) marshalNProposalDiff2ᚖgithubᚗcomᚋraphaelgruber
 	return ec._ProposalDiff(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNProposalSource2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, v any) (ProposalSourceEnum, error) {
+func (ec *executionContext) unmarshalNProposalSource2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, v any) (ProposalSourceEnum, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := ProposalSourceEnum(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNProposalSource2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, sel ast.SelectionSet, v ProposalSourceEnum) graphql.Marshaler {
+func (ec *executionContext) marshalNProposalSource2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, sel ast.SelectionSet, v ProposalSourceEnum) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -11364,13 +11124,13 @@ func (ec *executionContext) marshalNProposalSource2githubᚗcomᚋraphaelgruber�
 	return res
 }
 
-func (ec *executionContext) unmarshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (ProposalStatus, error) {
+func (ec *executionContext) unmarshalNProposalStatus2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (ProposalStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := ProposalStatus(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNProposalStatus2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, sel ast.SelectionSet, v ProposalStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNProposalStatus2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, sel ast.SelectionSet, v ProposalStatus) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -11381,45 +11141,17 @@ func (ec *executionContext) marshalNProposalStatus2githubᚗcomᚋraphaelgruber�
 	return res
 }
 
-func (ec *executionContext) unmarshalNProposeDocumentUpdateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposeDocumentUpdateInput(ctx context.Context, v any) (ProposeDocumentUpdateInput, error) {
+func (ec *executionContext) unmarshalNProposeDocumentUpdateInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposeDocumentUpdateInput(ctx context.Context, v any) (ProposeDocumentUpdateInput, error) {
 	res, err := ec.unmarshalInputProposeDocumentUpdateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlockᚄ(ctx context.Context, sel ast.SelectionSet, v []*QueryBlock) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlock(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryBlockᚄ(ctx context.Context, sel ast.SelectionSet, v []*QueryBlock) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNQueryBlock2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryBlock(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11430,7 +11162,7 @@ func (ec *executionContext) marshalNQueryBlock2ᚕᚖgithubᚗcomᚋraphaelgrube
 	return ret
 }
 
-func (ec *executionContext) marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryBlock(ctx context.Context, sel ast.SelectionSet, v *QueryBlock) graphql.Marshaler {
+func (ec *executionContext) marshalNQueryBlock2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryBlock(ctx context.Context, sel ast.SelectionSet, v *QueryBlock) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11440,13 +11172,13 @@ func (ec *executionContext) marshalNQueryBlock2ᚖgithubᚗcomᚋraphaelgruber�
 	return ec._QueryBlock(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryFormat(ctx context.Context, v any) (QueryFormat, error) {
+func (ec *executionContext) unmarshalNQueryFormat2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryFormat(ctx context.Context, v any) (QueryFormat, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := QueryFormat(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryFormat(ctx context.Context, sel ast.SelectionSet, v QueryFormat) graphql.Marshaler {
+func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryFormat(ctx context.Context, sel ast.SelectionSet, v QueryFormat) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -11457,44 +11189,16 @@ func (ec *executionContext) marshalNQueryFormat2githubᚗcomᚋraphaelgruberᚋm
 	return res
 }
 
-func (ec *executionContext) marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResult(ctx context.Context, sel ast.SelectionSet, v QueryResult) graphql.Marshaler {
+func (ec *executionContext) marshalNQueryResult2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryResult(ctx context.Context, sel ast.SelectionSet, v QueryResult) graphql.Marshaler {
 	return ec._QueryResult(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResultᚄ(ctx context.Context, sel ast.SelectionSet, v []QueryResult) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNQueryResult2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐQueryResult(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryResultᚄ(ctx context.Context, sel ast.SelectionSet, v []QueryResult) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNQueryResult2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐQueryResult(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11505,50 +11209,22 @@ func (ec *executionContext) marshalNQueryResult2ᚕgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) unmarshalNRelationInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐRelationInput(ctx context.Context, v any) (RelationInput, error) {
+func (ec *executionContext) unmarshalNRelationInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐRelationInput(ctx context.Context, v any) (RelationInput, error) {
 	res, err := ec.unmarshalInputRelationInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNSearchInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchInput(ctx context.Context, v any) (SearchInput, error) {
+func (ec *executionContext) unmarshalNSearchInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSearchInput(ctx context.Context, v any) (SearchInput, error) {
 	res, err := ec.unmarshalInputSearchInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResultᚄ(ctx context.Context, sel ast.SelectionSet, v []*SearchResult) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNSearchResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResult(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSearchResultᚄ(ctx context.Context, sel ast.SelectionSet, v []*SearchResult) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSearchResult2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSearchResult(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11559,7 +11235,7 @@ func (ec *executionContext) marshalNSearchResult2ᚕᚖgithubᚗcomᚋraphaelgru
 	return ret
 }
 
-func (ec *executionContext) marshalNSearchResult2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐSearchResult(ctx context.Context, sel ast.SelectionSet, v *SearchResult) graphql.Marshaler {
+func (ec *executionContext) marshalNSearchResult2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSearchResult(ctx context.Context, sel ast.SelectionSet, v *SearchResult) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11615,44 +11291,16 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	return ret
 }
 
-func (ec *executionContext) marshalNTemplate2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v Template) graphql.Marshaler {
+func (ec *executionContext) marshalNTemplate2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v Template) graphql.Marshaler {
 	return ec._Template(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateᚄ(ctx context.Context, sel ast.SelectionSet, v []*Template) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplateᚄ(ctx context.Context, sel ast.SelectionSet, v []*Template) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTemplate2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11663,7 +11311,7 @@ func (ec *executionContext) marshalNTemplate2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
+func (ec *executionContext) marshalNTemplate2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11673,53 +11321,25 @@ func (ec *executionContext) marshalNTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ec._Template(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNTemplateInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplateInput(ctx context.Context, v any) (TemplateInput, error) {
+func (ec *executionContext) unmarshalNTemplateInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplateInput(ctx context.Context, v any) (TemplateInput, error) {
 	res, err := ec.unmarshalInputTemplateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNUser2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐUser(ctx context.Context, sel ast.SelectionSet, v User) graphql.Marshaler {
+func (ec *executionContext) marshalNUser2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐUser(ctx context.Context, sel ast.SelectionSet, v User) graphql.Marshaler {
 	return ec._User(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNVault2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v Vault) graphql.Marshaler {
+func (ec *executionContext) marshalNVault2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v Vault) graphql.Marshaler {
 	return ec._Vault(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultᚄ(ctx context.Context, sel ast.SelectionSet, v []*Vault) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultᚄ(ctx context.Context, sel ast.SelectionSet, v []*Vault) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNVault2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11730,7 +11350,7 @@ func (ec *executionContext) marshalNVault2ᚕᚖgithubᚗcomᚋraphaelgruberᚋm
 	return ret
 }
 
-func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
+func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11740,45 +11360,17 @@ func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemc
 	return ec._Vault(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNVaultInput2githubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVaultInput(ctx context.Context, v any) (VaultInput, error) {
+func (ec *executionContext) unmarshalNVaultInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultInput(ctx context.Context, v any) (VaultInput, error) {
 	res, err := ec.unmarshalInputVaultInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*WikiLink) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNWikiLink2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLink(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐWikiLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*WikiLink) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNWikiLink2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐWikiLink(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11789,7 +11381,7 @@ func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphaelgruber�
 	return ret
 }
 
-func (ec *executionContext) marshalNWikiLink2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐWikiLink(ctx context.Context, sel ast.SelectionSet, v *WikiLink) graphql.Marshaler {
+func (ec *executionContext) marshalNWikiLink2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐWikiLink(ctx context.Context, sel ast.SelectionSet, v *WikiLink) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -11804,39 +11396,11 @@ func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlge
 }
 
 func (ec *executionContext) marshalN__Directive2ᚕgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirectiveᚄ(ctx context.Context, sel ast.SelectionSet, v []introspection.Directive) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11879,39 +11443,11 @@ func (ec *executionContext) unmarshalN__DirectiveLocation2ᚕstringᚄ(ctx conte
 }
 
 func (ec *executionContext) marshalN__DirectiveLocation2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__DirectiveLocation2string(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__DirectiveLocation2string(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11935,39 +11471,11 @@ func (ec *executionContext) marshalN__InputValue2githubᚗcomᚋ99designsᚋgqlg
 }
 
 func (ec *executionContext) marshalN__InputValue2ᚕgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐInputValueᚄ(ctx context.Context, sel ast.SelectionSet, v []introspection.InputValue) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__InputValue2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐInputValue(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__InputValue2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐInputValue(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -11983,39 +11491,11 @@ func (ec *executionContext) marshalN__Type2githubᚗcomᚋ99designsᚋgqlgenᚋg
 }
 
 func (ec *executionContext) marshalN__Type2ᚕgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐTypeᚄ(ctx context.Context, sel ast.SelectionSet, v []introspection.Type) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__Type2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐType(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__Type2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐType(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -12100,14 +11580,14 @@ func (ec *executionContext) marshalODateTime2ᚖtimeᚐTime(ctx context.Context,
 	return res
 }
 
-func (ec *executionContext) marshalODocument2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
+func (ec *executionContext) marshalODocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Document(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalODocumentProposal2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v *DocumentProposal) graphql.Marshaler {
+func (ec *executionContext) marshalODocumentProposal2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentProposal(ctx context.Context, sel ast.SelectionSet, v *DocumentProposal) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -12168,7 +11648,7 @@ func (ec *executionContext) marshalOJSON2map(ctx context.Context, sel ast.Select
 	return res
 }
 
-func (ec *executionContext) unmarshalOProposalSource2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, v any) (*ProposalSourceEnum, error) {
+func (ec *executionContext) unmarshalOProposalSource2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, v any) (*ProposalSourceEnum, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -12177,7 +11657,7 @@ func (ec *executionContext) unmarshalOProposalSource2ᚖgithubᚗcomᚋraphaelgr
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOProposalSource2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, sel ast.SelectionSet, v *ProposalSourceEnum) graphql.Marshaler {
+func (ec *executionContext) marshalOProposalSource2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalSourceEnum(ctx context.Context, sel ast.SelectionSet, v *ProposalSourceEnum) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -12187,7 +11667,7 @@ func (ec *executionContext) marshalOProposalSource2ᚖgithubᚗcomᚋraphaelgrub
 	return res
 }
 
-func (ec *executionContext) unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (*ProposalStatus, error) {
+func (ec *executionContext) unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, v any) (*ProposalStatus, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -12196,7 +11676,7 @@ func (ec *executionContext) unmarshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgr
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOProposalStatus2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, sel ast.SelectionSet, v *ProposalStatus) graphql.Marshaler {
+func (ec *executionContext) marshalOProposalStatus2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalStatus(ctx context.Context, sel ast.SelectionSet, v *ProposalStatus) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -12260,14 +11740,14 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	return res
 }
 
-func (ec *executionContext) marshalOTemplate2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
+func (ec *executionContext) marshalOTemplate2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v *Template) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Template(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOVault2ᚖgithubᚗcomᚋraphaelgruberᚋmemcpᚑgoᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
+func (ec *executionContext) marshalOVault2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -12278,39 +11758,11 @@ func (ec *executionContext) marshalO__EnumValue2ᚕgithubᚗcomᚋ99designsᚋgq
 	if v == nil {
 		return graphql.Null
 	}
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__EnumValue2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐEnumValue(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__EnumValue2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐEnumValue(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -12325,39 +11777,11 @@ func (ec *executionContext) marshalO__Field2ᚕgithubᚗcomᚋ99designsᚋgqlgen
 	if v == nil {
 		return graphql.Null
 	}
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__Field2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐField(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__Field2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐField(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -12372,39 +11796,11 @@ func (ec *executionContext) marshalO__InputValue2ᚕgithubᚗcomᚋ99designsᚋg
 	if v == nil {
 		return graphql.Null
 	}
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__InputValue2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐInputValue(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__InputValue2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐInputValue(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -12426,39 +11822,11 @@ func (ec *executionContext) marshalO__Type2ᚕgithubᚗcomᚋ99designsᚋgqlgen�
 	if v == nil {
 		return graphql.Null
 	}
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalN__Type2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐType(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalN__Type2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐType(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {

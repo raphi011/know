@@ -52,6 +52,11 @@ This applies to:
 
 Silent failures make debugging impossible and degrade features without any indication.
 
+**Error strings must start with a lowercase letter** (per Go convention / `staticcheck ST1005`):
+- `fmt.Errorf("create vault: %w", err)` — correct
+- `fmt.Errorf("Create vault: %w", err)` — wrong
+- Proper nouns and acronyms that are normally capitalized (e.g. `KNOWHOW_BEDROCK_*`, `HTTP 500`) are fine
+
 ## GraphQL Code Generation
 
 After modifying `internal/graph/schema.graphqls`, regenerate the GraphQL code:

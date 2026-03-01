@@ -1,4 +1,4 @@
-module github.com/raphaelgruber/memcp-go
+module github.com/raphi011/knowhow
 
 go 1.26.0
 

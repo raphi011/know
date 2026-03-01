@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Service manages vault CRUD and derived folder listing.

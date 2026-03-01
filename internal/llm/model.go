@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raphaelgruber/memcp-go/internal/config"
-	"github.com/raphaelgruber/memcp-go/internal/metrics"
+	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/metrics"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/bedrock"
@@ -145,7 +145,7 @@ func NewModel(cfg config.Config, mc *metrics.Collector) (*Model, error) {
 
 	case config.ProviderGoogleAI:
 		if cfg.GoogleAIAPIKey == "" {
-			return nil, fmt.Errorf("Google AI API key required (GOOGLE_AI_API_KEY)")
+			return nil, fmt.Errorf("google AI API key required (GOOGLE_AI_API_KEY)")
 		}
 		model, err = googleai.New(context.Background(),
 			googleai.WithAPIKey(cfg.GoogleAIAPIKey),
@@ -157,7 +157,7 @@ func NewModel(cfg config.Config, mc *metrics.Collector) (*Model, error) {
 
 	case config.ProviderOpenAI:
 		if cfg.OpenAIAPIKey == "" {
-			return nil, fmt.Errorf("OpenAI API key required")
+			return nil, fmt.Errorf("openAI API key required")
 		}
 		model, err = openai.New(
 			openai.WithToken(cfg.OpenAIAPIKey),
@@ -169,7 +169,7 @@ func NewModel(cfg config.Config, mc *metrics.Collector) (*Model, error) {
 
 	case config.ProviderAnthropic:
 		if cfg.AnthropicAPIKey == "" {
-			return nil, fmt.Errorf("Anthropic API key required")
+			return nil, fmt.Errorf("anthropic API key required")
 		}
 		model, err = anthropic.New(
 			anthropic.WithToken(cfg.AnthropicAPIKey),

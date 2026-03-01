@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -95,9 +95,9 @@ func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, t
 			AND to_doc IS NONE
 	`
 	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":  vaultID,
+		"vault_id":   vaultID,
 		"raw_target": rawTarget,
-		"to_doc_id": toDocID,
+		"to_doc_id":  toDocID,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("resolve dangling links: %w", err)

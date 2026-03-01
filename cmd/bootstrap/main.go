@@ -15,10 +15,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/raphaelgruber/memcp-go/internal/auth"
-	"github.com/raphaelgruber/memcp-go/internal/config"
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 func main() {

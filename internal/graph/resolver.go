@@ -7,14 +7,14 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/raphaelgruber/memcp-go/internal/config"
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/document"
-	"github.com/raphaelgruber/memcp-go/internal/llm"
-	"github.com/raphaelgruber/memcp-go/internal/review"
-	"github.com/raphaelgruber/memcp-go/internal/search"
-	"github.com/raphaelgruber/memcp-go/internal/template"
-	"github.com/raphaelgruber/memcp-go/internal/vault"
+	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/review"
+	"github.com/raphi011/knowhow/internal/search"
+	"github.com/raphi011/knowhow/internal/template"
+	"github.com/raphi011/knowhow/internal/vault"
 )
 
 // Resolver is the root resolver with all dependencies.

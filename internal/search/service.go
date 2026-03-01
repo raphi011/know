@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
 
-	"github.com/raphaelgruber/memcp-go/internal/llm"
+	"github.com/raphi011/knowhow/internal/llm"
 )
 
 // Service provides search with graceful degradation.
@@ -34,12 +34,12 @@ type SearchInput struct {
 }
 
 type SearchResult struct {
-	DocumentID string
-	Path       string
-	Title      string
-	Labels     []string
-	DocType    *string
-	Score      float64
+	DocumentID    string
+	Path          string
+	Title         string
+	Labels        []string
+	DocType       *string
+	Score         float64
 	MatchedChunks []ChunkMatch
 }
 

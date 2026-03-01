@@ -11,11 +11,11 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/raphaelgruber/memcp-go/internal/db"
-	"github.com/raphaelgruber/memcp-go/internal/models"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
 
-	"github.com/raphaelgruber/memcp-go/internal/llm"
-	"github.com/raphaelgruber/memcp-go/internal/parser"
+	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/parser"
 )
 
 // Service manages document lifecycle: parse → extract → store → link → embed.
