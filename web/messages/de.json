@@ -44,16 +44,7 @@
     "languageDe": "Deutsch",
     "languageEn": "English",
     "languageError": "Sprachänderung fehlgeschlagen. Bitte erneut versuchen.",
-    "signOut": "Abmelden",
-    "servers": "Server-Verbindungen",
-    "noServers": "Keine Server-Verbindungen konfiguriert. Füge eine hinzu, um loszulegen.",
-    "addServer": "Server hinzufügen",
-    "adding": "Wird hinzugefügt...",
-    "removeServer": "Server entfernen",
-    "serverName": "Name (z.B. Privat, Arbeit)",
-    "serverUrl": "URL (z.B. http://localhost:8484/query)",
-    "serverToken": "API-Token",
-    "cancel": "Abbrechen"
+    "signOut": "Abmelden"
   },
   "vaultSwitcher": {
     "noServer": "Kein Server",

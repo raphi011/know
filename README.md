@@ -233,6 +233,12 @@ KNOWHOW_LLM_MODEL=claude-sonnet-4-20250514
 GOOGLE_AI_API_KEY=...           # For Google AI / Gemini
 ANTHROPIC_API_KEY=sk-ant-...    # For Anthropic LLM + Voyage embeddings
 OPENAI_API_KEY=sk-...           # For OpenAI
+
+# Web → Go server connections (multi-server)
+KNOWHOW_SERVER_LOCAL_URL=http://localhost:8484/query
+KNOWHOW_SERVER_LOCAL_TOKEN=kh_...
+KNOWHOW_SERVER_WORK_URL=https://knowhow.work.example.com/query
+KNOWHOW_SERVER_WORK_TOKEN=kh_...
 ```
 
 ## Entity Types

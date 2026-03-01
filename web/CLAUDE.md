@@ -110,8 +110,8 @@ All env vars live in the **root `.env`** (not `web/.env.local`). The justfile lo
 - `NEXTAUTH_URL` — canonical app URL
 - `AUTH_OIDC_*` — OIDC provider config (required in production)
 - `APP_URL` — public app URL
-- `KNOWHOW_API_URL` — Go backend GraphQL endpoint
-- `KNOWHOW_API_TOKEN` — API token from bootstrap
+- `KNOWHOW_SERVER_<NAME>_URL` — Go backend GraphQL endpoint per server
+- `KNOWHOW_SERVER_<NAME>_TOKEN` — API token per server (from bootstrap)
 
 ## Security
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/lib/auth";
-import { env } from "@/app/lib/env";
 import { getActiveConnection } from "@/app/lib/actions/connections";
 
 export async function POST(request: NextRequest) {
@@ -22,18 +21,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Use active server connection, fall back to env vars
   const conn = await getActiveConnection();
-  const apiUrl = conn?.url ?? env.KNOWHOW_API_URL;
-  const apiToken = conn?.apiToken ?? env.KNOWHOW_API_TOKEN;
+  if (!conn) {
+    return NextResponse.json(
+      { errors: [{ message: "No Knowhow server configured" }] },
+      { status: 503 },
+    );
+  }
 
   let response: Response;
   try {
-    response = await fetch(apiUrl, {
+    response = await fetch(conn.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiToken}`,
+        Authorization: `Bearer ${conn.token}`,
       },
       body,
     });

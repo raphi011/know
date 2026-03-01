@@ -3,7 +3,6 @@ import {
   text,
   timestamp,
   integer,
-  boolean,
   primaryKey,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -64,15 +63,3 @@ export const verificationTokens = pgTable(
   ],
 );
 
-// ── Knowhow server connections ──────────────────────
-
-export const serverConnections = pgTable("server_connection", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  url: text("url").notNull(),
-  apiToken: text("api_token").notNull(),
-  isDefault: boolean("is_default").notNull().default(false),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-});

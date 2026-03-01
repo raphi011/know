@@ -43,7 +43,5 @@ export type ServerConnection = {
   id: string;
   name: string;
   url: string;
-  apiToken: string;
-  isDefault: boolean;
-  createdAt: Date;
+  token: string;
 };
