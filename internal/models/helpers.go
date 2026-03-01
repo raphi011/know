@@ -43,6 +43,13 @@ func NormalizePath(p string) string {
 	return p
 }
 
+// BareID strips a "table:" prefix from a record ID string so it can be
+// used safely with type::record("table", id). Accepts both "default"
+// and "vault:default" — returns "default" in both cases.
+func BareID(table, id string) string {
+	return strings.TrimPrefix(id, table+":")
+}
+
 // ParentFolder returns the parent folder path for a document path.
 func ParentFolder(docPath string) string {
 	dir := path.Dir(docPath)

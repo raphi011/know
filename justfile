@@ -60,7 +60,7 @@ bootstrap: build-bootstrap db-up
 build-all: build build-server build-bootstrap
 
 # Run server with optional args (e.g., just server --wipe)
-server *ARGS: build-server
+server *args: build-server
     "{{build_dir}}/{{server}}" "$@"
 
 # Install both binaries to GOPATH/bin

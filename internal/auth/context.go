@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 type contextKey struct{}
@@ -36,7 +37,7 @@ func RequireVaultAccess(ctx context.Context, vaultID string) error {
 	if err != nil {
 		return err
 	}
-	bare := strings.TrimPrefix(vaultID, "vault:")
+	bare := models.BareID("vault", vaultID)
 	if slices.Contains(ac.VaultAccess, bare) {
 		return nil
 	}

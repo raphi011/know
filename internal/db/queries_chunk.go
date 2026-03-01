@@ -15,7 +15,12 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 		return nil
 	}
 
-	for i, ch := range chunks {
+	// Split into two batches: chunks with embeddings and without.
+	// The HNSW index rejects NONE values, so we must omit the embedding
+	// key entirely for chunks that don't have one yet.
+	var withEmbed, withoutEmbed []map[string]any
+
+	for _, ch := range chunks {
 		labels := ch.Labels
 		if labels == nil {
 			labels = []string{}
@@ -26,8 +31,8 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			embedAt = *ch.EmbedAt
 		}
 
-		vars := map[string]any{
-			"doc_id":       ch.DocumentID,
+		row := map[string]any{
+			"document":     surrealmodels.RecordID{Table: "document", ID: bareID("document", ch.DocumentID)},
 			"content":      ch.Content,
 			"position":     ch.Position,
 			"heading_path": optionalString(ch.HeadingPath),
@@ -35,27 +40,30 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			"embed_at":     embedAt,
 		}
 
-		sql := `
-			CREATE chunk SET
-				document = type::record("document", $doc_id),
-				content = $content,
-				position = $position,
-				heading_path = $heading_path,
-				labels = $labels,
-				embed_at = $embed_at
-		`
-
-		// Only set embedding when present — the HNSW index rejects NONE values,
-		// and the async worker fills embeddings in later via UpdateChunkEmbedding.
 		if len(ch.Embedding) > 0 {
-			sql += `, embedding = $embedding`
-			vars["embedding"] = ch.Embedding
-		}
-
-		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, vars); err != nil {
-			return fmt.Errorf("create chunk %d: %w", i, err)
+			row["embedding"] = ch.Embedding
+			withEmbed = append(withEmbed, row)
+		} else {
+			withoutEmbed = append(withoutEmbed, row)
 		}
 	}
+
+	if len(withoutEmbed) > 0 {
+		if _, err := surrealdb.Query[any](ctx, c.DB(),
+			"INSERT INTO chunk $chunks RETURN NONE", map[string]any{"chunks": withoutEmbed},
+		); err != nil {
+			return fmt.Errorf("create chunks (no embedding): %w", err)
+		}
+	}
+
+	if len(withEmbed) > 0 {
+		if _, err := surrealdb.Query[any](ctx, c.DB(),
+			"INSERT INTO chunk $chunks RETURN NONE", map[string]any{"chunks": withEmbed},
+		); err != nil {
+			return fmt.Errorf("create chunks (with embedding): %w", err)
+		}
+	}
+
 	return nil
 }
 

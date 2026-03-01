@@ -1,17 +1,13 @@
 package db
 
 import (
-	"strings"
-
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
-// bareID strips a "table:" prefix from a record ID string so it can be
-// used safely with type::record("table", id). Accepts both "default"
-// and "vault:default" — returns "default" in both cases.
-func bareID(table, id string) string {
-	return strings.TrimPrefix(id, table+":")
-}
+// bareID is a package-local alias for models.BareID.
+var bareID = models.BareID
 
 // optionalString returns models.None for nil pointers, otherwise returns the string value.
 func optionalString(s *string) any {
