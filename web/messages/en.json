@@ -28,11 +28,14 @@
     "goHome": "Go to docs"
   },
   "login": {
-    "title": "Sign in",
-    "subtitle": "Sign in to your account to continue.",
-    "signIn": "Sign in with SSO",
-    "signingIn": "Signing in...",
-    "error": "Sign in failed. Please try again."
+    "title": "Connect to Knowhow",
+    "subtitle": "Enter your server URL and API token.",
+    "serverUrl": "Server URL (e.g. http://localhost:8484/query)",
+    "apiToken": "API token (kh_...)",
+    "serverName": "Name (optional, e.g. Work)",
+    "connect": "Connect",
+    "connecting": "Connecting...",
+    "error": "Connection failed. Please try again."
   },
   "settings": {
     "title": "Settings",
@@ -44,7 +47,11 @@
     "languageDe": "Deutsch",
     "languageEn": "English",
     "languageError": "Failed to change language. Please try again.",
-    "signOut": "Sign out"
+    "signOut": "Disconnect"
+  },
+  "vaultSwitcher": {
+    "noServer": "No server",
+    "noVault": "No vault"
   },
   "search": {
     "placeholder": "Search documents…",

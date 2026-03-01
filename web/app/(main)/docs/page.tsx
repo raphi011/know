@@ -1,13 +1,15 @@
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { getVaults, getVaultDocuments } from "@/app/lib/knowhow/queries";
+import { getActiveVaultId } from "@/app/lib/actions/connections";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentTextIcon } from "@heroicons/react/24/outline";
 
 export default async function DocsPage() {
   const t = await getTranslations("docs");
   const vaults = await getVaults();
-  const vault = vaults[0];
+  const activeVaultId = await getActiveVaultId();
+  const vault = vaults.find((v) => v.id === activeVaultId) ?? vaults[0];
 
   if (!vault) {
     return (

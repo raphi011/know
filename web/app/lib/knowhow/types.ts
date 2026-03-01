@@ -38,3 +38,10 @@ export type SearchResult = {
   score: number;
   matchedChunks: ChunkMatch[];
 };
+
+export type ServerConnection = {
+  id: string;
+  name: string;
+  url: string;
+  token: string;
+};

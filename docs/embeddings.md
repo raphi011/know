@@ -8,18 +8,21 @@ Technical learnings about vector embeddings for semantic search.
 
 | Model | Provider | Dimensions | Notes |
 |-------|----------|------------|-------|
-| all-minilm:l6-v2 | Ollama | 384 | Fast, good for dev |
-| bge-m3 | Ollama | 1024 | Better quality, multilingual |
+| gemini-embedding-001 | Google AI | 768 | Default 768, supports up to 3072 |
+| voyage-3-large | Anthropic/Voyage | 1024 | High quality, multilingual |
+| voyage-3 | Anthropic/Voyage | 1024 | Balanced quality/cost |
+| text-embedding-3-small | OpenAI | 1536 | Cost-effective |
 | amazon.titan-embed-text-v1 | Bedrock | 1536 | AWS native, max 8k tokens |
 | amazon.titan-embed-text-v2 | Bedrock | 1024 | Improved, configurable dim |
 | cohere.embed-english-v3 | Bedrock | 1024 | English-optimized |
 | cohere.embed-multilingual-v3 | Bedrock | 1024 | 108 languages |
-| text-embedding-3-small | OpenAI | 1536 | Cost-effective |
+| bge-m3 | Ollama | 1024 | Local, good for dev |
+| all-minilm:l6-v2 | Ollama | 384 | Fast, good for dev |
 
 ### Dimension Selection
 
 - **Higher dimensions** = more semantic nuance, higher storage/compute
-- **1024** is a good balance for most RAG applications
+- **768–1024** is a good balance for most RAG applications
 - HNSW index must match embedding dimension exactly
 - Changing dimensions requires fresh database (rebuild indexes)
 
@@ -28,16 +31,27 @@ Technical learnings about vector embeddings for semantic search.
 ### Two approaches to embeddings:
 
 1. **LLM-based embedders**: Wrap LLM with `embeddings.NewEmbedder(llm)`
-   - Works with: Ollama, OpenAI
+   - Works with: Google AI, OpenAI, Ollama
    - Requires LLM to implement `CreateEmbedding`
 
 2. **Dedicated embedders**: Use specialized package
    - `embeddings/bedrock.NewBedrock()` for AWS Bedrock
    - Required because `llms/bedrock` doesn't implement `CreateEmbedding`
 
+3. **OpenAI-compatible endpoints**: Use `openai.New()` with custom base URL
+   - Works with: Anthropic/Voyage AI (`https://api.voyageai.com/v1`)
+   - Any provider with OpenAI-compatible embedding API
+
 ```go
-// Ollama/OpenAI pattern
-llm, _ := ollama.New(ollama.WithModel("bge-m3"))
+// Google AI pattern
+llm, _ := googleai.New(ctx, googleai.WithAPIKey(key),
+    googleai.WithDefaultEmbeddingModel("gemini-embedding-001"))
+embedder, _ := embeddings.NewEmbedder(llm)
+
+// Anthropic/Voyage pattern (OpenAI-compatible)
+llm, _ := openai.New(openai.WithToken(anthropicKey),
+    openai.WithBaseURL("https://api.voyageai.com/v1"),
+    openai.WithEmbeddingModel("voyage-3-large"))
 embedder, _ := embeddings.NewEmbedder(llm)
 
 // Bedrock pattern (different!)

@@ -28,11 +28,14 @@
     "goHome": "Zu den Dokumenten"
   },
   "login": {
-    "title": "Anmelden",
-    "subtitle": "Melde dich an, um fortzufahren.",
-    "signIn": "Mit SSO anmelden",
-    "signingIn": "Anmeldung...",
-    "error": "Anmeldung fehlgeschlagen. Bitte versuche es erneut."
+    "title": "Mit Knowhow verbinden",
+    "subtitle": "Server-URL und API-Token eingeben.",
+    "serverUrl": "Server-URL (z.B. http://localhost:8484/query)",
+    "apiToken": "API-Token (kh_...)",
+    "serverName": "Name (optional, z.B. Arbeit)",
+    "connect": "Verbinden",
+    "connecting": "Verbinde...",
+    "error": "Verbindung fehlgeschlagen. Bitte erneut versuchen."
   },
   "settings": {
     "title": "Einstellungen",
@@ -44,7 +47,11 @@
     "languageDe": "Deutsch",
     "languageEn": "English",
     "languageError": "Sprachänderung fehlgeschlagen. Bitte erneut versuchen.",
-    "signOut": "Abmelden"
+    "signOut": "Trennen"
+  },
+  "vaultSwitcher": {
+    "noServer": "Kein Server",
+    "noVault": "Kein Vault"
   },
   "search": {
     "placeholder": "Dokumente durchsuchen…",

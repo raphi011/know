@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/api/auth", "/api/health"];
+const SESSION_COOKIE = "kh_session";
+const PUBLIC_ROUTES = ["/login", "/api/health"];
 
 export function isValidReturnTo(returnTo: string): boolean {
   try {
@@ -32,17 +33,14 @@ export async function proxy(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Auth.js uses __Secure- prefix on HTTPS; check both variants
-    const sessionToken =
-      request.cookies.get("authjs.session-token")?.value ??
-      request.cookies.get("__Secure-authjs.session-token")?.value;
+    const hasSession = request.cookies.has(SESSION_COOKIE);
 
     const isPublicRoute = PUBLIC_ROUTES.some((route) =>
       pathname.startsWith(route),
     );
 
     // Redirect authenticated users away from login
-    if (sessionToken && pathname === "/login") {
+    if (hasSession && pathname === "/login") {
       const returnTo = request.nextUrl.searchParams.get("returnTo");
       const destination =
         returnTo && isValidReturnTo(returnTo) ? returnTo : "/docs";
@@ -55,15 +53,13 @@ export async function proxy(request: NextRequest) {
     }
 
     // Redirect unauthenticated users to login
-    // Set DISABLE_AUTH=1 to skip during local UI testing without OIDC
-    if (!sessionToken && process.env.DISABLE_AUTH !== "1") {
+    if (!hasSession) {
       return NextResponse.redirect(new URL("/login", baseUrl));
     }
 
     return NextResponse.next();
   } catch (error) {
     console.error("Proxy error:", error);
-    // Fail closed: deny access when the auth check itself fails
     return NextResponse.redirect(new URL("/login", request.url));
   }
 }

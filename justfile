@@ -10,12 +10,12 @@ export SURREALDB_DATABASE := env_var_or_default("SURREALDB_DATABASE", "graph")
 export SURREALDB_USER := env_var_or_default("SURREALDB_USER", "root")
 export SURREALDB_PASS := env_var_or_default("SURREALDB_PASS", "root")
 
-# LLM defaults - using Anthropic for ask, Ollama for embeddings
+# LLM defaults - using Anthropic for ask, configure embeddings per instance
 export KNOWHOW_LLM_PROVIDER := env_var_or_default("KNOWHOW_LLM_PROVIDER", "anthropic")
 export KNOWHOW_LLM_MODEL := env_var_or_default("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514")
-export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "ollama")
-export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "bge-m3")
-export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "1024")
+export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "none")
+export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "")
+export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "768")
 
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
@@ -59,11 +59,11 @@ test:
     go test -buildvcs=false -v ./...
 
 # Start dev environment with live-reload
-dev: db-up ollama-pull
+dev: db-up
     air
 
 # Start dev environment and wipe database on first start
-dev-reset: db-up ollama-pull
+dev-reset: db-up
     KNOWHOW_WIPE_DB=true air
 
 # Run CLI command (ensures correct server URL)
@@ -71,9 +71,8 @@ run *args: build
     {{build_dir}}/{{binary}} {{args}}
 
 # Start development environment without running the server
-dev-setup: db-up ollama-pull
+dev-setup: db-up
     @echo "SurrealDB running at localhost:8000"
-    @echo "Ollama embedding model ready"
     @echo "Run 'just dev' to start the server, or '{{build_dir}}/knowhow <command>' for CLI"
 
 # Regenerate GraphQL code
@@ -87,16 +86,6 @@ db-up:
 # Stop SurrealDB
 db-down:
     docker-compose down
-
-# Pull Ollama embedding model (only if using Ollama provider)
-ollama-pull:
-    #!/usr/bin/env bash
-    if [ "$KNOWHOW_EMBED_PROVIDER" = "ollama" ]; then
-        echo "Pulling embedding model $KNOWHOW_EMBED_MODEL..."
-        ollama pull "$KNOWHOW_EMBED_MODEL"
-    else
-        echo "Skipping Ollama pull (using $KNOWHOW_EMBED_PROVIDER provider)"
-    fi
 
 # Remove binaries and stop containers
 clean:
@@ -130,22 +119,10 @@ web-test-e2e:
 web-lint:
     cd web && bun run lint && bun run typecheck
 
-# Run web DB migrations
-web-db-migrate:
-    cd web && bun run db:migrate
-
-# Run web DB seed
-web-db-seed:
-    cd web && bun run db:seed
-
 # --- Unified dev ---
 
-# Start all databases (SurrealDB + PostgreSQL)
-db-all:
-    docker-compose up -d surrealdb postgres
-
-# Start all services (SurrealDB + PostgreSQL + Go server + Web dev)
-dev-all: db-all ollama-pull
+# Start all services (SurrealDB + Go server + Web dev)
+dev-all: db-up
     #!/usr/bin/env bash
     set -e
     trap 'kill 0' EXIT
@@ -155,4 +132,3 @@ dev-all: db-all ollama-pull
 
 # Run all tests (Go + Web)
 test-all: test web-test
-

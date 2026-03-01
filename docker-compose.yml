@@ -20,13 +20,9 @@ services:
       - SURREALDB_PASS=root
       - SURREALDB_AUTH_LEVEL=root
       - KNOWHOW_SERVER_PORT=8484
-      # Configure LLM/embedding providers as needed:
-      # - KNOWHOW_LLM_PROVIDER=ollama
-      # - KNOWHOW_LLM_MODEL=llama3.2
-      # - KNOWHOW_EMBED_PROVIDER=ollama
-      # - KNOWHOW_EMBED_MODEL=bge-m3
-      # - KNOWHOW_EMBED_DIMENSION=1024
-      # - OLLAMA_HOST=http://host.docker.internal:11434
+      # Configure embedding provider per instance:
+      # Google AI (private): KNOWHOW_EMBED_PROVIDER=googleai, KNOWHOW_EMBED_MODEL=gemini-embedding-001
+      # Anthropic/Voyage (work): KNOWHOW_EMBED_PROVIDER=anthropic, KNOWHOW_EMBED_MODEL=voyage-3-large
     depends_on:
       - surrealdb
     restart: unless-stopped
@@ -37,22 +33,3 @@ services:
       retries: 3
       start_period: 10s
 
-  postgres:
-    image: postgres:17-alpine
-    container_name: knowhow-postgres
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_DB: app_dev
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app_dev"]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  pgdata:

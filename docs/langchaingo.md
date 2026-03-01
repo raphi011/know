@@ -8,14 +8,25 @@ langchaingo is the Go port of LangChain. Import: `github.com/tmc/langchaingo`
 
 ## Provider Setup
 
-### Ollama (Local)
+### Google AI (Gemini)
 
 ```go
-import "github.com/tmc/langchaingo/llms/ollama"
+import "github.com/tmc/langchaingo/llms/googleai"
 
-llm, err := ollama.New(
-    ollama.WithModel("llama3.2"),
-    ollama.WithServerURL("http://localhost:11434"),
+llm, err := googleai.New(ctx,
+    googleai.WithAPIKey(os.Getenv("GOOGLE_AI_API_KEY")),
+    googleai.WithDefaultModel("gemini-2.0-flash"),
+)
+```
+
+### Anthropic
+
+```go
+import "github.com/tmc/langchaingo/llms/anthropic"
+
+llm, err := anthropic.New(
+    anthropic.WithToken(os.Getenv("ANTHROPIC_API_KEY")),
+    anthropic.WithModel("claude-sonnet-4-20250514"),
 )
 ```
 
@@ -30,14 +41,14 @@ llm, err := openai.New(
 )
 ```
 
-### Anthropic
+### Ollama (Local)
 
 ```go
-import "github.com/tmc/langchaingo/llms/anthropic"
+import "github.com/tmc/langchaingo/llms/ollama"
 
-llm, err := anthropic.New(
-    anthropic.WithToken(os.Getenv("ANTHROPIC_API_KEY")),
-    anthropic.WithModel("claude-3-5-sonnet-20241022"),
+llm, err := ollama.New(
+    ollama.WithModel("gemma2"),
+    ollama.WithServerURL("http://localhost:11434"),
 )
 ```
 
@@ -62,11 +73,25 @@ Works for providers that implement `CreateEmbedding`:
 ```go
 import "github.com/tmc/langchaingo/embeddings"
 
-llm, _ := ollama.New(ollama.WithModel("bge-m3"))
+// Google AI
+llm, _ := googleai.New(ctx, googleai.WithAPIKey(key),
+    googleai.WithDefaultEmbeddingModel("gemini-embedding-001"))
 embedder, _ := embeddings.NewEmbedder(llm)
 
 vectors, err := embedder.EmbedDocuments(ctx, []string{"text1", "text2"})
 single, err := embedder.EmbedQuery(ctx, "query text")
+```
+
+### OpenAI-Compatible (Voyage AI)
+
+Anthropic embeddings via Voyage AI's OpenAI-compatible endpoint:
+
+```go
+llm, _ := openai.New(
+    openai.WithToken(anthropicKey),
+    openai.WithBaseURL("https://api.voyageai.com/v1"),
+    openai.WithEmbeddingModel("voyage-3-large"))
+embedder, _ := embeddings.NewEmbedder(llm)
 ```
 
 ### Dedicated Embedders
@@ -133,3 +158,4 @@ info := choice.GenerationInfo // map[string]any
 3. **Bedrock embeddings don't support ARNs** - The `embeddings/bedrock` package detects provider via `strings.Split(modelID, ".")[0]`, which fails for ARN-based inference profiles. Knowhow implements a custom wrapper using `KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER`
 4. **Streaming callback must not block** - Process quickly or buffer
 5. **Token counts may be missing** - Always have fallback estimates
+6. **Google AI requires context** - `googleai.New(ctx, ...)` needs a context parameter unlike other providers

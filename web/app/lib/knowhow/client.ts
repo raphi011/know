@@ -1,20 +1,31 @@
 import "server-only";
-import { env } from "@/app/lib/env";
+import { getActiveConnection } from "@/app/lib/actions/connections";
 
 type GraphQLResponse<T> = {
   data: T | null;
   errors?: { message: string }[];
 };
 
+/**
+ * Execute a GraphQL query against the active Knowhow server connection.
+ * Server connections are stored in an encrypted session cookie.
+ */
 export async function gql<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const response = await fetch(env.KNOWHOW_API_URL, {
+  const conn = await getActiveConnection();
+  if (!conn) {
+    throw new Error(
+      "No Knowhow server configured. Log in at /login to connect to a server.",
+    );
+  }
+
+  const response = await fetch(conn.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${env.KNOWHOW_API_TOKEN}`,
+      Authorization: `Bearer ${conn.token}`,
     },
     body: JSON.stringify({ query, variables }),
     next: { revalidate: 0 }, // Disable Next.js fetch cache — all queries are dynamic

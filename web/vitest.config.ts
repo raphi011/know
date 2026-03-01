@@ -50,7 +50,6 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["app/lib/**/*.test.ts", "lib/**/*.test.ts", "*.test.ts"],
-          exclude: ["app/lib/db/**/*.test.ts"],
           environment: "node",
         },
       },

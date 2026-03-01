@@ -17,6 +17,7 @@ const (
 	ProviderOpenAI    LLMProvider = "openai"
 	ProviderAnthropic LLMProvider = "anthropic"
 	ProviderBedrock   LLMProvider = "bedrock"
+	ProviderGoogleAI  LLMProvider = "googleai"
 )
 
 // Config holds all configuration values.
@@ -30,9 +31,9 @@ type Config struct {
 	SurrealDBAuthLevel string
 
 	// Embedding configuration
-	EmbedProvider            LLMProvider
-	EmbedModel               string
-	EmbedDimension           int
+	EmbedProvider             LLMProvider
+	EmbedModel                string
+	EmbedDimension            int
 	BedrockEmbedModelProvider string // e.g., "amazon" for Titan, "cohere" for Cohere
 
 	// LLM configuration (for ask, extract-graph, render)
@@ -43,6 +44,7 @@ type Config struct {
 	OllamaHost           string
 	OpenAIAPIKey         string
 	AnthropicAPIKey      string
+	GoogleAIAPIKey       string
 	BedrockModelProvider string // e.g., "anthropic" for inference profiles
 
 	// Logging
@@ -64,20 +66,21 @@ func Load() Config {
 		SurrealDBPass:      getEnv("SURREALDB_PASS", "root"),
 		SurrealDBAuthLevel: getEnv("SURREALDB_AUTH_LEVEL", "root"),
 
-		// Embedding (default to local Ollama with bge-m3)
-		EmbedProvider:            LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "ollama")),
-		EmbedModel:               getEnv("KNOWHOW_EMBED_MODEL", "bge-m3"),
-		EmbedDimension:           getEnvInt("KNOWHOW_EMBED_DIMENSION", 1024),
+		// Embedding (default to none — configure per instance)
+		EmbedProvider:             LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "none")),
+		EmbedModel:                getEnv("KNOWHOW_EMBED_MODEL", ""),
+		EmbedDimension:            getEnvInt("KNOWHOW_EMBED_DIMENSION", 768),
 		BedrockEmbedModelProvider: getEnv("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
 
-		// LLM (default to local Ollama)
-		LLMProvider: LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "ollama")),
-		LLMModel:    getEnv("KNOWHOW_LLM_MODEL", "llama3.2"),
+		// LLM (default to Anthropic)
+		LLMProvider: LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "anthropic")),
+		LLMModel:    getEnv("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514"),
 
 		// Provider hosts/keys
 		OllamaHost:           getEnv("OLLAMA_HOST", "http://localhost:11434"),
 		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
 		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
+		GoogleAIAPIKey:       getEnv("GOOGLE_AI_API_KEY", ""),
 		BedrockModelProvider: getEnv("KNOWHOW_BEDROCK_MODEL_PROVIDER", ""),
 
 		// Logging

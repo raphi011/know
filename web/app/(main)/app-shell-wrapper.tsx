@@ -6,25 +6,23 @@ import { AppShell } from "@/components/app-shell";
 import { DocSidebar } from "@/components/domain/doc-sidebar";
 import { DocumentsProvider } from "@/components/domain/documents-context";
 import { SearchCommandPalette } from "@/components/domain/search-command-palette";
+import { VaultSwitcher } from "@/components/domain/vault-switcher";
 import { buildTree } from "@/app/lib/knowhow/tree";
-import type { Vault, DocumentSummary } from "@/app/lib/knowhow/types";
-
-type User = {
-  id?: string;
-  name?: string | null;
-  email?: string | null;
-  image?: string | null;
-};
+import type { Vault, DocumentSummary, ServerConnection } from "@/app/lib/knowhow/types";
 
 export function AppShellWrapper({
-  user,
   vault,
+  vaults,
   documents,
+  connections,
+  activeConnectionId,
   children,
 }: {
-  user: User;
   vault: Vault | null;
+  vaults: Vault[];
   documents: DocumentSummary[];
+  connections: ServerConnection[];
+  activeConnectionId: string | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -45,15 +43,26 @@ export function AppShellWrapper({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [vault]);
 
+  const sidebarContent = (
+    <>
+      <VaultSwitcher
+        connections={connections}
+        activeConnectionId={activeConnectionId}
+        vaults={vaults}
+        activeVaultId={vault?.id ?? null}
+      />
+      {vault && <DocSidebar tree={tree} />}
+    </>
+  );
+
   return (
     <DocumentsProvider documents={documents}>
       <AppShell
         appName="Knowhow"
         navSections={[]}
-        sidebarContent={vault ? <DocSidebar tree={tree} /> : undefined}
+        sidebarContent={sidebarContent}
         profile={{
-          name: user.name ?? user.email ?? "User",
-          avatarSrc: user.image,
+          name: connections.find((c) => c.id === activeConnectionId)?.name ?? "Knowhow",
           href: "/settings",
         }}
         activeHref={pathname}

@@ -9,7 +9,7 @@ This server enables AI agents to store and retrieve knowledge across sessions, p
 ## Tech Stack
 
 - **Backend**: Go, GraphQL (gqlgen), SurrealDB
-- **Frontend**: Next.js 16, TypeScript, Tailwind CSS v4, PostgreSQL + Drizzle ORM
+- **Frontend**: Next.js 16, TypeScript, Tailwind CSS v4 (fully stateless, no database)
 - **Protocol**: MCP (Model Context Protocol)
 - **Package Manager (web)**: Bun
 
@@ -23,7 +23,7 @@ just server     # Build server binary
 just build-all  # Build both
 just test       # Run Go tests
 just dev        # Start Go dev environment
-just dev-all    # Start everything (SurrealDB + PostgreSQL + Go server + Web dev)
+just dev-all    # Start everything (SurrealDB + Go server + Web dev)
 just web-dev    # Start web dev server only
 just web-test   # Run web tests
 just web-lint   # Lint + typecheck web
@@ -95,10 +95,8 @@ Available docs:
 The web frontend lives in `web/` — a Next.js 16 app with its own `CLAUDE.md`. See `web/CLAUDE.md` for full conventions, component layers, and gotchas.
 
 ```bash
-just db-all         # Start SurrealDB + PostgreSQL
+just db-up          # Start SurrealDB
 just web-install    # Install web dependencies (bun)
-just web-db-migrate # Run Drizzle migrations
-just web-db-seed    # Seed example data
 just web-dev        # Start Next.js dev server (:3000)
 just web-test       # Run unit + storybook tests
 just web-lint       # Lint + typecheck
