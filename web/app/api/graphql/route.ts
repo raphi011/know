@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/lib/auth";
+import { getSession } from "@/app/lib/session";
 import { getActiveConnection } from "@/app/lib/actions/connections";
 
 export async function POST(request: NextRequest) {
-  // Set DISABLE_AUTH=1 to skip during local UI testing without OIDC
-  if (process.env.DISABLE_AUTH !== "1") {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const session = await getSession();
+  if (!session || session.servers.length === 0) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   let body: string;

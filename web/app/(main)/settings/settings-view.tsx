@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { signOut } from "next-auth/react";
 import { useTheme } from "@/components/theme-provider";
 import type { Theme } from "@/app/lib/types";
 import { updateLanguageAction } from "@/app/lib/actions/language";
+import { logoutAction } from "@/app/lib/actions/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -86,12 +86,11 @@ export function SettingsView() {
 
       <Separator />
 
-      <Button
-        variant="destructive"
-        onClick={() => signOut({ callbackUrl: "/login" })}
-      >
-        {t("signOut")}
-      </Button>
+      <form action={logoutAction}>
+        <Button type="submit" variant="destructive">
+          {t("signOut")}
+        </Button>
+      </form>
     </div>
   );
 }

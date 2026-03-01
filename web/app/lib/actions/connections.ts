@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { getServers } from "@/app/lib/env";
-import type { ActionResult } from "@/app/lib/action-result";
+import { getSession } from "@/app/lib/session";
 import type { ServerConnection } from "@/app/lib/knowhow/types";
 
 const ACTIVE_CONNECTION_COOKIE = "active_connection_id";
@@ -11,12 +10,13 @@ const ACTIVE_VAULT_COOKIE = "active_vault_id";
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
 
 export async function getConnections(): Promise<ServerConnection[]> {
-  return getServers();
+  const session = await getSession();
+  return session?.servers ?? [];
 }
 
 export async function setActiveConnectionAction(
   connectionId: string,
-): Promise<ActionResult> {
+): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_CONNECTION_COOKIE, connectionId, {
     httpOnly: true,
@@ -29,12 +29,9 @@ export async function setActiveConnectionAction(
   cookieStore.delete(ACTIVE_VAULT_COOKIE);
 
   revalidatePath("/", "layout");
-  return { success: true };
 }
 
-export async function setActiveVaultAction(
-  vaultId: string,
-): Promise<ActionResult> {
+export async function setActiveVaultAction(vaultId: string): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_VAULT_COOKIE, vaultId, {
     httpOnly: true,
@@ -45,7 +42,6 @@ export async function setActiveVaultAction(
   });
 
   revalidatePath("/", "layout");
-  return { success: true };
 }
 
 export async function getActiveConnectionId(): Promise<string | null> {
@@ -58,9 +54,9 @@ export async function getActiveVaultId(): Promise<string | null> {
   return cookieStore.get(ACTIVE_VAULT_COOKIE)?.value ?? null;
 }
 
-/** Returns the active server connection, falling back to the first configured server. */
+/** Returns the active server connection from the session cookie. */
 export async function getActiveConnection(): Promise<ServerConnection | null> {
-  const servers = getServers();
+  const servers = await getConnections();
   if (servers.length === 0) return null;
 
   const activeId = await getActiveConnectionId();

@@ -1,26 +1,36 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { loginAction } from "@/app/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/card";
 
 export default function LoginPage() {
   const t = useTranslations("login");
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSignIn() {
+  async function handleSubmit(formData: FormData) {
     setLoading(true);
     setError(null);
-    try {
-      await signIn("oidc", { callbackUrl: "/docs" });
-    } catch (err) {
-      console.error("Sign-in failed:", err);
-      setError(t("error"));
+
+    const url = formData.get("url") as string;
+    const token = formData.get("token") as string;
+    const name = formData.get("name") as string;
+
+    const result = await loginAction(url, token, name);
+
+    if (!result.success) {
+      setError(result.error ?? t("error"));
       setLoading(false);
+      return;
     }
+
+    router.push("/docs");
+    router.refresh();
   }
 
   return (
@@ -41,9 +51,32 @@ export default function LoginPage() {
           </p>
         )}
 
-        <Button onClick={handleSignIn} loading={loading} className="w-full">
-          {loading ? t("signingIn") : t("signIn")}
-        </Button>
+        <form action={handleSubmit} className="space-y-3">
+          <input
+            name="url"
+            type="url"
+            required
+            placeholder={t("serverUrl")}
+            defaultValue="http://localhost:8484/query"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+          />
+          <input
+            name="token"
+            type="password"
+            required
+            placeholder={t("apiToken")}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+          />
+          <input
+            name="name"
+            type="text"
+            placeholder={t("serverName")}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+          />
+          <Button type="submit" loading={loading} className="w-full">
+            {loading ? t("connecting") : t("connect")}
+          </Button>
+        </form>
       </CardContent>
     </Card>
   );

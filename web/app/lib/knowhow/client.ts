@@ -8,7 +8,7 @@ type GraphQLResponse<T> = {
 
 /**
  * Execute a GraphQL query against the active Knowhow server connection.
- * Server connections are configured via KNOWHOW_SERVER_<NAME>_URL / _TOKEN env vars.
+ * Server connections are stored in an encrypted session cookie.
  */
 export async function gql<T>(
   query: string,
@@ -17,7 +17,7 @@ export async function gql<T>(
   const conn = await getActiveConnection();
   if (!conn) {
     throw new Error(
-      "No Knowhow server configured. Set KNOWHOW_SERVER_<NAME>_URL and KNOWHOW_SERVER_<NAME>_TOKEN env vars.",
+      "No Knowhow server configured. Log in at /login to connect to a server.",
     );
   }
 

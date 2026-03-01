@@ -10,15 +10,7 @@ import { VaultSwitcher } from "@/components/domain/vault-switcher";
 import { buildTree } from "@/app/lib/knowhow/tree";
 import type { Vault, DocumentSummary, ServerConnection } from "@/app/lib/knowhow/types";
 
-type User = {
-  id?: string;
-  name?: string | null;
-  email?: string | null;
-  image?: string | null;
-};
-
 export function AppShellWrapper({
-  user,
   vault,
   vaults,
   documents,
@@ -26,7 +18,6 @@ export function AppShellWrapper({
   activeConnectionId,
   children,
 }: {
-  user: User;
   vault: Vault | null;
   vaults: Vault[];
   documents: DocumentSummary[];
@@ -71,8 +62,7 @@ export function AppShellWrapper({
         navSections={[]}
         sidebarContent={sidebarContent}
         profile={{
-          name: user.name ?? user.email ?? "User",
-          avatarSrc: user.image,
+          name: connections.find((c) => c.id === activeConnectionId)?.name ?? "Knowhow",
           href: "/settings",
         }}
         activeHref={pathname}

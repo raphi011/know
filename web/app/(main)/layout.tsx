@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/app/lib/auth";
+import { getSession } from "@/app/lib/session";
 import { getVaults, getVaultDocuments } from "@/app/lib/knowhow/queries";
 import {
   getConnections,
@@ -13,14 +13,10 @@ export default async function MainLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const authUser = await getCurrentUser();
-
-  if (!authUser && process.env.DISABLE_AUTH !== "1") {
+  const session = await getSession();
+  if (!session || session.servers.length === 0) {
     redirect("/login");
   }
-
-  // Fallback user for local dev with DISABLE_AUTH=1
-  const user = authUser ?? { name: "Dev User", email: "dev@localhost" };
 
   const connections = await getConnections();
   const activeConnection = await getActiveConnection();
@@ -43,7 +39,6 @@ export default async function MainLayout({
 
   return (
     <AppShellWrapper
-      user={user}
       vault={vault}
       vaults={vaults}
       documents={documents}

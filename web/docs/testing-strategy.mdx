@@ -4,7 +4,7 @@ import { Meta } from "@storybook/addon-docs/blocks";
 
 # Testing Strategy
 
-Four-layer testing approach: **Unit tests** for pure domain logic, **DB integration tests** for repository functions, **Storybook interaction tests** for UI behavior, and **Playwright e2e tests** for full-stack flows.
+Three-layer testing approach: **Unit tests** for pure domain logic, **Storybook interaction tests** for UI behavior, and **Playwright e2e tests** for full-stack flows.
 
 ---
 
@@ -27,7 +27,7 @@ Pure functions that encode business rules — no DB, no server, no React. These 
 **Commands:**
 
 ```bash
-bun run test:db               # Runs both unit and DB integration tests
+bun run test:ci               # Runs unit + Storybook tests
 ```
 
 **Example (table-driven):**
@@ -51,68 +51,6 @@ describe("isValidSlug", () => {
       expect(isValidSlug(input)).toBe(expected);
     },
   );
-});
-```
-
----
-
-## DB Integration Tests
-
-Repository-level tests that run against a real Dockerized PostgreSQL instance.
-
-**What they test:**
-- Every repository function (SELECT, INSERT, UPDATE, DELETE)
-- Query correctness (joins, filters, edge cases)
-- Constraint enforcement (unique, FK, NOT NULL)
-- Transaction behavior via Drizzle
-
-**How they work:**
-- Tests run in Vitest "db" project (Node.js, not browser)
-- Tests use explicit cleanup in `beforeAll`/`afterAll` hooks
-- Tests live next to the module they test (e.g. `app/lib/db/posts.test.ts` beside `posts.ts`)
-- Requires Docker Compose Postgres running + migrations applied
-
-**Commands:**
-
-```bash
-docker compose up -d          # Start Postgres
-bun run db:migrate            # Apply migrations
-bun run test:db               # Run DB integration tests
-```
-
-**Gate rule:** No repository function may be used in an API route or server action until its DB integration test passes. This ensures every database call is verified before it enters the application layer.
-
-**Example:**
-
-```ts
-import { db } from "@/app/lib/db";
-import { users, posts } from "./schema";
-import { eq } from "drizzle-orm";
-
-const TEST_USER_ID = "test-user-posts";
-
-describe("posts repository", () => {
-  beforeAll(async () => {
-    await db.delete(posts);
-    await db.delete(users).where(eq(users.id, TEST_USER_ID));
-    await db.insert(users).values({ id: TEST_USER_ID, name: "Test User" });
-  });
-
-  afterAll(async () => {
-    await db.delete(posts);
-    await db.delete(users).where(eq(users.id, TEST_USER_ID));
-  });
-
-  it("creates and retrieves a post", async () => {
-    const post = await createPost({
-      title: "Hello World",
-      content: "First post content",
-      authorId: TEST_USER_ID,
-    });
-
-    expect(post).toBeDefined();
-    expect(post!.title).toBe("Hello World");
-  });
 });
 ```
 
@@ -170,9 +108,8 @@ export const SubmitForm = meta.story({
 Full-stack tests against a running Next.js server with a real database.
 
 **What they test:**
-- Auth flows (SSO → session → redirect)
+- Auth flows (login → session cookie → redirect)
 - API routes and server actions
-- Database state changes (post created, settings updated)
 - Middleware behavior (route protection, session expiry)
 - Multi-step user flows
 
@@ -181,6 +118,7 @@ Full-stack tests against a running Next.js server with a real database.
 - Tests live in `e2e/` directory, named `*.spec.ts`
 - `playwright.config.ts` auto-starts the dev server
 - Two projects: desktop Chrome + mobile viewport (390x844)
+- No database required — the web frontend is fully stateless (encrypted cookies)
 
 **Commands:**
 
@@ -207,23 +145,19 @@ test("unauthenticated user is redirected to /login", async ({ page }) => {
 | Input validation rules | Unit (table-driven) |
 | Data transformation / formatting | Unit (table-driven) |
 | Permission check logic | Unit (table-driven) |
-| Repository function returns correct data | DB Integration |
-| Constraint violations (duplicate email, missing FK) | DB Integration |
-| Complex Drizzle queries (joins, aggregations) | DB Integration |
 | Form validation (empty fields, invalid input) | Storybook |
 | Button states (disabled, loading) | Storybook |
 | Dialog/sheet open and close | Storybook |
 | Card layout and indicators | Storybook |
 | Component accessibility | Storybook |
 | Login → session cookie → redirect | Playwright |
-| Post creation → DB row → UI update | Playwright |
 | Settings change → persistence | Playwright |
 | Middleware redirects (expired session) | Playwright |
 | useActionState form submission flow | Storybook |
 | Suspense fallback rendering | Storybook |
 | Progressive enhancement (form works without JS) | Playwright |
 
-**Rule of thumb:** Pure business logic with no I/O → unit test (table-driven). Database queries → DB integration. UI behavior with mock data → Storybook. Full-stack flow with server + database → Playwright.
+**Rule of thumb:** Pure business logic with no I/O → unit test (table-driven). UI behavior with mock data → Storybook. Full-stack flow with server → Playwright.
 
 ---
 
@@ -235,19 +169,12 @@ test("unauthenticated user is redirected to /login", async ({ page }) => {
 │   ├── validation.test.ts      # Unit tests for validation
 │   ├── formatting.ts           # Data formatting utils
 │   ├── formatting.test.ts      # Unit tests for formatting
+│   ├── session.ts             # Encrypted cookie session (AES-256-GCM)
+│   ├── actions/auth.ts        # Login/logout server actions
 │   └── ...
-├── app/lib/db/                 # Database repository layer (Drizzle)
-│   ├── schema.ts              # Drizzle schema definitions
-│   ├── posts.ts               # Posts repository functions
-│   ├── posts.test.ts          # DB integration tests for posts
-│   └── test-setup.ts          # Test setup (DB connectivity check)
-├── db/                         # Database migrations
-│   ├── migrations/             # Drizzle migration files
-│   └── seed.ts                 # Test seed data
 ├── e2e/                        # Playwright e2e tests
 │   ├── smoke.spec.ts           # Basic app reachability
-│   ├── auth.spec.ts            # SSO, session, logout
-│   ├── posts.spec.ts           # Post lifecycle
+│   ├── auth.spec.ts            # Login, session cookie, logout
 │   └── ...
 ├── stories/                    # Storybook stories + interaction tests
 │   ├── ui/                     # Layer 1: Headless UI + custom primitives
@@ -302,45 +229,34 @@ User stories are implemented in dependency order. Each story gets both test laye
 
 | Phase | User Stories | Storybook | Playwright |
 |-------|-------------|-----------|------------|
-| 1. Auth | AUTH-01→05 | Login page, SSO callback, onboarding | SSO flow, session, redirect |
-| 2. Dashboard | DASH-01→03 | Dashboard cards, data tables | Load data from DB |
-| 3. Posts | POST-01→04 | Post card, post form, post list | Create post → DB state |
+| 1. Auth | AUTH-01→05 | Login form, server connection | Login flow, session cookie, redirect |
+| 2. Documents | DOC-01→04 | Document editor, sidebar, search | Browse, edit, save documents |
+| 3. Chat | CHAT-01→03 | Chat panel, message list | Multi-turn Q&A, streaming |
 | 4. Settings | SETT-01→03 | Settings page, theme toggle, language select | Update settings → persistence |
 | 5. Polish | Remaining P1/P2 | Per-story | Per-story |
 
 ---
 
-## Database Setup
+## Environment Setup
 
-### Local Development & Testing
+The web frontend is fully stateless — no database needed. Authentication uses encrypted httpOnly cookies (AES-256-GCM) storing the Knowhow server URL and API token.
 
-PostgreSQL runs via Docker Compose:
+### Local Development
 
 ```bash
-docker compose up -d          # Start Postgres on port 5433
-bun run db:migrate            # Apply all migrations
-bun run db:seed               # Seed example data
+just web-dev                  # Start Next.js dev server
+# Open http://localhost:3000, log in with your Knowhow server URL + API token
 ```
 
-**Connection:** `postgres://app:app@localhost:5433/app_dev`
-
-Set in `.env.local`:
+Set in `.env`:
 ```
-DATABASE_URL=postgres://app:app@localhost:5433/app_dev
+SESSION_SECRET=your-secret-here
 ```
-
-### Seed Data
-
-`db/seed.ts` is a placeholder for test fixtures (known users, posts) that will be added as features are implemented.
 
 ### Test Isolation
 
-- **DB integration tests:** Explicit cleanup in `beforeAll`/`afterAll` hooks
-- **E2E tests:** Will reset to seed state via `beforeAll` (not yet implemented)
-
-### CI
-
-Postgres service container in GitHub Actions, same Docker image.
+- **E2E tests:** Each test is independent, no shared state needed
+- **Storybook tests:** Components receive data via props, no server required
 
 ---
 
@@ -354,7 +270,6 @@ Current CI pipeline (`.github/workflows/ci.yml`):
 3. bun run lint                    # ESLint
 4. bun run test:ci                 # Storybook interaction tests
 5. bun run test:e2e                # Playwright e2e (against dev server)
-6. bun run test:db                 # DB integration tests (in e2e job, needs Postgres)
 ```
 
-Steps 2-4 run in the lint/typecheck job. Steps 5-6 run in the e2e job (which has a Postgres service container).
+Steps 2-4 run in the lint/typecheck job. Step 5 runs in the e2e job. No database service container needed.

@@ -119,22 +119,10 @@ web-test-e2e:
 web-lint:
     cd web && bun run lint && bun run typecheck
 
-# Run web DB migrations
-web-db-migrate:
-    cd web && bun run db:migrate
-
-# Run web DB seed
-web-db-seed:
-    cd web && bun run db:seed
-
 # --- Unified dev ---
 
-# Start all databases (SurrealDB + PostgreSQL)
-db-all:
-    docker-compose up -d surrealdb postgres
-
-# Start all services (SurrealDB + PostgreSQL + Go server + Web dev)
-dev-all: db-all
+# Start all services (SurrealDB + Go server + Web dev)
+dev-all: db-up
     #!/usr/bin/env bash
     set -e
     trap 'kill 0' EXIT

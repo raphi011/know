@@ -33,22 +33,3 @@ services:
       retries: 3
       start_period: 10s
 
-  postgres:
-    image: postgres:17-alpine
-    container_name: knowhow-postgres
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_DB: app_dev
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app_dev"]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  pgdata:
