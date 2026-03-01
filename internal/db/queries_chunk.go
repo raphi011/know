@@ -26,9 +26,13 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			embedAt = *ch.EmbedAt
 		}
 
-		var embedding any = surrealmodels.None
-		if len(ch.Embedding) > 0 {
-			embedding = ch.Embedding
+		vars := map[string]any{
+			"doc_id":       ch.DocumentID,
+			"content":      ch.Content,
+			"position":     ch.Position,
+			"heading_path": optionalString(ch.HeadingPath),
+			"labels":       labels,
+			"embed_at":     embedAt,
 		}
 
 		sql := `
@@ -38,18 +42,17 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 				position = $position,
 				heading_path = $heading_path,
 				labels = $labels,
-				embedding = $embedding,
 				embed_at = $embed_at
 		`
-		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-			"doc_id":       ch.DocumentID,
-			"content":      ch.Content,
-			"position":     ch.Position,
-			"heading_path": optionalString(ch.HeadingPath),
-			"labels":       labels,
-			"embedding":    embedding,
-			"embed_at":     embedAt,
-		}); err != nil {
+
+		// Only set embedding when present — the HNSW index rejects NONE values,
+		// and the async worker fills embeddings in later via UpdateChunkEmbedding.
+		if len(ch.Embedding) > 0 {
+			sql += `, embedding = $embedding`
+			vars["embedding"] = ch.Embedding
+		}
+
+		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, vars); err != nil {
 			return fmt.Errorf("create chunk %d: %w", i, err)
 		}
 	}

@@ -1,7 +1,3 @@
-import { Meta } from "@storybook/addon-docs/blocks";
-
-<Meta title="Docs/Component Architecture" />
-
 # Component Architecture
 
 The component library is organized in three layers. Each layer has strict import rules to maintain separation of concerns.

@@ -1,7 +1,3 @@
-import { Meta } from "@storybook/addon-docs/blocks";
-
-<Meta title="Docs/Design System" />
-
 # Design System
 
 Clean, modern, mobile-first web application. Blue/indigo primary for trust and clarity, warm amber accents for highlights and achievements. High contrast, tactile interactions, card-based layouts.

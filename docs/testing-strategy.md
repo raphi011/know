@@ -1,7 +1,3 @@
-import { Meta } from "@storybook/addon-docs/blocks";
-
-<Meta title="Docs/Testing Strategy" />
-
 # Testing Strategy
 
 Three-layer testing approach: **Unit tests** for pure domain logic, **Storybook interaction tests** for UI behavior, and **Playwright e2e tests** for full-stack flows.

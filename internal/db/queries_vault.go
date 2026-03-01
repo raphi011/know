@@ -40,7 +40,7 @@ func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID s
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
-		"vault_id":    vaultID,
+		"vault_id":    bareID("vault", vaultID),
 		"name":        input.Name,
 		"description": optionalString(input.Description),
 		"user_id":     userID,
@@ -121,7 +121,7 @@ func (c *Client) ListDocumentPaths(ctx context.Context, vaultID string) ([]strin
 	results, err := surrealdb.Query[[]struct {
 		Path string `json:"path"`
 	}](ctx, c.DB(), sql, map[string]any{
-		"vault_id": vaultID,
+		"vault_id": bareID("vault", vaultID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list document paths: %w", err)
@@ -141,7 +141,7 @@ func (c *Client) UpdateVaultTokenAccess(ctx context.Context, tokenID string, vau
 	sql := `UPDATE type::record("api_token", $token_id) SET vault_access += [type::record("vault", $vault_id)]`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"token_id": tokenID,
-		"vault_id": vaultID,
+		"vault_id": bareID("vault", vaultID),
 	}); err != nil {
 		return fmt.Errorf("update vault token access: %w", err)
 	}

@@ -23,7 +23,7 @@ func (c *Client) CreateProposal(ctx context.Context, input models.DocumentPropos
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.DocumentProposal](ctx, c.DB(), sql, map[string]any{
-		"vault_id":         input.VaultID,
+		"vault_id":         bareID("vault", input.VaultID),
 		"document_id":      input.DocumentID,
 		"proposed_content": input.ProposedContent,
 		"description":      optionalString(input.Description),
@@ -62,7 +62,7 @@ func (c *Client) ListProposals(ctx context.Context, vaultID string, status *stri
 
 	var sql string
 	vars := map[string]any{
-		"vault_id": vaultID,
+		"vault_id": bareID("vault", vaultID),
 	}
 
 	if status != nil {

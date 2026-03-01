@@ -9,7 +9,7 @@ type Props = {
 
 export default async function DocumentPage({ params }: Props) {
   const { path } = await params;
-  const docPath = "/" + path.join("/");
+  const docPath = "/" + path.map(decodeURIComponent).join("/");
 
   const vaults = await getVaults();
   const activeVaultId = await getActiveVaultId();

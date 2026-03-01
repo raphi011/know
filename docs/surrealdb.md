@@ -23,6 +23,17 @@ Parameters:
 1. **Dimension changes require fresh DB** - Can't ALTER index dimension
 2. **Optional embeddings** - Use `option<array<float>>` for nullable
 3. **Batch inserts** - HNSW builds during insert, can be slow for large batches
+4. **HNSW rejects NONE values** - Even on `option<array<float>>` fields, the HNSW index cannot index NONE values. Setting `embedding = NONE` in a CREATE statement causes: `Couldn't coerce value for field 'embedding': Expected 'array' but found 'NONE'`. **Fix**: Omit the embedding field entirely from the CREATE statement when no embedding is available. The async embedding worker can UPDATE the field later — UPDATE works fine because it replaces NONE with the actual vector.
+
+```sql
+-- BAD: HNSW chokes on NONE
+CREATE chunk SET content = $content, embedding = NONE
+
+-- GOOD: omit the field entirely, fill it later via UPDATE
+CREATE chunk SET content = $content
+-- ...later...
+UPDATE chunk:xyz SET embedding = $embedding
+```
 
 ## v3.0 Breaking Changes
 
@@ -78,6 +89,27 @@ func RecordIDString(id any) (string, error) {
     return "", fmt.Errorf("unexpected ID type: %T", id)
 }
 ```
+
+### `type::record()` Expects Bare IDs
+
+`type::record("table", $id)` constructs a record ID. If `$id` already has a table prefix (e.g., `"vault:default"`), the result is double-prefixed: `vault:vault:default`. This silently matches no records.
+
+**Fix**: Strip the table prefix at the DB boundary with a `bareID` helper:
+
+```go
+// bareID strips the "table:" prefix if present.
+// Callers can pass either "default" or "vault:default" — both work.
+func bareID(table, id string) string {
+    return strings.TrimPrefix(id, table+":")
+}
+
+// Usage in queries
+vars := map[string]any{
+    "vault_id": bareID("vault", vaultID),
+}
+```
+
+Apply `bareID` to **every** query parameter that feeds into `type::record()`. Missing even one causes silent empty results that are hard to debug.
 
 ## Hybrid Search Pattern
 

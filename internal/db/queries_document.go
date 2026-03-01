@@ -31,7 +31,7 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
-		"vault_id":     input.VaultID,
+		"vault_id":     bareID("vault", input.VaultID),
 		"path":         input.Path,
 		"title":        input.Title,
 		"content":      input.Content,
@@ -55,7 +55,7 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 func (c *Client) GetDocumentByPath(ctx context.Context, vaultID, path string) (*models.Document, error) {
 	sql := `SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
-		"vault_id": vaultID,
+		"vault_id": bareID("vault", vaultID),
 		"path":     path,
 	})
 	if err != nil {
@@ -93,7 +93,7 @@ type ListDocumentsFilter struct {
 func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) ([]models.Document, error) {
 	var conditions []string
 	vars := map[string]any{
-		"vault_id": filter.VaultID,
+		"vault_id": bareID("vault", filter.VaultID),
 	}
 
 	conditions = append(conditions, `vault = type::record("vault", $vault_id)`)

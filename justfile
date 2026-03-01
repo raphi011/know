@@ -2,6 +2,7 @@
 
 # Load .env file if present
 set dotenv-load := true
+set positional-arguments := true
 
 # SurrealDB defaults (matching docker-compose)
 export SURREALDB_URL := env_var_or_default("SURREALDB_URL", "ws://localhost:8000/rpc")
@@ -20,6 +21,15 @@ export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", 
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
 export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8484/query")
+
+# Web defaults
+export SESSION_SECRET := env_var_or_default("SESSION_SECRET", "dev-secret-not-for-production-use-only")
+
+# Bootstrap / CLI defaults (stable dev token + vault)
+export KNOWHOW_BOOTSTRAP_TOKEN := env_var_or_default("KNOWHOW_BOOTSTRAP_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
+export KNOWHOW_BOOTSTRAP_VAULT_ID := env_var_or_default("KNOWHOW_BOOTSTRAP_VAULT_ID", "default")
+export KNOWHOW_BOOTSTRAP_VAULT_NAME := env_var_or_default("KNOWHOW_BOOTSTRAP_VAULT_NAME", "default")
+export KNOWHOW_TOKEN := env_var_or_default("KNOWHOW_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
 
 # Build directories
 build_dir := "./bin"
@@ -42,12 +52,16 @@ build-server:
 build-bootstrap:
     go build -buildvcs=false -o {{build_dir}}/bootstrap ./cmd/bootstrap
 
+# Bootstrap DB (wipe + create user/vault/token from env vars)
+bootstrap: build-bootstrap db-up
+    {{build_dir}}/bootstrap
+
 # Build all binaries
 build-all: build build-server build-bootstrap
 
 # Run server with optional args (e.g., just server --wipe)
 server *ARGS: build-server
-    {{build_dir}}/{{server}} {{ARGS}}
+    "{{build_dir}}/{{server}}" "$@"
 
 # Install both binaries to GOPATH/bin
 install:
@@ -68,7 +82,7 @@ dev-reset: db-up
 
 # Run CLI command (ensures correct server URL)
 run *args: build
-    {{build_dir}}/{{binary}} {{args}}
+    "{{build_dir}}/{{binary}}" "$@"
 
 # Start development environment without running the server
 dev-setup: db-up

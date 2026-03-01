@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 type contextKey struct{}
@@ -29,12 +30,14 @@ func FromContext(ctx context.Context) (AuthContext, error) {
 }
 
 // RequireVaultAccess checks if the authenticated user has access to a vault.
+// Accepts both bare IDs ("default") and record IDs ("vault:default").
 func RequireVaultAccess(ctx context.Context, vaultID string) error {
 	ac, err := FromContext(ctx)
 	if err != nil {
 		return err
 	}
-	if slices.Contains(ac.VaultAccess, vaultID) {
+	bare := strings.TrimPrefix(vaultID, "vault:")
+	if slices.Contains(ac.VaultAccess, bare) {
 		return nil
 	}
 	return fmt.Errorf("forbidden: no access to vault %s", vaultID)

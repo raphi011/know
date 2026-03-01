@@ -21,7 +21,7 @@ export async function gql<T>(
     );
   }
 
-  const response = await fetch(conn.url, {
+  const response = await fetch(`${conn.url}/query`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

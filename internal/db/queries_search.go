@@ -31,7 +31,7 @@ type ChunkWithScore struct {
 func (c *Client) BM25Search(ctx context.Context, query string, filter SearchFilter) ([]DocumentWithScore, error) {
 	var conditions []string
 	vars := map[string]any{
-		"vault_id": filter.VaultID,
+		"vault_id": bareID("vault", filter.VaultID),
 		"query":    query,
 	}
 
@@ -84,7 +84,7 @@ func (c *Client) ChunkVectorSearch(ctx context.Context, embedding []float32, fil
 
 	var conditions []string
 	vars := map[string]any{
-		"vault_id":  filter.VaultID,
+		"vault_id":  bareID("vault", filter.VaultID),
 		"embedding": embedding,
 	}
 

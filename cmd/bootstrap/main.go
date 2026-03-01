@@ -1,10 +1,14 @@
 // Package main is a one-time bootstrap script that creates the initial
 // user, vault, and API token directly against SurrealDB.
 //
+// All flags fall back to environment variables, so `just bootstrap` works
+// with zero arguments when the justfile exports the defaults.
+//
 // Usage:
 //
 //	go run ./cmd/bootstrap --name "Admin" --email "admin@example.com"
 //	go run ./cmd/bootstrap --name "Admin" --token kh_abc123...
+//	just bootstrap  # uses env vars from justfile
 package main
 
 import (
@@ -21,12 +25,20 @@ import (
 	"github.com/raphi011/knowhow/internal/models"
 )
 
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
-	name := flag.String("name", "admin", "user name")
-	email := flag.String("email", "", "user email (optional)")
+	name := flag.String("name", envOrDefault("KNOWHOW_BOOTSTRAP_USER_NAME", "admin"), "user name (env: KNOWHOW_BOOTSTRAP_USER_NAME)")
+	email := flag.String("email", os.Getenv("KNOWHOW_BOOTSTRAP_USER_EMAIL"), "user email (env: KNOWHOW_BOOTSTRAP_USER_EMAIL)")
 	token := flag.String("token", os.Getenv("KNOWHOW_BOOTSTRAP_TOKEN"), "API token to reuse (env: KNOWHOW_BOOTSTRAP_TOKEN)")
-	userRecordID := flag.String("user-id", "admin", "stable user record ID")
-	vaultRecordID := flag.String("vault-id", "default", "stable vault record ID")
+	userRecordID := flag.String("user-id", envOrDefault("KNOWHOW_BOOTSTRAP_USER_ID", "admin"), "stable user record ID (env: KNOWHOW_BOOTSTRAP_USER_ID)")
+	vaultRecordID := flag.String("vault-id", envOrDefault("KNOWHOW_BOOTSTRAP_VAULT_ID", "default"), "stable vault record ID (env: KNOWHOW_BOOTSTRAP_VAULT_ID)")
+	vaultName := flag.String("vault-name", envOrDefault("KNOWHOW_BOOTSTRAP_VAULT_NAME", "default"), "vault display name (env: KNOWHOW_BOOTSTRAP_VAULT_NAME)")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -84,10 +96,10 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Created user: %s (id: %s)\n", user.Name, userID)
 
-	// 2. Create default vault with stable ID
+	// 2. Create vault with stable ID
 	desc := "Default vault"
 	vault, err := dbClient.CreateVaultWithID(ctx, *vaultRecordID, userID, models.VaultInput{
-		Name:        "default",
+		Name:        *vaultName,
 		Description: &desc,
 	})
 	if err != nil {

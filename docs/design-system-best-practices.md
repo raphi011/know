@@ -1,12 +1,8 @@
-import { Meta } from "@storybook/addon-docs/blocks";
-
-<Meta title="Docs/Design System Best Practices" />
-
 # Design System Best Practices
 
 Principles for building polished, consistent UIs. General-purpose reference applicable to any project.
 
-For the concrete tokens, components, and consistency rules of this project, see the [Design System](/docs/docs-design-system--docs) and [Component Architecture](/docs/docs-component-architecture--docs) docs.
+For the concrete tokens, components, and consistency rules of this project, see `docs/design-system.md` and `docs/component-architecture.md`.
 
 ---
 

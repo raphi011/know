@@ -9,7 +9,7 @@ export async function loginAction(
   serverToken: string,
   serverName: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const url = serverUrl.trim().replace(/\/$/, "");
+  const url = serverUrl.trim().replace(/\/+$/, "").replace(/\/query$/, "");
   const token = serverToken.trim();
   const name = serverName.trim() || new URL(url).hostname;
 
@@ -19,7 +19,7 @@ export async function loginAction(
 
   // Validate the connection by making a test query
   try {
-    const response = await fetch(url, {
+    const response = await fetch(`${url}/query`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

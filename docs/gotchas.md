@@ -1,7 +1,3 @@
-import { Meta } from "@storybook/addon-docs/blocks";
-
-<Meta title="Docs/Framework Gotchas" />
-
 # Framework Gotchas & Patterns
 
 Lessons learned from implementation — framework-specific pitfalls and the patterns we use to work around them. **Read when debugging unexpected behavior or before using an unfamiliar API.**
@@ -59,16 +55,16 @@ Routes in `PUBLIC_ROUTES` are matched with `pathname.startsWith(route)`. Adding 
 Turbopack registers every export from a `"use server"` module as a server action reference. TypeScript `export type` is erased at compile time, so Turbopack sees a reference to a non-existent runtime export and errors: _"Export X doesn't exist in target module"_.
 
 ```tsx
-// ❌ BAD — Turbopack can't find ActionResult at runtime
+// BAD — Turbopack can't find ActionResult at runtime
 "use server";
 import type { ActionResult } from "@/app/lib/action-result";
 export type { ActionResult }; // erased by TS → Turbopack error
 
-// ❌ BAD — same problem with type definitions
+// BAD — same problem with type definitions
 "use server";
 export type EnrollResult = { success: true } | { error: string };
 
-// ✅ GOOD — import the type directly in the consumer
+// GOOD — import the type directly in the consumer
 // action.ts keeps "use server" clean (no type exports)
 // view.tsx imports the type from the shared module
 import type { ActionResult } from "@/app/lib/action-result";
@@ -89,10 +85,10 @@ The state object carries `step`, `error`, and any data needed by the next step. 
 When wrapping a server action with `useActionState`, the action's signature must accept a previous state parameter as its first argument. This is easy to forget since standalone server actions don't need it:
 
 ```tsx
-// ❌ BAD — breaks with useActionState
+// BAD — breaks with useActionState
 export async function createPostAction(formData: FormData): Promise<ActionResult> { ... }
 
-// ✅ GOOD — works with useActionState (prevState injected automatically)
+// GOOD — works with useActionState (prevState injected automatically)
 export async function createPostAction(
   _prevState: ActionResult | null,
   formData: FormData,
@@ -170,45 +166,6 @@ German typographic quotes `„"` (U+201E opening, U+201C closing) look similar t
 ```
 
 This renders identically (`Möchtest du „{club}" beitreten?`) but doesn't confuse the parser.
-
----
-
-## Drizzle / PostgreSQL
-
-### Transactions with Drizzle
-
-Use `db.transaction()` for multi-statement transactions. The callback receives a transaction-scoped `tx` object:
-
-```ts
-await db.transaction(async (tx) => {
-  await tx.insert(posts).values({ title, content, authorId });
-  await tx.insert(activityLog).values({ userId: authorId, action: "post_created" });
-});
-```
-
-All repository functions accept the Drizzle `db` or transaction `tx` instance so they work both standalone and inside transactions.
-
-### Advisory locks for concurrent modifications
-
-For operations where concurrent writes could cause lost updates, use `pg_advisory_xact_lock`:
-
-```sql
-SELECT pg_advisory_xact_lock($resourceId);
-```
-
-This serializes concurrent modifications per resource within the transaction scope.
-
----
-
-## Auth.js
-
-### Auth.js is in maintenance mode
-
-As of September 2025, Auth.js is maintained by Better Auth. The v5 beta never reached a stable release. Security patches continue, but **Better Auth is the recommended successor** for new projects.
-
-- Existing Auth.js v5 projects: continue using, but plan migration
-- Migration guide: [authjs.dev/getting-started/migrate-to-better-auth](https://authjs.dev/getting-started/migrate-to-better-auth)
-- For new features or major auth refactors, evaluate Better Auth
 
 ---
 

@@ -30,7 +30,7 @@ func (c *Client) CreateWikiLinks(ctx context.Context, fromDocID, vaultID string,
 			"from_doc_id": fromDocID,
 			"to_doc":      toDoc,
 			"raw_target":  link.RawTarget,
-			"vault_id":    vaultID,
+			"vault_id":    bareID("vault", vaultID),
 		}); err != nil {
 			return fmt.Errorf("create wiki link %d: %w", i, err)
 		}
@@ -95,7 +95,7 @@ func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, t
 			AND to_doc IS NONE
 	`
 	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":   vaultID,
+		"vault_id":   bareID("vault", vaultID),
 		"raw_target": rawTarget,
 		"to_doc_id":  toDocID,
 	})
