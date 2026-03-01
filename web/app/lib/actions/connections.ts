@@ -6,19 +6,11 @@ import { db } from "@/app/lib/db";
 import { serverConnections } from "@/app/lib/db/schema";
 import { eq } from "drizzle-orm";
 import type { ActionResult } from "@/app/lib/action-result";
+import type { ServerConnection } from "@/app/lib/knowhow/types";
 
 const ACTIVE_CONNECTION_COOKIE = "active_connection_id";
 const ACTIVE_VAULT_COOKIE = "active_vault_id";
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
-
-export type ServerConnection = {
-  id: string;
-  name: string;
-  url: string;
-  apiToken: string;
-  isDefault: boolean;
-  createdAt: Date;
-};
 
 export async function getConnections(): Promise<ServerConnection[]> {
   return db

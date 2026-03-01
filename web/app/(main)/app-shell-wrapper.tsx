@@ -8,8 +8,7 @@ import { DocumentsProvider } from "@/components/domain/documents-context";
 import { SearchCommandPalette } from "@/components/domain/search-command-palette";
 import { VaultSwitcher } from "@/components/domain/vault-switcher";
 import { buildTree } from "@/app/lib/knowhow/tree";
-import type { Vault, DocumentSummary } from "@/app/lib/knowhow/types";
-import type { ServerConnection } from "@/app/lib/actions/connections";
+import type { Vault, DocumentSummary, ServerConnection } from "@/app/lib/knowhow/types";
 
 type User = {
   id?: string;

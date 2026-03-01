@@ -19,9 +19,8 @@ import { cn } from "@/lib/utils";
 import {
   setActiveConnectionAction,
   setActiveVaultAction,
-  type ServerConnection,
 } from "@/app/lib/actions/connections";
-import type { Vault } from "@/app/lib/knowhow/types";
+import type { Vault, ServerConnection } from "@/app/lib/knowhow/types";
 
 type VaultSwitcherProps = {
   connections: ServerConnection[];

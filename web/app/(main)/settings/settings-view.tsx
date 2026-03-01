@@ -10,8 +10,8 @@ import { updateLanguageAction } from "@/app/lib/actions/language";
 import {
   addConnectionAction,
   removeConnectionAction,
-  type ServerConnection,
 } from "@/app/lib/actions/connections";
+import type { ServerConnection } from "@/app/lib/knowhow/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
