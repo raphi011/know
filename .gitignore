@@ -7,6 +7,7 @@
 memcp
 /knowhow
 /knowhow-server
+/bootstrap
 
 # Test binary, built with `go test -c`
 *.test

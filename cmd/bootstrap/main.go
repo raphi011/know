@@ -51,6 +51,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 0. Wipe existing data
+	if err := dbClient.WipeData(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: wipe data: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Wiped existing data\n")
+
 	// 1. Create user
 	var emailPtr *string
 	if *email != "" {
