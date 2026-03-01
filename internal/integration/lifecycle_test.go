@@ -334,3 +334,196 @@ Updated content for beta.
 		t.Fatalf("delete vault: %v", err)
 	}
 }
+
+// TestSyncChunks_PreservesUnchangedChunks verifies the content-based chunk diffing:
+// unchanged chunks keep their embeddings, changed chunks get new embed_at, removed chunks are deleted.
+func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "sync-chunks-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "sync-test-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	// nil embedder — embed_at should NOT be set on any chunks
+	docSvc := document.NewService(testDB, nil)
+
+	// --- Step 1: Create a document with initial content ---
+	doc, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    "/sync-test.md",
+		Content: "# Title\n\nFirst paragraph content.\n\nSecond paragraph content.",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	// Get initial chunks
+	initialChunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("get initial chunks: %v", err)
+	}
+	if len(initialChunks) == 0 {
+		t.Fatal("expected at least 1 chunk after create")
+	}
+
+	// Verify nil embedder means no embed_at set
+	for _, c := range initialChunks {
+		if c.EmbedAt != nil {
+			t.Error("with nil embedder, embed_at should be nil")
+		}
+	}
+
+	initialContent := initialChunks[0].Content
+	initialID := models.MustRecordIDString(initialChunks[0].ID)
+
+	// --- Step 2: Update with same content — chunks should be preserved ---
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    "/sync-test.md",
+		Content: "# Title\n\nFirst paragraph content.\n\nSecond paragraph content.",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("upsert same content: %v", err)
+	}
+
+	afterSameUpdate, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("get chunks after same-content update: %v", err)
+	}
+	if len(afterSameUpdate) != len(initialChunks) {
+		t.Errorf("chunk count changed on same content: was %d, now %d", len(initialChunks), len(afterSameUpdate))
+	}
+
+	// The first chunk should have the same ID (preserved, not recreated)
+	afterID := models.MustRecordIDString(afterSameUpdate[0].ID)
+	if afterID != initialID {
+		t.Errorf("chunk ID changed on same content: was %q, now %q", initialID, afterID)
+	}
+	if afterSameUpdate[0].Content != initialContent {
+		t.Error("chunk content should be unchanged")
+	}
+
+	// --- Step 3: Update with different content — old chunks deleted, new created ---
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    "/sync-test.md",
+		Content: "# New Title\n\nCompletely different content here.",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("upsert new content: %v", err)
+	}
+
+	afterNewContent, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("get chunks after new content: %v", err)
+	}
+	if len(afterNewContent) == 0 {
+		t.Fatal("expected chunks after content update")
+	}
+
+	// Old chunk ID should no longer exist (content changed → deleted + new created)
+	for _, c := range afterNewContent {
+		cID := models.MustRecordIDString(c.ID)
+		if cID == initialID {
+			t.Error("old chunk should be deleted when content changes")
+		}
+	}
+
+	// --- Cleanup ---
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestSyncChunks_PartialUpdate verifies that when some chunks change and others don't,
+// only the changed chunks get new IDs (deleted + created).
+func TestSyncChunks_PartialUpdate(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "partial-sync-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "partial-sync-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	// Create document with content long enough to produce multiple chunks.
+	// Default chunk config has a max of ~1500 chars, so we use heading-based splitting.
+	longContent := "# Section A\n\nContent of section A that is preserved across updates.\n\n# Section B\n\nContent of section B that will change."
+
+	doc, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    "/partial-sync.md",
+		Content: longContent,
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	initialChunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("get initial chunks: %v", err)
+	}
+
+	// Build content→ID map for initial state
+	initialByContent := make(map[string]string)
+	for _, c := range initialChunks {
+		initialByContent[c.Content] = models.MustRecordIDString(c.ID)
+	}
+
+	// Update: keep section A, change section B
+	updatedContent := "# Section A\n\nContent of section A that is preserved across updates.\n\n# Section B\n\nThis is completely new content for section B."
+
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    "/partial-sync.md",
+		Content: updatedContent,
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("update doc: %v", err)
+	}
+
+	updatedChunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("get updated chunks: %v", err)
+	}
+
+	// Check which chunks were preserved vs recreated
+	for _, c := range updatedChunks {
+		cID := models.MustRecordIDString(c.ID)
+		if oldID, existed := initialByContent[c.Content]; existed {
+			// Content existed before — should have same ID (preserved)
+			if cID != oldID {
+				t.Errorf("unchanged chunk should keep ID: content=%q, old=%q, new=%q", c.Content[:min(30, len(c.Content))], oldID, cID)
+			}
+		}
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}

@@ -3,9 +3,11 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/models"
 	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) error {
@@ -19,6 +21,16 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			labels = []string{}
 		}
 
+		var embedAt any = surrealmodels.None
+		if ch.EmbedAt != nil {
+			embedAt = *ch.EmbedAt
+		}
+
+		var embedding any = surrealmodels.None
+		if len(ch.Embedding) > 0 {
+			embedding = ch.Embedding
+		}
+
 		sql := `
 			CREATE chunk SET
 				document = type::record("document", $doc_id),
@@ -26,7 +38,8 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 				position = $position,
 				heading_path = $heading_path,
 				labels = $labels,
-				embedding = $embedding
+				embedding = $embedding,
+				embed_at = $embed_at
 		`
 		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 			"doc_id":       ch.DocumentID,
@@ -34,7 +47,8 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			"position":     ch.Position,
 			"heading_path": optionalString(ch.HeadingPath),
 			"labels":       labels,
-			"embedding":    ch.Embedding,
+			"embedding":    embedding,
+			"embed_at":     embedAt,
 		}); err != nil {
 			return fmt.Errorf("create chunk %d: %w", i, err)
 		}
@@ -62,6 +76,82 @@ func (c *Client) DeleteChunks(ctx context.Context, documentID string) error {
 		"doc_id": documentID,
 	}); err != nil {
 		return fmt.Errorf("delete chunks: %w", err)
+	}
+	return nil
+}
+
+// DeleteChunkByID deletes a single chunk by its ID.
+func (c *Client) DeleteChunkByID(ctx context.Context, id string) error {
+	sql := `DELETE type::record("chunk", $id)`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id": id,
+	}); err != nil {
+		return fmt.Errorf("delete chunk %s: %w", id, err)
+	}
+	return nil
+}
+
+// UpdateChunkPosition updates only the position field of a chunk.
+func (c *Client) UpdateChunkPosition(ctx context.Context, id string, position int) error {
+	sql := `UPDATE type::record("chunk", $id) SET position = $position`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id":       id,
+		"position": position,
+	}); err != nil {
+		return fmt.Errorf("update chunk position: %w", err)
+	}
+	return nil
+}
+
+// ClaimChunksForEmbedding atomically claims chunks that are due for embedding.
+// It uses a subquery to SELECT candidate chunks (with ORDER/LIMIT), then UPDATEs
+// those specific records — clearing embed_at and returning the BEFORE state so the
+// caller gets the content to embed. This prevents double-processing.
+func (c *Client) ClaimChunksForEmbedding(ctx context.Context, limit int) ([]models.Chunk, error) {
+	sql := `
+		UPDATE (
+			SELECT id, embed_at FROM chunk
+			WHERE embed_at IS NOT NONE AND embed_at <= time::now()
+			ORDER BY embed_at ASC
+			LIMIT $limit
+		)
+		SET embed_at = NONE
+		RETURN BEFORE
+	`
+	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
+		"limit": limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("claim chunks for embedding: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// UpdateChunkEmbedding sets the embedding vector on a chunk after the worker embeds it.
+func (c *Client) UpdateChunkEmbedding(ctx context.Context, id string, embedding []float32) error {
+	sql := `UPDATE type::record("chunk", $id) SET embedding = $embedding`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id":        id,
+		"embedding": embedding,
+	}); err != nil {
+		return fmt.Errorf("update chunk embedding: %w", err)
+	}
+	return nil
+}
+
+// RescheduleChunkEmbedding re-schedules a chunk for embedding after a failure.
+// Uses a 30s backoff to avoid tight retry storms during provider outages.
+func (c *Client) RescheduleChunkEmbedding(ctx context.Context, id string) error {
+	retryAt := time.Now().UTC().Add(30 * time.Second)
+	sql := `UPDATE type::record("chunk", $id) SET embed_at = $embed_at`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id":       id,
+		"embed_at": retryAt,
+	}); err != nil {
+		return fmt.Errorf("reschedule chunk embedding: %w", err)
 	}
 	return nil
 }

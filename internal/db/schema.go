@@ -52,9 +52,9 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS source       ON document TYPE string DEFAULT "manual";
     DEFINE FIELD IF NOT EXISTS source_path  ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS metadata     ON document TYPE option<object> FLEXIBLE;
-    DEFINE FIELD IF NOT EXISTS created_at   ON document TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at   ON document TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS created_at ON document TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at ON document TYPE datetime VALUE time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_document_vault_path    ON document FIELDS vault, path UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_document_labels        ON document FIELDS labels;
@@ -88,10 +88,12 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS position     ON chunk TYPE int;
     DEFINE FIELD IF NOT EXISTS heading_path ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS labels       ON chunk TYPE array<string> DEFAULT [];
-    DEFINE FIELD IF NOT EXISTS embedding    ON chunk TYPE array<float>;
+    DEFINE FIELD IF NOT EXISTS embedding    ON chunk TYPE option<array<float>>;
+    DEFINE FIELD IF NOT EXISTS embed_at     ON chunk TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS created_at   ON chunk TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_chunk_document   ON chunk FIELDS document;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_embed_at   ON chunk FIELDS embed_at;
     DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER knowhow_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding  ON chunk FIELDS embedding
         HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;

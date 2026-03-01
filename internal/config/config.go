@@ -53,6 +53,10 @@ type Config struct {
 
 	// Server settings
 	IngestConcurrency int
+
+	// Embedding worker settings
+	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
+	EmbedWorkerBatch    int // max chunks per tick (default: 10)
 }
 
 // Load reads configuration from environment variables.
@@ -89,6 +93,10 @@ func Load() Config {
 
 		// Server settings
 		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
+
+		// Embedding worker
+		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),
+		EmbedWorkerBatch:    getEnvInt("KNOWHOW_EMBED_WORKER_BATCH", 10),
 	}
 }
 
