@@ -4,6 +4,7 @@
 // Usage:
 //
 //	go run ./cmd/bootstrap --name "Admin" --email "admin@example.com"
+//	go run ./cmd/bootstrap --name "Admin" --token kh_abc123...
 package main
 
 import (
@@ -23,6 +24,9 @@ import (
 func main() {
 	name := flag.String("name", "admin", "user name")
 	email := flag.String("email", "", "user email (optional)")
+	token := flag.String("token", os.Getenv("KNOWHOW_BOOTSTRAP_TOKEN"), "API token to reuse (env: KNOWHOW_BOOTSTRAP_TOKEN)")
+	userRecordID := flag.String("user-id", "admin", "stable user record ID")
+	vaultRecordID := flag.String("vault-id", "default", "stable vault record ID")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -58,13 +62,13 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Wiped existing data\n")
 
-	// 1. Create user
+	// 1. Create user with stable ID
 	var emailPtr *string
 	if *email != "" {
 		emailPtr = email
 	}
 
-	user, err := dbClient.CreateUser(ctx, models.UserInput{
+	user, err := dbClient.CreateUserWithID(ctx, *userRecordID, models.UserInput{
 		Name:  *name,
 		Email: emailPtr,
 	})
@@ -80,9 +84,9 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Created user: %s (id: %s)\n", user.Name, userID)
 
-	// 2. Create default vault
+	// 2. Create default vault with stable ID
 	desc := "Default vault"
-	vault, err := dbClient.CreateVault(ctx, userID, models.VaultInput{
+	vault, err := dbClient.CreateVaultWithID(ctx, *vaultRecordID, userID, models.VaultInput{
 		Name:        "default",
 		Description: &desc,
 	})
@@ -98,11 +102,21 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Created vault: %s (id: %s)\n", vault.Name, vaultID)
 
-	// 3. Generate API token with access to the new vault
-	rawToken, tokenHash, err := auth.GenerateToken()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: generate token: %v\n", err)
-		os.Exit(1)
+	// 3. Create API token with access to the new vault
+	var rawToken, tokenHash string
+	if *token != "" {
+		tokenHash, err = auth.UseToken(*token)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid token: %v\n", err)
+			os.Exit(1)
+		}
+		rawToken = *token
+	} else {
+		rawToken, tokenHash, err = auth.GenerateToken()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: generate token: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	if _, err := dbClient.CreateToken(ctx, userID, tokenHash, "bootstrap", []string{vaultID}); err != nil {

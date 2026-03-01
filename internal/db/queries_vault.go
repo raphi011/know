@@ -31,6 +31,29 @@ func (c *Client) CreateVault(ctx context.Context, userID string, input models.Va
 	return &(*results)[0].Result[0], nil
 }
 
+func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID string, input models.VaultInput) (*models.Vault, error) {
+	sql := `
+		CREATE type::record("vault", $vault_id) SET
+			name = $name,
+			description = $description,
+			created_by = type::record("user", $user_id)
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
+		"vault_id":    vaultID,
+		"name":        input.Name,
+		"description": optionalString(input.Description),
+		"user_id":     userID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create vault with id: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create vault with id: no result returned")
+	}
+	return &(*results)[0].Result[0], nil
+}
+
 func (c *Client) GetVault(ctx context.Context, id string) (*models.Vault, error) {
 	sql := `SELECT * FROM type::record("vault", $id)`
 	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{

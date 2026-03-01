@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 const tokenPrefix = "kh_"
@@ -19,6 +20,14 @@ func GenerateToken() (raw string, hash string, err error) {
 	raw = tokenPrefix + hex.EncodeToString(bytes)
 	hash = HashToken(raw)
 	return raw, hash, nil
+}
+
+// UseToken validates a caller-supplied raw token and returns its hash.
+func UseToken(raw string) (string, error) {
+	if !strings.HasPrefix(raw, tokenPrefix) {
+		return "", fmt.Errorf("token must start with %q", tokenPrefix)
+	}
+	return HashToken(raw), nil
 }
 
 // HashToken computes SHA256 of a raw token string.

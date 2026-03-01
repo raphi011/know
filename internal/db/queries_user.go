@@ -28,6 +28,27 @@ func (c *Client) CreateUser(ctx context.Context, input models.UserInput) (*model
 	return &(*results)[0].Result[0], nil
 }
 
+func (c *Client) CreateUserWithID(ctx context.Context, userID string, input models.UserInput) (*models.User, error) {
+	sql := `
+		CREATE type::record("user", $user_id) SET
+			name = $name,
+			email = $email
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.User](ctx, c.DB(), sql, map[string]any{
+		"user_id": userID,
+		"name":    input.Name,
+		"email":   optionalString(input.Email),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create user with id: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create user with id: no result returned")
+	}
+	return &(*results)[0].Result[0], nil
+}
+
 func (c *Client) GetUser(ctx context.Context, id string) (*models.User, error) {
 	sql := `SELECT * FROM type::record("user", $id)`
 	results, err := surrealdb.Query[[]models.User](ctx, c.DB(), sql, map[string]any{
