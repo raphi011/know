@@ -48,10 +48,12 @@ export const env = {
     return requiredInProduction("AUTH_OIDC_CLIENT_SECRET");
   },
   get KNOWHOW_API_URL() {
-    return required("KNOWHOW_API_URL");
+    // Optional — DB server connections take priority
+    return process.env.KNOWHOW_API_URL ?? "";
   },
   get KNOWHOW_API_TOKEN() {
-    return required("KNOWHOW_API_TOKEN");
+    // Optional — DB server connections take priority
+    return process.env.KNOWHOW_API_TOKEN ?? "";
   },
   get NODE_ENV() {
     return process.env.NODE_ENV ?? "development";

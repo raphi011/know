@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { PageLayout } from "@/components/page-layout";
+import { getConnections } from "@/app/lib/actions/connections";
 import { SettingsView } from "./settings-view";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -12,10 +13,11 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function SettingsPage() {
   const t = await getTranslations("settings");
+  const connections = await getConnections();
 
   return (
     <PageLayout title={t("title")}>
-      <SettingsView />
+      <SettingsView connections={connections} />
     </PageLayout>
   );
 }

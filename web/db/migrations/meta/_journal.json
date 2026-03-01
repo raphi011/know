@@ -15,6 +15,13 @@
       "when": 1772224426465,
       "tag": "0001_cheerful_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772448000000,
+      "tag": "0002_add_server_connections",
+      "breakpoints": true
     }
   ]
 }

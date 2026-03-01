@@ -14,6 +14,7 @@ import (
 	"github.com/raphaelgruber/memcp-go/internal/metrics"
 	"github.com/tmc/langchaingo/embeddings"
 	bedrockembed "github.com/tmc/langchaingo/embeddings/bedrock"
+	"github.com/tmc/langchaingo/llms/googleai"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
@@ -46,6 +47,22 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 			return nil, fmt.Errorf("create ollama embedder: %w", err)
 		}
 
+	case config.ProviderGoogleAI:
+		if cfg.GoogleAIAPIKey == "" {
+			return nil, fmt.Errorf("Google AI API key required (GOOGLE_AI_API_KEY)")
+		}
+		llm, googleErr := googleai.New(ctx,
+			googleai.WithAPIKey(cfg.GoogleAIAPIKey),
+			googleai.WithDefaultEmbeddingModel(cfg.EmbedModel),
+		)
+		if googleErr != nil {
+			return nil, fmt.Errorf("create google ai client: %w", googleErr)
+		}
+		model, err = embeddings.NewEmbedder(llm)
+		if err != nil {
+			return nil, fmt.Errorf("create google ai embedder: %w", err)
+		}
+
 	case config.ProviderOpenAI:
 		if cfg.OpenAIAPIKey == "" {
 			return nil, fmt.Errorf("OpenAI API key required")
@@ -60,6 +77,26 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 		model, err = embeddings.NewEmbedder(llm)
 		if err != nil {
 			return nil, fmt.Errorf("create openai embedder: %w", err)
+		}
+
+	case config.ProviderAnthropic:
+		// Anthropic embeddings via Voyage AI (OpenAI-compatible API).
+		// Voyage AI (acquired by Anthropic) exposes an OpenAI-compatible
+		// embeddings endpoint at https://api.voyageai.com/v1.
+		if cfg.AnthropicAPIKey == "" {
+			return nil, fmt.Errorf("Anthropic API key required (used for Voyage AI embeddings)")
+		}
+		llm, voyageErr := openai.New(
+			openai.WithToken(cfg.AnthropicAPIKey),
+			openai.WithBaseURL("https://api.voyageai.com/v1"),
+			openai.WithEmbeddingModel(cfg.EmbedModel),
+		)
+		if voyageErr != nil {
+			return nil, fmt.Errorf("create anthropic/voyage embedder: %w", voyageErr)
+		}
+		model, err = embeddings.NewEmbedder(llm)
+		if err != nil {
+			return nil, fmt.Errorf("create anthropic/voyage embedder: %w", err)
 		}
 
 	case config.ProviderBedrock:

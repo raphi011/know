@@ -28,14 +28,14 @@ surrealdb:
 
 # LLM provider configuration
 llm:
-  provider: ""       # none | ollama | openai | anthropic | bedrock
-  model: ""          # e.g. llama3.2, gpt-4, claude-sonnet-4-20250514
+  provider: ""       # none | ollama | openai | anthropic | bedrock | googleai
+  model: ""          # e.g. claude-sonnet-4-20250514, gemini-2.0-flash
 
 # Embedding provider configuration
 embedding:
-  provider: ""       # none | ollama | openai | bedrock
-  model: ""          # e.g. bge-m3, text-embedding-3-small
-  dimension: ""      # e.g. 1024
+  provider: ""       # none | ollama | openai | anthropic | bedrock | googleai
+  model: ""          # e.g. gemini-embedding-001, voyage-3-large, text-embedding-3-small
+  dimension: ""      # e.g. 768, 1024
 
 # Ollama settings (when using ollama provider)
 ollama:
@@ -48,6 +48,7 @@ apiKeys:
   # existingSecret: "knowhow-api-keys"
   openaiApiKey: ""
   anthropicApiKey: ""
+  googleAiApiKey: ""
 
 # AWS Bedrock settings
 bedrock:

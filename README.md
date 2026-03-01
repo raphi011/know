@@ -12,7 +12,7 @@ Store any type of knowledge (people, services, concepts, documents) with flexibl
 - **Graph Relations**: Link entities with typed relationships
 - **LLM Synthesis**: Ask questions and get synthesized answers from your knowledge
 - **Templates**: Generate structured output (peer reviews, service summaries)
-- **Multi-Provider**: Supports Ollama (local), OpenAI, Anthropic for embeddings and LLM
+- **Multi-Provider**: Supports Google AI (Gemini), Anthropic/Voyage, OpenAI, Bedrock, Ollama for embeddings and LLM
 - **Web UI**: Svelte-based document editor with CodeMirror — edit markdown documents in the browser
 - **Chat Panel**: Slide-over conversational Q&A with streaming responses, multi-turn history, and document-aware search
 
@@ -29,15 +29,11 @@ go install ./cmd/knowhow
 ### Prerequisites
 
 - **SurrealDB**: Running at `ws://localhost:8000/rpc` (default)
-- **Ollama** (optional): For local embeddings and LLM
+- An embedding provider API key (Google AI, Anthropic, OpenAI, or local Ollama)
 
 ```bash
 # Start SurrealDB
 surreal start --user root --pass root
-
-# Pull embedding model (if using Ollama)
-ollama pull all-minilm:l6-v2
-ollama pull llama3.2
 ```
 
 ## Quick Start
@@ -224,21 +220,19 @@ SURREALDB_DATABASE=graph
 SURREALDB_USER=root
 SURREALDB_PASS=root
 
-# Embedding Provider (ollama | openai | anthropic)
-KNOWHOW_EMBED_PROVIDER=ollama
-KNOWHOW_EMBED_MODEL=all-minilm:l6-v2
-KNOWHOW_EMBED_DIMENSION=384
+# Embedding Provider (googleai | anthropic | openai | bedrock | ollama)
+KNOWHOW_EMBED_PROVIDER=googleai
+KNOWHOW_EMBED_MODEL=gemini-embedding-001
+KNOWHOW_EMBED_DIMENSION=768
 
-# LLM Provider (ollama | openai | anthropic)
-KNOWHOW_LLM_PROVIDER=ollama
-KNOWHOW_LLM_MODEL=llama3.2
+# LLM Provider (anthropic | openai | googleai | bedrock | ollama)
+KNOWHOW_LLM_PROVIDER=anthropic
+KNOWHOW_LLM_MODEL=claude-sonnet-4-20250514
 
-# Provider API Keys (if using cloud providers)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Ollama host (if using ollama)
-OLLAMA_HOST=http://localhost:11434
+# Provider API Keys
+GOOGLE_AI_API_KEY=...           # For Google AI / Gemini
+ANTHROPIC_API_KEY=sk-ant-...    # For Anthropic LLM + Voyage embeddings
+OPENAI_API_KEY=sk-...           # For OpenAI
 ```
 
 ## Entity Types

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getVaults, getDocument } from "@/app/lib/knowhow/queries";
+import { getActiveVaultId } from "@/app/lib/actions/connections";
 import { DocumentEditor } from "@/components/domain/document-editor";
 
 type Props = {
@@ -11,7 +12,8 @@ export default async function DocumentPage({ params }: Props) {
   const docPath = "/" + path.join("/");
 
   const vaults = await getVaults();
-  const vault = vaults[0];
+  const activeVaultId = await getActiveVaultId();
+  const vault = vaults.find((v) => v.id === activeVaultId) ?? vaults[0];
 
   if (!vault) {
     notFound();

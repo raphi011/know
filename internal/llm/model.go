@@ -13,6 +13,7 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/bedrock"
+	"github.com/tmc/langchaingo/llms/googleai"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
@@ -140,6 +141,18 @@ func NewModel(cfg config.Config, mc *metrics.Collector) (*Model, error) {
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create ollama model: %w", err)
+		}
+
+	case config.ProviderGoogleAI:
+		if cfg.GoogleAIAPIKey == "" {
+			return nil, fmt.Errorf("Google AI API key required (GOOGLE_AI_API_KEY)")
+		}
+		model, err = googleai.New(context.Background(),
+			googleai.WithAPIKey(cfg.GoogleAIAPIKey),
+			googleai.WithDefaultModel(cfg.LLMModel),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create google ai model: %w", err)
 		}
 
 	case config.ProviderOpenAI:
