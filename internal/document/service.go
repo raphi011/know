@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -100,20 +101,18 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		return nil, fmt.Errorf("extract doc id: %w", err)
 	}
 
-	// 9. Extract and store wiki-links
+	// 9. Sync chunks (with smart diffing — only re-embed changed chunks)
+	if err := s.syncChunks(ctx, docID, parsed, allLabels); err != nil {
+		slog.Warn("failed to sync chunks", "path", path, "error", err)
+	}
+
+	// 10. Extract and store wiki-links
 	if err := s.processWikiLinks(ctx, docID, input.VaultID, parsed.Content); err != nil {
 		slog.Warn("failed to process wiki-links", "path", path, "error", err)
 	}
 
-	// 10. Resolve dangling links that might point to this document
+	// 11. Resolve dangling links that might point to this document
 	s.resolveDanglingForDoc(ctx, input.VaultID, doc)
-
-	// 11. Chunk and embed (if embedder available)
-	if s.embedder != nil {
-		if err := s.processChunks(ctx, docID, parsed, allLabels); err != nil {
-			slog.Warn("failed to process chunks", "path", path, "error", err)
-		}
-	}
 
 	// 12. Process explicit relates_to from frontmatter
 	if created {
@@ -121,6 +120,57 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	}
 
 	return doc, nil
+}
+
+// EmbedPendingChunks claims chunks that are due for embedding and embeds them.
+// Returns the number of chunks successfully embedded.
+func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error) {
+	if s.embedder == nil {
+		return 0, nil
+	}
+
+	chunks, err := s.db.ClaimChunksForEmbedding(ctx, limit)
+	if err != nil {
+		return 0, fmt.Errorf("claim chunks for embedding: %w", err)
+	}
+
+	embedded := 0
+	for _, chunk := range chunks {
+		chunkID, err := models.RecordIDString(chunk.ID)
+		if err != nil {
+			slog.Warn("failed to extract chunk ID for embedding", "error", err)
+			continue
+		}
+
+		emb, err := s.embedder.Embed(ctx, chunk.Content)
+		if err != nil {
+			slog.Warn("failed to embed chunk", "chunk_id", chunkID, "error", err)
+			s.rescheduleChunk(chunkID)
+			continue
+		}
+
+		if err := s.db.UpdateChunkEmbedding(ctx, chunkID, emb); err != nil {
+			slog.Warn("failed to store chunk embedding", "chunk_id", chunkID, "error", err)
+			s.rescheduleChunk(chunkID)
+			continue
+		}
+
+		embedded++
+	}
+
+	return embedded, nil
+}
+
+// rescheduleChunk re-schedules a chunk for embedding after a failure, using a
+// background context so it succeeds even if the parent context is cancelled.
+// Uses a 30s backoff to avoid tight retry storms during outages.
+func (s *Service) rescheduleChunk(chunkID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.db.RescheduleChunkEmbedding(ctx, chunkID); err != nil {
+		slog.Error("failed to reschedule chunk embedding — chunk will not be retried",
+			"chunk_id", chunkID, "error", err)
+	}
 }
 
 // Update re-runs the document pipeline on existing content.
@@ -227,42 +277,94 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 	}
 }
 
-func (s *Service) processChunks(ctx context.Context, docID string, parsed *parser.MarkdownDoc, labels []string) error {
-	// Delete existing chunks
-	if err := s.db.DeleteChunks(ctx, docID); err != nil {
-		return fmt.Errorf("delete old chunks: %w", err)
+// syncChunks performs smart chunk diffing: compares new chunks against existing ones
+// by content, preserving embeddings for unchanged chunks and scheduling embedding
+// only for new/changed chunks.
+func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.MarkdownDoc, labels []string) error {
+	newChunkResults := parser.ChunkMarkdown(parsed, parser.DefaultChunkConfig())
+
+	oldChunks, err := s.db.GetChunks(ctx, docID)
+	if err != nil {
+		return fmt.Errorf("get existing chunks: %w", err)
 	}
 
-	chunkResults := parser.ChunkMarkdown(parsed, parser.DefaultChunkConfig())
-
-	if len(chunkResults) == 0 {
-		return nil
+	// Build lookup: content → old chunk (for content-based matching).
+	// Also collect all resolved IDs so we don't need to call RecordIDString twice.
+	type oldChunkEntry struct {
+		chunk models.Chunk
+		id    string
 	}
-
-	chunks := make([]models.ChunkInput, 0, len(chunkResults))
-	for i, cr := range chunkResults {
-		emb, err := s.embedder.Embed(ctx, cr.Content)
+	oldByContent := make(map[string]*oldChunkEntry, len(oldChunks))
+	allOldIDs := make([]string, 0, len(oldChunks))
+	for _, c := range oldChunks {
+		id, err := models.RecordIDString(c.ID)
 		if err != nil {
-			slog.Warn("failed to embed chunk", "position", i, "error", err)
+			slog.Warn("failed to extract chunk ID during sync", "error", err)
 			continue
 		}
-
-		var headingPath *string
-		if cr.HeadingPath != "" {
-			headingPath = &cr.HeadingPath
+		allOldIDs = append(allOldIDs, id)
+		// Only store first occurrence per content (handles duplicates)
+		if _, exists := oldByContent[c.Content]; !exists {
+			oldByContent[c.Content] = &oldChunkEntry{chunk: c, id: id}
 		}
-
-		chunks = append(chunks, models.ChunkInput{
-			DocumentID:  docID,
-			Content:     cr.Content,
-			Position:    i,
-			HeadingPath: headingPath,
-			Labels:      labels,
-			Embedding:   emb,
-		})
 	}
 
-	return s.db.CreateChunks(ctx, chunks)
+	matchedOldIDs := make(map[string]bool)
+	var toCreate []models.ChunkInput
+
+	for i, newChunk := range newChunkResults {
+		if entry, ok := oldByContent[newChunk.Content]; ok && !matchedOldIDs[entry.id] {
+			// Content unchanged — keep existing chunk (preserve embedding)
+			matchedOldIDs[entry.id] = true
+			// Update position if it changed
+			if entry.chunk.Position != i {
+				if err := s.db.UpdateChunkPosition(ctx, entry.id, i); err != nil {
+					slog.Warn("failed to update chunk position", "chunk_id", entry.id, "error", err)
+				}
+			}
+		} else {
+			// New or changed chunk — create with embed_at
+			var headingPath *string
+			if newChunk.HeadingPath != "" {
+				headingPath = &newChunk.HeadingPath
+			}
+
+			input := models.ChunkInput{
+				DocumentID:  docID,
+				Content:     newChunk.Content,
+				Position:    i,
+				HeadingPath: headingPath,
+				Labels:      labels,
+				Embedding:   nil, // nil until worker fills it
+			}
+
+			// Only schedule embedding if embedder is configured
+			if s.embedder != nil {
+				now := time.Now().UTC()
+				input.EmbedAt = &now
+			}
+
+			toCreate = append(toCreate, input)
+		}
+	}
+
+	// Delete old chunks that were not matched (removed content)
+	for _, id := range allOldIDs {
+		if !matchedOldIDs[id] {
+			if err := s.db.DeleteChunkByID(ctx, id); err != nil {
+				slog.Warn("failed to delete removed chunk", "chunk_id", id, "error", err)
+			}
+		}
+	}
+
+	// Create new chunks
+	if len(toCreate) > 0 {
+		if err := s.db.CreateChunks(ctx, toCreate); err != nil {
+			return fmt.Errorf("create new chunks: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, frontmatter map[string]any) {

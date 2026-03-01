@@ -137,7 +137,7 @@ func relationToGraphQL(r *models.DocRelation) *DocRelation {
 		FromDocID: inID,
 		ToDocID:   outID,
 		RelType:   r.RelType,
-		Source:     r.Source,
+		Source:    r.Source,
 		CreatedAt: r.CreatedAt,
 	}
 }

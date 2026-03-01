@@ -127,17 +127,17 @@ type QueryResult struct {
 // Proposal types
 
 type DocumentProposal struct {
-	ID              string    `json:"id"`
-	VaultID         string    `json:"vaultId"`
-	DocumentID      string    `json:"documentId"`
-	ProposedContent string    `json:"proposedContent"`
-	Description     *string   `json:"description,omitempty"`
+	ID              string             `json:"id"`
+	VaultID         string             `json:"vaultId"`
+	DocumentID      string             `json:"documentId"`
+	ProposedContent string             `json:"proposedContent"`
+	Description     *string            `json:"description,omitempty"`
 	Source          ProposalSourceEnum `json:"source"`
-	Status          ProposalStatus `json:"status"`
-	OriginalHash    string    `json:"originalHash"`
-	ReviewedAt      *time.Time `json:"reviewedAt,omitempty"`
-	ReviewerNotes   *string   `json:"reviewerNotes,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
+	Status          ProposalStatus     `json:"status"`
+	OriginalHash    string             `json:"originalHash"`
+	ReviewedAt      *time.Time         `json:"reviewedAt,omitempty"`
+	ReviewerNotes   *string            `json:"reviewerNotes,omitempty"`
+	CreatedAt       time.Time          `json:"createdAt"`
 }
 
 type ProposalStatus string
@@ -260,8 +260,8 @@ type ProposeDocumentUpdateInput struct {
 }
 
 type ApproveHunksInput struct {
-	ProposalID  string `json:"proposalId"`
-	HunkIndexes []int  `json:"hunkIndexes"`
+	ProposalID  string  `json:"proposalId"`
+	HunkIndexes []int   `json:"hunkIndexes"`
 	Notes       *string `json:"notes,omitempty"`
 }
 

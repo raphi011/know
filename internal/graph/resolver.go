@@ -5,6 +5,7 @@ package graph
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/raphaelgruber/memcp-go/internal/config"
 	"github.com/raphaelgruber/memcp-go/internal/db"
@@ -24,6 +25,8 @@ type Resolver struct {
 	searchService   *search.Service
 	templateService *template.Service
 	reviewService   *review.Service
+	workerCancel    context.CancelFunc
+	workerDone      chan struct{}
 }
 
 // NewResolver creates a new resolver with all dependencies.
@@ -68,14 +71,33 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 
 	docService := document.NewService(dbClient, embedder)
 
-	return &Resolver{
+	workerDone := make(chan struct{})
+	close(workerDone) // safe default: <-workerDone returns immediately if no worker
+
+	r := &Resolver{
 		db:              dbClient,
 		vaultService:    vault.NewService(dbClient),
 		documentService: docService,
 		searchService:   search.NewService(dbClient, embedder),
 		templateService: template.NewService(dbClient),
 		reviewService:   review.NewService(dbClient, docService),
-	}, nil
+		workerDone:      workerDone,
+	}
+
+	// Start background embedding worker if embedder is available
+	if embedder != nil {
+		workerCtx, workerCancel := context.WithCancel(context.Background())
+		r.workerCancel = workerCancel
+		r.workerDone = make(chan struct{})
+		interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
+		worker := document.NewEmbeddingWorker(docService, interval, cfg.EmbedWorkerBatch)
+		go func() {
+			defer close(r.workerDone)
+			worker.Run(workerCtx)
+		}()
+	}
+
+	return r, nil
 }
 
 // DBClient returns the underlying DB client for use by middleware.
@@ -83,8 +105,12 @@ func (r *Resolver) DBClient() *db.Client {
 	return r.db
 }
 
-// Close closes all connections.
+// Close stops background workers and closes all connections.
 func (r *Resolver) Close(ctx context.Context) error {
+	if r.workerCancel != nil {
+		r.workerCancel()
+		<-r.workerDone
+	}
 	if r.db != nil {
 		return r.db.Close(ctx)
 	}
