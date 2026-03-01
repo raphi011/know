@@ -1,0 +1,116 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Docs/Component Architecture" />
+
+# Component Architecture
+
+The component library is organized in three layers. Each layer has strict import rules to maintain separation of concerns.
+
+## Three Layers
+
+```
+┌─────────────────────────────────────────────────┐
+│  Layer 3: Domain Components                     │
+│  PostCard, DataTable, FormSheet,                │
+│  ActivityItem, UserProfile, SettingsPanel       │
+│  — domain-specific, composed from Layer 1+2     │
+├─────────────────────────────────────────────────┤
+│  Layer 2: Composite Components                  │
+│  Card, EmptyState, DataList, FormField,         │
+│  MobileNav, FloatingFab, PageLayout, AppShell   │
+│  — reusable patterns, app-agnostic              │
+├─────────────────────────────────────────────────┤
+│  Layer 1: Primitives (Headless UI + custom)      │
+│  Button, Input, Badge, Avatar, Dialog,          │
+│  Sheet, Select, Skeleton, Toast, Tabs           │
+│  — atomic, themed to Primary palette            │
+└─────────────────────────────────────────────────┘
+```
+
+## Import Rules
+
+| From → To | Allowed |
+|-----------|---------|
+| Pages → Domain (`components/domain/`) | Yes |
+| Pages → Composites (`components/`) | Yes |
+| Pages → Primitives (`components/ui/`) | Yes (leaf primitives like `Button`, `Badge`, `Avatar`) |
+| Domain → Composites | Yes |
+| Domain → Primitives | Yes |
+| Composites → Primitives | Yes |
+| Primitives → anything | **No** (leaf nodes) |
+
+**Key rule:** When a composite wraps a primitive with added behavior, always use the composite. Never use raw `Dialog`/`Sheet` (use `ResponsiveDialog`), raw `Label`+`Input` (use `FormField`), or bare `.map()` (use `DataList`).
+
+## Composition Patterns
+
+### Every list uses DataList
+
+```tsx
+// Good
+<DataList
+  items={posts}
+  loading={isLoading}
+  empty={{ icon: <FileIcon />, title: "No posts" }}
+  renderItem={(post) => <PostCard post={post} />}
+/>
+
+// Bad — no loading/empty handling
+{posts.map(p => <PostCard key={p.id} post={p} />)}
+```
+
+### Every modal uses ResponsiveDialog
+
+Shows as a bottom sheet on mobile, centered dialog on desktop.
+
+```tsx
+// Good
+<ResponsiveDialog open={open} onClose={() => setOpen(false)} title="Create Post">
+  {children}
+</ResponsiveDialog>
+
+// Bad — raw Dialog or Sheet
+<Dialog open={open}>...</Dialog>
+```
+
+### Every form uses FormField
+
+```tsx
+// Good
+<FormField label="Email" type="email" error={errors.email} />
+
+// Bad — loose Label + Input
+<Label>Email</Label>
+<Input type="email" />
+```
+
+### Destructive actions use ConfirmDialog
+
+```tsx
+<ConfirmDialog
+  title="Delete post?"
+  description="This action cannot be undone."
+  confirmLabel="Delete"
+  onConfirm={handleDelete}
+/>
+```
+
+## File Structure
+
+```
+components/
+├── ui/                  # Layer 1: Headless UI + custom primitives
+│   ├── button.tsx
+│   ├── input.tsx
+│   ├── badge.tsx
+│   └── ...
+├── card.tsx             # Layer 2: composites
+├── form-field.tsx
+├── data-list.tsx
+├── responsive-dialog.tsx
+├── app-shell.tsx
+└── domain/              # Layer 3: domain-specific
+    ├── post-card.tsx
+    ├── data-table.tsx
+    ├── form-sheet.tsx
+    └── ...
+```

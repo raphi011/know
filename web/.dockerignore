@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.gitignore
+.vercel
+CLAUDE.md
+README.md
+.claude

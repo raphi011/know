@@ -1,0 +1,67 @@
+{
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "confirm": "Bestätigen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "loading": "Laden...",
+    "error": "Ein Fehler ist aufgetreten",
+    "success": "Erfolgreich",
+    "back": "Zurück"
+  },
+  "nav": {
+    "settings": "Einstellungen",
+    "openMenu": "Menü öffnen",
+    "closeMenu": "Menü schließen",
+    "menuLabel": "Navigation",
+    "search": "Suche"
+  },
+  "error": {
+    "title": "Etwas ist schiefgelaufen",
+    "description": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.",
+    "tryAgain": "Erneut versuchen"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Die gesuchte Seite existiert nicht.",
+    "goHome": "Zu den Dokumenten"
+  },
+  "login": {
+    "title": "Anmelden",
+    "subtitle": "Melde dich an, um fortzufahren.",
+    "signIn": "Mit SSO anmelden",
+    "signingIn": "Anmeldung...",
+    "error": "Anmeldung fehlgeschlagen. Bitte versuche es erneut."
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "theme": "Design",
+    "themeLight": "Hell",
+    "themeDark": "Dunkel",
+    "themeAuto": "Auto",
+    "language": "Sprache",
+    "languageDe": "Deutsch",
+    "languageEn": "English",
+    "languageError": "Sprachänderung fehlgeschlagen. Bitte erneut versuchen.",
+    "signOut": "Abmelden"
+  },
+  "search": {
+    "placeholder": "Dokumente durchsuchen…",
+    "noResults": "Keine Ergebnisse gefunden.",
+    "hint": "Suche",
+    "error": "Suche fehlgeschlagen. Bitte erneut versuchen."
+  },
+  "docs": {
+    "unsaved": "Nicht gespeichert",
+    "saving": "Wird gespeichert...",
+    "saved": "Gespeichert",
+    "saveError": "Speichern fehlgeschlagen",
+    "edit": "Bearbeiten",
+    "preview": "Vorschau",
+    "noVaultTitle": "Kein Vault gefunden",
+    "noVaultDescription": "Erstelle einen Vault in der Knowhow API, um loszulegen.",
+    "noDocumentsTitle": "Keine Dokumente",
+    "noDocumentsDescription": "Dieser Vault enthält noch keine Dokumente."
+  }
+}

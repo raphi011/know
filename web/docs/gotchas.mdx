@@ -1,0 +1,290 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Docs/Framework Gotchas" />
+
+# Framework Gotchas & Patterns
+
+Lessons learned from implementation — framework-specific pitfalls and the patterns we use to work around them. **Read when debugging unexpected behavior or before using an unfamiliar API.**
+
+---
+
+## Next.js
+
+### `searchParams` is a Promise (Next.js 15+)
+
+In server components, `searchParams` must be `await`ed. This was a breaking change in Next.js 15.
+
+```tsx
+// page.tsx (server component)
+type Props = { searchParams: Promise<{ code?: string }> };
+
+export default async function Page({ searchParams }: Props) {
+  const { code } = await searchParams; // Must await!
+  return <ClientComponent code={code} />;
+}
+```
+
+### `"use client"` does not mean browser-only
+
+`"use client"` tells the bundler to include the component in the client bundle — but Next.js still **executes** client components on the server during SSR to produce initial HTML. Only `useEffect` / `useLayoutEffect` callbacks are skipped during SSR. Never access browser globals (`window`, `document`, `navigator`) outside of `useEffect`:
+
+```tsx
+// WRONG — crashes during SSR with ReferenceError
+const [isDesktop, setIsDesktop] = useState(
+  () => window.matchMedia("(min-width: 1024px)").matches,
+);
+
+// CORRECT — useSyncExternalStore handles SSR via getServerSnapshot
+function useIsDesktop() {
+  return useSyncExternalStore(
+    (cb) => {
+      const mql = window.matchMedia("(min-width: 1024px)");
+      mql.addEventListener("change", cb);
+      return () => mql.removeEventListener("change", cb);
+    },
+    () => window.matchMedia("(min-width: 1024px)").matches,
+    () => false, // server snapshot — no window on server
+  );
+}
+```
+
+Even guarding with `typeof window !== 'undefined'` causes **hydration mismatches** (not crashes) because server renders one branch while the client renders the other. If you need browser-only values like `window.location.origin`, pass them from the server component as props (e.g., via `env.APP_URL`) instead of reading them in the client component.
+
+### Proxy `PUBLIC_ROUTES` uses prefix matching
+
+Routes in `PUBLIC_ROUTES` are matched with `pathname.startsWith(route)`. Adding `"/join"` matches both `/join` and `/join?code=X`. Be aware this also matches `/join-something` — if that becomes an issue, switch to exact matching or regex.
+
+### No type exports from `"use server"` files (Turbopack)
+
+Turbopack registers every export from a `"use server"` module as a server action reference. TypeScript `export type` is erased at compile time, so Turbopack sees a reference to a non-existent runtime export and errors: _"Export X doesn't exist in target module"_.
+
+```tsx
+// ❌ BAD — Turbopack can't find ActionResult at runtime
+"use server";
+import type { ActionResult } from "@/app/lib/action-result";
+export type { ActionResult }; // erased by TS → Turbopack error
+
+// ❌ BAD — same problem with type definitions
+"use server";
+export type EnrollResult = { success: true } | { error: string };
+
+// ✅ GOOD — import the type directly in the consumer
+// action.ts keeps "use server" clean (no type exports)
+// view.tsx imports the type from the shared module
+import type { ActionResult } from "@/app/lib/action-result";
+```
+
+### Server Actions with `useActionState` (React 19)
+
+For multi-step forms, use `useActionState` with a state machine pattern. Each action returns the next step:
+
+```tsx
+const [state, action, isPending] = useActionState(serverAction, initialState);
+```
+
+The state object carries `step`, `error`, and any data needed by the next step. This replaces the older `useFormState` API.
+
+### `useActionState` requires `prevState` as first action argument
+
+When wrapping a server action with `useActionState`, the action's signature must accept a previous state parameter as its first argument. This is easy to forget since standalone server actions don't need it:
+
+```tsx
+// ❌ BAD — breaks with useActionState
+export async function createPostAction(formData: FormData): Promise<ActionResult> { ... }
+
+// ✅ GOOD — works with useActionState (prevState injected automatically)
+export async function createPostAction(
+  _prevState: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> { ... }
+```
+
+### `redirect()` throws (not returns)
+
+Next.js `redirect()` from `next/navigation` works by throwing a special error. It must be called **outside** of try/catch blocks, or the catch will swallow the redirect. In server actions, call it after all DB work completes.
+
+### Server actions crash Storybook Vitest (`process`/`Buffer` not defined)
+
+Components that import server actions (files with `"use server"`) will crash in Storybook's Vitest browser runner because the action's import chain pulls in Node.js-only modules (`next/cache`, `next/headers`, `drizzle-orm`, `crypto`).
+
+**Fix:** Mock the server action module in `vitest.config.ts` (scoped to the storybook project) and `.storybook/main.ts`:
+
+```ts
+// vitest.config.ts — storybook project
+resolve: {
+  alias: {
+    "@/app/lib/actions/posts": path.join(dirname, ".storybook/mocks/posts-action.ts"),
+  },
+},
+
+// .storybook/main.ts — viteFinal
+"next/cache": path.resolve(__dirname, "mocks/next-cache.ts"),
+"next/headers": path.resolve(__dirname, "mocks/next-headers.ts"),
+"@/app/lib/actions/posts": path.resolve(__dirname, "mocks/posts-action.ts"),
+```
+
+Mock the entire action module (not individual Node.js modules) to cut off the whole server import tree.
+
+### Proxy convention (Next.js 16)
+
+Next.js 16 uses `proxy.ts` instead of `middleware.ts`. The project already uses the proxy convention — see `proxy.ts` at the project root.
+
+---
+
+## Tailwind CSS v4
+
+### `cursor: pointer` not applied to buttons
+
+Tailwind v4's preflight resets `cursor` to `default` on all interactive elements (`<button>`, `<a>`, `<select>`, etc.). Unlike v3, there is no config option to restore it.
+
+**Fix:** We override this globally in `globals.css`:
+
+```css
+@layer base {
+  a,
+  button,
+  [role="button"],
+  select,
+  summary {
+    cursor: pointer;
+  }
+}
+```
+
+**Do not** add per-component `cursor-pointer` classes — the global rule handles all interactive elements.
+
+---
+
+## JSON / i18n
+
+### Typographic quotes break JSON parsing
+
+German typographic quotes `„"` (U+201E opening, U+201C closing) look similar to ASCII `"` (U+0022) but are different characters. JSON parsers can confuse the closing `"` (U+201C) with a string terminator.
+
+**Fix:** Use Unicode escapes in JSON files:
+
+```json
+{
+  "confirmJoin": "Möchtest du \u201E{club}\u201C beitreten?"
+}
+```
+
+This renders identically (`Möchtest du „{club}" beitreten?`) but doesn't confuse the parser.
+
+---
+
+## Drizzle / PostgreSQL
+
+### Transactions with Drizzle
+
+Use `db.transaction()` for multi-statement transactions. The callback receives a transaction-scoped `tx` object:
+
+```ts
+await db.transaction(async (tx) => {
+  await tx.insert(posts).values({ title, content, authorId });
+  await tx.insert(activityLog).values({ userId: authorId, action: "post_created" });
+});
+```
+
+All repository functions accept the Drizzle `db` or transaction `tx` instance so they work both standalone and inside transactions.
+
+### Advisory locks for concurrent modifications
+
+For operations where concurrent writes could cause lost updates, use `pg_advisory_xact_lock`:
+
+```sql
+SELECT pg_advisory_xact_lock($resourceId);
+```
+
+This serializes concurrent modifications per resource within the transaction scope.
+
+---
+
+## Auth.js
+
+### Auth.js is in maintenance mode
+
+As of September 2025, Auth.js is maintained by Better Auth. The v5 beta never reached a stable release. Security patches continue, but **Better Auth is the recommended successor** for new projects.
+
+- Existing Auth.js v5 projects: continue using, but plan migration
+- Migration guide: [authjs.dev/getting-started/migrate-to-better-auth](https://authjs.dev/getting-started/migrate-to-better-auth)
+- For new features or major auth refactors, evaluate Better Auth
+
+---
+
+## Zod 4
+
+### Breaking changes from Zod 3
+
+Zod 4 has significant API changes. Key differences:
+
+```ts
+// String format validators moved to top-level
+z.string().email()   // Zod 3
+z.email()            // Zod 4
+
+// Error customization uses `error` instead of `message`
+z.string().min(5, { message: "Too short" })  // Zod 3
+z.string().min(5, { error: "Too short" })    // Zod 4
+
+// z.record() requires two arguments
+z.record(z.string())              // Zod 3
+z.record(z.string(), z.string())  // Zod 4
+```
+
+- **Import path during transition**: `import { z } from "zod/v4"` (permanent `"zod/v3"` subpath available for backward compat)
+- **UUID validation is stricter**: `z.uuid()` enforces RFC 4122. Use `z.guid()` for the old permissive behavior
+- **Codemod available**: `zod-v3-to-v4` for automated migration
+- **Performance**: 14x faster string parsing, 7x faster array parsing
+
+---
+
+## Security Patterns
+
+### Open redirect protection for `returnTo`
+
+When accepting a `returnTo` parameter from query strings (e.g., after login verification), validate it to prevent open redirects:
+
+```ts
+function isValidReturnTo(returnTo: string): boolean {
+  try {
+    const decoded = decodeURIComponent(returnTo);
+    return (
+      decoded.startsWith("/") &&   // Must be relative
+      !decoded.startsWith("//") && // Block protocol-relative (//evil.com)
+      !decoded.includes(":") &&    // Block javascript: and data: schemes
+      !decoded.includes("\\") &&   // Block backslash (treated as // in some browsers)
+      !decoded.includes("\n") &&   // Block header injection
+      !decoded.includes("\r")
+    );
+  } catch {
+    return false; // Malformed percent-encoding
+  }
+}
+```
+
+---
+
+## React Compiler
+
+### Automatic memoization replaces useMemo/useCallback/memo
+
+With `reactCompiler: true` enabled in `next.config`, the React Compiler automatically memoizes components and hooks at build time. Manual `useMemo()`, `useCallback()`, and `React.memo()` are no longer necessary in most cases.
+
+**When to still use manual memoization:**
+- Third-party libs that compare by reference identity
+- Effect dependencies where semantic equality differs from referential equality
+- Performance-critical paths where you need guaranteed caching behavior
+
+### Email enumeration protection
+
+When handling actions that involve looking up users by email (login, join requests), always return the same response regardless of whether the email exists:
+
+```ts
+// Always return check-email, even if no user found
+const user = await getUserByEmail(email);
+if (user) {
+  await sendVerificationEmail(email, user.name, token);
+}
+return { step: "check-email" }; // Same response either way
+```

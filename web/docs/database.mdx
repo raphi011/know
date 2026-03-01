@@ -1,0 +1,57 @@
+# Database Schema
+
+## Auth.js Tables
+
+### users
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text (PK) | UUID, auto-generated |
+| name | text | Display name |
+| email | text (unique) | Email address |
+| emailVerified | timestamp | When email was verified |
+| image | text | Avatar URL |
+
+### accounts
+| Column | Type | Description |
+|--------|------|-------------|
+| userId | text (FK -> users) | Account owner |
+| type | text | Account type (oauth, oidc, etc.) |
+| provider | text | Provider name |
+| providerAccountId | text | Provider's user ID |
+| refresh_token | text | OAuth refresh token |
+| access_token | text | OAuth access token |
+| expires_at | integer | Token expiry (unix timestamp) |
+
+### sessions
+| Column | Type | Description |
+|--------|------|-------------|
+| sessionToken | text (PK) | Unique session token |
+| userId | text (FK -> users) | Session owner |
+| expires | timestamp | Session expiry |
+
+### verificationTokens
+| Column | Type | Description |
+|--------|------|-------------|
+| identifier | text | Email or phone |
+| token | text | Verification token |
+| expires | timestamp | Token expiry |
+
+## Application Tables
+
+### posts
+| Column | Type | Description |
+|--------|------|-------------|
+| id | serial (PK) | Auto-incrementing ID |
+| title | text | Post title |
+| content | text | Post body |
+| authorId | text (FK -> users) | Post author |
+| createdAt | timestamp | Creation time |
+| updatedAt | timestamp | Last update time |
+
+## Migrations
+
+Managed by Drizzle Kit:
+- Generate: `bun run db:generate`
+- Apply: `bun run db:migrate`
+- Schema file: `app/lib/db/schema.ts`
+- Output dir: `db/migrations/`

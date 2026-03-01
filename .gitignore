@@ -55,6 +55,13 @@ web/node_modules/
 # npm lockfile (using bun)
 web/package-lock.json
 
+# Web frontend build/artifacts
+web/.next/
+web/.env.local
+web/storybook-static/
+web/e2e/test-results/
+web/playwright-report/
+
 # Claude Code
 .claude/settings.local.json
 

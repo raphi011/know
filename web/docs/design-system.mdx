@@ -1,0 +1,513 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Docs/Design System" />
+
+# Design System
+
+Clean, modern, mobile-first web application. Blue/indigo primary for trust and clarity, warm amber accents for highlights and achievements. High contrast, tactile interactions, card-based layouts.
+
+---
+
+## Color Palette
+
+### Primary — Blue/Indigo
+
+The hero color. CTAs, active states, highlights, brand identity.
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `primary-50` | `#EEF2FF` | Light backgrounds, subtle tints |
+| `primary-100` | `#E0E7FF` | Hover backgrounds, success badge bg |
+| `primary-200` | `#C7D2FE` | Active/pressed backgrounds |
+| `primary-300` | `#A5B4FC` | Borders on active elements |
+| `primary-400` | `#818CF8` | Secondary buttons, badges |
+| `primary-500` | `#6366F1` | **Primary brand** — buttons, links, current user |
+| `primary-600` | `#4F46E5` | Hover on primary buttons |
+| `primary-700` | `#4338CA` | Active/pressed primary, success badge text |
+| `primary-800` | `#3730A3` | Dark mode primary surfaces |
+| `primary-900` | `#312E81` | Dark mode backgrounds |
+| `primary-950` | `#1E1B4E` | Darkest shade |
+
+These map to Tailwind's `indigo-*` scale. Defined as `primary-*` via `@theme` in `app/globals.css` so code always uses semantic names.
+
+### Accent — Amber
+
+Highlights, achievements, notifications, featured badges, movement indicators.
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `accent-50` | `#FFFBEB` | Notification tints |
+| `accent-100` | `#FEF3C7` | Pending badge bg, warning bg |
+| `accent-200` | `#FDE68A` | Highlight borders |
+| `accent-400` | `#E5A820` | Stars, featured badges |
+| `accent-500` | `#A8680B` | **Main accent** — highlights, featured items |
+| `accent-600` | `#8C5709` | Hover accent, pending badge text |
+
+### Semantic Colors
+
+| Role | Token | Hex | Usage |
+|------|-------|-----|-------|
+| Success | `primary-500` | `#6366F1` | Confirmations, completed states |
+| Error | `red-500` | `#E45A42` | Form errors, destructive actions |
+| Error bg | `red-100` | `#FDE5DF` | Error badge background |
+| Error text | `red-700` | `#AA3521` | Error badge text |
+| Warning | `accent-500` | `#A8680B` | Pending actions, warnings |
+| Info | `sky-500` | `#0EA5E9` | Info badges, links, neutral status |
+
+### Neutrals — Slate
+
+Warmer than zinc, pairs well with indigo for a professional feel. Use `slate-*` everywhere — **never `gray-*` or `zinc-*`**.
+
+| Token | Hex | Role |
+|-------|-----|------|
+| `slate-50` | `#F8FAFC` | Page background (light mode) |
+| `slate-100` | `#F1F5F9` | Card alt bg, subtle surfaces |
+| `slate-200` | `#E2E8F0` | Borders, dividers, card rings |
+| `slate-300` | `#CBD5E1` | Disabled text, placeholder |
+| `slate-400` | `#94A3B8` | Secondary/muted text |
+| `slate-500` | `#64748B` | Helper text |
+| `slate-600` | `#475569` | Body text (light mode) |
+| `slate-700` | `#334155` | Headings (light mode) |
+| `slate-800` | `#1E293B` | Card bg (dark mode) |
+| `slate-900` | `#0F172A` | Page bg (dark mode) |
+| `slate-950` | `#020617` | Deepest dark |
+
+---
+
+## Typography
+
+**Font**: Inter (Google Fonts) — excellent mobile legibility, variable weight support.
+
+| Role | Class | Weight | Tracking | Notes |
+|------|-------|--------|----------|-------|
+| Display | `text-2xl` (24px) | Bold (700) | `tracking-tight` | Page titles |
+| Heading | `text-xl` (20px) | Semibold (600) | `tracking-tight` | Section titles |
+| Subheading | `text-base` (16px) | Semibold (600) | normal | Card titles, labels |
+| Body | `text-sm` (14px) | Regular (400) | normal | Default text |
+| Caption | `text-xs` (12px) | Medium (500) | `tracking-wide` | Timestamps, metadata |
+| Data | `text-lg` (18px) | Bold (700) | `tabular-nums` | Numeric data (digits align) |
+
+Headings use **tight tracking + semibold/bold** for a polished feel.
+
+---
+
+## Spacing & Sizing
+
+Base unit: 4px (Tailwind default).
+
+| Use case | Value | Class |
+|----------|-------|-------|
+| Inline padding (badges, pills) | 8px / 2px | `px-2 py-0.5` |
+| Button padding | 16px / 10px | `px-4 py-2.5` |
+| Card internal padding | 16px | `p-4` |
+| Section gap | 24px | `gap-6` |
+| Page padding (mobile) | 16px | `px-4` |
+| Page padding (desktop) | 24px | `px-6` |
+| Between list items | 1px separator | `Separator` component |
+
+**Touch targets**: minimum 44x44px on all interactive elements.
+
+---
+
+## Border Radius
+
+Generous rounding for app-like feel.
+
+| Element | Radius | Class |
+|---------|--------|-------|
+| Buttons | 12px | `rounded-xl` |
+| Cards | 16px | `rounded-2xl` |
+| Inputs | 12px | `rounded-xl` |
+| Badges / pills | Full | `rounded-full` |
+| Avatars | Full | `rounded-full` |
+| Bottom sheet / modal | 24px top | `rounded-t-3xl` |
+| Page container (desktop) | 16px | `lg:rounded-2xl` |
+
+---
+
+## Elevation & Borders
+
+Mobile-first: prefer borders over shadows. Shadows for floating elements only.
+
+| Level | Usage | Class |
+|-------|-------|-------|
+| None | Default cards | `ring-1 ring-slate-200 dark:ring-slate-800` |
+| Low | Raised cards, buttons | `shadow-sm` |
+| Medium | Dropdowns, popovers | `shadow-md` |
+| High | Modals, bottom sheets | `shadow-xl` |
+
+Use `ring-1` instead of `border` — rings don't affect layout sizing, preventing 1px shifts on hover/focus state changes.
+
+**Dark mode**: replace visible shadows with `ring-1 ring-white/10`.
+
+---
+
+## Dark Mode
+
+Light-first with manual toggle (stored in `localStorage`, system preference as default).
+
+| Element | Light | Dark |
+|---------|-------|------|
+| Page bg | `slate-50` | `slate-950` |
+| Card bg | `white` | `slate-900` |
+| Card border | `ring-slate-200` | `ring-slate-800` |
+| Heading text | `slate-900` | `white` |
+| Body text | `slate-600` | `slate-400` |
+| Primary button bg | `primary-500` | `primary-500` (same) |
+| Muted surface | `slate-100` | `slate-800` |
+| Separator | `slate-200` | `slate-800` |
+
+---
+
+## Motion & Transitions
+
+Snappy, responsive interactions.
+
+| Type | Duration | Easing |
+|------|----------|--------|
+| Hover / focus | 150ms | `ease-out` |
+| Page transitions | 200ms | `ease-in-out` |
+| Modal enter | 250ms | `ease-out` |
+| Modal leave | 150ms | `ease-in` |
+| Layout animations | 300ms | `spring` (Framer Motion) |
+| Skeleton pulse | 1.5s | `ease-in-out` infinite |
+
+Key animations:
+- **Layout shifts**: Framer Motion `layout` prop — elements slide smoothly when data changes.
+- **Action feedback**: brief pulse/glow on interactive elements after action.
+- **Hamburger menu**: slide-from-left drawer with transition.
+- **List items**: staggered fade-in on initial load.
+
+**Reduced motion**: `globals.css` includes a `prefers-reduced-motion` media query that disables all animations and transitions for users who request it. No per-component opt-out needed.
+
+---
+
+## Layout
+
+### Mobile (default)
+
+- **Hamburger menu** (hamburger icon): slide-from-left drawer with all nav items + floating FAB (bottom-right)
+- Full-width cards, `px-4` page padding
+- Bottom sheet for dialogs (not centered modal)
+- Scroll-based views, no pagination
+
+### Desktop (lg+)
+
+- **Sidebar navigation** (left side)
+- Content area: `max-w-2xl` centered for readability
+- `slate-50` bg behind content card
+- Centered modals (Dialog) replace bottom sheets
+
+### Responsive Breakpoints
+
+| Breakpoint | Width | Layout |
+|------------|-------|--------|
+| Default | < 1024px | Hamburger menu + FAB, full-width cards, `px-4` |
+| `lg` | >= 1024px | Sidebar nav, `max-w-2xl` content, `px-6` |
+
+### App Shell
+
+```
+Mobile:                          Desktop (lg+):
+┌──────────────────┐            ┌────────┬─────────────────┐
+│ ☰ App Name   🔔  │            │Sidebar │  Page Content    │
+├──────────────────┤            │        │                  │
+│                  │            │ Nav    │                  │
+│   Page Content   │            │ items  │                  │
+│                  │            │        │                  │
+│             [FAB]│            │        │                  │
+└──────────────────┘            └────────┴─────────────────┘
+```
+
+### Navigation Items
+
+| Icon | Label | Route | Description |
+|------|-------|-------|-------------|
+| Home | Dashboard | `/dashboard` | Overview |
+| FileText | Posts | `/posts` | Content list |
+| Bell | Notifications | `/notifications` | Activity feed |
+| Cog | Settings | `/settings` | App settings |
+
+On mobile, tapping the hamburger icon opens a slide-from-left drawer (MobileNav) with all nav items. Profile is shown at the bottom of the drawer (mobile) or sidebar (desktop).
+
+---
+
+## Component Patterns
+
+### Primitive Styles
+
+**Card** (universal container):
+```
+bg-white dark:bg-slate-900
+ring-1 ring-slate-200 dark:ring-slate-800
+rounded-2xl p-4
+```
+
+**Primary Button**:
+```
+bg-primary-500 hover:bg-primary-600 active:bg-primary-700
+text-white font-semibold
+rounded-xl px-4 py-2.5
+shadow-sm active:shadow-none
+```
+
+**Outline Button**:
+```
+bg-transparent
+ring-1 ring-slate-300 dark:ring-slate-700
+hover:bg-slate-50 dark:hover:bg-slate-800
+text-slate-700 dark:text-slate-300
+rounded-xl px-4 py-2.5
+```
+
+**Destructive Button**:
+```
+bg-red-500 hover:bg-red-600 active:bg-red-700
+text-white font-semibold
+rounded-xl px-4 py-2.5
+```
+
+**Ghost Button**:
+```
+bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800
+text-slate-600 dark:text-slate-400
+rounded-xl px-4 py-2.5
+```
+
+**Input Field**:
+```
+bg-white dark:bg-slate-900
+ring-1 ring-slate-300 dark:ring-slate-700
+focus:ring-2 focus:ring-primary-500
+rounded-xl px-3 py-2.5
+text-sm text-slate-900 dark:text-white
+placeholder:text-slate-400
+```
+
+### Domain Element Styles
+
+**Card variants**:
+
+| Variant | Style |
+|---------|-------|
+| Default | `bg-white ring-1 ring-slate-200 rounded-xl` |
+| Active / Selected | `bg-primary-500 text-white ring-0` |
+| Highlighted | `ring-2 ring-primary-400 bg-primary-50` |
+| Disabled | `bg-slate-100 text-slate-400 opacity-60` |
+
+**Badge variants**:
+
+| Variant | Style |
+|---------|-------|
+| Success | `bg-primary-100 text-primary-700 rounded-full` |
+| Error | `bg-red-100 text-red-700 rounded-full` |
+| Pending | `bg-accent-100 text-accent-700 rounded-full` |
+| Featured | `bg-accent-500 text-white rounded-full` |
+| Info | `bg-sky-100 text-sky-700 rounded-full` |
+
+---
+
+## Component Library Architecture
+
+### Three Layers
+
+```
+┌─────────────────────────────────────────────────┐
+│  Layer 3: Domain Components                     │
+│  PostCard, DataTable, FormSheet,                │
+│  ActivityItem, UserProfile, SettingsPanel       │
+│  — domain-specific, composed from Layer 1+2     │
+├─────────────────────────────────────────────────┤
+│  Layer 2: Composite Components                  │
+│  Card, EmptyState, DataList, FormField,         │
+│  MobileNav, FloatingFab, PageLayout, AppShell   │
+│  — reusable patterns, app-agnostic              │
+├─────────────────────────────────────────────────┤
+│  Layer 1: Primitives (Headless UI + custom)      │
+│  Button, Input, Badge, Avatar, Dialog,          │
+│  Sheet, Select, Skeleton, Toast, Tabs           │
+│  — atomic, themed to Primary palette            │
+└─────────────────────────────────────────────────┘
+```
+
+### Layer 1 — Primitives (`components/ui/`)
+
+Headless UI + custom primitives, themed to Primary palette. These are the atomic building blocks.
+
+| Component | Source | Customization |
+|-----------|--------|---------------|
+| Button | custom | `primary-500` primary, `rounded-xl`, tactile press |
+| Input | custom | `rounded-xl`, `primary-500` focus ring |
+| Textarea | custom | Same as Input |
+| Select | custom | Native select element with custom chevron |
+| Checkbox | Headless UI | `primary-500` checked state |
+| Badge | custom | Semantic variants: success, error, pending, featured |
+| Avatar | custom | Initials fallback, status ring |
+| Dialog | Headless UI | Desktop centered modal |
+| Sheet | Headless UI | Mobile bottom sheet, `rounded-t-3xl` |
+| Dropdown Menu | Headless UI | User menu, context actions |
+| Tabs | Headless UI | Content filters, section views |
+| Skeleton | custom | Loading placeholders |
+| Toast | custom | Notifications |
+| Separator | custom | List dividers |
+| Tooltip | custom | Truncated text, icon labels |
+| Label | custom | Form labels |
+| Switch | Headless UI | Toggles (dark mode, notifications) |
+| Popover | Headless UI | Info bubbles |
+| Scroll Area | custom | Scrollable lists |
+
+### Layer 2 — Composites (`components/`)
+
+Reusable patterns from primitives. App-agnostic — no domain awareness.
+
+**Card** — Universal container.
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>Title</CardTitle>
+    <CardAction><Button size="sm">Edit</Button></CardAction>
+  </CardHeader>
+  <CardContent>...</CardContent>
+  <CardFooter>...</CardFooter>
+</Card>
+// Variants: default, interactive (hover), highlighted (primary-500 left accent)
+```
+
+**PageLayout** — Wraps every page.
+```tsx
+<PageLayout title="Dashboard" subtitle="Overview" action={<Button>...</Button>}>
+  {children}
+</PageLayout>
+```
+
+**AppShell** — Top-level layout, switches MobileNav + FloatingFab (mobile) vs. SidebarNav (desktop).
+```tsx
+<AppShell>
+  {children}
+</AppShell>
+```
+
+**DataList** — List with loading, empty, and separator handling.
+```tsx
+<DataList
+  items={posts}
+  loading={isLoading}
+  empty={<EmptyState icon={FileIcon} title="No posts" />}
+  renderItem={(post) => <PostCard post={post} />}
+/>
+```
+
+**EmptyState** — Shown when list/section has no data.
+```tsx
+<EmptyState
+  icon={FileIcon}
+  title="No posts yet"
+  description="Create your first post to get started."
+  action={<Button>Create post</Button>}
+/>
+```
+
+**FormField** — Label + Input + Error composed together.
+```tsx
+<FormField label="Email" type="email" error={errors.email} />
+```
+
+**StatBlock** — Compact stat display.
+```tsx
+<StatBlock label="Posts" value={12} />
+<StatBlock label="Views" value={3400} trend="up" />
+```
+
+**ResponsiveDialog** — Dialog on desktop, Sheet on mobile. Single API.
+```tsx
+<ResponsiveDialog open={open} onClose={() => setOpen(false)} title="Create Post">
+  {children}
+</ResponsiveDialog>
+```
+
+**ConfirmDialog** — Wraps ResponsiveDialog for destructive confirmations.
+```tsx
+<ConfirmDialog
+  title="Delete post?"
+  description="This action cannot be undone."
+  confirmLabel="Delete"
+  variant="destructive"
+  onConfirm={handleDelete}
+/>
+```
+
+### File Structure
+
+```
+components/
+├── ui/                          # Layer 1: Headless UI + custom primitives
+│   ├── button.tsx
+│   ├── input.tsx
+│   ├── badge.tsx
+│   ├── avatar.tsx
+│   ├── dialog.tsx
+│   ├── sheet.tsx
+│   ├── select.tsx
+│   ├── tabs.tsx
+│   ├── skeleton.tsx
+│   ├── separator.tsx
+│   ├── tooltip.tsx
+│   ├── label.tsx
+│   ├── switch.tsx
+│   ├── popover.tsx
+│   ├── scroll-area.tsx
+│   ├── dropdown-menu.tsx
+│   └── toast.tsx                # toast
+│
+├── card.tsx                     # Layer 2: composites
+├── page-layout.tsx
+├── mobile-nav.tsx
+├── floating-fab.tsx
+├── sidebar-nav.tsx
+├── app-shell.tsx
+├── form-field.tsx
+├── data-list.tsx
+├── empty-state.tsx
+├── stat-block.tsx
+├── confirm-dialog.tsx
+├── responsive-dialog.tsx
+│
+└── domain/                      # Layer 3: domain-specific
+    ├── post-card.tsx
+    ├── data-table.tsx
+    ├── form-sheet.tsx
+    ├── activity-item.tsx
+    ├── user-profile.tsx
+    └── settings-panel.tsx
+```
+
+---
+
+## Composition & Import Rules
+
+1. **Pages** import only from `components/domain/` and `components/` — never from `components/ui/` directly.
+2. **Domain components** (`components/domain/`) import from `components/` and `components/ui/`.
+3. **Composite components** (`components/`) import only from `components/ui/`.
+4. **Primitives** (`components/ui/`) never import from other layers — they are leaf nodes.
+5. **No inline Tailwind layout in page files** — if you need a pattern, extract a component.
+6. **Every list** uses `DataList` with `loading` + `empty` props — no bare `.map()` in pages.
+7. **Every modal/sheet** uses `ResponsiveDialog` — never raw `Dialog` or `Sheet` in pages.
+8. **Every form** uses `FormField` — never raw `Label` + `Input` side by side in pages.
+
+---
+
+## Consistency Rules
+
+1. **Never use `gray-*` or `zinc-*`** — always `slate-*` for neutrals.
+2. **Never use `border`** — use `ring-1 ring-slate-200` (no layout shift).
+3. **All interactive elements**: `rounded-xl` minimum.
+4. **All cards**: `rounded-2xl`.
+5. **Primary actions**: always `primary-500` indigo.
+6. **Destructive actions**: always `red-500`, always require confirmation via `ConfirmDialog`.
+7. **Text hierarchy**: max 3 levels per view (heading + body + caption).
+8. **Icons**: Heroicons 2 only, `size-5` (20px) for UI, `size-6` (24px) for nav.
+9. **Spacing between sections**: always `gap-6` or `space-y-6`.
+10. **No raw Tailwind color classes in domain/page code** — use semantic tokens (`primary-*`, `accent-*`, `slate-*`).
+11. **User-facing text via `next-intl`** — English is the default locale. Code uses English translation keys; actual labels are resolved from translation files at runtime.
+12. **Loading states**: every data-fetching view must show `Skeleton` components while loading.
+13. **Empty states**: every list must handle zero items with `EmptyState`.

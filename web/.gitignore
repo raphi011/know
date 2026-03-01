@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Build
+*.tsbuildinfo
+
+# Test
+coverage/
+e2e/test-results/
+playwright-report/
+
+# Storybook
+storybook-static/
+
+# Environment (use root .env via justfile)
+.env
+.env.local
+.env*.local
+
+# Cache
+.eslintcache
+.cache/
+
+# Misc
+.vercel

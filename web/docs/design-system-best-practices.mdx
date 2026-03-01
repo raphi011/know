@@ -1,0 +1,447 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Docs/Design System Best Practices" />
+
+# Design System Best Practices
+
+Principles for building polished, consistent UIs. General-purpose reference applicable to any project.
+
+For the concrete tokens, components, and consistency rules of this project, see the [Design System](/docs/docs-design-system--docs) and [Component Architecture](/docs/docs-component-architecture--docs) docs.
+
+---
+
+## 1. Visual Hierarchy & Composition
+
+**Principle**: Guide the eye through intentional size, contrast, color, and spacing — not decoration.
+
+**Why it matters**: Users scan, they don't read. Without clear hierarchy, every element competes for attention and nothing wins. Good hierarchy makes the interface self-explanatory.
+
+**Key rules**:
+
+- **Primary action prominence**: The main CTA should be ~3x more visually prominent than secondary actions. Achieve this through size, fill color, and contrast — not just placement.
+- **One focal point per view**: Each screen or section should have a single dominant element. If two things feel equally important, the design has a hierarchy problem.
+- **Proximity = relationship**: Elements that are close together are perceived as related (Gestalt law of proximity). Group related items with tight spacing; separate unrelated groups with generous whitespace.
+- **Size communicates importance**: Larger elements are scanned first. Page titles > section headings > body text > metadata. Don't break this expectation.
+- **Contrast as emphasis**: High contrast draws the eye. Use high contrast for actionable elements (buttons, links) and lower contrast for supporting content (timestamps, secondary text).
+- **Limit visual weight**: Restrict bold, color, and large type to 10-20% of the visible area. Overuse of emphasis nullifies it.
+
+**Do / Don't**:
+
+| Do | Don't |
+|----|-------|
+| One filled primary button per view section | Multiple competing bright buttons side by side |
+| Progressive disclosure — show details on demand | Dump all information on screen at once |
+| Use whitespace to create logical groupings | Rely solely on borders/lines to separate content |
+| Establish a clear reading flow (top-left to bottom-right in LTR) | Scatter CTAs across random positions |
+
+---
+
+## 2. Color Strategy
+
+**Principle**: Color is a communication tool, not decoration. Use it sparingly and systematically.
+
+**Why it matters**: Disciplined color usage creates visual calm, makes interactive elements obvious, and ensures meaning is conveyed consistently. Undisciplined color creates noise.
+
+**Key rules**:
+
+- **The 60-30-10 rule**: 60% neutral/dominant (backgrounds, surfaces), 30% secondary (cards, containers), 10% accent (CTAs, highlights, status). This ratio produces natural visual balance.
+- **Separate brand from function**: Brand colors express identity. Functional colors (success, error, warning, info) communicate state. Never overload brand colors with functional meaning.
+- **Color is never the sole signifier**: Always pair color with shape, icon, text, or pattern. 8% of men have some form of color vision deficiency.
+- **Limit your active palette**: 1 primary, 1 accent, 1 neutral scale, and 3-4 semantic colors is enough. Every additional color adds cognitive load.
+- **Dark mode is not inversion**: Each mode is a deliberate design decision. Reduce saturation in dark mode, avoid pure black (#000), and use soft dark backgrounds (e.g., `#0F172A`).
+- **Contrast compliance**: WCAG AA minimum — 4.5:1 for regular text, 3:1 for large text and UI components. Test with tools, not eyeballing.
+
+**Do / Don't**:
+
+| Do | Don't |
+|----|-------|
+| Use semantic color tokens (`color-success`, `color-error`) | Hardcode hex values throughout the codebase |
+| Reserve accent color for interactive highlights and key indicators | Use accent color for backgrounds or large surfaces |
+| Test color combinations against WCAG contrast ratios | Assume colors "look fine" on your monitor |
+| Design dark mode independently with its own contrast testing | Flip `background-color` to dark and call it done |
+
+---
+
+## 3. Typography
+
+**Principle**: Typography creates hierarchy, sets tone, and determines readability. Get it right and the design feels professional even without graphics.
+
+**Why it matters**: Text is 95% of the interface in most apps. Typography is the single highest-impact design decision after spacing.
+
+**Key rules**:
+
+- **Maximum 2 font families**: One for headings, one for body — or a single variable font. Every additional font adds load time and visual complexity.
+- **Establish a type scale**: Use a limited, deliberate set of sizes (e.g., 12, 14, 16, 20, 24, 32). Random font sizes between components signal amateur work.
+- **Optimal line length**: 45-75 characters per line for body text. Too wide and the eye loses its place; too narrow and reading becomes choppy.
+- **Line height matters**: 1.4-1.5 for body text, 1.1-1.2 for large headings. Tight line height on body text kills readability; loose line height on headings wastes space.
+- **Tighten letter-spacing on headings**: Default tracking is optimized for body text. Headlines above 20px benefit from `letter-spacing: -0.02em` to `-0.04em` for a tighter, more polished feel.
+- **Use weight for hierarchy, not just size**: Semibold (600) headings with regular (400) body creates hierarchy even at similar sizes.
+- **Tabular numbers for data**: Use `font-variant-numeric: tabular-nums` for scores, stats, and tables so digits align vertically.
+
+**Do / Don't**:
+
+| Do | Don't |
+|----|-------|
+| Constrain text containers to `max-w-prose` or equivalent | Let paragraphs stretch to full viewport width |
+| Use semantic typography tokens (`text-heading-lg`) | Mix arbitrary font sizes (13px, 15px, 17px) |
+| Decrease letter-spacing on display-size text | Leave default tracking on large headlines |
+| Test readability on actual mobile devices | Design only on large desktop monitors |
+
+---
+
+## 4. Spacing & Rhythm
+
+**Principle**: Consistent spacing is the single biggest differentiator between amateur and professional UI. Use a mathematical grid.
+
+**Why it matters**: The eye is sensitive to spatial inconsistency. Even 2-4px misalignments feel "off" subconsciously, eroding trust in the product.
+
+**Key rules**:
+
+- **Base unit grid**: Pick a base unit (4px or 8px) and derive all spacing from it. Common scale: 4, 8, 12, 16, 24, 32, 48, 64px. Never use arbitrary values like 13px or 22px.
+- **External margin >= internal padding**: The space between cards should be greater than or equal to the padding inside them. This creates clear visual separation between containers.
+- **Spacers vs insets**: *Spacers* are gaps between sibling elements (margin, gap). *Insets* are padding inside containers. Name tokens differently to communicate intent.
+- **Vertical rhythm**: Repeated elements (list items, table rows, cards) should have identical spacing for a predictable scanning pattern.
+- **Whitespace is a feature**: Generous whitespace reduces cognitive load, improves comprehension, and signals quality. Cramped layouts feel cheap; airy layouts feel considered.
+- **Section spacing > element spacing**: The gap between major sections should be noticeably larger than gaps between elements within a section. This communicates content hierarchy through space alone.
+
+**The hierarchy of space**:
+
+```
+┌─ Page padding ──────────────────────┐   largest
+│                                      │
+│  ┌─ Section gap ──────────────────┐  │
+│  │                                │  │
+│  │  ┌─ Card padding ───────────┐  │  │
+│  │  │                          │  │  │
+│  │  │  ┌─ Element gap ──────┐  │  │  │
+│  │  │  │  Between fields    │  │  │  │   smallest
+│  │  │  └────────────────────┘  │  │  │
+│  │  └──────────────────────────┘  │  │
+│  └────────────────────────────────┘  │
+└──────────────────────────────────────┘
+```
+
+Each level should be clearly distinguishable from the next.
+
+---
+
+## 5. Interaction States
+
+**Principle**: Every interactive element must communicate its current state. If the user can interact with it, it needs visual feedback for every possible condition.
+
+**Why it matters**: Well-designed states provide intuitive feedback, reinforce trust, and guide the user through flows. When states are an afterthought, users struggle to understand what's clickable, what happened, and what went wrong.
+
+**Complete state matrix**:
+
+| State | Purpose | Visual treatment |
+|-------|---------|-----------------|
+| **Default** | Resting state | Base styling |
+| **Hover** | Signals interactivity | Subtle background shift or color change |
+| **Focus** | Keyboard navigation indicator | Visible ring/outline (>=2px, >=3:1 contrast) |
+| **Active/Pressed** | Confirms action registered | Darker shade, slight scale reduction |
+| **Disabled** | Not available | Reduced opacity (0.5-0.6), no pointer events |
+| **Loading** | Action in progress | Spinner replaces or augments label; disable further clicks |
+| **Error** | Something went wrong | Red accent, inline error message |
+| **Skeleton** | Content not yet loaded | Animated placeholder matching content shape |
+
+**Key rules**:
+
+- **Focus indicators are not optional**: Use `:focus-visible` (not `:focus`) to show focus on keyboard navigation only. Never use `outline: none` without providing an alternative. At least 2px thick, 3:1 contrast ratio.
+- **Hover != focus**: Hover is for pointer devices; focus is for keyboard. Design them independently.
+- **Disabled state sets expectations**: Show *why* something is disabled (tooltip, helper text) rather than leaving users guessing.
+- **Loading replaces action, not content**: When a button is loading, show a spinner in the button itself — don't replace the entire page with a spinner.
+- **Design all states upfront**: Don't design the default state and bolt on others later. State coverage is a design deliverable, not an engineering afterthought.
+
+---
+
+## 6. Feedback & Microinteractions
+
+**Principle**: Every user action deserves acknowledgment. The interface should feel responsive, alive, and trustworthy.
+
+**Why it matters**: Microinteractions close the feedback loop between action and result. Without them, users wonder: "Did that work? Should I click again?" Good feedback builds confidence and reduces support requests.
+
+**Key rules**:
+
+- **Animation serves purpose, not aesthetics**: Every animation should answer one of: What just happened? Where am I? What should I do next? If it doesn't answer any of these, remove it.
+- **Keep feedback under 300ms**: Hover/focus transitions at 100-150ms, entering elements at 200-250ms, exiting elements at 150ms. Anything over 400ms feels sluggish.
+- **Asymmetric easing**: Use `ease-out` for elements entering the screen (deceleration feels natural for arrivals), `ease-in` for elements leaving (acceleration feels natural for departures).
+- **Respect `prefers-reduced-motion`**: Always provide a reduced-motion alternative. Replace animations with instant transitions or simple opacity fades.
+
+**Notification hierarchy**:
+
+| Pattern | When to use | Duration | Example |
+|---------|-------------|----------|---------|
+| **Inline feedback** | Directly related to the action location | Persistent until resolved | Form validation error next to field |
+| **Toast** | Simple confirmation, no action needed | 3-5 seconds, auto-dismiss | "Post published" |
+| **Snackbar** | Confirmation with optional undo/action | 5-8 seconds | "Post deleted. [Undo]" |
+| **Banner** | Important status affecting the whole page | Persistent until dismissed | "Maintenance scheduled for tonight." |
+| **Dialog** | Requires immediate decision | Until user responds | "Confirm deletion?" |
+
+**Form validation — "Reward early, punish late"**:
+
+- Show success inline immediately when a field passes validation
+- Show errors only after the user leaves the field (blur) or submits
+- Never disable the submit button before the user has tried to submit
+- Place error messages directly next to the problematic field
+
+---
+
+## 7. Edge States
+
+**Principle**: Empty states, error states, and loading states leave the strongest impression. Design them with the same care as primary flows.
+
+**Why it matters**: Users rarely remember flawless workflows. They remember the awkward silence of an empty first screen, a cryptic error at a critical moment, or a skeleton screen that never resolves. These "in-between" moments define perceived quality.
+
+### Empty States
+
+Three types of empty state, each requiring different treatment:
+
+| Type | Context | Design goal |
+|------|---------|-------------|
+| **First-use** | New user, no data yet | Onboard and excite — show what's possible, provide a clear first action |
+| **User-cleared** | All items completed/removed | Celebrate — this is a success state, not a dead end |
+| **No results** | Search/filter returned nothing | Guide — suggest adjusting filters or broadening criteria |
+
+**Every empty state should include**: an illustration or icon, a brief explanation, and a CTA that resolves the empty state. Never show just "No items found."
+
+### Error States
+
+- **Be specific, not generic**: "Unable to load posts — the server is unreachable" beats "Something went wrong."
+- **Be constructive**: Always tell the user what to do next. "Try refreshing the page" or "Check your connection."
+- **Tone matters**: Conversational, supportive, never blaming. "We couldn't save your changes" not "You caused an error."
+- **Place errors near the source**: Inline error next to the field, not in a distant banner.
+- **Provide recovery**: Retry button, refresh link, or alternative path.
+
+### Loading States
+
+- **Skeleton screens over spinners** for content-heavy pages. Skeletons set expectations about what's coming and prevent layout shift.
+- **Match skeleton shape to content**: Rounded rectangles where images will appear, horizontal lines where text will appear.
+- **Animate subtly**: A shimmer or pulse at 1.5-2 second cycles. Same direction across all skeletons on the page.
+- **Transition smoothly**: Cross-fade from skeleton to real content. No jarring jump-cuts.
+- **Preserve space**: Skeletons should occupy the same dimensions as the real content to prevent Cumulative Layout Shift (CLS).
+
+---
+
+## 8. Responsive Design
+
+**Principle**: Design for the content, not the device. Components should adapt gracefully to any container size.
+
+**Why it matters**: Users access products on everything from 320px phones to ultrawide monitors. A responsive design that adapts to all contexts feels native everywhere.
+
+**Key rules**:
+
+- **Mobile-first, then enhance**: Start with the smallest screen and progressively add complexity. This forces prioritization and eliminates unnecessary elements.
+- **Breakpoints mark structural changes, not tweaks**: A breakpoint should switch layout patterns (stack to side-by-side, hamburger menu to sidebar), not adjust padding by 4px.
+- **Fluid between breakpoints**: Use relative units (%, vw, fr), `clamp()`, and CSS Grid/Flexbox so the layout adjusts smoothly between breakpoints — not just at them.
+- **Container queries for components**: Components should respond to their parent container's size, not the viewport. A card in a narrow sidebar behaves differently than the same card in a wide main area.
+- **Responsive spacing**: Padding and gaps should scale with the context. 16px page padding on mobile, 24px on desktop. Use responsive spacing tokens.
+- **Test at awkward sizes**: Don't just test at exact breakpoints. Test at 360px, 375px, 414px, 768px, 1024px, 1280px, 1440px — and in between.
+
+**Component adaptation patterns**:
+
+| Pattern | Mobile | Desktop |
+|---------|--------|---------|
+| Navigation | Hamburger menu + FAB | Sidebar (visible labels) |
+| Dialogs | Bottom sheet (reachable) | Centered modal |
+| Data tables | Card-based list (stacked) | Full table with columns |
+| Actions | Hidden in overflow menu | Inline buttons |
+| Side-by-side content | Stacked vertically | Columns |
+
+---
+
+## 9. Accessibility as Design
+
+**Principle**: Accessibility is a design constraint, not a development task. Design systems that bake in a11y from the start scale inclusive experiences automatically.
+
+**Why it matters**: 1.3 billion people worldwide have a disability. Beyond ethics, accessibility is legally required (EAA, ADA) and every $1 invested returns ~$100 in usability improvements that benefit all users.
+
+**Key rules**:
+
+- **Touch targets: 44x44px minimum** (WCAG 2.5.8). This is non-negotiable for mobile. Small targets frustrate everyone, not just users with motor impairments.
+- **Color is supplementary, never primary**: Use icons, labels, patterns, or shapes alongside color. A green badge should say "Success" or include a checkmark — never rely on green alone.
+- **Visible focus indicators**: Designed as part of the component, not an afterthought. 2px minimum thickness, 3:1 contrast against the background.
+- **Sufficient spacing between interactive elements**: At least 8px between adjacent tap targets to prevent misclicks.
+- **Reduced motion support**: Always provide `prefers-reduced-motion` alternatives. Replace slide/bounce with fade or instant transitions.
+- **Semantic structure**: Use real headings (`h1`-`h6`), landmarks (`nav`, `main`, `aside`), and lists — not styled divs.
+- **Form labels are mandatory**: Every input needs an associated `<label>` or `aria-label`. No exceptions.
+
+**Testing approach**:
+
+| Level | What | Catches |
+|-------|------|---------|
+| Automated (axe-core, Storybook a11y) | Color contrast, missing labels, ARIA errors | ~57% of issues |
+| Keyboard testing | Tab order, focus traps, missing focus indicators | ~20% more |
+| Screen reader testing (VoiceOver, NVDA) | Reading order, announced content, semantic structure | The remaining edge cases |
+
+All three levels are necessary. Automated testing alone misses nearly half of accessibility issues.
+
+---
+
+## 10. Content & Microcopy
+
+**Principle**: Words are UI. The text in buttons, labels, error messages, and empty states is as much a design decision as the color of a button.
+
+**Why it matters**: Using placeholder or lorem ipsum copy in design leads to layout surprises, inconsistent tone, and poor UX. Content guidelines ensure every interaction speaks with one voice.
+
+**Key rules**:
+
+- **Voice stays consistent, tone adapts**: The product's voice (e.g., friendly, direct, encouraging) doesn't change. The tone adjusts to context — lighter for success messages, more measured for errors.
+- **Sentence case for UI labels**: Sentence case ("Create new post") feels approachable. Title case ("Create New Post") feels formal. Pick one and apply it everywhere.
+- **Button labels are verbs**: "Save changes", "Create post", "Sign in" — not "OK", "Submit", or "Continue" (which are ambiguous).
+- **Error messages: specific + constructive**: "Email is required" beats "Invalid input." "Check your connection and try again" beats "Network error."
+- **Truncation rules**: Define per component — max lines, ellipsis behavior, tooltip on overflow. Never let truncation hide critical information.
+- **Placeholder is not a label**: Placeholder text disappears on focus, making it useless for form context. Always use a visible label above the input. Placeholder text hints at format ("name@example.com") but never replaces the label.
+
+**Content types to standardize**:
+
+| Type | Guideline |
+|------|-----------|
+| Page titles | Short (2-3 words), imperative or noun-based |
+| Button labels | Verb + object ("Save changes", "Create post") |
+| Empty states | Explanation + CTA, supportive tone |
+| Error messages | What happened + what to do, never blame the user |
+| Confirmations | Restate the action, highlight consequences |
+| Timestamps | Relative for recent ("2h ago"), absolute for old ("Jan 15, 2026") |
+| Tooltips | Brief (1 line), explain hidden or truncated content |
+
+---
+
+## 11. Iconography
+
+**Principle**: Icons supplement text — they don't replace it. A consistent icon system reduces cognitive load and speeds recognition.
+
+**Why it matters**: Inconsistent icons (mixed styles, weights, sizes) signal carelessness. A unified icon set makes the interface feel cohesive and intentional.
+
+**Key rules**:
+
+- **One icon library**: Pick a single icon set (e.g., Heroicons, Lucide, Phosphor) and stick with it. Never mix icon libraries — differences in stroke weight, corner radius, and visual style are immediately noticeable.
+- **Consistent size scale**: Define 2-3 icon sizes tied to usage context: small (16px) for inline text, medium (20px) for UI chrome, large (24px) for navigation. Never use arbitrary sizes.
+- **Consistent stroke weight**: All icons should share the same stroke weight (e.g., 1.5px or 2px). Mixing weights makes some icons feel bolder than others at the same size.
+- **Icons need labels**: Icon-only buttons must have `aria-label` for accessibility and ideally a tooltip for sighted users who don't recognize the icon.
+- **Universal icons only**: Only a handful of icons are universally understood (home, search, close, menu, back arrow). For everything else, pair with a text label.
+- **Optical alignment**: Icons may need 1-2px adjustments to feel visually centered within their container. A mathematically centered icon often looks off-center due to visual weight distribution.
+
+---
+
+## 12. Data Visualization
+
+**Principle**: Show data clearly and accessibly. Familiar chart types communicate faster than novel ones.
+
+**Why it matters**: Data visualization is where design systems often break down. Without clear guidelines, each chart becomes an ad-hoc design exercise, leading to inconsistency.
+
+**Key rules**:
+
+- **Familiar charts first**: Line charts for trends, bar charts for comparison, tables for detail. Don't use a radar chart when a bar chart would be clearer.
+- **One message per visualization**: Each chart should answer one question. If a chart tells two stories, split it into two charts.
+- **Don't rely on color alone**: Use patterns, shapes, or direct labels alongside color. Test with colorblind simulation tools.
+- **Always include text alternatives**: Provide a data table or descriptive summary alongside every chart for screen reader users.
+- **Consistent color mapping**: If blue means "active" in one chart, it means "active" in every chart. Never reuse a color for a different variable within the same view.
+- **Appropriate contrast**: Bars and chart segments need 3:1 contrast against their background. Text labels need 4.5:1.
+- **Label axes and legends**: Every chart needs labeled axes, a clear title, and a legend if using multiple data series.
+
+---
+
+## 13. Consistency Mechanisms
+
+**Principle**: Consistency is not achieved through discipline alone — it's achieved through systems that make inconsistency harder than consistency.
+
+**Why it matters**: Individual developers making ad-hoc color, spacing, and typography decisions leads to entropy. Design tokens, naming conventions, and documentation are the guardrails that maintain consistency at scale.
+
+### Three-Tier Token Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  Tier 3: Component Tokens                       │
+│  button-padding-x, card-border-radius            │
+│  — scoped to individual components              │
+├─────────────────────────────────────────────────┤
+│  Tier 2: Semantic Tokens                        │
+│  color-action-primary, spacing-inline-md         │
+│  — describe purpose, not value                  │
+├─────────────────────────────────────────────────┤
+│  Tier 1: Primitive Tokens                       │
+│  indigo-500, space-4, radius-xl                  │
+│  — raw values, the foundation                   │
+└─────────────────────────────────────────────────┘
+```
+
+- **Primitives** define the raw palette. **Semantics** assign meaning. **Component tokens** apply to specific elements.
+- Code references semantic tokens, not primitives. Changing `color-action-primary` from `indigo-500` to `blue-500` updates every button in the system.
+- This architecture enables theming and dark mode through token remapping, not conditional styles.
+
+**Naming conventions**:
+
+- Structure: `{category}-{property}-{variant}` (e.g., `color-text-primary`, `spacing-inline-lg`)
+- Names describe purpose, not value: `color-action-primary` not `indigo-500`
+- Consistent casing (kebab-case for CSS custom properties, camelCase for JS tokens)
+
+**Border radius strategy**:
+
+| Element type | Radius | Rationale |
+|-------------|--------|-----------|
+| Small elements (badges, pills) | Full (`rounded-full`) | Feels distinct, like a chip |
+| Interactive elements (buttons, inputs) | Medium-large (`12px`) | App-like, touchable feel |
+| Containers (cards, dialogs) | Large (`16px`) | Soft, friendly, modern |
+| Page-level containers | Extra-large (`24px`) | Generous, creates "app" feel |
+
+Rule: bigger shape = bigger radius. Small interactive elements and large containers should never share the same border radius.
+
+**Elevation hierarchy**:
+
+| Level | Usage | Shadow |
+|-------|-------|--------|
+| 0 | Default surfaces | None — use ring/border instead |
+| 1 | Raised cards, buttons | `shadow-sm` |
+| 2 | Dropdowns, popovers | `shadow-md` |
+| 3 | Modals, bottom sheets | `shadow-xl` |
+
+Each level serves a specific purpose. Document the mapping so developers don't invent arbitrary shadow values.
+
+---
+
+## 14. Design System Governance
+
+**Principle**: A design system is a product, not a style guide. It needs ownership, versioning, and a contribution process to stay alive.
+
+**Why it matters**: Design systems decay without active maintenance. Components drift, patterns diverge, and the system becomes a historical artifact rather than a living tool.
+
+**Key rules**:
+
+- **Treat it as a product**: The design system has users (developers, designers), a roadmap, and a backlog. It ships releases, not just commits.
+- **Audit regularly**: Review components against actual usage. Remove dead components, consolidate duplicates, and update deprecated patterns.
+- **Contribution process**: Define how new components enter the system. A component should prove itself in 2-3 product contexts before being promoted to the shared library.
+- **Semantic versioning**: Major versions for breaking changes, minor for new components/features, patch for fixes. Publish changelogs.
+- **Document everything**: Every component needs: anatomy, usage guidelines, all states, code examples, accessibility notes, and do/don't examples. Undocumented components are invisible.
+- **Evolution over revolution**: Make incremental improvements continuously. Big redesigns are expensive, risky, and demoralizing for adopters.
+
+**Component lifecycle**:
+
+```
+Proposal → Review → Implementation → Documentation → Release → Maintenance → Deprecation
+```
+
+No component ships without documentation and all interaction states defined.
+
+**Composition over configuration**:
+
+- Prefer **slot patterns** (children as content injection) over props for flexible content areas
+- Use **compound components** (parent manages state, children render) for complex multi-part components
+- These patterns produce flexible APIs that handle edge cases without bloating the prop surface
+
+---
+
+## Sources
+
+- [Atlassian Design System — Spacing](https://atlassian.design/foundations/spacing/)
+- [Material Design 3 — Color Roles](https://m3.material.io/styles/color/roles)
+- [Material Design 3 — Easing and Duration](https://m3.material.io/styles/motion/easing-and-duration)
+- [IBM Carbon Design System — Motion](https://carbondesignsystem.com/elements/motion/overview/)
+- [IBM Carbon — Content Guidelines](https://carbondesignsystem.com/guidelines/content/overview/)
+- [NN/g — Button States](https://www.nngroup.com/articles/button-states-communicate-interaction/)
+- [NN/g — Empty State Design](https://www.nngroup.com/articles/empty-state-interface-design/)
+- [NN/g — Skeleton Screens](https://www.nngroup.com/articles/skeleton-screens/)
+- [WCAG 2.4.13 — Focus Appearance](https://www.w3.org/WAI/WCAG22/Understanding/focus-appearance.html)
+- [designsystems.com — Iconography Guide](https://www.designsystems.com/iconography-guide/)
+- [designsystems.com — Content Strategy in Design Systems](https://www.designsystems.com/guide-to-content-strategy-in-design-systems/)
+- [Smashing Magazine — Naming Tokens in Design Systems](https://www.smashingmagazine.com/2024/05/naming-best-practices/)
+- [USWDS — Data Visualizations](https://designsystem.digital.gov/components/data-visualizations/)

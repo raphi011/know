@@ -1,0 +1,67 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "success": "Success",
+    "back": "Back"
+  },
+  "nav": {
+    "settings": "Settings",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "menuLabel": "Navigation",
+    "search": "Search"
+  },
+  "error": {
+    "title": "Something went wrong",
+    "description": "An unexpected error occurred. Please try again.",
+    "tryAgain": "Try again"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "The page you are looking for does not exist.",
+    "goHome": "Go to docs"
+  },
+  "login": {
+    "title": "Sign in",
+    "subtitle": "Sign in to your account to continue.",
+    "signIn": "Sign in with SSO",
+    "signingIn": "Signing in...",
+    "error": "Sign in failed. Please try again."
+  },
+  "settings": {
+    "title": "Settings",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeAuto": "Auto",
+    "language": "Language",
+    "languageDe": "Deutsch",
+    "languageEn": "English",
+    "languageError": "Failed to change language. Please try again.",
+    "signOut": "Sign out"
+  },
+  "search": {
+    "placeholder": "Search documents…",
+    "noResults": "No results found.",
+    "hint": "Search",
+    "error": "Search failed. Please try again."
+  },
+  "docs": {
+    "unsaved": "Unsaved",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "saveError": "Save failed",
+    "edit": "Edit",
+    "preview": "Preview",
+    "noVaultTitle": "No vault found",
+    "noVaultDescription": "Create a vault in the Knowhow API to get started.",
+    "noDocumentsTitle": "No documents",
+    "noDocumentsDescription": "This vault has no documents yet."
+  }
+}

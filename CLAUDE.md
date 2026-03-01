@@ -8,9 +8,10 @@ This server enables AI agents to store and retrieve knowledge across sessions, p
 
 ## Tech Stack
 
-- **Language**: Go
+- **Backend**: Go, GraphQL (gqlgen), SurrealDB
+- **Frontend**: Next.js 16, TypeScript, Tailwind CSS v4, PostgreSQL + Drizzle ORM
 - **Protocol**: MCP (Model Context Protocol)
-- **Database**: SurrealDB
+- **Package Manager (web)**: Bun
 
 ## Building
 
@@ -20,8 +21,12 @@ Use `just` for all build and test commands:
 just build      # Build CLI binary
 just server     # Build server binary
 just build-all  # Build both
-just test       # Run tests
-just dev        # Start full dev environment
+just test       # Run Go tests
+just dev        # Start Go dev environment
+just dev-all    # Start everything (SurrealDB + PostgreSQL + Go server + Web dev)
+just web-dev    # Start web dev server only
+just web-test   # Run web tests
+just web-lint   # Lint + typecheck web
 ```
 
 **IMPORTANT**: Before committing any changes, always run `just test`.
@@ -85,6 +90,23 @@ Available docs:
 - `docs/langchaingo.md` - Go LLM library usage
 - `docs/bedrock.md` - AWS Bedrock + Teleport setup
 
+## Web Frontend
+
+The web frontend lives in `web/` — a Next.js 16 app with its own `CLAUDE.md`. See `web/CLAUDE.md` for full conventions, component layers, and gotchas.
+
+```bash
+just db-all         # Start SurrealDB + PostgreSQL
+just web-install    # Install web dependencies (bun)
+just web-db-migrate # Run Drizzle migrations
+just web-db-seed    # Seed example data
+just web-dev        # Start Next.js dev server (:3000)
+just web-test       # Run unit + storybook tests
+just web-lint       # Lint + typecheck
+just dev-all        # Start everything at once
+```
+
+Environment vars for the web app are in the root `.env` (loaded by justfile's `dotenv-load`). Do **not** run `bun run dev` directly in `web/` — use `just web-dev` so vars are inherited.
+
 ## Architecture — Vault-Based Document System
 
 ### Building
@@ -103,6 +125,7 @@ just generate       # Regenerate gqlgen code
 cmd/knowhow-server/     # GraphQL server
 cmd/knowhow/            # CLI client (scrape command, uses GraphQL API)
 cmd/bootstrap/          # One-time script: creates user + vault + token
+web/                    # Next.js frontend (see web/CLAUDE.md)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
