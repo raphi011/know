@@ -224,6 +224,22 @@ func (r *mutationResolver) DeleteDocument(ctx context.Context, vaultID string, p
 	return true, nil
 }
 
+// DeleteDocumentsByPrefix is the resolver for the deleteDocumentsByPrefix field.
+func (r *mutationResolver) DeleteDocumentsByPrefix(ctx context.Context, vaultID string, pathPrefix string) (int, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return 0, err
+	}
+	return r.documentService.DeleteByPrefix(ctx, vaultID, pathPrefix)
+}
+
+// MoveDocumentsByPrefix is the resolver for the moveDocumentsByPrefix field.
+func (r *mutationResolver) MoveDocumentsByPrefix(ctx context.Context, vaultID string, oldPrefix string, newPrefix string) (int, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return 0, err
+	}
+	return r.documentService.MoveByPrefix(ctx, vaultID, oldPrefix, newPrefix)
+}
+
 // CreateRelation is the resolver for the createRelation field.
 func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInput) (*DocRelation, error) {
 	// Verify access to both documents' vaults

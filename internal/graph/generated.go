@@ -128,20 +128,22 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		ApproveProposal       func(childComplexity int, id string, notes *string) int
-		ApproveProposalHunks  func(childComplexity int, input ApproveHunksInput) int
-		CreateDocument        func(childComplexity int, vaultID string, file FileInput, source *string) int
-		CreateRelation        func(childComplexity int, input RelationInput) int
-		CreateTemplate        func(childComplexity int, input TemplateInput) int
-		CreateVault           func(childComplexity int, input VaultInput) int
-		DeleteDocument        func(childComplexity int, vaultID string, path string) int
-		DeleteRelation        func(childComplexity int, id string) int
-		DeleteTemplate        func(childComplexity int, id string) int
-		DeleteVault           func(childComplexity int, id string) int
-		MoveDocument          func(childComplexity int, vaultID string, oldPath string, newPath string) int
-		ProposeDocumentUpdate func(childComplexity int, input ProposeDocumentUpdateInput) int
-		RejectProposal        func(childComplexity int, id string, notes *string) int
-		UpdateDocument        func(childComplexity int, vaultID string, path string, content string) int
+		ApproveProposal         func(childComplexity int, id string, notes *string) int
+		ApproveProposalHunks    func(childComplexity int, input ApproveHunksInput) int
+		CreateDocument          func(childComplexity int, vaultID string, file FileInput, source *string) int
+		CreateRelation          func(childComplexity int, input RelationInput) int
+		CreateTemplate          func(childComplexity int, input TemplateInput) int
+		CreateVault             func(childComplexity int, input VaultInput) int
+		DeleteDocument          func(childComplexity int, vaultID string, path string) int
+		DeleteDocumentsByPrefix func(childComplexity int, vaultID string, pathPrefix string) int
+		DeleteRelation          func(childComplexity int, id string) int
+		DeleteTemplate          func(childComplexity int, id string) int
+		DeleteVault             func(childComplexity int, id string) int
+		MoveDocument            func(childComplexity int, vaultID string, oldPath string, newPath string) int
+		MoveDocumentsByPrefix   func(childComplexity int, vaultID string, oldPrefix string, newPrefix string) int
+		ProposeDocumentUpdate   func(childComplexity int, input ProposeDocumentUpdateInput) int
+		RejectProposal          func(childComplexity int, id string, notes *string) int
+		UpdateDocument          func(childComplexity int, vaultID string, path string, content string) int
 	}
 
 	ProposalDiff struct {
@@ -255,6 +257,8 @@ type MutationResolver interface {
 	UpdateDocument(ctx context.Context, vaultID string, path string, content string) (*Document, error)
 	MoveDocument(ctx context.Context, vaultID string, oldPath string, newPath string) (*Document, error)
 	DeleteDocument(ctx context.Context, vaultID string, path string) (bool, error)
+	DeleteDocumentsByPrefix(ctx context.Context, vaultID string, pathPrefix string) (int, error)
+	MoveDocumentsByPrefix(ctx context.Context, vaultID string, oldPrefix string, newPrefix string) (int, error)
 	CreateRelation(ctx context.Context, input RelationInput) (*DocRelation, error)
 	DeleteRelation(ctx context.Context, id string) (bool, error)
 	CreateTemplate(ctx context.Context, input TemplateInput) (*Template, error)
@@ -752,6 +756,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteDocument(childComplexity, args["vaultId"].(string), args["path"].(string)), true
+	case "Mutation.deleteDocumentsByPrefix":
+		if e.ComplexityRoot.Mutation.DeleteDocumentsByPrefix == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteDocumentsByPrefix_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteDocumentsByPrefix(childComplexity, args["vaultId"].(string), args["pathPrefix"].(string)), true
 	case "Mutation.deleteRelation":
 		if e.ComplexityRoot.Mutation.DeleteRelation == nil {
 			break
@@ -796,6 +811,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.MoveDocument(childComplexity, args["vaultId"].(string), args["oldPath"].(string), args["newPath"].(string)), true
+	case "Mutation.moveDocumentsByPrefix":
+		if e.ComplexityRoot.Mutation.MoveDocumentsByPrefix == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_moveDocumentsByPrefix_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.MoveDocumentsByPrefix(childComplexity, args["vaultId"].(string), args["oldPrefix"].(string), args["newPrefix"].(string)), true
 	case "Mutation.proposeDocumentUpdate":
 		if e.ComplexityRoot.Mutation.ProposeDocumentUpdate == nil {
 			break
@@ -1462,6 +1488,22 @@ func (ec *executionContext) field_Mutation_deleteDocument_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_deleteDocumentsByPrefix_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "pathPrefix", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["pathPrefix"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_deleteRelation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1513,6 +1555,27 @@ func (ec *executionContext) field_Mutation_moveDocument_args(ctx context.Context
 		return nil, err
 	}
 	args["newPath"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_moveDocumentsByPrefix_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "oldPrefix", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["oldPrefix"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "newPrefix", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["newPrefix"] = arg2
 	return args, nil
 }
 
@@ -4062,6 +4125,88 @@ func (ec *executionContext) fieldContext_Mutation_deleteDocument(ctx context.Con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_deleteDocument_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteDocumentsByPrefix(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_deleteDocumentsByPrefix,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteDocumentsByPrefix(ctx, fc.Args["vaultId"].(string), fc.Args["pathPrefix"].(string))
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_deleteDocumentsByPrefix(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteDocumentsByPrefix_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_moveDocumentsByPrefix(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_moveDocumentsByPrefix,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().MoveDocumentsByPrefix(ctx, fc.Args["vaultId"].(string), fc.Args["oldPrefix"].(string), fc.Args["newPrefix"].(string))
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_moveDocumentsByPrefix(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_moveDocumentsByPrefix_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -9452,6 +9597,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "deleteDocument":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_deleteDocument(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteDocumentsByPrefix":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteDocumentsByPrefix(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "moveDocumentsByPrefix":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_moveDocumentsByPrefix(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
