@@ -204,10 +204,16 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 // DeleteByPrefix removes all documents whose path starts with the given prefix.
 // Returns the number of deleted documents. The prefix is normalized and ensured
 // to end with "/" to avoid matching paths like "/guides-extra" when deleting "/guides".
+//
+// Cleanup of chunks, wiki-links, and relations relies on SurrealDB's async cascade
+// events, so associated data is eventually consistent after a bulk delete.
 func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
 	prefix := models.NormalizePath(pathPrefix)
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
+	}
+	if prefix == "/" {
+		return 0, fmt.Errorf("delete by prefix: refusing to delete root prefix")
 	}
 	return s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
 }
@@ -215,6 +221,8 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 // MoveByPrefix renames all documents whose path starts with oldPrefix,
 // replacing oldPrefix with newPrefix. Returns the number of moved documents.
 // Both prefixes are normalized and ensured to end with "/" to avoid partial matches.
+//
+// Does not update wiki-links or relations referencing the old paths.
 func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
 	oldNorm := models.NormalizePath(oldPrefix)
 	if !strings.HasSuffix(oldNorm, "/") {
@@ -223,6 +231,12 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	newNorm := models.NormalizePath(newPrefix)
 	if !strings.HasSuffix(newNorm, "/") {
 		newNorm += "/"
+	}
+	if oldNorm == "/" {
+		return 0, fmt.Errorf("move by prefix: refusing to move root prefix")
+	}
+	if oldNorm == newNorm {
+		return 0, nil
 	}
 	return s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
 }

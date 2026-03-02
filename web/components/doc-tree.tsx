@@ -32,12 +32,10 @@ import {
   moveDocumentsByPrefix,
 } from "@/app/lib/knowhow/mutations";
 
-type EditingState = {
-  type: "new-doc" | "new-folder" | "rename";
-  parentPath: string;
-  currentName?: string;
-  currentPath?: string;
-};
+type EditingState =
+  | { type: "new-doc"; parentPath: string }
+  | { type: "new-folder"; parentPath: string }
+  | { type: "rename"; parentPath: string; currentName: string; currentPath: string };
 
 type DocTreeProps = {
   tree: TreeNode[];
@@ -54,6 +52,21 @@ function findNode(nodes: TreeNode[], path: string): TreeNode | undefined {
     }
   }
   return undefined;
+}
+
+/** Returns sibling names for a node at the given path (excluding the node itself). */
+function getSiblingNames(tree: TreeNode[], path: string): string[] {
+  const parentPath = path.includes("/")
+    ? path.substring(0, path.lastIndexOf("/"))
+    : "";
+
+  if (!parentPath) {
+    return tree.filter((n) => n.path !== path).map((n) => n.name);
+  }
+
+  const parent = findNode(tree, parentPath);
+  if (!parent || parent.type !== "folder") return [];
+  return parent.children.filter((n) => n.path !== path).map((n) => n.name);
 }
 
 function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
@@ -73,13 +86,17 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   });
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{
-    position: Position;
-    node: TreeNode | null; // null = right-click on empty area
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<
+    | { target: "empty-area"; position: Position }
+    | { target: "node"; position: Position; node: TreeNode }
+    | null
+  >(null);
 
   // Inline editing state
   const [editing, setEditing] = useState<EditingState | null>(null);
+
+  // Inline editing error state
+  const [editingError, setEditingError] = useState<string | null>(null);
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<TreeNode | null>(null);
@@ -101,7 +118,12 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   function handleContextMenu(e: React.MouseEvent, node: TreeNode | null) {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ position: { x: e.clientX, y: e.clientY }, node });
+    const position = { x: e.clientX, y: e.clientY };
+    setContextMenu(
+      node
+        ? { target: "node", position, node }
+        : { target: "empty-area", position },
+    );
   }
 
   function handleNewDocument(parentPath: string) {
@@ -166,6 +188,7 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
 
   async function handleInlineConfirm(name: string) {
     if (!editing) return;
+    setEditingError(null);
 
     if (editing.type === "new-doc") {
       const fullName = name.endsWith(".md") ? name : `${name}.md`;
@@ -173,16 +196,25 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
         ? `${editing.parentPath}/${fullName}`
         : fullName;
       const result = await createDocument(vaultId, path, "");
-      if (result.success) router.refresh();
+      if (!result.success) {
+        setEditingError(result.error);
+        return;
+      }
+      router.refresh();
     } else if (editing.type === "new-folder") {
-      // Optimistic folder — just expand it, no server call
+      // Folders are virtual (derived from document paths), so no server call
+      // needed. Just expand the UI to show the new folder.
       const folderPath = editing.parentPath
         ? `${editing.parentPath}/${name}`
         : name;
       setExpanded((prev) => new Set([...prev, folderPath]));
-    } else if (editing.type === "rename" && editing.currentPath) {
+    } else if (editing.type === "rename") {
       const node = findNode(tree, editing.currentPath);
-      const isFolder = node?.type === "folder";
+      if (!node) {
+        setEditingError("Node not found in tree");
+        return;
+      }
+      const isFolder = node.type === "folder";
       if (isFolder) {
         const newPath = editing.parentPath
           ? `${editing.parentPath}/${name}`
@@ -192,7 +224,11 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
           editing.currentPath,
           newPath,
         );
-        if (result.success) router.refresh();
+        if (!result.success) {
+          setEditingError(result.error);
+          return;
+        }
+        router.refresh();
       } else {
         const newName = name.endsWith(".md") ? name : `${name}.md`;
         const newPath = editing.parentPath
@@ -203,7 +239,11 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
           editing.currentPath,
           newPath,
         );
-        if (result.success) router.refresh();
+        if (!result.success) {
+          setEditingError(result.error);
+          return;
+        }
+        router.refresh();
       }
     }
 
@@ -221,14 +261,19 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
             <TreeNodeItem
               key={node.path}
               node={node}
+              tree={tree}
               depth={0}
               activePath={activePath}
               expanded={expanded}
               onToggle={toggleFolder}
               onContextMenu={handleContextMenu}
               editing={editing}
+              editingError={editingError}
               onInlineConfirm={handleInlineConfirm}
-              onInlineCancel={() => setEditing(null)}
+              onInlineCancel={() => {
+                setEditing(null);
+                setEditingError(null);
+              }}
             />
           ))}
           {editing && !editing.parentPath && editing.type !== "rename" && (
@@ -236,8 +281,12 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
               type={editing.type === "new-folder" ? "folder" : "document"}
               depth={0}
               siblingNames={tree.map((n) => n.name)}
+              error={editingError}
               onConfirm={handleInlineConfirm}
-              onCancel={() => setEditing(null)}
+              onCancel={() => {
+                setEditing(null);
+                setEditingError(null);
+              }}
               placeholder={
                 t(editing.type === "new-folder" ? "newFolder" : "newDocument")
               }
@@ -252,7 +301,7 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
           position={contextMenu.position}
           onClose={() => setContextMenu(null)}
         >
-          {contextMenu.node === null && (
+          {contextMenu.target === "empty-area" && (
             <>
               <ContextMenuItem
                 icon={<DocumentPlusIcon />}
@@ -268,53 +317,55 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
               </ContextMenuItem>
             </>
           )}
-          {contextMenu.node?.type === "folder" && (
-            <>
-              <ContextMenuItem
-                icon={<DocumentPlusIcon />}
-                onClick={() => handleNewDocument(contextMenu.node!.path)}
-              >
-                {t("newDocument")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                icon={<FolderPlusIcon />}
-                onClick={() => handleNewFolder(contextMenu.node!.path)}
-              >
-                {t("newFolder")}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                icon={<PencilIcon />}
-                onClick={() => handleRename(contextMenu.node!)}
-              >
-                {t("rename")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                icon={<TrashIcon />}
-                destructive
-                onClick={() => handleDeleteRequest(contextMenu.node!)}
-              >
-                {t("delete")}
-              </ContextMenuItem>
-            </>
-          )}
-          {contextMenu.node?.type === "document" && (
-            <>
-              <ContextMenuItem
-                icon={<PencilIcon />}
-                onClick={() => handleRename(contextMenu.node!)}
-              >
-                {t("rename")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                icon={<TrashIcon />}
-                destructive
-                onClick={() => handleDeleteRequest(contextMenu.node!)}
-              >
-                {t("delete")}
-              </ContextMenuItem>
-            </>
-          )}
+          {contextMenu.target === "node" &&
+            contextMenu.node.type === "folder" && (
+              <>
+                <ContextMenuItem
+                  icon={<DocumentPlusIcon />}
+                  onClick={() => handleNewDocument(contextMenu.node.path)}
+                >
+                  {t("newDocument")}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  icon={<FolderPlusIcon />}
+                  onClick={() => handleNewFolder(contextMenu.node.path)}
+                >
+                  {t("newFolder")}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  icon={<PencilIcon />}
+                  onClick={() => handleRename(contextMenu.node)}
+                >
+                  {t("rename")}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  icon={<TrashIcon />}
+                  destructive
+                  onClick={() => handleDeleteRequest(contextMenu.node)}
+                >
+                  {t("delete")}
+                </ContextMenuItem>
+              </>
+            )}
+          {contextMenu.target === "node" &&
+            contextMenu.node.type === "document" && (
+              <>
+                <ContextMenuItem
+                  icon={<PencilIcon />}
+                  onClick={() => handleRename(contextMenu.node)}
+                >
+                  {t("rename")}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  icon={<TrashIcon />}
+                  destructive
+                  onClick={() => handleDeleteRequest(contextMenu.node)}
+                >
+                  {t("delete")}
+                </ContextMenuItem>
+              </>
+            )}
         </ContextMenu>
       )}
 
@@ -339,22 +390,26 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
 
 function TreeNodeItem({
   node,
+  tree,
   depth,
   activePath,
   expanded,
   onToggle,
   onContextMenu,
   editing,
+  editingError,
   onInlineConfirm,
   onInlineCancel,
 }: {
   node: TreeNode;
+  tree: TreeNode[];
   depth: number;
   activePath: string;
   expanded: Set<string>;
   onToggle: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, node: TreeNode) => void;
   editing: EditingState | null;
+  editingError: string | null;
   onInlineConfirm: (name: string) => void;
   onInlineCancel: () => void;
 }) {
@@ -369,8 +424,9 @@ function TreeNodeItem({
       <InlineTreeInput
         type={isFolder ? "folder" : "document"}
         depth={depth}
-        defaultValue={editing!.currentName}
-        siblingNames={[]}
+        defaultValue={editing.currentName}
+        siblingNames={getSiblingNames(tree, editing.currentPath)}
+        error={editingError}
         onConfirm={onInlineConfirm}
         onCancel={onInlineCancel}
       />
@@ -434,12 +490,14 @@ function TreeNodeItem({
             <TreeNodeItem
               key={child.path}
               node={child}
+              tree={tree}
               depth={depth + 1}
               activePath={activePath}
               expanded={expanded}
               onToggle={onToggle}
               onContextMenu={onContextMenu}
               editing={editing}
+              editingError={editingError}
               onInlineConfirm={onInlineConfirm}
               onInlineCancel={onInlineCancel}
             />
@@ -451,6 +509,7 @@ function TreeNodeItem({
                 type={editing.type === "new-folder" ? "folder" : "document"}
                 depth={depth + 1}
                 siblingNames={node.children.map((c) => c.name)}
+                error={editingError}
                 onConfirm={onInlineConfirm}
                 onCancel={onInlineCancel}
               />

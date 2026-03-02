@@ -1,5 +1,6 @@
 import type { ActionResult } from "@/app/lib/action-result";
 
+/** Executes a GraphQL mutation via the proxy API and returns an ActionResult. */
 async function graphqlMutation(
   query: string,
   variables: Record<string, unknown>,
@@ -18,7 +19,8 @@ async function graphqlMutation(
     let json: { errors?: { message: string }[] };
     try {
       json = await response.json();
-    } catch {
+    } catch (parseErr) {
+      console.error("Failed to parse GraphQL response:", parseErr);
       return { success: false, error: "Server returned an invalid response" };
     }
 
@@ -29,6 +31,7 @@ async function graphqlMutation(
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("GraphQL mutation failed:", err);
     return { success: false, error: message };
   }
 }
