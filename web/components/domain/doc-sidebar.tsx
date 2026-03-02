@@ -6,9 +6,10 @@ import type { TreeNode } from "@/app/lib/knowhow/types";
 
 type DocSidebarProps = {
   tree: TreeNode[];
+  vaultId: string;
 };
 
-function DocSidebar({ tree }: DocSidebarProps) {
+function DocSidebar({ tree, vaultId }: DocSidebarProps) {
   const pathname = usePathname();
 
   // Extract document path from URL: /docs/foo/bar.md → foo/bar.md
@@ -16,7 +17,7 @@ function DocSidebar({ tree }: DocSidebarProps) {
     ? pathname.slice("/docs/".length)
     : "";
 
-  return <DocTree tree={tree} activePath={activePath} />;
+  return <DocTree tree={tree} activePath={activePath} vaultId={vaultId} />;
 }
 
 export { DocSidebar };

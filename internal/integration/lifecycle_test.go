@@ -359,6 +359,405 @@ Updated content for beta.
 	}
 }
 
+// TestDeleteByPrefix verifies that DeleteByPrefix removes all documents under
+// a path prefix while leaving documents outside the prefix untouched.
+func TestDeleteByPrefix(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "delete-prefix-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "delete-prefix-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	// Create 3 documents: 2 under /test-prefix/, 1 under /other/
+	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md", "/other/c.md"} {
+		_, err := docSvc.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    path,
+			Content: "# Doc at " + path,
+			Source:  models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", path, err)
+		}
+	}
+
+	// Delete by prefix
+	count, err := docSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
+	if err != nil {
+		t.Fatalf("delete by prefix: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("deleted count: got %d, want 2", count)
+	}
+
+	// Verify prefix docs are gone
+	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md"} {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc != nil {
+			t.Errorf("doc %s should be deleted", path)
+		}
+	}
+
+	// Verify /other/c.md still exists
+	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/other/c.md")
+	if err != nil {
+		t.Fatalf("get doc /other/c.md: %v", err)
+	}
+	if doc == nil {
+		t.Error("doc /other/c.md should still exist")
+	}
+
+	// Cleanup
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestMoveByPrefix verifies that MoveByPrefix renames all documents under a
+// path prefix while leaving documents outside the prefix untouched.
+func TestMoveByPrefix(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "move-prefix-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "move-prefix-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	// Create 2 documents under /old-folder/
+	for _, path := range []string{"/old-folder/a.md", "/old-folder/b.md"} {
+		_, err := docSvc.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    path,
+			Content: "# Doc at " + path,
+			Source:  models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", path, err)
+		}
+	}
+
+	// Move /old-folder → /new-folder
+	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/old-folder", "/new-folder")
+	if err != nil {
+		t.Fatalf("move by prefix: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("moved count: got %d, want 2", count)
+	}
+
+	// Verify old paths are gone
+	for _, path := range []string{"/old-folder/a.md", "/old-folder/b.md"} {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc != nil {
+			t.Errorf("doc %s should no longer exist at old path", path)
+		}
+	}
+
+	// Verify new paths exist
+	for _, path := range []string{"/new-folder/a.md", "/new-folder/b.md"} {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc == nil {
+			t.Errorf("doc %s should exist at new path", path)
+		}
+	}
+
+	// Cleanup
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestDeleteByPrefix_BoundaryCollision verifies that deleting "/test-prefix" does not
+// affect documents under "/test-prefix-extra" or "/test-prefixed" — only "/test-prefix/".
+func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "delete-boundary-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "delete-boundary-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	// Create docs under similar-looking prefixes
+	paths := []string{
+		"/test-prefix/a.md",
+		"/test-prefix/sub/b.md",
+		"/test-prefix-extra/c.md",
+		"/test-prefixed/d.md",
+	}
+	for _, path := range paths {
+		_, err := docSvc.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    path,
+			Content: "# Doc at " + path,
+			Source:  models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", path, err)
+		}
+	}
+
+	// Delete by prefix — should only affect /test-prefix/
+	count, err := docSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
+	if err != nil {
+		t.Fatalf("delete by prefix: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("deleted count: got %d, want 2", count)
+	}
+
+	// Verify /test-prefix/ docs are gone
+	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/sub/b.md"} {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc != nil {
+			t.Errorf("doc %s should be deleted", path)
+		}
+	}
+
+	// Verify similar-prefix docs are NOT deleted
+	for _, path := range []string{"/test-prefix-extra/c.md", "/test-prefixed/d.md"} {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc == nil {
+			t.Errorf("doc %s should still exist (different prefix)", path)
+		}
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestMoveByPrefix_NestedSubfolders verifies that moving a prefix correctly
+// preserves the full relative path structure for deeply nested documents.
+func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "move-nested-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "move-nested-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	// Create deeply nested documents
+	paths := []string{
+		"/old-folder/a.md",
+		"/old-folder/sub/b.md",
+		"/old-folder/sub/deep/c.md",
+	}
+	for _, path := range paths {
+		_, err := docSvc.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    path,
+			Content: "# Doc at " + path,
+			Source:  models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", path, err)
+		}
+	}
+
+	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/old-folder", "/new-folder")
+	if err != nil {
+		t.Fatalf("move by prefix: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("moved count: got %d, want 3", count)
+	}
+
+	// Verify new paths preserve relative structure
+	expectedNewPaths := []string{
+		"/new-folder/a.md",
+		"/new-folder/sub/b.md",
+		"/new-folder/sub/deep/c.md",
+	}
+	for _, path := range expectedNewPaths {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc == nil {
+			t.Errorf("doc %s should exist at new path", path)
+		}
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestMoveByPrefix_BoundaryCollision verifies that moving "/guides" does not
+// affect documents under "/guides-extra".
+func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "move-boundary-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "move-boundary-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	paths := []string{
+		"/guides/a.md",
+		"/guides-extra/b.md",
+	}
+	for _, path := range paths {
+		_, err := docSvc.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    path,
+			Content: "# Doc at " + path,
+			Source:  models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", path, err)
+		}
+	}
+
+	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/guides", "/tutorials")
+	if err != nil {
+		t.Fatalf("move by prefix: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("moved count: got %d, want 1", count)
+	}
+
+	// /guides-extra/b.md should be untouched
+	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/guides-extra/b.md")
+	if err != nil {
+		t.Fatalf("get doc: %v", err)
+	}
+	if doc == nil {
+		t.Error("doc /guides-extra/b.md should still exist")
+	}
+
+	// /tutorials/a.md should exist
+	doc, err = testDB.GetDocumentByPath(ctx, vaultID, "/tutorials/a.md")
+	if err != nil {
+		t.Fatalf("get doc: %v", err)
+	}
+	if doc == nil {
+		t.Error("doc /tutorials/a.md should exist after move")
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestMoveByPrefix_SamePrefix verifies that moving to the same prefix is a no-op.
+func TestMoveByPrefix_SamePrefix(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "move-same-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "move-same-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    "/folder/a.md",
+		Content: "# Doc",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create doc: %v", err)
+	}
+
+	// Move to same prefix — should return 0 (no-op)
+	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/folder", "/folder")
+	if err != nil {
+		t.Fatalf("move by prefix: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("moved count: got %d, want 0 (same prefix)", count)
+	}
+
+	// Document should still be at original path
+	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/folder/a.md")
+	if err != nil {
+		t.Fatalf("get doc: %v", err)
+	}
+	if doc == nil {
+		t.Error("doc should still exist at original path")
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
 // TestSyncChunks_PreservesUnchangedChunks verifies the content-based chunk diffing:
 // unchanged chunks keep their embeddings, changed chunks get new embed_at, removed chunks are deleted.
 func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {

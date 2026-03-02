@@ -295,6 +295,8 @@ type Mutation {
   updateDocument(vaultId: ID!, path: String!, content: String!): Document!
   moveDocument(vaultId: ID!, oldPath: String!, newPath: String!): Document!
   deleteDocument(vaultId: ID!, path: String!): Boolean!
+  deleteDocumentsByPrefix(vaultId: ID!, pathPrefix: String!): Int!
+  moveDocumentsByPrefix(vaultId: ID!, oldPrefix: String!, newPrefix: String!): Int!
 
   # Relations
   createRelation(input: RelationInput!): DocRelation!
