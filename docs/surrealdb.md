@@ -111,6 +111,28 @@ vars := map[string]any{
 
 Apply `bareID` to **every** query parameter that feeds into `type::record()`. Missing even one causes silent empty results that are hard to debug.
 
+### `INSIDE` Requires Typed Record IDs, Not Strings
+
+When using `id INSIDE $ids` to batch-fetch records, the Go SDK's CBOR layer distinguishes record IDs from strings. Passing `[]string{"document:abc123"}` will **silently match nothing** — SurrealDB compares a `record<document>` field against plain strings and they never equal.
+
+**Fix**: Pass `[]surrealmodels.RecordID` so the SDK serializes proper CBOR record IDs:
+
+```go
+// BAD: strings look like record IDs but aren't — silent empty results
+recordIDs := make([]string, len(ids))
+for i, id := range ids {
+    recordIDs[i] = "document:" + id
+}
+
+// GOOD: typed record IDs via SDK
+recordIDs := make([]surrealmodels.RecordID, len(ids))
+for i, id := range ids {
+    recordIDs[i] = newRecordID("document", bareID("document", id))
+}
+```
+
+This applies to any query that passes an array of IDs for `INSIDE`, `CONTAINSANY`, or similar set operations.
+
 ## Hybrid Search Pattern
 
 Combine vector and fulltext search with RRF:

@@ -1,3 +1,4 @@
+import { slug } from "github-slugger";
 import type { SearchResult } from "@/app/lib/knowhow/types";
 
 export async function searchDocuments(
@@ -59,4 +60,25 @@ export async function searchDocuments(
   }
 
   return json.data.search;
+}
+
+/**
+ * Format a headingPath for display: "## Setup > ### Install" → "Setup › Install".
+ */
+export function formatHeadingPath(headingPath: string): string {
+  return headingPath.replace(/^#+\s*/g, "").replaceAll(/\s*>\s*#+\s*/g, " › ");
+}
+
+/**
+ * Extract a URL hash fragment from a headingPath like "## Setup > ### Install".
+ * Returns the slug of the deepest heading, or empty string if none.
+ */
+export function headingPathToHash(headingPath: string | null): string {
+  if (!headingPath) return "";
+  // Take the last segment: "## Setup > ### Install" → "### Install"
+  const last = headingPath.split(" > ").pop() ?? "";
+  // Strip the markdown heading prefix: "### Install" → "Install"
+  const heading = last.replace(/^#+\s*/, "");
+  if (!heading) return "";
+  return `#${slug(heading)}`;
 }

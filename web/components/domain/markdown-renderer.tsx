@@ -5,6 +5,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkFrontmatter from "remark-frontmatter";
 import rehypeHighlight from "rehype-highlight";
+import rehypeSlug from "rehype-slug";
 import { remarkWikiLinks } from "@/app/lib/remark-wikilinks";
 import { useDocuments } from "@/components/domain/documents-context";
 import { resolveWikiLink } from "@/app/lib/knowhow/resolve-wikilink";
@@ -91,7 +92,7 @@ function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
           return defaultUrlTransform(url);
         }}
         remarkPlugins={[remarkFrontmatter, remarkGfm, remarkWikiLinks]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[rehypeSlug, rehypeHighlight]}
         components={{ a: WikiLinkAwareLink }}
       >
         {content}

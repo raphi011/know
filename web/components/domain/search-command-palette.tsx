@@ -19,13 +19,22 @@ import {
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { searchDocuments } from "@/app/lib/knowhow/search";
+import {
+  searchDocuments,
+  headingPathToHash,
+  formatHeadingPath,
+} from "@/app/lib/knowhow/search";
 import type { SearchResult } from "@/app/lib/knowhow/types";
 
 type SearchCommandPaletteProps = {
   vaultId: string;
   open: boolean;
   onClose: () => void;
+};
+
+type SelectionValue = {
+  path: string;
+  headingPath: string | null;
 };
 
 function ResultsContent({
@@ -67,34 +76,89 @@ function ResultsContent({
 
   return (
     <ComboboxOptions static className="max-h-72 overflow-y-auto p-2">
-      {results.map((result) => (
-        <ComboboxOption
-          key={result.documentId}
-          value={result}
-          className={({ focus }) =>
-            cn(
-              "flex cursor-default items-start gap-3 rounded-xl px-3 py-2.5",
-              "transition-colors duration-100",
-              focus ? "bg-primary-50 dark:bg-primary-950" : "",
-            )
-          }
-        >
-          <DocumentTextIcon className="mt-0.5 size-5 shrink-0 text-slate-400" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
-              {result.title}
-            </p>
-            <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-              {result.path}
-            </p>
-            {result.matchedChunks[0] && (
-              <p className="mt-0.5 line-clamp-2 text-xs text-slate-400 dark:text-slate-500">
-                {result.matchedChunks[0].snippet}
-              </p>
-            )}
+      {results.map((result) => {
+        const chunks = result.matchedChunks;
+
+        // No chunks or single chunk without heading — show as single option
+        if (chunks.length <= 1) {
+          return (
+            <ComboboxOption
+              key={result.documentId}
+              value={{ path: result.path, headingPath: chunks[0]?.headingPath ?? null } satisfies SelectionValue}
+              className={({ focus }) =>
+                cn(
+                  "flex cursor-default items-start gap-3 rounded-xl px-3 py-2.5",
+                  "transition-colors duration-100",
+                  focus ? "bg-primary-50 dark:bg-primary-950" : "",
+                )
+              }
+            >
+              <DocumentTextIcon className="mt-0.5 size-5 shrink-0 text-slate-400" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                  {result.title}
+                </p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {result.path}
+                  {chunks[0]?.headingPath && (
+                    <span className="ml-1.5 text-slate-400 dark:text-slate-500">
+                      &rsaquo; {formatHeadingPath(chunks[0].headingPath)}
+                    </span>
+                  )}
+                </p>
+                {chunks[0] && (
+                  <p className="mt-0.5 line-clamp-2 text-xs text-slate-400 dark:text-slate-500">
+                    {chunks[0].snippet}
+                  </p>
+                )}
+              </div>
+            </ComboboxOption>
+          );
+        }
+
+        // Multiple chunks — show each as a selectable sub-option
+        return (
+          <div key={result.documentId}>
+            {/* Document header (non-selectable) */}
+            <div className="flex items-start gap-3 px-3 pt-2.5 pb-1">
+              <DocumentTextIcon className="mt-0.5 size-5 shrink-0 text-slate-400" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                  {result.title}
+                </p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {result.path}
+                </p>
+              </div>
+            </div>
+            {/* Chunk sub-options */}
+            {chunks.map((chunk, i) => (
+              <ComboboxOption
+                key={`${result.documentId}-${i}`}
+                value={{ path: result.path, headingPath: chunk.headingPath } satisfies SelectionValue}
+                className={({ focus }) =>
+                  cn(
+                    "flex cursor-default items-start gap-2 rounded-lg py-1.5 pr-3 pl-11",
+                    "transition-colors duration-100",
+                    focus ? "bg-primary-50 dark:bg-primary-950" : "",
+                  )
+                }
+              >
+                <div className="min-w-0 flex-1">
+                  {chunk.headingPath && (
+                    <p className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
+                      {formatHeadingPath(chunk.headingPath)}
+                    </p>
+                  )}
+                  <p className="line-clamp-1 text-xs text-slate-400 dark:text-slate-500">
+                    {chunk.snippet}
+                  </p>
+                </div>
+              </ComboboxOption>
+            ))}
           </div>
-        </ComboboxOption>
-      ))}
+        );
+      })}
     </ComboboxOptions>
   );
 }
@@ -183,9 +247,10 @@ function SearchCommandPalette({
     }
   }, [open]);
 
-  function handleSelect(result: SearchResult | null) {
-    if (!result) return;
-    router.push(`/docs/${result.path}`);
+  function handleSelect(value: SelectionValue | null) {
+    if (!value) return;
+    const hash = headingPathToHash(value.headingPath);
+    router.push(`/docs/${value.path}${hash}`);
     onClose();
   }
 
@@ -217,7 +282,7 @@ function SearchCommandPalette({
             leaveTo="opacity-0 scale-95"
           >
             <DialogPanel className="w-full max-w-lg self-start">
-              <Combobox<SearchResult | null>
+              <Combobox<SelectionValue | null>
                 onChange={handleSelect}
                 value={null}
               >

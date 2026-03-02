@@ -2,14 +2,18 @@
 
 import { redirect } from "next/navigation";
 import { getSession, setSession, clearSession } from "@/app/lib/session";
-import type { ServerConnection } from "@/app/lib/knowhow/types";
+import {
+  type ServerConnection,
+  graphqlUrl,
+  stripGraphqlPath,
+} from "@/app/lib/knowhow/types";
 
 export async function loginAction(
   serverUrl: string,
   serverToken: string,
   serverName: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const url = serverUrl.trim().replace(/\/+$/, "").replace(/\/query$/, "");
+  const url = stripGraphqlPath(serverUrl.trim());
   const token = serverToken.trim();
   const name = serverName.trim() || new URL(url).hostname;
 
@@ -19,7 +23,7 @@ export async function loginAction(
 
   // Validate the connection by making a test query
   try {
-    const response = await fetch(`${url}/query`, {
+    const response = await fetch(graphqlUrl(url), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -59,8 +59,6 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_document_vault_path    ON document FIELDS vault, path UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_document_labels        ON document FIELDS labels;
     DEFINE INDEX IF NOT EXISTS idx_document_vault_doctype ON document FIELDS vault, doc_type;
-    DEFINE INDEX IF NOT EXISTS idx_document_content_ft    ON document FIELDS content_body FULLTEXT ANALYZER knowhow_analyzer BM25;
-    DEFINE INDEX IF NOT EXISTS idx_document_title_ft      ON document FIELDS title FULLTEXT ANALYZER knowhow_analyzer BM25;
 
     -- Cascade delete chunks and wiki_links when document deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_chunks ON document
