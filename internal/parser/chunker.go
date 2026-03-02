@@ -24,7 +24,8 @@ type ChunkConfig struct {
 	MaxSize int
 }
 
-// DefaultChunkConfig returns sensible defaults targeting ~1024 tokens per chunk.
+// DefaultChunkConfig returns sensible defaults for embedding-quality chunk sizes.
+// TargetSize ~750 tokens, MaxSize ~1000 tokens (at ~4 chars/token for English prose).
 func DefaultChunkConfig() ChunkConfig {
 	return ChunkConfig{
 		Threshold:  6000,
@@ -65,10 +66,14 @@ func ChunkMarkdown(doc *MarkdownDoc, config ChunkConfig) []ChunkResult {
 	return chunkByParagraphs(doc.Content, config)
 }
 
+// maxAtomicCodeBlockSize is the hard size limit for keeping code blocks atomic.
+// Code blocks exceeding this fall through to standard paragraph/sentence splitting.
+const maxAtomicCodeBlockSize = 8000
+
 // chunkBySections creates chunks from document sections using hierarchical merging.
 // Empty sections are skipped. Small sections merge into their parent heading's chunk
 // rather than the positional predecessor, preserving semantic relationships.
-// Code-block-dominated sections are treated as atomic and never split.
+// Code-block-dominated sections are treated as atomic up to maxAtomicCodeBlockSize.
 func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 	var chunks []ChunkResult
 	position := 0
@@ -82,9 +87,14 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 		return ""
 	}
 
-	// findParentChunk finds the most recent chunk matching the parent path.
+	// findParentChunk finds the most recent chunk whose heading path matches
+	// or is a descendant of the parent path. Returns nil for top-level sections
+	// (no parent in the hierarchy).
 	findParentChunk := func(path string) *ChunkResult {
 		parent := parentPath(path)
+		if parent == "" {
+			return nil
+		}
 		for i := len(chunks) - 1; i >= 0; i-- {
 			if chunks[i].HeadingPath == parent || strings.HasPrefix(chunks[i].HeadingPath, parent) {
 				return &chunks[i]
@@ -100,8 +110,8 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 		}
 
 		// Code-block-dominated sections: keep atomic unless they exceed
-		// the embedding model's hard limit (~8000 chars)
-		if section.CodeBlock && len(trimmed) <= 8000 {
+		// the hard size limit (code blocks beyond this fall through to splitting)
+		if section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize {
 			if len(trimmed) >= config.MinSize {
 				chunks = append(chunks, ChunkResult{
 					Content:     trimmed,

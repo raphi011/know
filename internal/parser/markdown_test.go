@@ -230,6 +230,56 @@ func TestParseSections_HeadingPathHierarchy(t *testing.T) {
 	}
 }
 
+func TestParseSections_EmptyHeading(t *testing.T) {
+	// Goldmark produces headings with zero lines for "# \n" — must not panic
+	content := "# \n\n## Real Section\n\nContent here."
+
+	sections := parseSections(content)
+
+	var found bool
+	for _, s := range sections {
+		if s.Heading == "Real Section" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected 'Real Section' to be parsed after empty heading")
+	}
+}
+
+func TestParseSections_FormattedHeading(t *testing.T) {
+	content := "## Install `brew` and **setup**\n\nContent here."
+
+	sections := parseSections(content)
+
+	for _, s := range sections {
+		if s.Level == 2 {
+			if !strings.Contains(s.Heading, "brew") || !strings.Contains(s.Heading, "setup") {
+				t.Errorf("heading with inline formatting should preserve text, got %q", s.Heading)
+			}
+			return
+		}
+	}
+	t.Error("expected h2 section")
+}
+
+func TestParseSections_IndentedCodeBlock(t *testing.T) {
+	// Indented code blocks use 4-space indent (no fences)
+	content := "## Example\n\n    func main() {\n        println(\"hello\")\n    }\n\nSome text after."
+
+	sections := parseSections(content)
+
+	var found bool
+	for _, s := range sections {
+		if s.Heading == "Example" && strings.Contains(s.Content, "func main()") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("indented code block content should be captured in section")
+	}
+}
+
 func TestParseMarkdown_TitleExtraction(t *testing.T) {
 	tests := []struct {
 		name      string

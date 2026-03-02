@@ -242,6 +242,88 @@ func TestChunkBySections_CodeBlockSmallMergesIntoParent(t *testing.T) {
 	}
 }
 
+func TestChunkBySections_CodeBlockExceedsHardLimit(t *testing.T) {
+	config := DefaultChunkConfig()
+	// Code block > maxAtomicCodeBlockSize loses atomic protection and enters
+	// the normal section splitting path. With splittable content (paragraphs
+	// separated by \n\n), it should produce multiple chunks.
+	largeCode := strings.Repeat("This is paragraph one with enough content to be meaningful.\n\n", 200)
+
+	sections := []Section{
+		{Level: 2, Path: "## HugeCode", Content: largeCode, CodeBlock: true},
+	}
+
+	if len(strings.TrimSpace(largeCode)) <= maxAtomicCodeBlockSize {
+		t.Fatalf("test content too small: %d chars, need >%d", len(largeCode), maxAtomicCodeBlockSize)
+	}
+
+	chunks := chunkBySections(sections, config)
+
+	if len(chunks) < 2 {
+		t.Errorf("code block >%d chars with paragraph breaks should be split, got %d chunks",
+			maxAtomicCodeBlockSize, len(chunks))
+	}
+}
+
+func TestChunkBySections_LargeSectionSplitPreservesHeadingPath(t *testing.T) {
+	config := DefaultChunkConfig()
+	// Section content > MaxSize
+	bigContent := strings.Repeat("This is a long paragraph with enough words. ", 200)
+
+	sections := []Section{
+		{Level: 2, Path: "## BigSection", Content: bigContent},
+	}
+
+	chunks := chunkBySections(sections, config)
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected section to be split into multiple chunks, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if c.HeadingPath != "## BigSection" {
+			t.Errorf("chunk[%d].HeadingPath = %q, want '## BigSection'", i, c.HeadingPath)
+		}
+	}
+}
+
+func TestChunkBySections_TopLevelSmallSectionsMergeWithPrevious(t *testing.T) {
+	config := DefaultChunkConfig()
+	// Two unrelated top-level sections, both below MinSize.
+	// With the findParentChunk fix (returns nil for empty parent),
+	// these fall through to the "merge with previous" path.
+	smallContent := strings.Repeat("x", config.MinSize-10)
+
+	sections := []Section{
+		{Level: 2, Path: "## Alpha", Content: smallContent},
+		{Level: 2, Path: "## Beta", Content: smallContent},
+	}
+
+	chunks := chunkBySections(sections, config)
+
+	// Both below MinSize → merged into one chunk
+	if len(chunks) != 1 {
+		t.Errorf("expected 1 merged chunk, got %d", len(chunks))
+		for i, c := range chunks {
+			t.Logf("  chunk[%d] path=%q len=%d", i, c.HeadingPath, len(c.Content))
+		}
+	}
+}
+
+func TestChunkMarkdown_FallbackToParagraphs(t *testing.T) {
+	config := DefaultChunkConfig()
+	// Construct a MarkdownDoc directly with empty Sections to test fallback
+	doc := &MarkdownDoc{
+		Content:  strings.Repeat("Paragraph content here. ", 300),
+		Sections: nil,
+	}
+
+	chunks := ChunkMarkdown(doc, config)
+
+	if len(chunks) < 2 {
+		t.Errorf("expected paragraph-based splitting, got %d chunks", len(chunks))
+	}
+}
+
 func TestDefaultChunkConfig_Values(t *testing.T) {
 	config := DefaultChunkConfig()
 

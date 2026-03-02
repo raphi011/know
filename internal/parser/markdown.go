@@ -34,7 +34,6 @@ type Section struct {
 	Path      string // Full path like "## Setup > ### Install"
 	Content   string // Content under this heading
 	Start     int    // Line number where section starts
-	End       int    // Line number where section ends
 	CodeBlock bool   // True if section is primarily a code block (treat as atomic)
 }
 
@@ -111,7 +110,7 @@ func parseSections(content string) []Section {
 			return
 		}
 		currentSection.Content = strings.TrimSpace(contentBuilder.String())
-		// Mark as code-block-dominated if >50% of non-whitespace content is code
+		// Mark as code-block-dominated if >50% of section content (by char count) is from code blocks
 		trimmedLen := len(currentSection.Content)
 		if trimmedLen > 0 && codeBlockChars > trimmedLen/2 {
 			currentSection.CodeBlock = true
@@ -140,7 +139,10 @@ func parseSections(content string) []Section {
 			currentPath = append(currentPath, strings.Repeat("#", level)+" "+heading)
 			currentLevels = append(currentLevels, level)
 
-			startLine := lineNumber(source, n.Lines().At(0).Start)
+			var startLine int
+			if lines := n.Lines(); lines.Len() > 0 {
+				startLine = lineNumber(source, lines.At(0).Start)
+			}
 
 			currentSection = &Section{
 				Level:   level,
@@ -158,8 +160,9 @@ func parseSections(content string) []Section {
 				}
 				contentBuilder.WriteString(nodeText)
 
-				// Track code block content size
-				if _, ok := node.(*ast.FencedCodeBlock); ok {
+				// Track code block content size (fenced and indented)
+				switch node.(type) {
+				case *ast.FencedCodeBlock, *ast.CodeBlock:
 					codeBlockChars += len(nodeText)
 				}
 			}
@@ -172,7 +175,9 @@ func parseSections(content string) []Section {
 	return sections
 }
 
-// nodeContent extracts the source text for an AST node and its children.
+// nodeContent extracts the source text for an AST node.
+// For code blocks, it reconstructs the block with delimiters.
+// For other block nodes, it extracts direct line content.
 func nodeContent(source []byte, node ast.Node) string {
 	switch n := node.(type) {
 	case *ast.FencedCodeBlock:
@@ -247,6 +252,9 @@ func inlineText(source []byte, node ast.Node) string {
 
 // lineNumber returns the 1-based line number for a byte offset in source.
 func lineNumber(source []byte, offset int) int {
+	if offset > len(source) {
+		offset = len(source)
+	}
 	line := 1
 	for i := range offset {
 		if source[i] == '\n' {

@@ -16,7 +16,8 @@ Technical learnings about vector embeddings for semantic search.
 | amazon.titan-embed-text-v2 | Bedrock | 1024 | Improved, configurable dim |
 | cohere.embed-english-v3 | Bedrock | 1024 | English-optimized |
 | cohere.embed-multilingual-v3 | Bedrock | 1024 | 108 languages |
-| bge-m3 | Ollama | 1024 | Local, good for dev |
+| mxbai-embed-large | Ollama | 1024 | Recommended local dev model |
+| bge-m3 | Ollama | 1024 | Crashes on texts >~2400 chars (Ollama 0.13.1) |
 | all-minilm:l6-v2 | Ollama | 384 | Fast, good for dev |
 
 ### Dimension Selection
@@ -89,7 +90,7 @@ Research consensus (Pinecone, LlamaIndex, OpenAI cookbook):
 - Too large (>2048 tokens): semantic signal diluted, retrieval precision drops
 - Match chunk size to embedding model's training data (most trained on ~512 token passages)
 
-Our defaults: `Threshold=6000, TargetSize=3000, MaxSize=4000, MinSize=800`
+Our defaults are in `DefaultChunkConfig()` in `internal/parser/chunker.go`.
 
 ### AST-Based Markdown Chunking
 
@@ -112,9 +113,9 @@ We previously used 100-char overlap between chunks. This was removed because:
 ### Code Block Handling
 
 - Code blocks (`FencedCodeBlock` AST nodes) are treated as **atomic units**
-- Sections dominated by code (>50% of content) are marked `CodeBlock=true`
-- Code-block sections are never split, even if they exceed `MaxSize`
-- Only split at the embedding model's hard limit (~8000 chars / 2048 tokens)
+- Sections dominated by code (majority of content) are marked `CodeBlock=true`
+- Code-block sections are kept atomic up to `maxAtomicCodeBlockSize` (8000 chars)
+- Beyond that limit, they fall through to standard paragraph/sentence splitting
 
 ### Hierarchical Merge
 
