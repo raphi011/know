@@ -201,6 +201,17 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	return s.db.DeleteDocument(ctx, docID)
 }
 
+// DeleteByPrefix removes all documents whose path starts with the given prefix.
+// Returns the number of deleted documents. The prefix is normalized and ensured
+// to end with "/" to avoid matching paths like "/guides-extra" when deleting "/guides".
+func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
+	prefix := models.NormalizePath(pathPrefix)
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	return s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
+}
+
 // Move changes a document's path.
 func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*models.Document, error) {
 	doc, err := s.db.GetDocumentByPath(ctx, vaultID, oldPath)

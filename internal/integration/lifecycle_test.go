@@ -359,6 +359,74 @@ Updated content for beta.
 	}
 }
 
+// TestDeleteByPrefix verifies that DeleteByPrefix removes all documents under
+// a path prefix while leaving documents outside the prefix untouched.
+func TestDeleteByPrefix(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "delete-prefix-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "delete-prefix-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil)
+
+	// Create 3 documents: 2 under /test-prefix/, 1 under /other/
+	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md", "/other/c.md"} {
+		_, err := docSvc.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    path,
+			Content: "# Doc at " + path,
+			Source:  models.SourceManual,
+		})
+		if err != nil {
+			t.Fatalf("create doc %s: %v", path, err)
+		}
+	}
+
+	// Delete by prefix
+	count, err := docSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
+	if err != nil {
+		t.Fatalf("delete by prefix: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("deleted count: got %d, want 2", count)
+	}
+
+	// Verify prefix docs are gone
+	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md"} {
+		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		if err != nil {
+			t.Fatalf("get doc %s: %v", path, err)
+		}
+		if doc != nil {
+			t.Errorf("doc %s should be deleted", path)
+		}
+	}
+
+	// Verify /other/c.md still exists
+	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/other/c.md")
+	if err != nil {
+		t.Fatalf("get doc /other/c.md: %v", err)
+	}
+	if doc == nil {
+		t.Error("doc /other/c.md should still exist")
+	}
+
+	// Cleanup
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
 // TestSyncChunks_PreservesUnchangedChunks verifies the content-based chunk diffing:
 // unchanged chunks keep their embeddings, changed chunks get new embed_at, removed chunks are deleted.
 func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
