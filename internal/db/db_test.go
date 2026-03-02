@@ -1058,37 +1058,50 @@ func TestResolveDanglingLinks(t *testing.T) {
 // SEARCH TESTS
 // =============================================================================
 
-func TestBM25Search(t *testing.T) {
+func TestBM25ChunkSearch(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	goDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/search-go.md", Title: "Go Programming",
 		Content: "---\ntitle: Go\n---\nGo is a statically typed language", ContentBody: "Go is a statically typed language",
 		Source: models.SourceManual, Labels: []string{"programming"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDocument go failed: %v", err)
 	}
-	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	goDocID := models.MustRecordIDString(goDoc.ID)
+
+	pyDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/search-python.md", Title: "Python Programming",
 		Content: "---\ntitle: Python\n---\nPython is a dynamic language", ContentBody: "Python is a dynamic language",
 		Source: models.SourceManual, Labels: []string{"programming"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDocument python failed: %v", err)
 	}
+	pyDocID := models.MustRecordIDString(pyDoc.ID)
 
-	results, err := testDB.BM25Search(ctx, "Go statically typed", SearchFilter{
+	// Create chunks for BM25 search
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{DocumentID: goDocID, Content: "Go is a statically typed language", Position: 0},
+		{DocumentID: pyDocID, Content: "Python is a dynamic language", Position: 0},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	results, err := testDB.BM25ChunkSearch(ctx, "Go statically typed", SearchFilter{
 		VaultID: vaultID,
 		Limit:   10,
 	})
 	if err != nil {
-		t.Fatalf("BM25Search failed: %v", err)
+		t.Fatalf("BM25ChunkSearch failed: %v", err)
 	}
 	if len(results) == 0 {
-		t.Error("BM25Search should return results for 'Go statically typed'")
+		t.Error("BM25ChunkSearch should return results for 'Go statically typed'")
 	}
 }
 
@@ -1099,38 +1112,52 @@ func TestSearchWithLabelFilter(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	webDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-a.md", Title: "Web Doc",
 		Content: "Web frameworks are great", ContentBody: "Web frameworks are great",
 		Source: models.SourceManual, Labels: []string{"web"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDocument web failed: %v", err)
 	}
-	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	webDocID := models.MustRecordIDString(webDoc.ID)
+
+	cliDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-b.md", Title: "CLI Doc",
 		Content: "CLI tools are useful frameworks", ContentBody: "CLI tools are useful frameworks",
 		Source: models.SourceManual, Labels: []string{"cli"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDocument cli failed: %v", err)
 	}
+	cliDocID := models.MustRecordIDString(cliDoc.ID)
 
-	results, err := testDB.BM25Search(ctx, "frameworks", SearchFilter{
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{DocumentID: webDocID, Content: "Web frameworks are great", Position: 0},
+		{DocumentID: cliDocID, Content: "CLI tools are useful frameworks", Position: 0},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	results, err := testDB.BM25ChunkSearch(ctx, "frameworks", SearchFilter{
 		VaultID: vaultID,
 		Labels:  []string{"web"},
 		Limit:   10,
 	})
 	if err != nil {
-		t.Fatalf("BM25Search with labels failed: %v", err)
+		t.Fatalf("BM25ChunkSearch with labels failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("BM25ChunkSearch with label filter should return results")
 	}
 	for _, r := range results {
-		foundLabel := false
-		for _, l := range r.Document.Labels {
-			if l == "web" {
-				foundLabel = true
-			}
+		// Verify parent doc has the expected label by checking the chunk's document reference
+		docID, err := models.RecordIDString(r.Document)
+		if err != nil {
+			t.Fatalf("extract doc ID: %v", err)
 		}
-		if !foundLabel {
-			t.Errorf("Result %q should have 'web' label", r.Document.Title)
+		if docID != webDocID {
+			t.Errorf("result chunk belongs to doc %q, expected %q (web doc only)", docID, webDocID)
 		}
 	}
 }
@@ -1142,33 +1169,52 @@ func TestSearchWithFolderFilter(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	guidesDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/guides/setup.md", Title: "Setup Guide",
 		Content: "Install the software first", ContentBody: "Install the software first",
 		Source: models.SourceManual, Labels: []string{},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDocument guides failed: %v", err)
 	}
-	if _, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	guidesDocID := models.MustRecordIDString(guidesDoc.ID)
+
+	notesDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/notes/install.md", Title: "Install Notes",
 		Content: "Notes about installing software", ContentBody: "Notes about installing software",
 		Source: models.SourceManual, Labels: []string{},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDocument notes failed: %v", err)
+	}
+	notesDocID := models.MustRecordIDString(notesDoc.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{DocumentID: guidesDocID, Content: "Install the software first", Position: 0},
+		{DocumentID: notesDocID, Content: "Notes about installing software", Position: 0},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
 	}
 
 	folder := "/guides/"
-	results, err := testDB.BM25Search(ctx, "software", SearchFilter{
+	results, err := testDB.BM25ChunkSearch(ctx, "software", SearchFilter{
 		VaultID: vaultID,
 		Folder:  &folder,
 		Limit:   10,
 	})
 	if err != nil {
-		t.Fatalf("BM25Search with folder failed: %v", err)
+		t.Fatalf("BM25ChunkSearch with folder failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("BM25ChunkSearch with folder filter should return results")
 	}
 	for _, r := range results {
-		if r.Document.Path[:8] != "/guides/" {
-			t.Errorf("Result %q path %q should start with /guides/", r.Document.Title, r.Document.Path)
+		docID, err := models.RecordIDString(r.Document)
+		if err != nil {
+			t.Fatalf("extract doc ID: %v", err)
+		}
+		if docID != guidesDocID {
+			t.Errorf("result chunk belongs to doc %q, expected %q (guides doc only)", docID, guidesDocID)
 		}
 	}
 }

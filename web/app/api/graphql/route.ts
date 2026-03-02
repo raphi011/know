@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/app/lib/session";
 import { getActiveConnection } from "@/app/lib/actions/connections";
+import { graphqlUrl } from "@/app/lib/knowhow/types";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   let response: Response;
   try {
-    response = await fetch(conn.url, {
+    response = await fetch(graphqlUrl(conn.url), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

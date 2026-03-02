@@ -1,5 +1,6 @@
 import "server-only";
 import { getActiveConnection } from "@/app/lib/actions/connections";
+import { graphqlUrl } from "@/app/lib/knowhow/types";
 
 type GraphQLResponse<T> = {
   data: T | null;
@@ -21,7 +22,7 @@ export async function gql<T>(
     );
   }
 
-  const response = await fetch(`${conn.url}/query`, {
+  const response = await fetch(graphqlUrl(conn.url), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

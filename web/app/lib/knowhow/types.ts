@@ -45,3 +45,18 @@ export type ServerConnection = {
   url: string;
   token: string;
 };
+
+const GRAPHQL_PATH = "/query";
+
+/** Build the full GraphQL endpoint URL from a base server URL. */
+export function graphqlUrl(baseUrl: string): string {
+  return `${baseUrl}${GRAPHQL_PATH}`;
+}
+
+/** Strip the GraphQL path suffix from a URL (for normalizing user input). */
+export function stripGraphqlPath(url: string): string {
+  const trimmed = url.replace(/\/+$/, "");
+  return trimmed.endsWith(GRAPHQL_PATH)
+    ? trimmed.slice(0, -GRAPHQL_PATH.length)
+    : trimmed;
+}

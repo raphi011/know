@@ -229,7 +229,27 @@ Some notes about the beta project.
 		t.Errorf("resolved links: got %d, want 1", resolvedCount)
 	}
 
-	// --- BM25 Search ---
+	// --- BM25 Chunk Search ---
+
+	// Verify chunks exist for doc1 before searching
+	doc1Chunks, err := testDB.GetChunks(ctx, doc1ID)
+	if err != nil {
+		t.Fatalf("get doc1 chunks: %v", err)
+	}
+	if len(doc1Chunks) == 0 {
+		t.Fatal("expected chunks for doc1, got none")
+	}
+	t.Logf("doc1 has %d chunks, first chunk content: %q", len(doc1Chunks), doc1Chunks[0].Content[:min(80, len(doc1Chunks[0].Content))])
+
+	// Also verify direct BM25 chunk search at DB level
+	directResults, err := testDB.BM25ChunkSearch(ctx, "alpha", db.SearchFilter{
+		VaultID: vaultID,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("direct BM25ChunkSearch: %v", err)
+	}
+	t.Logf("direct BM25ChunkSearch returned %d results", len(directResults))
 
 	searchSvc := search.NewService(testDB, nil) // no embedder → BM25 only
 
@@ -243,6 +263,10 @@ Some notes about the beta project.
 	}
 	if len(results) == 0 {
 		t.Fatal("search returned no results for 'alpha'")
+	}
+	// BM25 now searches chunks, so MatchedChunks should be populated
+	if len(results[0].MatchedChunks) == 0 {
+		t.Error("expected MatchedChunks to be populated from BM25 chunk search")
 	}
 
 	// Search with label filter
