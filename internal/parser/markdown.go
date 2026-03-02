@@ -2,11 +2,13 @@
 package parser
 
 import (
-	"bufio"
 	"log/slog"
 	"regexp"
 	"strings"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,12 +29,13 @@ type MarkdownDoc struct {
 
 // Section represents a heading and its content.
 type Section struct {
-	Level   int    // 1-6 for h1-h6
-	Heading string // The heading text
-	Path    string // Full path like "## Setup > ### Install"
-	Content string // Content under this heading
-	Start   int    // Line number where section starts
-	End     int    // Line number where section ends
+	Level     int    // 1-6 for h1-h6, 0 for preamble
+	Heading   string // The heading text
+	Path      string // Full path like "## Setup > ### Install"
+	Content   string // Content under this heading
+	Start     int    // Line number where section starts
+	End       int    // Line number where section ends
+	CodeBlock bool   // True if section is primarily a code block (treat as atomic)
 }
 
 // ParseMarkdown parses a Markdown document into structured form.
@@ -87,63 +90,170 @@ func extractTitle(fm map[string]any, content string) string {
 	return ""
 }
 
-// parseSections extracts sections from Markdown content.
+// parseSections extracts sections from Markdown content using goldmark's AST.
+// This correctly handles code fences (# inside code blocks won't be treated as headings)
+// and captures pre-heading content as a preamble section with Level=0.
 func parseSections(content string) []Section {
-	var sections []Section
-	headingRegex := regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+	source := []byte(content)
+	md := goldmark.New()
+	reader := text.NewReader(source)
+	doc := md.Parser().Parse(reader)
 
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	lineNum := 0
+	var sections []Section
 	var currentPath []string
 	var currentLevels []int
-
-	var currentSection *Section
 	var contentBuilder strings.Builder
+	var currentSection *Section
+	var codeBlockChars int
 
-	flushSection := func(endLine int) {
-		if currentSection != nil {
-			currentSection.Content = strings.TrimSpace(contentBuilder.String())
-			currentSection.End = endLine
-			sections = append(sections, *currentSection)
-			contentBuilder.Reset()
+	flushSection := func() {
+		if currentSection == nil {
+			return
 		}
+		currentSection.Content = strings.TrimSpace(contentBuilder.String())
+		// Mark as code-block-dominated if >50% of non-whitespace content is code
+		trimmedLen := len(currentSection.Content)
+		if trimmedLen > 0 && codeBlockChars > trimmedLen/2 {
+			currentSection.CodeBlock = true
+		}
+		sections = append(sections, *currentSection)
+		contentBuilder.Reset()
+		codeBlockChars = 0
 	}
 
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
+	// Start with a preamble section to capture pre-heading content
+	currentSection = &Section{Level: 0}
 
-		if match := headingRegex.FindStringSubmatch(line); len(match) > 0 {
-			// Flush previous section
-			flushSection(lineNum - 1)
+	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
+		switch n := node.(type) {
+		case *ast.Heading:
+			flushSection()
 
-			level := len(match[1])
-			heading := strings.TrimSpace(match[2])
+			heading := inlineText(source, n)
+			level := n.Level
 
-			// Update path based on heading level
+			// Update path hierarchy based on heading level
 			for len(currentLevels) > 0 && currentLevels[len(currentLevels)-1] >= level {
 				currentPath = currentPath[:len(currentPath)-1]
 				currentLevels = currentLevels[:len(currentLevels)-1]
 			}
-			currentPath = append(currentPath, match[1]+" "+heading)
+			currentPath = append(currentPath, strings.Repeat("#", level)+" "+heading)
 			currentLevels = append(currentLevels, level)
+
+			startLine := lineNumber(source, n.Lines().At(0).Start)
 
 			currentSection = &Section{
 				Level:   level,
 				Heading: heading,
 				Path:    strings.Join(currentPath, " > "),
-				Start:   lineNum,
+				Start:   startLine,
 			}
-		} else if currentSection != nil {
-			contentBuilder.WriteString(line)
-			contentBuilder.WriteString("\n")
+
+		default:
+			// Collect content for the current section
+			nodeText := nodeContent(source, node)
+			if nodeText != "" {
+				if contentBuilder.Len() > 0 {
+					contentBuilder.WriteString("\n\n")
+				}
+				contentBuilder.WriteString(nodeText)
+
+				// Track code block content size
+				if _, ok := node.(*ast.FencedCodeBlock); ok {
+					codeBlockChars += len(nodeText)
+				}
+			}
 		}
 	}
 
 	// Flush last section
-	flushSection(lineNum)
+	flushSection()
 
 	return sections
+}
+
+// nodeContent extracts the source text for an AST node and its children.
+func nodeContent(source []byte, node ast.Node) string {
+	switch n := node.(type) {
+	case *ast.FencedCodeBlock:
+		return fencedCodeBlockContent(source, n)
+	case *ast.CodeBlock:
+		return codeBlockContent(source, n)
+	default:
+		// For other block nodes, extract all lines
+		return blockLines(source, node)
+	}
+}
+
+// fencedCodeBlockContent reconstructs a fenced code block with its delimiters.
+func fencedCodeBlockContent(source []byte, n *ast.FencedCodeBlock) string {
+	var sb strings.Builder
+
+	// Opening fence with optional language
+	fence := "```"
+	if lang := n.Language(source); len(lang) > 0 {
+		fence += string(lang)
+	}
+	sb.WriteString(fence)
+	sb.WriteByte('\n')
+
+	// Code lines
+	lines := n.Lines()
+	for i := range lines.Len() {
+		line := lines.At(i)
+		sb.Write(line.Value(source))
+	}
+
+	sb.WriteString("```")
+	return sb.String()
+}
+
+// codeBlockContent extracts indented code block content.
+func codeBlockContent(source []byte, n *ast.CodeBlock) string {
+	var sb strings.Builder
+	lines := n.Lines()
+	for i := range lines.Len() {
+		line := lines.At(i)
+		sb.Write(line.Value(source))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// blockLines extracts all text lines from a generic block node.
+func blockLines(source []byte, node ast.Node) string {
+	var sb strings.Builder
+	lines := node.Lines()
+	for i := range lines.Len() {
+		line := lines.At(i)
+		sb.Write(line.Value(source))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// inlineText extracts the full text content from a node's inline children
+// (e.g. Text, CodeSpan, Emphasis children of a Heading).
+func inlineText(source []byte, node ast.Node) string {
+	var sb strings.Builder
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if t, ok := child.(*ast.Text); ok {
+			sb.Write(t.Value(source))
+		} else {
+			// Recurse into inline containers (emphasis, strong, etc.)
+			sb.WriteString(inlineText(source, child))
+		}
+	}
+	return sb.String()
+}
+
+// lineNumber returns the 1-based line number for a byte offset in source.
+func lineNumber(source []byte, offset int) int {
+	line := 1
+	for i := range offset {
+		if source[i] == '\n' {
+			line++
+		}
+	}
+	return line
 }
 
 // GetFrontmatterString extracts a string from frontmatter.

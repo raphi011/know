@@ -15,6 +15,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/tmc/langchaingo v0.1.14
 	github.com/vektah/gqlparser/v2 v2.5.32
+	github.com/yuin/goldmark v1.7.16
 	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
