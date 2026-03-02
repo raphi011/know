@@ -14,9 +14,10 @@ export SURREALDB_PASS := env_var_or_default("SURREALDB_PASS", "root")
 # LLM defaults - using Anthropic for ask, configure embeddings per instance
 export KNOWHOW_LLM_PROVIDER := env_var_or_default("KNOWHOW_LLM_PROVIDER", "anthropic")
 export KNOWHOW_LLM_MODEL := env_var_or_default("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514")
-export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "none")
-export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "")
-export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "768")
+export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "ollama")
+export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "mxbai-embed-large")
+export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "1024")
+export OLLAMA_HOST := env_var_or_default("OLLAMA_HOST", "http://localhost:11434")
 
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
@@ -92,6 +93,10 @@ dev-setup: db-up
 # Regenerate GraphQL code
 generate:
     go run github.com/99designs/gqlgen generate --config gqlgen.yml
+
+# Pull Ollama embedding model
+ollama-pull:
+    ollama pull {{KNOWHOW_EMBED_MODEL}}
 
 # Start SurrealDB
 db-up:

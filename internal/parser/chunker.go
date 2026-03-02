@@ -22,18 +22,16 @@ type ChunkConfig struct {
 	MinSize int
 	// MaxSize: maximum chunk size (larger chunks split at sentences)
 	MaxSize int
-	// Overlap: character overlap between chunks
-	Overlap int
 }
 
-// DefaultChunkConfig returns sensible defaults.
+// DefaultChunkConfig returns sensible defaults for embedding-quality chunk sizes.
+// TargetSize ~750 tokens, MaxSize ~1000 tokens (at ~4 chars/token for English prose).
 func DefaultChunkConfig() ChunkConfig {
 	return ChunkConfig{
-		Threshold:  1500,
-		TargetSize: 750,
-		MinSize:    200,
-		MaxSize:    1000,
-		Overlap:    100,
+		Threshold:  6000,
+		TargetSize: 3000,
+		MinSize:    800,
+		MaxSize:    4000,
 	}
 }
 
@@ -68,32 +66,123 @@ func ChunkMarkdown(doc *MarkdownDoc, config ChunkConfig) []ChunkResult {
 	return chunkByParagraphs(doc.Content, config)
 }
 
-// chunkBySections creates chunks from document sections.
-// Empty sections are skipped - they have no semantic value for RAG.
+// maxAtomicCodeBlockSize is the hard size limit for keeping code blocks atomic.
+// Code blocks exceeding this fall through to standard paragraph/sentence splitting.
+const maxAtomicCodeBlockSize = 8000
+
+// chunkBySections creates chunks from document sections using hierarchical merging.
+// Empty sections are skipped. Small sections merge into their parent heading's chunk
+// rather than the positional predecessor, preserving semantic relationships.
+// Code-block-dominated sections are treated as atomic up to maxAtomicCodeBlockSize.
 func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 	var chunks []ChunkResult
 	position := 0
 
+	// parentPath returns the parent heading path for hierarchical merging.
+	// e.g. "# A > ## B > ### C" → "# A > ## B"
+	parentPath := func(path string) string {
+		if idx := strings.LastIndex(path, " > "); idx >= 0 {
+			return path[:idx]
+		}
+		return ""
+	}
+
+	// findParentChunk finds the most recent chunk whose heading path matches
+	// or is a descendant of the parent path. Returns nil for top-level sections
+	// (no parent in the hierarchy).
+	findParentChunk := func(path string) *ChunkResult {
+		parent := parentPath(path)
+		if parent == "" {
+			return nil
+		}
+		for i := len(chunks) - 1; i >= 0; i-- {
+			if chunks[i].HeadingPath == parent || strings.HasPrefix(chunks[i].HeadingPath, parent) {
+				return &chunks[i]
+			}
+		}
+		return nil
+	}
+
 	for _, section := range sections {
-		// Skip empty sections - they have no semantic value for RAG
 		trimmed := strings.TrimSpace(section.Content)
 		if trimmed == "" {
 			continue
 		}
 
-		// If section is small, add as single chunk
-		if len(trimmed) <= config.MaxSize {
-			if len(trimmed) >= config.MinSize || len(chunks) == 0 {
+		// Code-block-dominated sections: keep atomic unless they exceed
+		// the hard size limit (code blocks beyond this fall through to splitting)
+		if section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize {
+			if len(trimmed) >= config.MinSize {
 				chunks = append(chunks, ChunkResult{
 					Content:     trimmed,
 					Position:    position,
 					HeadingPath: section.Path,
 				})
 				position++
-			} else if len(chunks) > 0 {
-				// Merge tiny section with previous
-				lastChunk := &chunks[len(chunks)-1]
-				lastChunk.Content += "\n\n" + trimmed
+			} else {
+				// Small code block: try to merge with parent
+				if parent := findParentChunk(section.Path); parent != nil {
+					parent.Content += "\n\n" + trimmed
+				} else if len(chunks) > 0 {
+					chunks[len(chunks)-1].Content += "\n\n" + trimmed
+				} else {
+					chunks = append(chunks, ChunkResult{
+						Content:     trimmed,
+						Position:    position,
+						HeadingPath: section.Path,
+					})
+					position++
+				}
+			}
+			continue
+		}
+
+		// If section fits in a chunk
+		if len(trimmed) <= config.MaxSize {
+			if len(trimmed) >= config.MinSize {
+				chunks = append(chunks, ChunkResult{
+					Content:     trimmed,
+					Position:    position,
+					HeadingPath: section.Path,
+				})
+				position++
+			} else {
+				// Small section: hierarchical merge — try parent first
+				if parent := findParentChunk(section.Path); parent != nil {
+					merged := parent.Content + "\n\n" + trimmed
+					if len(merged) <= config.MaxSize {
+						parent.Content = merged
+					} else {
+						// Parent too full, create standalone chunk
+						chunks = append(chunks, ChunkResult{
+							Content:     trimmed,
+							Position:    position,
+							HeadingPath: section.Path,
+						})
+						position++
+					}
+				} else if len(chunks) > 0 {
+					// No parent found, merge with previous
+					merged := chunks[len(chunks)-1].Content + "\n\n" + trimmed
+					if len(merged) <= config.MaxSize {
+						chunks[len(chunks)-1].Content = merged
+					} else {
+						chunks = append(chunks, ChunkResult{
+							Content:     trimmed,
+							Position:    position,
+							HeadingPath: section.Path,
+						})
+						position++
+					}
+				} else {
+					// First chunk
+					chunks = append(chunks, ChunkResult{
+						Content:     trimmed,
+						Position:    position,
+						HeadingPath: section.Path,
+					})
+					position++
+				}
 			}
 			continue
 		}
@@ -110,8 +199,7 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 		}
 	}
 
-	// Apply overlap
-	return applyOverlap(chunks, config.Overlap)
+	return chunks
 }
 
 // chunkByParagraphs splits content by paragraph boundaries.
@@ -240,48 +328,4 @@ func splitSentences(text string) []string {
 	}
 
 	return sentences
-}
-
-// applyOverlap adds overlap between adjacent chunks using semantic boundaries.
-// Prefers sentence boundaries (.!?) over word boundaries for better context.
-func applyOverlap(chunks []ChunkResult, overlap int) []ChunkResult {
-	if overlap <= 0 || len(chunks) <= 1 {
-		return chunks
-	}
-
-	result := make([]ChunkResult, len(chunks))
-	copy(result, chunks)
-
-	for i := 1; i < len(result); i++ {
-		prevContent := result[i-1].Content
-		if len(prevContent) > overlap {
-			// Take last `overlap` characters from previous chunk
-			overlapText := prevContent[len(prevContent)-overlap:]
-
-			// Try to find a sentence boundary (. ! ?) followed by space
-			bestIdx := -1
-			for _, ending := range []string{". ", "! ", "? "} {
-				if idx := strings.LastIndex(overlapText, ending); idx > bestIdx {
-					bestIdx = idx + len(ending) // Start after the sentence ending
-				}
-			}
-
-			if bestIdx > 0 && bestIdx < len(overlapText) {
-				// Found sentence boundary - use text from there
-				overlapText = overlapText[bestIdx:]
-			} else {
-				// Fallback: find word boundary
-				spaceIdx := strings.LastIndex(overlapText, " ")
-				if spaceIdx > 0 {
-					overlapText = overlapText[spaceIdx+1:]
-				}
-			}
-
-			if len(overlapText) > 0 {
-				result[i].Content = overlapText + " " + result[i].Content
-			}
-		}
-	}
-
-	return result
 }
