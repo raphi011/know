@@ -214,7 +214,7 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
     <>
       <ScrollArea className="h-full">
         <div
-          className="space-y-0.5 py-1"
+          className="min-h-full space-y-0.5 py-1"
           onContextMenu={(e) => handleContextMenu(e, null)}
         >
           {tree.map((node) => (
