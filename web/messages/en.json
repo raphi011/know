@@ -70,5 +70,18 @@
     "noVaultDescription": "Create a vault in the Knowhow API to get started.",
     "noDocumentsTitle": "No documents",
     "noDocumentsDescription": "This vault has no documents yet."
+  },
+  "tree": {
+    "newDocument": "New document",
+    "newFolder": "New folder",
+    "rename": "Rename",
+    "delete": "Delete",
+    "deleteConfirmTitle": "Delete \"{name}\"?",
+    "deleteConfirmDescription": "This action cannot be undone.",
+    "deleteFolderConfirmDescription": "This will permanently delete all documents in this folder.",
+    "nameRequired": "Name is required",
+    "nameInvalid": "Name cannot contain /",
+    "nameDuplicate": "An item with this name already exists",
+    "nameInputLabel": "Item name"
   }
 }
