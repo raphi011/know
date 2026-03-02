@@ -14,9 +14,10 @@ import type { TreeNode } from "@/app/lib/knowhow/types";
 type DocTreeProps = {
   tree: TreeNode[];
   activePath: string;
+  vaultId: string;
 };
 
-function DocTree({ tree, activePath }: DocTreeProps) {
+function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // Auto-expand folders that contain the active document
     const paths = new Set<string>();
