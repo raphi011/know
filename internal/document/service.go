@@ -212,6 +212,21 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 	return s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
 }
 
+// MoveByPrefix renames all documents whose path starts with oldPrefix,
+// replacing oldPrefix with newPrefix. Returns the number of moved documents.
+// Both prefixes are normalized and ensured to end with "/" to avoid partial matches.
+func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
+	oldNorm := models.NormalizePath(oldPrefix)
+	if !strings.HasSuffix(oldNorm, "/") {
+		oldNorm += "/"
+	}
+	newNorm := models.NormalizePath(newPrefix)
+	if !strings.HasSuffix(newNorm, "/") {
+		newNorm += "/"
+	}
+	return s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
+}
+
 // Move changes a document's path.
 func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*models.Document, error) {
 	doc, err := s.db.GetDocumentByPath(ctx, vaultID, oldPath)

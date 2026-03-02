@@ -187,6 +187,30 @@ func (c *Client) DeleteDocumentsByPrefix(ctx context.Context, vaultID, pathPrefi
 	return len((*results)[0].Result), nil
 }
 
+// MoveDocumentsByPrefix updates all documents in a vault whose path starts with oldPrefix,
+// replacing oldPrefix with newPrefix. Returns the count of moved documents.
+func (c *Client) MoveDocumentsByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
+	sql := `
+		UPDATE document
+		SET path = string::concat($new_prefix, string::slice(path, string::len($old_prefix)))
+		WHERE vault = type::record("vault", $vault_id)
+		  AND string::starts_with(path, $old_prefix)
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"old_prefix": oldPrefix,
+		"new_prefix": newPrefix,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("move documents by prefix: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return 0, nil
+	}
+	return len((*results)[0].Result), nil
+}
+
 func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.Document, error) {
 	sql := `
 		UPDATE type::record("document", $id) SET
