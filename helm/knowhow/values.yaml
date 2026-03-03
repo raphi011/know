@@ -140,7 +140,7 @@ frontend:
   enabled: false
   image:
     repository: knowhow-web
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
     tag: ""  # defaults to appVersion
   port: 3000
   resources:

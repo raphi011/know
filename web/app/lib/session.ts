@@ -14,12 +14,7 @@ export type Session = {
 
 // ── Encryption helpers (AES-256-GCM via Web Crypto) ─────────
 
-let cachedKey: CryptoKey | null = null;
-let cachedKeySecret: string | null = null;
-
 async function deriveKey(secret: string): Promise<CryptoKey> {
-  if (cachedKey && cachedKeySecret === secret) return cachedKey;
-
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -28,22 +23,22 @@ async function deriveKey(secret: string): Promise<CryptoKey> {
     ["deriveKey"],
   );
   const salt = new TextEncoder().encode("knowhow-session-v1");
-  const key = await crypto.subtle.deriveKey(
+  return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"],
   );
-
-  cachedKey = key;
-  cachedKeySecret = secret;
-  return key;
 }
 
+// Eagerly derive at module load so the first request is fast.
+const keyPromise = deriveKey(
+  env.SESSION_SECRET || "dev-secret-not-for-production-use-only",
+);
+
 async function encrypt(data: string): Promise<string> {
-  const secret = env.SESSION_SECRET || "dev-secret-not-for-production-use-only";
-  const key = await deriveKey(secret);
+  const key = await keyPromise;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -58,8 +53,7 @@ async function encrypt(data: string): Promise<string> {
 }
 
 async function decrypt(encoded: string): Promise<string> {
-  const secret = env.SESSION_SECRET || "dev-secret-not-for-production-use-only";
-  const key = await deriveKey(secret);
+  const key = await keyPromise;
   const combined = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
   const iv = combined.slice(0, 12);
   const ciphertext = combined.slice(12);
