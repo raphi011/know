@@ -370,6 +370,84 @@ mutation {
 }
 ```
 
+## MCP Server (AI Agent Integration)
+
+The `knowhow-mcp` binary exposes your knowledge base to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). It aggregates one or more knowhow-server instances and provides 4 tools over Streamable HTTP.
+
+### Setup
+
+```bash
+# Build
+just build-all
+
+# Create config
+mkdir -p ~/.config/knowhow-mcp
+cat > ~/.config/knowhow-mcp/config.toml << 'EOF'
+port = 8585
+
+[[instance]]
+name = "private"
+url = "http://localhost:8484"
+token = "kh_your_token_here"
+EOF
+
+# Start
+./bin/knowhow-mcp
+# or with a custom config path:
+./bin/knowhow-mcp --config /path/to/config.toml
+```
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_documents` | Hybrid full-text + semantic search across instances |
+| `get_document` | Retrieve a document by path with full content |
+| `list_labels` | List all labels used across documents |
+| `create_memory` | Create a quick memory note under `/memories/` |
+
+### Example Prompts
+
+```
+# Search across all instances
+"Search my knowledge base for authentication patterns"
+
+# Search a specific instance
+"Search the work instance for onboarding docs"
+
+# Get a specific document
+"Get the document at /docs/architecture.md"
+
+# Discover categories
+"List all labels in my knowledge base"
+
+# Save a quick note
+"Remember that the deploy pipeline requires manual approval for production"
+
+# Create a memory with labels
+"Save a note about today's meeting decisions, label it 'meetings' and 'project-x'"
+```
+
+### Multi-Instance Config
+
+The MCP server can aggregate multiple knowhow-server instances (e.g., personal + work):
+
+```toml
+port = 8585
+
+[[instance]]
+name = "private"
+url = "http://localhost:8484"
+token = "kh_private_token"
+
+[[instance]]
+name = "work"
+url = "http://work-server:8484"
+token = "kh_work_token"
+```
+
+When no instance is specified in a tool call, all instances are searched. Specify `instance: "work"` to target a single one.
+
 ## Architecture
 
 ```

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/raphi011/knowhow/internal/graphqlclient"
 	"github.com/spf13/cobra"
 )
 
@@ -154,7 +156,7 @@ func runScrape(cmd *cobra.Command, args []string) error {
 
 // getDocumentHash queries the existing document's contentHash.
 // Returns empty string if document doesn't exist.
-func getDocumentHash(client *gqlClient, vaultID, path string) (string, error) {
+func getDocumentHash(client *graphqlclient.Client, vaultID, path string) (string, error) {
 	query := `query($vaultId: ID!, $path: String!) {
 		document(vaultId: $vaultId, path: $path) {
 			contentHash
@@ -167,7 +169,7 @@ func getDocumentHash(client *gqlClient, vaultID, path string) (string, error) {
 		} `json:"document"`
 	}
 
-	if err := client.do(query, map[string]any{
+	if err := client.Do(context.Background(), query, map[string]any{
 		"vaultId": vaultID,
 		"path":    path,
 	}, &resp); err != nil {
@@ -181,7 +183,7 @@ func getDocumentHash(client *gqlClient, vaultID, path string) (string, error) {
 }
 
 // upsertDocument creates or updates a document. Returns true if newly created.
-func upsertDocument(client *gqlClient, vaultID, path, content, source string) (bool, error) {
+func upsertDocument(client *graphqlclient.Client, vaultID, path, content, source string) (bool, error) {
 	query := `mutation($vaultId: ID!, $file: FileInput!, $source: String) {
 		createDocument(vaultId: $vaultId, file: $file, source: $source) {
 			id
@@ -198,7 +200,7 @@ func upsertDocument(client *gqlClient, vaultID, path, content, source string) (b
 		} `json:"createDocument"`
 	}
 
-	if err := client.do(query, map[string]any{
+	if err := client.Do(context.Background(), query, map[string]any{
 		"vaultId": vaultID,
 		"file": map[string]any{
 			"path":    path,

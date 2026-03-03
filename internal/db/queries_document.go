@@ -230,6 +230,30 @@ func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.
 	return &(*results)[0].Result[0], nil
 }
 
+// ListLabels returns all distinct labels used by documents in the given vault.
+func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
+	sql := `SELECT array::distinct(array::flatten(
+		(SELECT labels FROM document WHERE vault = type::record("vault", $vault_id)).labels
+	)) AS labels`
+	type labelsResult struct {
+		Labels []string `json:"labels"`
+	}
+	results, err := surrealdb.Query[[]labelsResult](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list labels: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return []string{}, nil
+	}
+	labels := (*results)[0].Result[0].Labels
+	if labels == nil {
+		return []string{}, nil
+	}
+	return labels, nil
+}
+
 // UpsertDocument creates or updates a document by vault+path.
 func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput) (*models.Document, bool, error) {
 	existing, err := c.GetDocumentByPath(ctx, input.VaultID, input.Path)
