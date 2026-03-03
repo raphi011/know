@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidReturnTo } from "./proxy";
+import { isValidReturnTo, buildCsp } from "./proxy";
 
 describe("isValidReturnTo", () => {
   it.each([
@@ -30,5 +30,35 @@ describe("isValidReturnTo", () => {
     ["/%%invalid", false, "malformed percent-encoding"],
   ])("rejects %s (%s)", (input, expected) => {
     expect(isValidReturnTo(input)).toBe(expected);
+  });
+});
+
+describe("buildCsp", () => {
+  it("includes nonce in script-src", () => {
+    const csp = buildCsp("test-nonce", false);
+    expect(csp).toContain("'nonce-test-nonce'");
+  });
+
+  it("includes strict-dynamic in script-src", () => {
+    const csp = buildCsp("test-nonce", false);
+    expect(csp).toContain("'strict-dynamic'");
+  });
+
+  it("includes unsafe-eval in dev mode", () => {
+    const csp = buildCsp("test-nonce", true);
+    expect(csp).toContain("'unsafe-eval'");
+  });
+
+  it("excludes unsafe-eval in production", () => {
+    const csp = buildCsp("test-nonce", false);
+    expect(csp).not.toContain("'unsafe-eval'");
+  });
+
+  it("includes required directives", () => {
+    const csp = buildCsp("test-nonce", false);
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("form-action 'self'");
   });
 });
