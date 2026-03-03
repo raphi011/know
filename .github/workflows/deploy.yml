@@ -65,11 +65,9 @@ jobs:
         id: version
         run: echo "version=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
 
-      - name: Build backend image
-        run: docker build --provenance=false -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest .
-
-      - name: Push backend image
+      - name: Build and push backend image
         run: |
+          DOCKER_BUILDKIT=0 docker build -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest .
           docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
 
@@ -97,11 +95,9 @@ jobs:
         id: version
         run: echo "version=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
 
-      - name: Build frontend image
-        run: docker build --provenance=false -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest web/
-
-      - name: Push frontend image
+      - name: Build and push frontend image
         run: |
+          DOCKER_BUILDKIT=0 docker build -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest web/
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
