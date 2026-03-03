@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: zot.manx-turtle.ts.net
-  BACKEND_IMAGE: knowhow
+  BACKEND_IMAGE: knowhow-server
   FRONTEND_IMAGE: knowhow-web
 
 jobs:

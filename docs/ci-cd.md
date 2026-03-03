@@ -32,7 +32,7 @@ The pipeline uses `dorny/paths-filter` to detect which components changed and on
 
 | Job | Runs when changed | Runner | Builds |
 |-----|-------------------|--------|--------|
-| `build-backend` | `**.go`, `go.mod`, `go.sum`, `Dockerfile` | `ubuntu-24.04-arm` | `knowhow` image |
+| `build-backend` | `**.go`, `go.mod`, `go.sum`, `Dockerfile` | `ubuntu-24.04-arm` | `knowhow-server` image |
 | `build-frontend` | `web/**` | `ubuntu-24.04-arm` | `knowhow-web` image |
 | `push-helm` | `helm/**` | `ubuntu-latest` | Helm OCI artifact |
 
@@ -74,7 +74,7 @@ The `tag:ci` tag needs ACL rules allowing:
 {
   "action": "accept",
   "src": ["tag:ci"],
-  "dst": ["tag:k8s:5000", "autogroup:internet:*"]
+  "dst": ["tag:k8s:443", "autogroup:internet:*"]
 }
 ```
 
@@ -120,6 +120,10 @@ Tailscale's MagicDNS takes over `systemd-resolved` on Linux runners, which break
 **Why not `resolvectl` split DNS?** While `resolvectl domain tailscale0 '~manx-turtle.ts.net'` should theoretically work, it's unreliable across GitHub runner types (particularly ARM64 runners). The `/etc/hosts` approach is simpler and works everywhere.
 
 See [tailscale/github-action#101](https://github.com/tailscale/github-action/issues/101) for background on the MagicDNS issue.
+
+### OCI Repository Naming
+
+Docker images and Helm charts share the same OCI namespace in Zot. The backend image is named `knowhow-server` (not `knowhow`) to avoid colliding with the `knowhow` Helm chart — both would map to `zot.manx-turtle.ts.net/knowhow:tag` and the second push would overwrite the first.
 
 ## ARM64 Native Builds
 
