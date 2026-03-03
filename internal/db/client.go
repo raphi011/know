@@ -114,15 +114,21 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 
 	// Authenticate based on auth level
 	sdkLogger.Info("authenticating", "user", cfg.Username, "auth_level", cfg.AuthLevel)
-	if cfg.AuthLevel == "database" {
+	switch cfg.AuthLevel {
+	case "database":
 		_, err = db.SignIn(ctx, surrealdb.Auth{
 			Namespace: cfg.Namespace,
 			Database:  cfg.Database,
 			Username:  cfg.Username,
 			Password:  cfg.Password,
 		})
-	} else {
-		// Default to root auth
+	case "namespace":
+		_, err = db.SignIn(ctx, surrealdb.Auth{
+			Namespace: cfg.Namespace,
+			Username:  cfg.Username,
+			Password:  cfg.Password,
+		})
+	default:
 		_, err = db.SignIn(ctx, surrealdb.Auth{
 			Username: cfg.Username,
 			Password: cfg.Password,
