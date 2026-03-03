@@ -223,6 +223,7 @@ type ComplexityRoot struct {
 		Documents   func(childComplexity int, folder *string, labels []string, docType *string) int
 		Folders     func(childComplexity int, parent *string) int
 		ID          func(childComplexity int) int
+		Labels      func(childComplexity int) int
 		Name        func(childComplexity int) int
 		UpdatedAt   func(childComplexity int) int
 	}
@@ -281,6 +282,7 @@ type QueryResolver interface {
 	Proposals(ctx context.Context, vaultID string, status *ProposalStatus) ([]*DocumentProposal, error)
 }
 type VaultResolver interface {
+	Labels(ctx context.Context, obj *Vault) ([]string, error)
 	Documents(ctx context.Context, obj *Vault, folder *string, labels []string, docType *string) ([]*Document, error)
 	Folders(ctx context.Context, obj *Vault, parent *string) ([]*Folder, error)
 }
@@ -1227,6 +1229,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Vault.ID(childComplexity), true
+	case "Vault.labels":
+		if e.ComplexityRoot.Vault.Labels == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Vault.Labels(childComplexity), true
 	case "Vault.name":
 		if e.ComplexityRoot.Vault.Name == nil {
 			break
@@ -3784,6 +3792,8 @@ func (ec *executionContext) fieldContext_Mutation_createVault(ctx context.Contex
 				return ec.fieldContext_Vault_createdAt(ctx, field)
 			case "updatedAt":
 				return ec.fieldContext_Vault_updatedAt(ctx, field)
+			case "labels":
+				return ec.fieldContext_Vault_labels(ctx, field)
 			case "documents":
 				return ec.fieldContext_Vault_documents(ctx, field)
 			case "folders":
@@ -4864,6 +4874,8 @@ func (ec *executionContext) fieldContext_Query_vault(ctx context.Context, field 
 				return ec.fieldContext_Vault_createdAt(ctx, field)
 			case "updatedAt":
 				return ec.fieldContext_Vault_updatedAt(ctx, field)
+			case "labels":
+				return ec.fieldContext_Vault_labels(ctx, field)
 			case "documents":
 				return ec.fieldContext_Vault_documents(ctx, field)
 			case "folders":
@@ -4922,6 +4934,8 @@ func (ec *executionContext) fieldContext_Query_vaults(_ context.Context, field g
 				return ec.fieldContext_Vault_createdAt(ctx, field)
 			case "updatedAt":
 				return ec.fieldContext_Vault_updatedAt(ctx, field)
+			case "labels":
+				return ec.fieldContext_Vault_labels(ctx, field)
 			case "documents":
 				return ec.fieldContext_Vault_documents(ctx, field)
 			case "folders":
@@ -6662,6 +6676,35 @@ func (ec *executionContext) fieldContext_Vault_updatedAt(_ context.Context, fiel
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Vault_labels(ctx context.Context, field graphql.CollectedField, obj *Vault) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Vault_labels,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Vault().Labels(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Vault_labels(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Vault",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10387,6 +10430,42 @@ func (ec *executionContext) _Vault(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "labels":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Vault_labels(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "documents":
 			field := field
 

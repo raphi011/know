@@ -57,8 +57,12 @@ build-bootstrap:
 bootstrap: build-bootstrap db-up
     {{build_dir}}/bootstrap
 
+# Build MCP server binary
+build-mcp:
+    go build -buildvcs=false -o {{build_dir}}/knowhow-mcp ./cmd/knowhow-mcp
+
 # Build all binaries
-build-all: build build-server build-bootstrap
+build-all: build build-server build-bootstrap build-mcp
 
 # Run server with optional args (e.g., just server --wipe)
 server *args: build-server

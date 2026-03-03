@@ -632,6 +632,11 @@ func (r *queryResolver) Proposals(ctx context.Context, vaultID string, status *P
 	return result, nil
 }
 
+// Labels is the resolver for the labels field.
+func (r *vaultResolver) Labels(ctx context.Context, obj *Vault) ([]string, error) {
+	return r.db.ListLabels(ctx, obj.ID)
+}
+
 // Documents is the resolver for the documents field.
 func (r *vaultResolver) Documents(ctx context.Context, obj *Vault, folder *string, labels []string, docType *string) ([]*Document, error) {
 	docs, err := r.db.ListDocuments(ctx, db.ListDocumentsFilter{
