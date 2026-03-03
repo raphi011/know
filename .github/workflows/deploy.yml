@@ -56,10 +56,10 @@ jobs:
           tags: tag:ci
           args: --accept-dns=false
 
-      - name: Configure split DNS for Tailscale
+      - name: Add Zot registry to /etc/hosts
         run: |
-          sudo resolvectl dns tailscale0 100.100.100.100
-          sudo resolvectl domain tailscale0 '~manx-turtle.ts.net'
+          ZOT_IP=$(tailscale ip -4 zot)
+          echo "$ZOT_IP ${{ env.REGISTRY }}" | sudo tee -a /etc/hosts
 
       - name: Get version
         id: version
@@ -88,10 +88,10 @@ jobs:
           tags: tag:ci
           args: --accept-dns=false
 
-      - name: Configure split DNS for Tailscale
+      - name: Add Zot registry to /etc/hosts
         run: |
-          sudo resolvectl dns tailscale0 100.100.100.100
-          sudo resolvectl domain tailscale0 '~manx-turtle.ts.net'
+          ZOT_IP=$(tailscale ip -4 zot)
+          echo "$ZOT_IP ${{ env.REGISTRY }}" | sudo tee -a /etc/hosts
 
       - name: Get version
         id: version
@@ -120,10 +120,10 @@ jobs:
           tags: tag:ci
           args: --accept-dns=false
 
-      - name: Configure split DNS for Tailscale
+      - name: Add Zot registry to /etc/hosts
         run: |
-          sudo resolvectl dns tailscale0 100.100.100.100
-          sudo resolvectl domain tailscale0 '~manx-turtle.ts.net'
+          ZOT_IP=$(tailscale ip -4 zot)
+          echo "$ZOT_IP ${{ env.REGISTRY }}" | sudo tee -a /etc/hosts
 
       - name: Install Helm
         uses: azure/setup-helm@v4
