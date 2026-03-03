@@ -14,7 +14,12 @@ export type Session = {
 
 // ── Encryption helpers (AES-256-GCM via Web Crypto) ─────────
 
+let cachedKey: CryptoKey | null = null;
+let cachedKeySecret: string | null = null;
+
 async function deriveKey(secret: string): Promise<CryptoKey> {
+  if (cachedKey && cachedKeySecret === secret) return cachedKey;
+
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -22,16 +27,18 @@ async function deriveKey(secret: string): Promise<CryptoKey> {
     false,
     ["deriveKey"],
   );
-  // Use a fixed salt — the session cookie doesn't need per-user salts
-  // since the secret itself is unique per deployment.
   const salt = new TextEncoder().encode("knowhow-session-v1");
-  return crypto.subtle.deriveKey(
+  const key = await crypto.subtle.deriveKey(
     { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"],
   );
+
+  cachedKey = key;
+  cachedKeySecret = secret;
+  return key;
 }
 
 async function encrypt(data: string): Promise<string> {
