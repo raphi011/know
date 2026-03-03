@@ -38,6 +38,7 @@ const keyPromise = deriveKey(
 );
 
 async function encrypt(data: string): Promise<string> {
+  console.time("session:encrypt");
   const key = await keyPromise;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
@@ -49,10 +50,12 @@ async function encrypt(data: string): Promise<string> {
   const combined = new Uint8Array(iv.length + encrypted.byteLength);
   combined.set(iv);
   combined.set(new Uint8Array(encrypted), iv.length);
+  console.timeEnd("session:encrypt");
   return btoa(String.fromCharCode(...combined));
 }
 
 async function decrypt(encoded: string): Promise<string> {
+  console.time("session:decrypt");
   const key = await keyPromise;
   const combined = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
   const iv = combined.slice(0, 12);
@@ -62,6 +65,7 @@ async function decrypt(encoded: string): Promise<string> {
     key,
     ciphertext,
   );
+  console.timeEnd("session:decrypt");
   return new TextDecoder().decode(decrypted);
 }
 

@@ -13,16 +13,19 @@ export async function loginAction(
   serverToken: string,
   serverName: string,
 ): Promise<{ success: boolean; error?: string }> {
+  console.time("loginAction:total");
   const url = stripGraphqlPath(serverUrl.trim());
   const token = serverToken.trim();
   const name = serverName.trim() || new URL(url).hostname;
 
   if (!url || !token) {
+    console.timeEnd("loginAction:total");
     return { success: false, error: "Server URL and token are required" };
   }
 
   // Validate the connection by making a test query
   try {
+    console.time("loginAction:fetch");
     const response = await fetch(graphqlUrl(url), {
       method: "POST",
       headers: {
@@ -31,23 +34,29 @@ export async function loginAction(
       },
       body: JSON.stringify({ query: "{ vaults { id name } }" }),
     });
+    console.timeEnd("loginAction:fetch");
 
     if (response.status === 401) {
+      console.timeEnd("loginAction:total");
       return { success: false, error: "Invalid API token" };
     }
 
     if (!response.ok) {
+      console.timeEnd("loginAction:total");
       return {
         success: false,
         error: `Server returned HTTP ${response.status}`,
       };
     }
   } catch {
+    console.timeEnd("loginAction:total");
     return { success: false, error: "Cannot reach server" };
   }
 
   // Add to session (or create new session)
+  console.time("loginAction:getSession");
   const session = (await getSession()) ?? { servers: [] };
+  console.timeEnd("loginAction:getSession");
   const id = name.toLowerCase().replace(/\s+/g, "-");
 
   // Replace if same id exists, otherwise append
@@ -59,7 +68,10 @@ export async function loginAction(
     session.servers.push(conn);
   }
 
+  console.time("loginAction:setSession");
   await setSession(session);
+  console.timeEnd("loginAction:setSession");
+  console.timeEnd("loginAction:total");
   return { success: true };
 }
 
