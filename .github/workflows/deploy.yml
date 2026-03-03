@@ -48,11 +48,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: network=host
-
       - name: Connect to Tailscale
         uses: tailscale/github-action@v3
         with:
@@ -60,32 +55,17 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Verify Tailscale DNS
-        run: |
-          for i in 1 2 3 4 5; do
-            if nslookup ${{ env.REGISTRY }} 100.100.100.100 >/dev/null 2>&1; then
-              echo "DNS resolved successfully"
-              break
-            fi
-            echo "Waiting for Tailscale DNS... (attempt $i)"
-            sleep 2
-          done
-          tailscale status
-
       - name: Get version
         id: version
         run: echo "version=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,scope=backend,mode=max
+      - name: Build backend image
+        run: docker build -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest .
+
+      - name: Push backend image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }}
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
 
   build-frontend:
     needs: changes
@@ -94,11 +74,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: network=host
-
       - name: Connect to Tailscale
         uses: tailscale/github-action@v3
         with:
@@ -106,31 +81,17 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Verify Tailscale DNS
-        run: |
-          for i in 1 2 3 4 5; do
-            if nslookup ${{ env.REGISTRY }} 100.100.100.100 >/dev/null 2>&1; then
-              echo "DNS resolved successfully"
-              break
-            fi
-            echo "Waiting for Tailscale DNS... (attempt $i)"
-            sleep 2
-          done
-
       - name: Get version
         id: version
         run: echo "version=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: web
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,scope=frontend,mode=max
+      - name: Build frontend image
+        run: docker build -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest web/
+
+      - name: Push frontend image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }}
+          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
   push-helm:
     needs: changes
@@ -146,23 +107,10 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Verify Tailscale DNS
-        run: |
-          for i in 1 2 3 4 5; do
-            if nslookup ${{ env.REGISTRY }} 100.100.100.100 >/dev/null 2>&1; then
-              echo "DNS resolved successfully"
-              break
-            fi
-            echo "Waiting for Tailscale DNS... (attempt $i)"
-            sleep 2
-          done
-
       - name: Install Helm
         uses: azure/setup-helm@v4
 
-      - name: Package Helm chart
-        run: helm package helm/knowhow/
-
-      - name: Push Helm chart to Zot
+      - name: Package and push Helm chart
         run: |
+          helm package helm/knowhow/
           helm push knowhow-*.tgz oci://${{ env.REGISTRY }}
