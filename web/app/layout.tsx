@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { getThemeCookie } from "./lib/auth";
@@ -34,15 +35,17 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const locale = await getLocale();
-  const [messages, theme] = await Promise.all([
+  const [messages, theme, headersList] = await Promise.all([
     getMessages(),
     getThemeCookie(),
+    headers(),
   ]);
+  const nonce = headersList.get("x-nonce") ?? undefined;
 
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className={inter.className}>
         <NextIntlClientProvider messages={messages}>
