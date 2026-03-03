@@ -78,8 +78,20 @@ The `tag:ci` tag needs ACL rules allowing:
 }
 ```
 
-- `tag:k8s:5000` — access to Zot registry (port 5000) on cluster nodes
+- `tag:k8s:443` — access to Zot registry via Tailscale Ingress (HTTPS port 443)
 - `autogroup:internet:*` — internet access for pulling base images during `docker build`
+
+### Zot Registry Compatibility
+
+Zot is an OCI-native registry and rejects Docker V2S2 manifests by default. The `docker2s2` compat setting must be enabled in Zot's HTTP config (in `turingpi-k8s/argocd/apps/zot/application.yaml`):
+
+```json
+"http": {
+  "compat": ["docker2s2"]
+}
+```
+
+Without this, `docker push` succeeds for layers but fails with `manifest invalid` on the manifest upload. See [zot#3597](https://github.com/project-zot/zot/discussions/3597).
 
 ### DNS Resolution (the key trick)
 
