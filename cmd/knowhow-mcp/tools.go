@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/raphi011/knowhow/internal/graphqlclient"
+	"golang.org/x/sync/errgroup"
 )
 
 // ---------- GraphQL response types ----------
@@ -90,22 +94,31 @@ type CreateMemoryInput struct {
 
 type connectedInstance struct {
 	name     string
-	client   *gqlClient
+	client   *graphqlclient.Client
 	vaultIDs []string
+
+	mu sync.Mutex
 }
 
+// resolveVaults lazily fetches vault IDs from the instance. On success the
+// result is cached for the server's lifetime; on failure it retries on the
+// next call so that transient errors don't permanently disable an instance.
 func (ci *connectedInstance) resolveVaults(ctx context.Context) error {
-	if len(ci.vaultIDs) > 0 {
+	ci.mu.Lock()
+	defer ci.mu.Unlock()
+
+	if ci.vaultIDs != nil {
 		return nil
 	}
+
 	var resp meResponse
-	if err := ci.client.do(`query { me { vaultAccess } }`, nil, &resp); err != nil {
+	if err := ci.client.Do(ctx, `query { me { vaultAccess } }`, nil, &resp); err != nil {
 		return fmt.Errorf("resolve vaults for %q: %w", ci.name, err)
 	}
-	ci.vaultIDs = resp.Me.VaultAccess
-	if len(ci.vaultIDs) == 0 {
+	if len(resp.Me.VaultAccess) == 0 {
 		return fmt.Errorf("no vault access for instance %q", ci.name)
 	}
+	ci.vaultIDs = resp.Me.VaultAccess
 	return nil
 }
 
@@ -163,21 +176,44 @@ func (t *mcpTools) register(server *mcp.Server) {
 // ---------- Tool handlers ----------
 
 func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest, input SearchInput) (*mcp.CallToolResult, any, error) {
-	instances := t.filterInstances(input.Instance)
-	if len(instances) == 0 {
-		return textResult(fmt.Sprintf("unknown instance %q", *input.Instance)), nil, nil
+	if strings.TrimSpace(input.Query) == "" {
+		return nil, nil, fmt.Errorf("query is required")
+	}
+	if input.Limit != nil && *input.Limit < 1 {
+		return nil, nil, fmt.Errorf("limit must be positive")
 	}
 
-	var sb strings.Builder
+	instances := t.filterInstances(input.Instance)
+	if input.Instance != nil && len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", *input.Instance)
+	}
+
+	// Collect (instance, vault) pairs for concurrent fan-out.
+	type searchJob struct {
+		inst    *connectedInstance
+		vaultID string
+	}
+	var jobs []searchJob
+	var resolveErrors []string
 	for _, inst := range instances {
 		if err := inst.resolveVaults(ctx); err != nil {
-			fmt.Fprintf(&sb, "## %s\nError: %v\n\n", inst.name, err)
+			resolveErrors = append(resolveErrors, fmt.Sprintf("## %s\nError: %v\n\n", inst.name, err))
 			continue
 		}
 		for _, vaultID := range inst.vaultIDs {
+			jobs = append(jobs, searchJob{inst: inst, vaultID: vaultID})
+		}
+	}
+
+	// Fan out search queries concurrently. Each goroutine writes to its own
+	// slot in results; g.Wait() synchronizes before reading.
+	results := make([]string, len(jobs))
+	var g errgroup.Group
+	for i, job := range jobs {
+		g.Go(func() error {
 			vars := map[string]any{
 				"input": map[string]any{
-					"vaultId": vaultID,
+					"vaultId": job.vaultID,
 					"query":   input.Query,
 					"labels":  input.Labels,
 					"docType": input.DocType,
@@ -186,14 +222,16 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 				},
 			}
 			var resp searchResponse
-			if err := inst.client.do(`query Search($input: SearchInput!) { search(input: $input) { documentId path title labels docType score matchedChunks { snippet headingPath score } } }`, vars, &resp); err != nil {
-				fmt.Fprintf(&sb, "## %s (vault %s)\nError: %v\n\n", inst.name, vaultID, err)
-				continue
+			if err := job.inst.client.Do(ctx, `query Search($input: SearchInput!) { search(input: $input) { documentId path title labels docType score matchedChunks { snippet headingPath score } } }`, vars, &resp); err != nil {
+				slog.Warn("search query failed", "instance", job.inst.name, "vault", job.vaultID, "error", err)
+				results[i] = fmt.Sprintf("## %s (vault %s)\nError: %v\n\n", job.inst.name, job.vaultID, err)
+				return nil
 			}
 			if len(resp.Search) == 0 {
-				continue
+				return nil
 			}
-			fmt.Fprintf(&sb, "## %s\n", inst.name)
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "## %s\n", job.inst.name)
 			for _, r := range resp.Search {
 				fmt.Fprintf(&sb, "### %s\n- Path: %s\n- Score: %.3f\n- Labels: %s\n", r.Title, r.Path, r.Score, strings.Join(r.Labels, ", "))
 				for _, ch := range r.MatchedChunks {
@@ -201,7 +239,20 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 				}
 				sb.WriteString("\n")
 			}
-		}
+			results[i] = sb.String()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		slog.Warn("unexpected errgroup error", "error", err)
+	}
+
+	var sb strings.Builder
+	for _, e := range resolveErrors {
+		sb.WriteString(e)
+	}
+	for _, r := range results {
+		sb.WriteString(r)
 	}
 
 	if sb.Len() == 0 {
@@ -211,13 +262,20 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 }
 
 func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, input GetDocumentInput) (*mcp.CallToolResult, any, error) {
-	instances := t.filterInstances(input.Instance)
-	if input.Instance != nil && len(instances) == 0 {
-		return textResult(fmt.Sprintf("unknown instance %q", *input.Instance)), nil, nil
+	if strings.TrimSpace(input.Path) == "" {
+		return nil, nil, fmt.Errorf("path is required")
 	}
 
+	instances := t.filterInstances(input.Instance)
+	if input.Instance != nil && len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", *input.Instance)
+	}
+
+	var errs []string
 	for _, inst := range instances {
 		if err := inst.resolveVaults(ctx); err != nil {
+			slog.Warn("vault resolution failed", "instance", inst.name, "error", err)
+			errs = append(errs, fmt.Sprintf("%s: %v", inst.name, err))
 			continue
 		}
 		for _, vaultID := range inst.vaultIDs {
@@ -226,7 +284,9 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 				"path":    input.Path,
 			}
 			var resp documentResponse
-			if err := inst.client.do(`query GetDoc($vaultId: ID!, $path: String!) { document(vaultId: $vaultId, path: $path) { title path content labels docType source } }`, vars, &resp); err != nil {
+			if err := inst.client.Do(ctx, `query GetDoc($vaultId: ID!, $path: String!) { document(vaultId: $vaultId, path: $path) { title path content labels docType source } }`, vars, &resp); err != nil {
+				slog.Warn("get document failed", "instance", inst.name, "vault", vaultID, "path", input.Path, "error", err)
+				errs = append(errs, fmt.Sprintf("%s: %v", inst.name, err))
 				continue
 			}
 			if resp.Document == nil {
@@ -246,19 +306,23 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 		}
 	}
 
+	if len(errs) > 0 {
+		return textResult(fmt.Sprintf("Document not found: %s\n\nErrors:\n- %s", input.Path, strings.Join(errs, "\n- "))), nil, nil
+	}
 	return textResult(fmt.Sprintf("Document not found: %s", input.Path)), nil, nil
 }
 
 func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, input ListLabelsInput) (*mcp.CallToolResult, any, error) {
 	instances := t.filterInstances(input.Instance)
 	if input.Instance != nil && len(instances) == 0 {
-		return textResult(fmt.Sprintf("unknown instance %q", *input.Instance)), nil, nil
+		return nil, nil, fmt.Errorf("unknown instance %q", *input.Instance)
 	}
 
 	var sb strings.Builder
 	for _, inst := range instances {
 		var resp vaultsResponse
-		if err := inst.client.do(`query { vaults { id name labels } }`, nil, &resp); err != nil {
+		if err := inst.client.Do(ctx, `query { vaults { id name labels } }`, nil, &resp); err != nil {
+			slog.Warn("list labels failed", "instance", inst.name, "error", err)
 			fmt.Fprintf(&sb, "## %s\nError: %v\n\n", inst.name, err)
 			continue
 		}
@@ -289,14 +353,21 @@ func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, inp
 }
 
 func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, input CreateMemoryInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Title) == "" {
+		return nil, nil, fmt.Errorf("title is required")
+	}
+	if strings.TrimSpace(input.Content) == "" {
+		return nil, nil, fmt.Errorf("content is required")
+	}
+
 	instances := t.filterInstances(&input.Instance)
 	if len(instances) == 0 {
-		return textResult(fmt.Sprintf("unknown instance %q", input.Instance)), nil, nil
+		return nil, nil, fmt.Errorf("unknown instance %q", input.Instance)
 	}
 	inst := instances[0]
 
 	if err := inst.resolveVaults(ctx); err != nil {
-		return textResult(fmt.Sprintf("Error: %v", err)), nil, nil
+		return nil, nil, fmt.Errorf("resolve vaults: %w", err)
 	}
 
 	// Build labels list — always include "memory"
@@ -307,11 +378,11 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 	}
 
-	// Build frontmatter
+	// Build frontmatter with YAML-safe label values
 	var content strings.Builder
 	content.WriteString("---\nlabels:\n")
 	for _, l := range labels {
-		fmt.Fprintf(&content, "  - %s\n", l)
+		fmt.Fprintf(&content, "  - %q\n", l)
 	}
 	content.WriteString("---\n\n")
 	content.WriteString(input.Content)
@@ -321,6 +392,7 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 	date := time.Now().Format("2006-01-02")
 	path := fmt.Sprintf("/memories/%s-%s.md", date, slug)
 
+	// Create in the first accessible vault
 	vaultID := inst.vaultIDs[0]
 	vars := map[string]any{
 		"vaultId": vaultID,
@@ -332,11 +404,12 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 
 	var resp createDocumentResponse
-	if err := inst.client.do(`mutation CreateDoc($vaultId: ID!, $file: FileInput!, $source: String) { createDocument(vaultId: $vaultId, file: $file, source: $source) { path } }`, vars, &resp); err != nil {
-		return textResult(fmt.Sprintf("Error creating memory: %v", err)), nil, nil
+	if err := inst.client.Do(ctx, `mutation CreateDoc($vaultId: ID!, $file: FileInput!, $source: String) { createDocument(vaultId: $vaultId, file: $file, source: $source) { path } }`, vars, &resp); err != nil {
+		slog.Warn("create memory failed", "instance", inst.name, "vault", vaultID, "error", err)
+		return nil, nil, fmt.Errorf("create memory: %w", err)
 	}
 
-	return textResult(fmt.Sprintf("Memory created at %s (instance: %s)", resp.CreateDocument.Path, inst.name)), nil, nil
+	return textResult(fmt.Sprintf("Memory created at %s (instance: %s, vault: %s)", resp.CreateDocument.Path, inst.name, vaultID)), nil, nil
 }
 
 // ---------- helpers ----------
