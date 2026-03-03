@@ -15,17 +15,13 @@ export async function gql<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const opName = query.match(/(?:query|mutation)\s+(\w+)/)?.[1] ?? "anonymous";
-  console.time(`gql:${opName}:getConnection`);
   const conn = await getActiveConnection();
-  console.timeEnd(`gql:${opName}:getConnection`);
   if (!conn) {
     throw new Error(
       "No Knowhow server configured. Log in at /login to connect to a server.",
     );
   }
 
-  console.time(`gql:${opName}:fetch`);
   const response = await fetch(graphqlUrl(conn.url), {
     method: "POST",
     headers: {
@@ -35,7 +31,6 @@ export async function gql<T>(
     body: JSON.stringify({ query, variables }),
     next: { revalidate: 0 }, // Disable Next.js fetch cache — all queries are dynamic
   });
-  console.timeEnd(`gql:${opName}:fetch`);
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => "(unreadable body)");

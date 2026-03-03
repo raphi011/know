@@ -59,6 +59,6 @@ describe("buildCsp", () => {
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain("frame-ancestors 'none'");
-    expect(csp).toContain("form-action 'self'");
+    expect(csp).toContain("object-src 'none'");
   });
 });
