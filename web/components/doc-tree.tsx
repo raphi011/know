@@ -35,6 +35,7 @@ import {
 import type { Position } from "@/components/ui/context-menu";
 import { InlineTreeInput } from "@/components/inline-tree-input";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { FileDropZone } from "@/components/file-drop-zone";
 import { cn } from "@/lib/utils";
 import type { TreeNode, DocumentSummary } from "@/app/lib/knowhow/types";
 import {
@@ -357,68 +358,75 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
 
   return (
     <>
-      <ScrollArea className="h-full">
-        <DndContext
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-        >
-          <div
-            className="min-h-full space-y-0.5 py-1"
-            onContextMenu={(e) => handleContextMenu(e, null)}
+      <FileDropZone
+        vaultId={vaultId}
+        targetFolderPath=""
+        documents={documents}
+        onImportComplete={() => router.refresh()}
+      >
+        <ScrollArea className="h-full">
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
           >
-            {tree.map((node) => (
-              <TreeNodeItem
-                key={node.path}
-                node={node}
-                tree={tree}
-                depth={0}
-                activePath={activePath}
-                expanded={expanded}
-                onToggle={toggleFolder}
-                onContextMenu={handleContextMenu}
-                editing={editing}
-                editingError={editingError}
-                onInlineConfirm={handleInlineConfirm}
-                onInlineCancel={() => {
-                  setEditing(null);
-                  setEditingError(null);
-                }}
-              />
-            ))}
-            {editing && !editing.parentPath && editing.type !== "rename" && (
-              <InlineTreeInput
-                type={editing.type === "new-folder" ? "folder" : "document"}
-                depth={0}
-                siblingNames={tree.map((n) => n.name)}
-                error={editingError}
-                onConfirm={handleInlineConfirm}
-                onCancel={() => {
-                  setEditing(null);
-                  setEditingError(null);
-                }}
-                placeholder={
-                  t(editing.type === "new-folder" ? "newFolder" : "newDocument")
-                }
-              />
-            )}
-          </div>
-          <RootDropZone />
-          <DragOverlay>
-            {activeNode ? (
-              <div className="flex items-center gap-2 rounded bg-white px-3 py-1.5 shadow-lg text-sm dark:bg-zinc-800">
-                {activeNode.type === "folder" ? (
-                  <FolderIcon className="h-4 w-4 text-zinc-400" />
-                ) : (
-                  <DocumentTextIcon className="h-4 w-4 text-zinc-400" />
-                )}
-                {activeNode.name}
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </ScrollArea>
+            <div
+              className="min-h-full space-y-0.5 py-1"
+              onContextMenu={(e) => handleContextMenu(e, null)}
+            >
+              {tree.map((node) => (
+                <TreeNodeItem
+                  key={node.path}
+                  node={node}
+                  tree={tree}
+                  depth={0}
+                  activePath={activePath}
+                  expanded={expanded}
+                  onToggle={toggleFolder}
+                  onContextMenu={handleContextMenu}
+                  editing={editing}
+                  editingError={editingError}
+                  onInlineConfirm={handleInlineConfirm}
+                  onInlineCancel={() => {
+                    setEditing(null);
+                    setEditingError(null);
+                  }}
+                />
+              ))}
+              {editing && !editing.parentPath && editing.type !== "rename" && (
+                <InlineTreeInput
+                  type={editing.type === "new-folder" ? "folder" : "document"}
+                  depth={0}
+                  siblingNames={tree.map((n) => n.name)}
+                  error={editingError}
+                  onConfirm={handleInlineConfirm}
+                  onCancel={() => {
+                    setEditing(null);
+                    setEditingError(null);
+                  }}
+                  placeholder={
+                    t(editing.type === "new-folder" ? "newFolder" : "newDocument")
+                  }
+                />
+              )}
+            </div>
+            <RootDropZone />
+            <DragOverlay>
+              {activeNode ? (
+                <div className="flex items-center gap-2 rounded bg-white px-3 py-1.5 shadow-lg text-sm dark:bg-zinc-800">
+                  {activeNode.type === "folder" ? (
+                    <FolderIcon className="h-4 w-4 text-zinc-400" />
+                  ) : (
+                    <DocumentTextIcon className="h-4 w-4 text-zinc-400" />
+                  )}
+                  {activeNode.name}
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </ScrollArea>
+      </FileDropZone>
 
       {contextMenu && (
         <ContextMenu
