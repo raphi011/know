@@ -97,6 +97,32 @@ function ChatRoom({ roomId, theme }) {
 - The function always reads the latest values but doesn't trigger effect re-runs
 - Replaces the common `useCallback` + ref workaround pattern
 
+### Ref Pattern for Reading Latest State in Effects
+
+When `useEffectEvent` is not available, use a ref to read the latest value of a prop/state without adding it to the dependency array. This avoids stale closures while keeping the effect trigger scoped to the intended dependency.
+
+```tsx
+function MobileNav({ open, onClose }) {
+  const pathname = usePathname();
+  const openRef = useRef(open);
+
+  // Sync ref via useEffect (required by React Compiler — cannot mutate refs during render)
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  // Only fires when pathname changes, reads latest `open` without depending on it
+  useEffect(() => {
+    if (openRef.current) onClose();
+  }, [pathname, onClose]);
+}
+```
+
+**Key rules:**
+- **Never mutate `ref.current` during render** — React Compiler's `react-hooks/refs` rule forbids it. Always sync via `useEffect`.
+- The sync effect runs before other effects in declaration order, so the ref is up-to-date when the dependent effect fires.
+- Prefer `useEffectEvent` when available — it's cleaner and purpose-built for this pattern.
+
 ### Server Actions
 
 - Defined with `"use server"` directive — execute on the server, callable from client

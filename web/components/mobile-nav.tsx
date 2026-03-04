@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import {
   Dialog as HeadlessDialog,
@@ -44,11 +44,16 @@ function MobileNav({
 }: MobileNavProps) {
   const tNav = useTranslations("nav");
   const pathname = usePathname();
+  const openRef = useRef(open);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   // Close mobile nav when route changes (e.g. clicking a Link in sidebarContent)
   useEffect(() => {
-    if (open) onClose();
-  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (openRef.current) onClose();
+  }, [pathname, onClose]);
 
   function handleNavigate(href: string) {
     onNavigate?.(href);
@@ -100,9 +105,10 @@ function MobileNav({
             <div
               className="flex-1 overflow-y-auto px-3 py-3"
               onClick={(e) => {
-                // Close nav when any link is clicked (covers same-page clicks
-                // where pathname doesn't change and the useEffect won't fire)
-                if ((e.target as HTMLElement).closest("a")) onClose();
+                // Close nav when any <a> is clicked (covers same-page clicks
+                // where pathname doesn't change and the useEffect won't fire).
+                // Note: button-based navigation (router.push) would need its own onClose call.
+                if ((e.target as Element).closest("a")) onClose();
               }}
             >
               {sidebarContent ?? (

@@ -135,6 +135,11 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
   );
 }
 
+const modeOptions = [
+  { value: "edit" as const, icon: PencilSquareIcon },
+  { value: "preview" as const, icon: EyeIcon },
+];
+
 function ModeToggle({
   mode,
   onModeChange,
@@ -146,34 +151,23 @@ function ModeToggle({
 }) {
   return (
     <div className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
-      <button
-        type="button"
-        onClick={() => onModeChange("edit")}
-        aria-label={t("edit")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium transition-colors",
-          mode === "edit"
-            ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
-            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white",
-        )}
-      >
-        <PencilSquareIcon className="size-4" />
-        <span className="hidden sm:inline">{t("edit")}</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => onModeChange("preview")}
-        aria-label={t("preview")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium transition-colors",
-          mode === "preview"
-            ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
-            : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white",
-        )}
-      >
-        <EyeIcon className="size-4" />
-        <span className="hidden sm:inline">{t("preview")}</span>
-      </button>
+      {modeOptions.map(({ value, icon: Icon }) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => onModeChange(value)}
+          aria-label={t(value)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium transition-colors",
+            mode === value
+              ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white",
+          )}
+        >
+          <Icon className="size-4" />
+          <span className="hidden sm:inline">{t(value)}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -203,10 +197,10 @@ function StatusIndicator({
 
   return (
     <span
-      className={cn("text-sm", color)}
+      className={cn("max-w-48 truncate text-sm", color)}
       title={status === "error" && errorMessage ? errorMessage : undefined}
     >
-      {label}
+      {status === "error" && errorMessage ? errorMessage : label}
     </span>
   );
 }
