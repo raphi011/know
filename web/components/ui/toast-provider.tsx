@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useRef,
   useState,
@@ -35,31 +34,27 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-let nextId = 0;
-
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const nextId = useRef(0);
 
-  const dismiss = useCallback((id: string) => {
+  function dismiss(id: string) {
     const timer = timers.current.get(id);
     if (timer) {
       clearTimeout(timer);
       timers.current.delete(id);
     }
     setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  }
 
-  const toast = useCallback(
-    (input: ToastInput) => {
-      const id = String(++nextId);
-      const duration = input.duration ?? 4000;
-      setToasts((prev) => [...prev, { ...input, id }]);
-      const timer = setTimeout(() => dismiss(id), duration);
-      timers.current.set(id, timer);
-    },
-    [dismiss],
-  );
+  function toast(input: ToastInput) {
+    const id = String(++nextId.current);
+    const duration = input.duration ?? 4000;
+    setToasts((prev) => [...prev, { ...input, id }]);
+    const timer = setTimeout(() => dismiss(id), duration);
+    timers.current.set(id, timer);
+  }
 
   return (
     <ToastContext value={{ toasts, toast, dismiss }}>

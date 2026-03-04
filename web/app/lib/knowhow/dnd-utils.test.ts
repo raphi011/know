@@ -99,7 +99,7 @@ describe("filterMarkdownFiles", () => {
     const files = [makeFile("image.png"), makeFile("readme.md")];
     const result = filterMarkdownFiles(files);
     expect(result.valid).toHaveLength(1);
-    expect(result.valid[0].name).toBe("readme.md");
+    expect(result.valid[0]!.name).toBe("readme.md");
     expect(result.skipped).toBe(1);
   });
 

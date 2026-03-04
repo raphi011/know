@@ -20,7 +20,7 @@ describe("useToast", () => {
       result.current.toast({ variant: "success", title: "Done" });
     });
     expect(result.current.toasts).toHaveLength(1);
-    expect(result.current.toasts[0].title).toBe("Done");
+    expect(result.current.toasts[0]!.title).toBe("Done");
   });
 
   it("dismisses a toast", () => {
@@ -28,7 +28,7 @@ describe("useToast", () => {
     act(() => {
       result.current.toast({ variant: "error", title: "Oops" });
     });
-    const id = result.current.toasts[0].id;
+    const id = result.current.toasts[0]!.id;
     act(() => {
       result.current.dismiss(id);
     });

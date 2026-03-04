@@ -71,6 +71,24 @@
     "noDocumentsTitle": "Keine Dokumente",
     "noDocumentsDescription": "Dieser Vault enthält noch keine Dokumente."
   },
+  "dnd": {
+    "dropFilesHere": ".md-Dateien hier ablegen",
+    "importing": "Importiere…",
+    "skippedNonMarkdown": "{count} Nicht-Markdown-{count, plural, one {Datei} other {Dateien}} übersprungen",
+    "nameConflict": "\"{name}\" existiert bereits in {folder}",
+    "importFailed": "Import von \"{name}\" fehlgeschlagen: {error}",
+    "importSuccess": "{count} {count, plural, one {Datei} other {Dateien}} importiert",
+    "moveFailed": "Verschieben fehlgeschlagen: {error}",
+    "moveFailedUnknown": "Verschieben fehlgeschlagen: {error}",
+    "itemNotFound": "Element nicht gefunden — bitte Seite aktualisieren",
+    "pickedUp": "{item} aufgenommen",
+    "isOver": "{item} ist über {target}",
+    "noLongerOver": "{item} ist nicht mehr über einem Ziel",
+    "droppedOn": "{item} wurde auf {target} abgelegt",
+    "dropped": "{item} wurde abgelegt",
+    "dragCancelled": "Ziehen von {item} wurde abgebrochen",
+    "root": "Stammverzeichnis"
+  },
   "tree": {
     "newDocument": "Neues Dokument",
     "newFolder": "Neuer Ordner",

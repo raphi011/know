@@ -21,19 +21,24 @@ export function LoginForm({
     setLoading(true);
     setError(null);
 
-    const url = formData.get("url") as string;
-    const token = formData.get("token") as string;
-    const name = formData.get("name") as string;
+    try {
+      const url = formData.get("url") as string;
+      const token = formData.get("token") as string;
+      const name = formData.get("name") as string;
 
-    const result = await loginAction(url, token, name);
+      const result = await loginAction(url, token, name);
 
-    if (!result.success) {
-      setError(result.error ?? t("error"));
+      if (!result.success) {
+        setError(result.error ?? t("error"));
+        return;
+      }
+
+      router.push("/docs");
+    } catch {
+      setError(t("error"));
+    } finally {
       setLoading(false);
-      return;
     }
-
-    router.push("/docs");
   }
 
   return (

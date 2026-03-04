@@ -91,37 +91,38 @@ function getSiblingNames(tree: TreeNode[], path: string): string[] {
   return parent.children.filter((n) => n.path !== path).map((n) => n.name);
 }
 
-const announcements: Announcements = {
-  onDragStart({ active }) {
-    return `Picked up ${active.id}`;
-  },
-  onDragOver({ active, over }) {
-    if (over) {
-      const target = String(over.id).startsWith("drop:")
-        ? over.data.current?.folderPath || "root"
-        : over.id;
-      return `${active.id} is over ${target}`;
-    }
-    return `${active.id} is no longer over a drop target`;
-  },
-  onDragEnd({ active, over }) {
-    if (over) {
-      const target = String(over.id).startsWith("drop:")
-        ? over.data.current?.folderPath || "root"
-        : over.id;
-      return `${active.id} was dropped on ${target}`;
-    }
-    return `${active.id} was dropped`;
-  },
-  onDragCancel({ active }) {
-    return `Dragging ${active.id} was cancelled`;
-  },
-};
-
 function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
   const router = useRouter();
   const t = useTranslations("tree");
+  const tDnd = useTranslations("dnd");
   const { toast } = useToast();
+
+  const announcements: Announcements = {
+    onDragStart({ active }) {
+      return tDnd("pickedUp", { item: active.id });
+    },
+    onDragOver({ active, over }) {
+      if (over) {
+        const target = String(over.id).startsWith("drop:")
+          ? over.data.current?.folderPath || tDnd("root")
+          : over.id;
+        return tDnd("isOver", { item: active.id, target });
+      }
+      return tDnd("noLongerOver", { item: active.id });
+    },
+    onDragEnd({ active, over }) {
+      if (over) {
+        const target = String(over.id).startsWith("drop:")
+          ? over.data.current?.folderPath || tDnd("root")
+          : over.id;
+        return tDnd("droppedOn", { item: active.id, target });
+      }
+      return tDnd("dropped", { item: active.id });
+    },
+    onDragCancel({ active }) {
+      return tDnd("dragCancelled", { item: active.id });
+    },
+  };
 
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // Auto-expand folders that contain the active document
@@ -209,13 +210,19 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
     if (hasNameConflict(documents, newPath)) {
       toast({
         variant: "error",
-        title: `"${draggedPath.split("/").pop()}" already exists in ${targetFolder || "root"}`,
+        title: tDnd("nameConflict", {
+          name: draggedPath.split("/").pop() ?? draggedPath,
+          folder: targetFolder || tDnd("root"),
+        }),
       });
       return;
     }
 
     const draggedNode = findNode(tree, draggedPath);
-    if (!draggedNode) return;
+    if (!draggedNode) {
+      toast({ variant: "error", title: tDnd("itemNotFound") });
+      return;
+    }
 
     try {
       let result;
@@ -226,13 +233,15 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
       }
 
       if (!result.success) {
-        toast({ variant: "error", title: `Failed to move: ${result.error}` });
+        toast({ variant: "error", title: tDnd("moveFailed", { error: result.error }) });
         return;
       }
 
       router.refresh();
-    } catch {
-      toast({ variant: "error", title: "Failed to move item" });
+    } catch (err) {
+      console.error("Drag-and-drop move failed:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ variant: "error", title: tDnd("moveFailedUnknown", { error: message }) });
     }
   }
 

@@ -1,9 +1,6 @@
+import { env } from "@/app/lib/env";
 import { LoginForm } from "./login-form";
 
-const DEFAULT_SERVER_URL = "http://localhost:8484";
-
 export default function LoginPage() {
-  const defaultServerUrl = process.env.BACKEND_URL || DEFAULT_SERVER_URL;
-
-  return <LoginForm defaultServerUrl={defaultServerUrl} />;
+  return <LoginForm defaultServerUrl={env.BACKEND_URL} />;
 }
