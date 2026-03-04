@@ -3,7 +3,7 @@ import type { DocumentSummary } from "./types";
 /** Get the basename (last segment) of a path */
 function basename(path: string): string {
   const parts = path.split("/");
-  return parts[parts.length - 1];
+  return parts[parts.length - 1] ?? "";
 }
 
 /** Get the parent folder path, or "" for root-level items */

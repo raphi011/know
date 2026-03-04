@@ -5,6 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
   ChevronRightIcon,
   FolderIcon,
   DocumentTextIcon,
@@ -97,6 +107,24 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
 
   // Inline editing error state
   const [editingError, setEditingError] = useState<string | null>(null);
+
+  // Drag-and-drop state
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { distance: 8 },
+  });
+  const keyboardSensor = useSensor(KeyboardSensor);
+  const sensors = useSensors(pointerSensor, keyboardSensor);
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id));
+  }
+
+  function handleDragEnd(_event: DragEndEvent) {
+    setActiveId(null);
+    // Will be implemented in Task 8
+  }
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<TreeNode | null>(null);
@@ -253,46 +281,59 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   return (
     <>
       <ScrollArea className="h-full">
-        <div
-          className="min-h-full space-y-0.5 py-1"
-          onContextMenu={(e) => handleContextMenu(e, null)}
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
         >
-          {tree.map((node) => (
-            <TreeNodeItem
-              key={node.path}
-              node={node}
-              tree={tree}
-              depth={0}
-              activePath={activePath}
-              expanded={expanded}
-              onToggle={toggleFolder}
-              onContextMenu={handleContextMenu}
-              editing={editing}
-              editingError={editingError}
-              onInlineConfirm={handleInlineConfirm}
-              onInlineCancel={() => {
-                setEditing(null);
-                setEditingError(null);
-              }}
-            />
-          ))}
-          {editing && !editing.parentPath && editing.type !== "rename" && (
-            <InlineTreeInput
-              type={editing.type === "new-folder" ? "folder" : "document"}
-              depth={0}
-              siblingNames={tree.map((n) => n.name)}
-              error={editingError}
-              onConfirm={handleInlineConfirm}
-              onCancel={() => {
-                setEditing(null);
-                setEditingError(null);
-              }}
-              placeholder={
-                t(editing.type === "new-folder" ? "newFolder" : "newDocument")
-              }
-            />
-          )}
-        </div>
+          <div
+            className="min-h-full space-y-0.5 py-1"
+            onContextMenu={(e) => handleContextMenu(e, null)}
+          >
+            {tree.map((node) => (
+              <TreeNodeItem
+                key={node.path}
+                node={node}
+                tree={tree}
+                depth={0}
+                activePath={activePath}
+                expanded={expanded}
+                onToggle={toggleFolder}
+                onContextMenu={handleContextMenu}
+                editing={editing}
+                editingError={editingError}
+                onInlineConfirm={handleInlineConfirm}
+                onInlineCancel={() => {
+                  setEditing(null);
+                  setEditingError(null);
+                }}
+              />
+            ))}
+            {editing && !editing.parentPath && editing.type !== "rename" && (
+              <InlineTreeInput
+                type={editing.type === "new-folder" ? "folder" : "document"}
+                depth={0}
+                siblingNames={tree.map((n) => n.name)}
+                error={editingError}
+                onConfirm={handleInlineConfirm}
+                onCancel={() => {
+                  setEditing(null);
+                  setEditingError(null);
+                }}
+                placeholder={
+                  t(editing.type === "new-folder" ? "newFolder" : "newDocument")
+                }
+              />
+            )}
+          </div>
+          <DragOverlay>
+            {activeId ? (
+              <div className="rounded bg-white px-2 py-1 shadow-md text-sm dark:bg-zinc-800">
+                {activeId}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </ScrollArea>
 
       {contextMenu && (
