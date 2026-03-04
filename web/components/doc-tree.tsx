@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -15,6 +15,7 @@ import {
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   ChevronRightIcon,
@@ -120,12 +121,39 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   const keyboardSensor = useSensor(KeyboardSensor);
   const sensors = useSensors(pointerSensor, keyboardSensor);
 
+  const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id));
   }
 
+  function handleDragOver(event: DragOverEvent) {
+    const overId = event.over?.id;
+
+    // Clear timer if we left the previous folder
+    if (expandTimer.current) {
+      clearTimeout(expandTimer.current);
+      expandTimer.current = null;
+    }
+
+    if (!overId || typeof overId !== "string" || !overId.startsWith("drop:")) return;
+    const folderPath = overId.slice(5); // Remove "drop:" prefix
+    if (!folderPath) return; // Root zone, nothing to expand
+
+    // Auto-expand after 500ms of hovering
+    if (!expanded.has(folderPath)) {
+      expandTimer.current = setTimeout(() => {
+        setExpanded((prev) => new Set([...prev, folderPath]));
+      }, 500);
+    }
+  }
+
   function handleDragEnd(_event: DragEndEvent) {
     setActiveId(null);
+    if (expandTimer.current) {
+      clearTimeout(expandTimer.current);
+      expandTimer.current = null;
+    }
     // Will be implemented in Task 8
   }
 
@@ -287,6 +315,7 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
         <DndContext
           sensors={sensors}
           onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
           <div
