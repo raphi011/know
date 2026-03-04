@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { env } from "./env";
 import type { ServerConnection } from "@/app/lib/knowhow/types";
@@ -67,19 +68,21 @@ async function decrypt(encoded: string): Promise<string> {
 
 // ── Session CRUD ────────────────────────────────────
 
-export async function getSession(): Promise<Session | null> {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!raw) return null;
+export const getSession = cache(
+  async (): Promise<Session | null> => {
+    const cookieStore = await cookies();
+    const raw = cookieStore.get(SESSION_COOKIE)?.value;
+    if (!raw) return null;
 
-  try {
-    const json = await decrypt(raw);
-    return JSON.parse(json) as Session;
-  } catch {
-    // Corrupt or tampered cookie — treat as logged out
-    return null;
-  }
-}
+    try {
+      const json = await decrypt(raw);
+      return JSON.parse(json) as Session;
+    } catch {
+      // Corrupt or tampered cookie — treat as logged out
+      return null;
+    }
+  },
+);
 
 export async function setSession(session: Session): Promise<void> {
   const cookieStore = await cookies();

@@ -30,7 +30,6 @@ export default function LoginPage() {
     }
 
     router.push("/docs");
-    router.refresh();
   }
 
   return (
