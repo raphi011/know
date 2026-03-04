@@ -121,6 +121,7 @@ Available docs:
 - `docs/design-system-best-practices.md` - General UI/UX design principles
 - `docs/testing-strategy.md` - Testing pyramid: Vitest, Storybook, Playwright
 - `docs/a11y.md` - Accessibility guide, axe-core, common violations
+- `docs/docker.md` - Docker Compose, Colima, SurrealDB v3 image gotchas
 
 ## Web Frontend
 

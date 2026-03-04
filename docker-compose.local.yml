@@ -3,13 +3,13 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.2
-    command: start --user root --pass root file:/data/knowhow.db
+    command: start --user root --pass root surrealkv:/data/knowhow.db
     ports:
       - "8000:8000"
     volumes:
       - ./data/surreal:/data
     healthcheck:
-      test: ["CMD", "surreal", "isready", "--conn", "http://localhost:8000"]
+      test: ["CMD", "/surreal", "is-ready"]
       interval: 5s
       timeout: 3s
       retries: 10
