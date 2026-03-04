@@ -91,7 +91,7 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
       <div className="flex items-center gap-3">
         <h1
           className={cn(
-            "text-lg font-semibold text-slate-900 transition-opacity duration-200 dark:text-white",
+            "min-w-0 truncate text-lg font-semibold text-slate-900 transition-opacity duration-200 dark:text-white",
             showToolbarTitle ? "opacity-100" : "opacity-0",
           )}
           aria-hidden={!showToolbarTitle}
@@ -149,6 +149,7 @@ function ModeToggle({
       <button
         type="button"
         onClick={() => onModeChange("edit")}
+        aria-label={t("edit")}
         className={cn(
           "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium transition-colors",
           mode === "edit"
@@ -157,11 +158,12 @@ function ModeToggle({
         )}
       >
         <PencilSquareIcon className="size-4" />
-        {t("edit")}
+        <span className="hidden sm:inline">{t("edit")}</span>
       </button>
       <button
         type="button"
         onClick={() => onModeChange("preview")}
+        aria-label={t("preview")}
         className={cn(
           "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium transition-colors",
           mode === "preview"
@@ -170,7 +172,7 @@ function ModeToggle({
         )}
       >
         <EyeIcon className="size-4" />
-        {t("preview")}
+        <span className="hidden sm:inline">{t("preview")}</span>
       </button>
     </div>
   );

@@ -98,8 +98,8 @@ function DocumentPanel({
           onClick={() => setSheetOpen(true)}
           className={cn(
             "fixed bottom-4 right-4 z-40 flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-medium shadow-lg",
-            "bg-primary-600 text-white hover:bg-primary-700",
-            "dark:bg-primary-500 dark:hover:bg-primary-600",
+            "bg-white/90 text-slate-600 ring-1 ring-slate-200 backdrop-blur-sm hover:bg-slate-50",
+            "dark:bg-slate-800/90 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-700",
           )}
         >
           <InformationCircleIcon className="size-4" />
