@@ -66,6 +66,10 @@ type Config struct {
 	ChunkTargetSize int // ideal chunk size in chars (default: 3000)
 	ChunkMinSize    int // minimum chunk size in chars (default: 800)
 	ChunkMaxSize    int // maximum chunk size in chars (default: 4000)
+
+	// Versioning settings
+	VersionCoalesceMinutes int // minutes between version snapshots (default: 10)
+	VersionRetentionCount  int // max versions per document (default: 50)
 }
 
 // ChunkConfig returns the chunking configuration as a parser.ChunkConfig.
@@ -123,6 +127,10 @@ func Load() Config {
 		ChunkTargetSize: getEnvInt("KNOWHOW_CHUNK_TARGET_SIZE", 3000),
 		ChunkMinSize:    getEnvInt("KNOWHOW_CHUNK_MIN_SIZE", 800),
 		ChunkMaxSize:    getEnvInt("KNOWHOW_CHUNK_MAX_SIZE", 4000),
+
+		// Versioning
+		VersionCoalesceMinutes: getEnvInt("KNOWHOW_VERSION_COALESCE_MINUTES", 10),
+		VersionRetentionCount:  getEnvInt("KNOWHOW_VERSION_RETENTION", 50),
 	}
 }
 

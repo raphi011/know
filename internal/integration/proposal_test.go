@@ -38,7 +38,7 @@ func TestProposalLifecycle(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 	reviewSvc := review.NewService(testDB, docSvc)
 
 	// --- Create a document ---

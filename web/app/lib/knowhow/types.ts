@@ -50,6 +50,51 @@ export type SearchResult = {
   matchedChunks: ChunkMatch[];
 };
 
+export type DocumentVersion = {
+  id: string;
+  documentId: string;
+  vaultId: string;
+  version: number;
+  title: string;
+  contentHash: string;
+  source: string;
+  createdAt: string;
+};
+
+export type DocumentVersionConnection = {
+  versions: DocumentVersion[];
+  totalCount: number;
+};
+
+export type DiffLine = {
+  type: "CONTEXT" | "ADD" | "DELETE";
+  content: string;
+  oldLineNo: number | null;
+  newLineNo: number | null;
+};
+
+export type DiffHunk = {
+  index: number;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  header: string;
+  lines: DiffLine[];
+};
+
+export type DiffStats = {
+  additions: number;
+  deletions: number;
+  hunksCount: number;
+};
+
+export type VersionDiff = {
+  hunks: DiffHunk[];
+  hasConflict: boolean;
+  stats: DiffStats;
+};
+
 export type ServerConnection = {
   id: string;
   name: string;

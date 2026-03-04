@@ -14,9 +14,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { DocumentOutline } from "@/components/domain/document-outline";
 import { DocumentInfo } from "@/components/domain/document-info";
+import { DocumentHistory } from "@/components/domain/document-history";
 import { AgentChatPanel } from "@/components/domain/agent-chat-panel";
 import type { Heading } from "@/app/lib/extract-headings";
-import type { Document } from "@/app/lib/knowhow/types";
+import type { Document, DocumentVersion } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
 
 const PANEL_STORAGE_KEY = "kh_panel_width";
@@ -37,6 +38,8 @@ type DocumentPanelProps = {
   document: Document;
   scrollContainer: HTMLElement | null;
   vaultId: string | null;
+  versions: DocumentVersion[];
+  versionsTotalCount: number;
 };
 
 function DocumentPanel({
@@ -44,6 +47,8 @@ function DocumentPanel({
   document,
   scrollContainer,
   vaultId,
+  versions,
+  versionsTotalCount,
 }: DocumentPanelProps) {
   const t = useTranslations("docs");
   const [collapsed, setCollapsed] = useState(false);
@@ -99,6 +104,17 @@ function DocumentPanel({
     {
       label: t("info"),
       content: <DocumentInfo document={document} />,
+    },
+    {
+      label: t("history"),
+      content: (
+        <DocumentHistory
+          documentId={document.id}
+          vaultId={vaultId ?? ""}
+          versions={versions}
+          totalCount={versionsTotalCount}
+        />
+      ),
     },
     {
       label: t("agent"),

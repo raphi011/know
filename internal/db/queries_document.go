@@ -255,28 +255,29 @@ func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, erro
 }
 
 // UpsertDocument creates or updates a document by vault+path.
-func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput) (*models.Document, bool, error) {
+// On update, previousDoc contains the document state before the update (for versioning).
+func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput) (doc *models.Document, created bool, previousDoc *models.Document, err error) {
 	existing, err := c.GetDocumentByPath(ctx, input.VaultID, input.Path)
 	if err != nil {
-		return nil, false, fmt.Errorf("check existing document: %w", err)
+		return nil, false, nil, fmt.Errorf("check existing document: %w", err)
 	}
 
 	if existing == nil {
 		doc, err := c.CreateDocument(ctx, input)
 		if err != nil {
-			return nil, false, err
+			return nil, false, nil, err
 		}
-		return doc, true, nil
+		return doc, true, nil, nil
 	}
 
 	idStr, err := models.RecordIDString(existing.ID)
 	if err != nil {
-		return nil, false, fmt.Errorf("extract document id: %w", err)
+		return nil, false, nil, fmt.Errorf("extract document id: %w", err)
 	}
 
-	doc, err := c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Labels, input.ContentHash, input.Metadata)
+	doc, err = c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Labels, input.ContentHash, input.Metadata)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
-	return doc, false, nil
+	return doc, false, existing, nil
 }

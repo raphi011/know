@@ -39,6 +39,7 @@ type Document {
   relations: [DocRelation!]!
   queryBlocks: [QueryBlock!]!
   proposals(status: ProposalStatus): [DocumentProposal!]!
+  versions(limit: Int, offset: Int): DocumentVersionConnection!
 }
 
 enum QueryFormat {
@@ -252,6 +253,26 @@ type DiffLine {
 }
 
 # =============================================================================
+# VERSION TYPES
+# =============================================================================
+
+type DocumentVersion {
+  id: ID!
+  documentId: ID!
+  vaultId: ID!
+  version: Int!
+  title: String!
+  contentHash: String!
+  source: String!
+  createdAt: DateTime!
+}
+
+type DocumentVersionConnection {
+  versions: [DocumentVersion!]!
+  totalCount: Int!
+}
+
+# =============================================================================
 # INPUTS
 # =============================================================================
 
@@ -332,6 +353,11 @@ type Query {
   # Conversations
   conversations(vaultId: ID!): [Conversation!]!
   conversation(id: ID!): Conversation
+
+  # Versions
+  documentVersion(id: ID!): DocumentVersion
+  documentVersions(documentId: ID!, limit: Int, offset: Int): DocumentVersionConnection!
+  versionDiff(documentId: ID!, fromVersionId: ID, toVersionId: ID): ProposalDiff!
 }
 
 # =============================================================================
@@ -374,4 +400,7 @@ type Mutation {
   createConversation(vaultId: ID!): Conversation!
   deleteConversation(id: ID!): Boolean!
   renameConversation(id: ID!, title: String!): Conversation!
+
+  # Versions
+  rollbackDocument(vaultId: ID!, documentId: ID!, versionId: ID!): Document!
 }

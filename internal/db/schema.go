@@ -60,10 +60,15 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_document_labels        ON document FIELDS labels;
     DEFINE INDEX IF NOT EXISTS idx_document_vault_doctype ON document FIELDS vault, doc_type;
 
-    -- Cascade delete chunks and wiki_links when document deleted
+    -- Cascade delete chunks, wiki_links, and versions when document deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_chunks ON document
     WHEN $event = "DELETE" THEN {
         DELETE FROM chunk WHERE document = $before.id
+    };
+
+    DEFINE EVENT IF NOT EXISTS cascade_delete_document_versions ON document
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM document_version WHERE document = $before.id
     };
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_wiki_links ON document
@@ -75,6 +80,23 @@ func SchemaSQL(dimension int) string {
     WHEN $event = "DELETE" THEN {
         DELETE FROM doc_relation WHERE in = $before.id OR out = $before.id
     };
+
+    -- ==========================================================================
+    -- DOCUMENT_VERSION TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS document_version SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS document     ON document_version TYPE record<document>;
+    DEFINE FIELD IF NOT EXISTS vault        ON document_version TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS version      ON document_version TYPE int;
+    DEFINE FIELD IF NOT EXISTS content      ON document_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS content_hash ON document_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS title        ON document_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS source       ON document_version TYPE string DEFAULT "manual";
+    DEFINE FIELD IF NOT EXISTS created_at   ON document_version TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_version_document        ON document_version FIELDS document;
+    DEFINE INDEX IF NOT EXISTS idx_version_document_version ON document_version FIELDS document, version UNIQUE;
 
     -- ==========================================================================
     -- FOLDER TABLE
