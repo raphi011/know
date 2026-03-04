@@ -46,6 +46,7 @@ type ComplexityRoot struct {
 		ID        func(childComplexity int) int
 		Role      func(childComplexity int) int
 		ToolInput func(childComplexity int) int
+		ToolMeta  func(childComplexity int) int
 		ToolName  func(childComplexity int) int
 	}
 
@@ -237,6 +238,29 @@ type ComplexityRoot struct {
 		VaultID      func(childComplexity int) int
 	}
 
+	ToolDocRef struct {
+		Path  func(childComplexity int) int
+		Score func(childComplexity int) int
+		Title func(childComplexity int) int
+	}
+
+	ToolResultMeta struct {
+		ChunkCount     func(childComplexity int) int
+		ContentLength  func(childComplexity int) int
+		DocumentPath   func(childComplexity int) int
+		DocumentTitle  func(childComplexity int) int
+		DurationMs     func(childComplexity int) int
+		MatchedDocs    func(childComplexity int) int
+		ResultCount    func(childComplexity int) int
+		WebResultCount func(childComplexity int) int
+		WebSources     func(childComplexity int) int
+	}
+
+	ToolWebRef struct {
+		Title func(childComplexity int) int
+		URL   func(childComplexity int) int
+	}
+
 	User struct {
 		CreatedAt func(childComplexity int) int
 		Email     func(childComplexity int) int
@@ -373,6 +397,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ChatMessage.ToolInput(childComplexity), true
+	case "ChatMessage.toolMeta":
+		if e.ComplexityRoot.ChatMessage.ToolMeta == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatMessage.ToolMeta(childComplexity), true
 	case "ChatMessage.toolName":
 		if e.ComplexityRoot.ChatMessage.ToolName == nil {
 			break
@@ -1368,6 +1398,93 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Template.VaultID(childComplexity), true
 
+	case "ToolDocRef.path":
+		if e.ComplexityRoot.ToolDocRef.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolDocRef.Path(childComplexity), true
+	case "ToolDocRef.score":
+		if e.ComplexityRoot.ToolDocRef.Score == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolDocRef.Score(childComplexity), true
+	case "ToolDocRef.title":
+		if e.ComplexityRoot.ToolDocRef.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolDocRef.Title(childComplexity), true
+
+	case "ToolResultMeta.chunkCount":
+		if e.ComplexityRoot.ToolResultMeta.ChunkCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.ChunkCount(childComplexity), true
+	case "ToolResultMeta.contentLength":
+		if e.ComplexityRoot.ToolResultMeta.ContentLength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.ContentLength(childComplexity), true
+	case "ToolResultMeta.documentPath":
+		if e.ComplexityRoot.ToolResultMeta.DocumentPath == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.DocumentPath(childComplexity), true
+	case "ToolResultMeta.documentTitle":
+		if e.ComplexityRoot.ToolResultMeta.DocumentTitle == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.DocumentTitle(childComplexity), true
+	case "ToolResultMeta.durationMs":
+		if e.ComplexityRoot.ToolResultMeta.DurationMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.DurationMs(childComplexity), true
+	case "ToolResultMeta.matchedDocs":
+		if e.ComplexityRoot.ToolResultMeta.MatchedDocs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.MatchedDocs(childComplexity), true
+	case "ToolResultMeta.resultCount":
+		if e.ComplexityRoot.ToolResultMeta.ResultCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.ResultCount(childComplexity), true
+	case "ToolResultMeta.webResultCount":
+		if e.ComplexityRoot.ToolResultMeta.WebResultCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.WebResultCount(childComplexity), true
+	case "ToolResultMeta.webSources":
+		if e.ComplexityRoot.ToolResultMeta.WebSources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolResultMeta.WebSources(childComplexity), true
+
+	case "ToolWebRef.title":
+		if e.ComplexityRoot.ToolWebRef.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolWebRef.Title(childComplexity), true
+	case "ToolWebRef.url":
+		if e.ComplexityRoot.ToolWebRef.URL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolWebRef.URL(childComplexity), true
+
 	case "User.createdAt":
 		if e.ComplexityRoot.User.CreatedAt == nil {
 			break
@@ -2325,6 +2442,55 @@ func (ec *executionContext) fieldContext_ChatMessage_toolInput(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _ChatMessage_toolMeta(ctx context.Context, field graphql.CollectedField, obj *ChatMessage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChatMessage_toolMeta,
+		func(ctx context.Context) (any, error) {
+			return obj.ToolMeta, nil
+		},
+		nil,
+		ec.marshalOToolResultMeta2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolResultMeta,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChatMessage_toolMeta(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChatMessage",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "durationMs":
+				return ec.fieldContext_ToolResultMeta_durationMs(ctx, field)
+			case "resultCount":
+				return ec.fieldContext_ToolResultMeta_resultCount(ctx, field)
+			case "chunkCount":
+				return ec.fieldContext_ToolResultMeta_chunkCount(ctx, field)
+			case "matchedDocs":
+				return ec.fieldContext_ToolResultMeta_matchedDocs(ctx, field)
+			case "documentPath":
+				return ec.fieldContext_ToolResultMeta_documentPath(ctx, field)
+			case "documentTitle":
+				return ec.fieldContext_ToolResultMeta_documentTitle(ctx, field)
+			case "contentLength":
+				return ec.fieldContext_ToolResultMeta_contentLength(ctx, field)
+			case "webResultCount":
+				return ec.fieldContext_ToolResultMeta_webResultCount(ctx, field)
+			case "webSources":
+				return ec.fieldContext_ToolResultMeta_webSources(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ToolResultMeta", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChatMessage_createdAt(ctx context.Context, field graphql.CollectedField, obj *ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2651,6 +2817,8 @@ func (ec *executionContext) fieldContext_Conversation_messages(_ context.Context
 				return ec.fieldContext_ChatMessage_toolName(ctx, field)
 			case "toolInput":
 				return ec.fieldContext_ChatMessage_toolInput(ctx, field)
+			case "toolMeta":
+				return ec.fieldContext_ChatMessage_toolMeta(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_ChatMessage_createdAt(ctx, field)
 			}
@@ -7530,6 +7698,426 @@ func (ec *executionContext) fieldContext_Template_updatedAt(_ context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _ToolDocRef_title(ctx context.Context, field graphql.CollectedField, obj *ToolDocRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolDocRef_title,
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolDocRef_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolDocRef",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolDocRef_path(ctx context.Context, field graphql.CollectedField, obj *ToolDocRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolDocRef_path,
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolDocRef_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolDocRef",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolDocRef_score(ctx context.Context, field graphql.CollectedField, obj *ToolDocRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolDocRef_score,
+		func(ctx context.Context) (any, error) {
+			return obj.Score, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolDocRef_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolDocRef",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_durationMs(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_durationMs,
+		func(ctx context.Context) (any, error) {
+			return obj.DurationMs, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_durationMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_resultCount(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_resultCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ResultCount, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_resultCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_chunkCount(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_chunkCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ChunkCount, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_chunkCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_matchedDocs(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_matchedDocs,
+		func(ctx context.Context) (any, error) {
+			return obj.MatchedDocs, nil
+		},
+		nil,
+		ec.marshalOToolDocRef2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolDocRefᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_matchedDocs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "title":
+				return ec.fieldContext_ToolDocRef_title(ctx, field)
+			case "path":
+				return ec.fieldContext_ToolDocRef_path(ctx, field)
+			case "score":
+				return ec.fieldContext_ToolDocRef_score(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ToolDocRef", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_documentPath(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_documentPath,
+		func(ctx context.Context) (any, error) {
+			return obj.DocumentPath, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_documentPath(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_documentTitle(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_documentTitle,
+		func(ctx context.Context) (any, error) {
+			return obj.DocumentTitle, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_documentTitle(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_contentLength(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_contentLength,
+		func(ctx context.Context) (any, error) {
+			return obj.ContentLength, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_contentLength(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_webResultCount(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_webResultCount,
+		func(ctx context.Context) (any, error) {
+			return obj.WebResultCount, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_webResultCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolResultMeta_webSources(ctx context.Context, field graphql.CollectedField, obj *ToolResultMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolResultMeta_webSources,
+		func(ctx context.Context) (any, error) {
+			return obj.WebSources, nil
+		},
+		nil,
+		ec.marshalOToolWebRef2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolWebRefᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolResultMeta_webSources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolResultMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "title":
+				return ec.fieldContext_ToolWebRef_title(ctx, field)
+			case "url":
+				return ec.fieldContext_ToolWebRef_url(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ToolWebRef", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolWebRef_title(ctx context.Context, field graphql.CollectedField, obj *ToolWebRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolWebRef_title,
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolWebRef_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolWebRef",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ToolWebRef_url(ctx context.Context, field graphql.CollectedField, obj *ToolWebRef) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ToolWebRef_url,
+		func(ctx context.Context) (any, error) {
+			return obj.URL, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ToolWebRef_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolWebRef",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_id(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -9930,6 +10518,8 @@ func (ec *executionContext) _ChatMessage(ctx context.Context, sel ast.SelectionS
 			out.Values[i] = ec._ChatMessage_toolName(ctx, field, obj)
 		case "toolInput":
 			out.Values[i] = ec._ChatMessage_toolInput(ctx, field, obj)
+		case "toolMeta":
+			out.Values[i] = ec._ChatMessage_toolMeta(ctx, field, obj)
 		case "createdAt":
 			out.Values[i] = ec._ChatMessage_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -11697,6 +12287,154 @@ func (ec *executionContext) _Template(ctx context.Context, sel ast.SelectionSet,
 	return out
 }
 
+var toolDocRefImplementors = []string{"ToolDocRef"}
+
+func (ec *executionContext) _ToolDocRef(ctx context.Context, sel ast.SelectionSet, obj *ToolDocRef) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, toolDocRefImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ToolDocRef")
+		case "title":
+			out.Values[i] = ec._ToolDocRef_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._ToolDocRef_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "score":
+			out.Values[i] = ec._ToolDocRef_score(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var toolResultMetaImplementors = []string{"ToolResultMeta"}
+
+func (ec *executionContext) _ToolResultMeta(ctx context.Context, sel ast.SelectionSet, obj *ToolResultMeta) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, toolResultMetaImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ToolResultMeta")
+		case "durationMs":
+			out.Values[i] = ec._ToolResultMeta_durationMs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resultCount":
+			out.Values[i] = ec._ToolResultMeta_resultCount(ctx, field, obj)
+		case "chunkCount":
+			out.Values[i] = ec._ToolResultMeta_chunkCount(ctx, field, obj)
+		case "matchedDocs":
+			out.Values[i] = ec._ToolResultMeta_matchedDocs(ctx, field, obj)
+		case "documentPath":
+			out.Values[i] = ec._ToolResultMeta_documentPath(ctx, field, obj)
+		case "documentTitle":
+			out.Values[i] = ec._ToolResultMeta_documentTitle(ctx, field, obj)
+		case "contentLength":
+			out.Values[i] = ec._ToolResultMeta_contentLength(ctx, field, obj)
+		case "webResultCount":
+			out.Values[i] = ec._ToolResultMeta_webResultCount(ctx, field, obj)
+		case "webSources":
+			out.Values[i] = ec._ToolResultMeta_webSources(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var toolWebRefImplementors = []string{"ToolWebRef"}
+
+func (ec *executionContext) _ToolWebRef(ctx context.Context, sel ast.SelectionSet, obj *ToolWebRef) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, toolWebRefImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ToolWebRef")
+		case "title":
+			out.Values[i] = ec._ToolWebRef_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "url":
+			out.Values[i] = ec._ToolWebRef_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var userImplementors = []string{"User"}
 
 func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj *User) graphql.Marshaler {
@@ -12980,6 +13718,26 @@ func (ec *executionContext) unmarshalNTemplateInput2githubᚗcomᚋraphi011ᚋkn
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNToolDocRef2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolDocRef(ctx context.Context, sel ast.SelectionSet, v *ToolDocRef) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ToolDocRef(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNToolWebRef2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolWebRef(ctx context.Context, sel ast.SelectionSet, v *ToolWebRef) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ToolWebRef(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNUser2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐUser(ctx context.Context, sel ast.SelectionSet, v User) graphql.Marshaler {
 	return ec._User(ctx, sel, &v)
 }
@@ -13406,6 +14164,51 @@ func (ec *executionContext) marshalOTemplate2ᚖgithubᚗcomᚋraphi011ᚋknowho
 		return graphql.Null
 	}
 	return ec._Template(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOToolDocRef2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolDocRefᚄ(ctx context.Context, sel ast.SelectionSet, v []*ToolDocRef) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNToolDocRef2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolDocRef(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalOToolResultMeta2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolResultMeta(ctx context.Context, sel ast.SelectionSet, v *ToolResultMeta) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ToolResultMeta(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOToolWebRef2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolWebRefᚄ(ctx context.Context, sel ast.SelectionSet, v []*ToolWebRef) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNToolWebRef2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐToolWebRef(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) marshalOVault2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v *Vault) graphql.Marshaler {

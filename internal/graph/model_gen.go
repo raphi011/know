@@ -7,13 +7,14 @@ import (
 )
 
 type ChatMessage struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	DocRefs   []string  `json:"docRefs"`
-	ToolName  *string   `json:"toolName,omitempty"`
-	ToolInput *string   `json:"toolInput,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string          `json:"id"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content"`
+	DocRefs   []string        `json:"docRefs"`
+	ToolName  *string         `json:"toolName,omitempty"`
+	ToolInput *string         `json:"toolInput,omitempty"`
+	ToolMeta  *ToolResultMeta `json:"toolMeta,omitempty"`
+	CreatedAt time.Time       `json:"createdAt"`
 }
 
 type Conversation struct {
@@ -29,4 +30,27 @@ type Mutation struct {
 }
 
 type Query struct {
+}
+
+type ToolDocRef struct {
+	Title string  `json:"title"`
+	Path  string  `json:"path"`
+	Score float64 `json:"score"`
+}
+
+type ToolResultMeta struct {
+	DurationMs     int           `json:"durationMs"`
+	ResultCount    *int          `json:"resultCount,omitempty"`
+	ChunkCount     *int          `json:"chunkCount,omitempty"`
+	MatchedDocs    []*ToolDocRef `json:"matchedDocs,omitempty"`
+	DocumentPath   *string       `json:"documentPath,omitempty"`
+	DocumentTitle  *string       `json:"documentTitle,omitempty"`
+	ContentLength  *int          `json:"contentLength,omitempty"`
+	WebResultCount *int          `json:"webResultCount,omitempty"`
+	WebSources     []*ToolWebRef `json:"webSources,omitempty"`
+}
+
+type ToolWebRef struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }

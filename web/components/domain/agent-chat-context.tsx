@@ -4,6 +4,18 @@ import { createContext, useContext, useEffect, useReducer, useRef } from "react"
 
 // --- Types ---
 
+export type ToolResultMeta = {
+  durationMs: number;
+  resultCount?: number;
+  chunkCount?: number;
+  matchedDocs?: { title: string; path: string; score: number }[];
+  documentPath?: string;
+  documentTitle?: string;
+  contentLength?: number;
+  webResultCount?: number;
+  webSources?: { title: string; url: string }[];
+};
+
 export type StreamEvent = {
   type:
     | "token"
@@ -15,6 +27,7 @@ export type StreamEvent = {
     | "conversation_id";
   content: string;
   tool?: string;
+  meta?: ToolResultMeta;
 };
 
 export type ChatMessage = {
@@ -24,6 +37,7 @@ export type ChatMessage = {
   docRefs: string[];
   toolName?: string;
   toolInput?: string;
+  toolMeta?: ToolResultMeta;
   createdAt: string;
 };
 
@@ -36,10 +50,10 @@ export type Conversation = {
   messages: ChatMessage[];
 };
 
-type ToolEvent = {
+export type ToolExecution = {
   tool: string;
-  type: "call" | "result";
-  content: string;
+  callContent: string;
+  result?: { content: string; meta?: ToolResultMeta };
 };
 
 type State = {
@@ -47,7 +61,7 @@ type State = {
   activeConversationId: string | null;
   isStreaming: boolean;
   streamingContent: string;
-  toolEvents: ToolEvent[];
+  toolExecutions: ToolExecution[];
   error: string | null;
 };
 
@@ -61,7 +75,13 @@ type Action =
   | { type: "ADD_MESSAGE"; id: string; message: ChatMessage }
   | { type: "STREAM_START" }
   | { type: "STREAM_TOKEN"; content: string }
-  | { type: "STREAM_TOOL"; event: ToolEvent }
+  | { type: "STREAM_TOOL_CALL"; tool: string; content: string }
+  | {
+      type: "STREAM_TOOL_RESULT";
+      tool: string;
+      content: string;
+      meta?: ToolResultMeta;
+    }
   | { type: "STREAM_END" }
   | { type: "SET_ERROR"; error: string | null };
 
@@ -74,7 +94,7 @@ function reducer(state: State, action: Action): State {
         ...state,
         activeConversationId: action.id,
         streamingContent: "",
-        toolEvents: [],
+        toolExecutions: [],
         error: null,
       };
     case "ADD_CONVERSATION":
@@ -124,7 +144,7 @@ function reducer(state: State, action: Action): State {
         ...state,
         isStreaming: true,
         streamingContent: "",
-        toolEvents: [],
+        toolExecutions: [],
         error: null,
       };
     case "STREAM_TOKEN":
@@ -132,11 +152,34 @@ function reducer(state: State, action: Action): State {
         ...state,
         streamingContent: state.streamingContent + action.content,
       };
-    case "STREAM_TOOL":
+    case "STREAM_TOOL_CALL":
       return {
         ...state,
-        toolEvents: [...state.toolEvents, action.event],
+        toolExecutions: [
+          ...state.toolExecutions,
+          { tool: action.tool, callContent: action.content },
+        ],
       };
+    case "STREAM_TOOL_RESULT": {
+      // Find the last execution with matching tool that has no result yet
+      const execs = [...state.toolExecutions];
+      let matched = false;
+      for (let i = execs.length - 1; i >= 0; i--) {
+        const exec = execs[i];
+        if (exec && exec.tool === action.tool && !exec.result) {
+          execs[i] = {
+            ...exec,
+            result: { content: action.content, meta: action.meta },
+          };
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        console.warn("STREAM_TOOL_RESULT: no matching unresolved tool execution", action.tool);
+      }
+      return { ...state, toolExecutions: execs };
+    }
     case "STREAM_END":
       return { ...state, isStreaming: false };
     case "SET_ERROR":
@@ -145,6 +188,17 @@ function reducer(state: State, action: Action): State {
 }
 
 // --- GraphQL helpers ---
+
+const TOOL_META_FIELDS = `toolMeta {
+  durationMs resultCount chunkCount
+  matchedDocs { title path score }
+  documentPath documentTitle contentLength
+  webResultCount
+  webSources { title url }
+}`;
+
+const MESSAGE_FIELDS = `id role content docRefs toolName toolInput ${TOOL_META_FIELDS} createdAt`;
+const CONVERSATION_FIELDS = `id vaultId title createdAt updatedAt messages { ${MESSAGE_FIELDS} }`;
 
 async function graphqlQuery<T>(
   query: string,
@@ -164,7 +218,9 @@ async function graphqlQuery<T>(
   }
   if (json.errors?.length)
     throw new Error(json.errors[0]?.message ?? "Unknown GraphQL error");
-  return json.data as T;
+  if (!json.data)
+    throw new Error("GraphQL response missing 'data' field");
+  return json.data;
 }
 
 async function graphqlMutate<T>(
@@ -191,7 +247,7 @@ const initialState: State = {
   activeConversationId: null,
   isStreaming: false,
   streamingContent: "",
-  toolEvents: [],
+  toolExecutions: [],
   error: null,
 };
 
@@ -220,10 +276,7 @@ export function AgentChatProvider({
         conversations: Conversation[];
       }>(
         `query ($vaultId: ID!) {
-          conversations(vaultId: $vaultId) {
-            id vaultId title createdAt updatedAt
-            messages { id role content docRefs toolName toolInput createdAt }
-          }
+          conversations(vaultId: $vaultId) { ${CONVERSATION_FIELDS} }
         }`,
         { vaultId: vid },
       );
@@ -237,10 +290,7 @@ export function AgentChatProvider({
             conversation: Conversation | null;
           }>(
             `query ($id: ID!) {
-              conversation(id: $id) {
-                id vaultId title createdAt updatedAt
-                messages { id role content docRefs toolName toolInput createdAt }
-              }
+              conversation(id: $id) { ${CONVERSATION_FIELDS} }
             }`,
             { id: first.id },
           );
@@ -274,10 +324,7 @@ export function AgentChatProvider({
         createConversation: Conversation;
       }>(
         `mutation ($vaultId: ID!) {
-          createConversation(vaultId: $vaultId) {
-            id vaultId title createdAt updatedAt
-            messages { id role content docRefs toolName toolInput createdAt }
-          }
+          createConversation(vaultId: $vaultId) { ${CONVERSATION_FIELDS} }
         }`,
         { vaultId: vid },
       );
@@ -301,10 +348,7 @@ export function AgentChatProvider({
           conversation: Conversation | null;
         }>(
           `query ($id: ID!) {
-            conversation(id: $id) {
-              id vaultId title createdAt updatedAt
-              messages { id role content docRefs toolName toolInput createdAt }
-            }
+            conversation(id: $id) { ${CONVERSATION_FIELDS} }
           }`,
           { id },
         );
@@ -413,8 +457,8 @@ export function AgentChatProvider({
             let event: StreamEvent;
             try {
               event = JSON.parse(jsonStr);
-            } catch {
-              // Skip malformed SSE lines
+            } catch (parseErr) {
+              console.warn("Skipping malformed SSE event", jsonStr, parseErr);
               continue;
             }
 
@@ -424,22 +468,17 @@ export function AgentChatProvider({
                 break;
               case "tool_call":
                 dispatch({
-                  type: "STREAM_TOOL",
-                  event: {
-                    tool: event.tool ?? "",
-                    type: "call",
-                    content: event.content,
-                  },
+                  type: "STREAM_TOOL_CALL",
+                  tool: event.tool ?? "",
+                  content: event.content,
                 });
                 break;
               case "tool_result":
                 dispatch({
-                  type: "STREAM_TOOL",
-                  event: {
-                    tool: event.tool ?? "",
-                    type: "result",
-                    content: event.content,
-                  },
+                  type: "STREAM_TOOL_RESULT",
+                  tool: event.tool ?? "",
+                  content: event.content,
+                  meta: event.meta,
                 });
                 break;
               case "conversation_id":
@@ -462,10 +501,7 @@ export function AgentChatProvider({
                       conversation: Conversation | null;
                     }>(
                       `query ($id: ID!) {
-                        conversation(id: $id) {
-                          id vaultId title createdAt updatedAt
-                          messages { id role content docRefs toolName toolInput createdAt }
-                        }
+                        conversation(id: $id) { ${CONVERSATION_FIELDS} }
                       }`,
                       { id: newConvId },
                     );

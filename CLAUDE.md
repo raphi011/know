@@ -2,6 +2,10 @@
 
 An MCP (Model Context Protocol) server in Go that provides a persistent knowledge layer for AI agents, backed by SurrealDB. Includes a Next.js web frontend for browsing and editing documents.
 
+## Project Status
+
+This project is in active development with no production users. **Don't worry about backwards compatibility** — breaking changes to APIs, DB schema, SSE events, etc. are fine. Prefer clean designs over compatibility shims.
+
 ## Tech Stack
 
 - **Backend**: Go, GraphQL (gqlgen), SurrealDB

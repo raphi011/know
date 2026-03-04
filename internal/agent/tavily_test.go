@@ -52,7 +52,7 @@ func TestTavilySearch_Success(t *testing.T) {
 	// Override the URL by using a custom transport
 	client.httpClient.Transport = rewriteURLTransport{url: srv.URL, base: srv.Client().Transport}
 
-	result, err := client.Search(context.Background(), "what is Go")
+	result, results, err := client.Search(context.Background(), "what is Go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,6 +66,9 @@ func TestTavilySearch_Success(t *testing.T) {
 	if !strings.Contains(result, "### [Go Wiki](https://en.wikipedia.org/wiki/Go)") {
 		t.Errorf("expected Go Wiki result, got: %s", result)
 	}
+	if len(results) != 2 {
+		t.Errorf("expected 2 structured results, got %d", len(results))
+	}
 }
 
 func TestTavilySearch_AnswerOnly(t *testing.T) {
@@ -76,12 +79,15 @@ func TestTavilySearch_AnswerOnly(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("key", srv)
-	result, err := client.Search(context.Background(), "test")
+	result, results, err := client.Search(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result != "**Summary:** Just an answer.\n\n" {
 		t.Errorf("unexpected result: %q", result)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 structured results, got %d", len(results))
 	}
 }
 
@@ -93,12 +99,15 @@ func TestTavilySearch_NoResults(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("key", srv)
-	result, err := client.Search(context.Background(), "obscure query")
+	result, results, err := client.Search(context.Background(), "obscure query")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result != "No web results found." {
 		t.Errorf("expected fallback message, got: %q", result)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 structured results, got %d", len(results))
 	}
 }
 
@@ -110,7 +119,7 @@ func TestTavilySearch_APIError(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("bad-key", srv)
-	_, err := client.Search(context.Background(), "test")
+	_, _, err := client.Search(context.Background(), "test")
 	if err == nil {
 		t.Fatal("expected error for 401 response")
 	}
@@ -133,7 +142,7 @@ func TestTavilySearch_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	_, err := client.Search(ctx, "test")
+	_, _, err := client.Search(ctx, "test")
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -146,7 +155,7 @@ func TestTavilySearch_InvalidJSON(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("key", srv)
-	_, err := client.Search(context.Background(), "test")
+	_, _, err := client.Search(context.Background(), "test")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -162,7 +171,7 @@ func TestTavilySearch_Integration(t *testing.T) {
 	}
 
 	client := newTavilyClient(apiKey)
-	result, err := client.Search(context.Background(), "what is the Go programming language")
+	result, _, err := client.Search(context.Background(), "what is the Go programming language")
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}

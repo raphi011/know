@@ -43,8 +43,8 @@ type tavilyResult struct {
 	Content string `json:"content"`
 }
 
-// Search performs a web search via Tavily and returns formatted markdown results.
-func (c *tavilyClient) Search(ctx context.Context, query string) (string, error) {
+// Search performs a web search via Tavily and returns formatted markdown results alongside the parsed result entries.
+func (c *tavilyClient) Search(ctx context.Context, query string) (string, []tavilyResult, error) {
 	reqBody := tavilyRequest{
 		APIKey:        c.apiKey,
 		Query:         query,
@@ -55,32 +55,32 @@ func (c *tavilyClient) Search(ctx context.Context, query string) (string, error)
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return "", nil, fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.tavily.com/search", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return "", nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("execute request: %w", err)
+		return "", nil, fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if readErr != nil {
-			return "", fmt.Errorf("tavily API returned %d (failed to read body: %w)", resp.StatusCode, readErr)
+			return "", nil, fmt.Errorf("tavily API returned %d (failed to read body: %w)", resp.StatusCode, readErr)
 		}
-		return "", fmt.Errorf("tavily API returned %d: %s", resp.StatusCode, string(respBody))
+		return "", nil, fmt.Errorf("tavily API returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var tavilyResp tavilyResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&tavilyResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return "", nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	var sb strings.Builder
@@ -93,7 +93,7 @@ func (c *tavilyClient) Search(ctx context.Context, query string) (string, error)
 
 	result := sb.String()
 	if result == "" {
-		return "No web results found.", nil
+		return "No web results found.", tavilyResp.Results, nil
 	}
-	return result, nil
+	return result, tavilyResp.Results, nil
 }

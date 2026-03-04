@@ -80,7 +80,7 @@ func (c *Client) DeleteConversation(ctx context.Context, id string) error {
 	return nil
 }
 
-func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput *string) (*models.Message, error) {
+func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput, toolMeta *string) (*models.Message, error) {
 	if docRefs == nil {
 		docRefs = []string{}
 	}
@@ -91,7 +91,8 @@ func (c *Client) CreateMessage(ctx context.Context, conversationID string, role 
 			content = $content,
 			doc_refs = $doc_refs,
 			tool_name = $tool_name,
-			tool_input = $tool_input
+			tool_input = $tool_input,
+			tool_meta = $tool_meta
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Message](ctx, c.DB(), sql, map[string]any{
@@ -101,6 +102,7 @@ func (c *Client) CreateMessage(ctx context.Context, conversationID string, role 
 		"doc_refs":        docRefs,
 		"tool_name":       optionalString(toolName),
 		"tool_input":      optionalString(toolInput),
+		"tool_meta":       optionalString(toolMeta),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create message: %w", err)

@@ -44,7 +44,7 @@ type StreamEvent struct {
     Type    string          `json:"type"`
     Content string          `json:"content"`
     Tool    string          `json:"tool,omitempty"`
-    Meta    json.RawMessage `json:"meta,omitempty"` // NEW: structured metadata for tool_result
+    Meta    *ToolResultMeta `json:"meta,omitempty"` // NEW: structured metadata for tool_result
 }
 ```
 
@@ -127,7 +127,7 @@ Run `just generate`. Add model mappings to `gqlgen.yml` if needed.
 
 ### 3c. Helper — `internal/graph/helpers.go`
 
-Add `toolResultMetaFromJSON(s string) *ToolResultMeta` that unmarshals the JSON string. Call from `messageToGraphQL` when `m.ToolMeta != nil`.
+Add `toolResultMetaFromJSON(s *string) *ToolResultMeta` that unmarshals the JSON string. Call from `messageToGraphQL`; the helper handles nil internally.
 
 ---
 
