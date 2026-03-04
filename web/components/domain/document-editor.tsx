@@ -6,8 +6,10 @@ import { PencilSquareIcon, EyeIcon } from "@heroicons/react/20/solid";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownEditor } from "@/components/domain/markdown-editor";
 import { MarkdownRenderer } from "@/components/domain/markdown-renderer";
+import { DocumentPanel } from "@/components/domain/document-panel";
 import { useShowToolbarTitle } from "@/hooks/use-h1-visibility";
 import { saveDocument } from "@/app/lib/knowhow/mutations";
+import { extractHeadings } from "@/app/lib/extract-headings";
 import type { Document } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
 
@@ -27,12 +29,21 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("preview");
   const [previewContent, setPreviewContent] = useState(document.content);
+  const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(
+    null,
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = useRef(document.content);
   const previewRef = useRef<HTMLDivElement>(null);
   const t = useTranslations("docs");
 
+  const previewCallbackRef = (node: HTMLDivElement | null) => {
+    previewRef.current = node;
+    setPreviewElement(node);
+  };
+
   const showToolbarTitle = useShowToolbarTitle(previewRef, mode === "preview");
+  const headings = extractHeadings(previewContent);
 
   useEffect(() => {
     return () => {
@@ -103,10 +114,21 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
         <MarkdownEditor content={document.content} onChange={handleChange} />
       </div>
 
-      {/* Preview */}
+      {/* Preview + Panel */}
       {mode === "preview" && (
-        <div ref={previewRef} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto">
-          <MarkdownRenderer content={previewContent} />
+        <div className="flex min-h-0 flex-1">
+          <div
+            ref={previewCallbackRef}
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
+            <MarkdownRenderer content={previewContent} />
+          </div>
+          <DocumentPanel
+            headings={headings}
+            document={document}
+            scrollContainer={previewElement}
+          />
         </div>
       )}
     </div>

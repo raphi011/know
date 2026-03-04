@@ -61,6 +61,20 @@ export async function getDocument(
         docType
         createdAt
         updatedAt
+        wikiLinks {
+          id
+          fromDocId
+          toDocId
+          rawTarget
+          resolved
+        }
+        backlinks {
+          id
+          fromDocId
+          toDocId
+          rawTarget
+          resolved
+        }
       }
     }
   `,
