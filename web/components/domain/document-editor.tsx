@@ -6,6 +6,7 @@ import { PencilSquareIcon, EyeIcon } from "@heroicons/react/20/solid";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownEditor } from "@/components/domain/markdown-editor";
 import { MarkdownRenderer } from "@/components/domain/markdown-renderer";
+import { useShowToolbarTitle } from "@/hooks/use-h1-visibility";
 import { saveDocument } from "@/app/lib/knowhow/mutations";
 import type { Document } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,10 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
   const [previewContent, setPreviewContent] = useState(document.content);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = useRef(document.content);
+  const previewRef = useRef<HTMLDivElement>(null);
   const t = useTranslations("docs");
+
+  const showToolbarTitle = useShowToolbarTitle(previewRef, mode === "preview");
 
   useEffect(() => {
     return () => {
@@ -74,7 +78,13 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
     <div className="flex h-[calc(100vh-5rem)] flex-col gap-3 lg:h-[calc(100vh-3rem)]">
       {/* Toolbar */}
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
+        <h1
+          className={cn(
+            "text-lg font-semibold text-slate-900 transition-opacity duration-200 dark:text-white",
+            showToolbarTitle ? "opacity-100" : "opacity-0",
+          )}
+          aria-hidden={!showToolbarTitle}
+        >
           {document.title}
         </h1>
         {document.labels.map((label) => (
@@ -95,7 +105,7 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
 
       {/* Preview */}
       {mode === "preview" && (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={previewRef} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto">
           <MarkdownRenderer content={previewContent} />
         </div>
       )}
