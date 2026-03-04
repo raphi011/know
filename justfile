@@ -169,5 +169,20 @@ dev-all: db-up
     cd web && bun run dev &
     wait
 
+# --- Local no-auth Docker stack ---
+
+# Start local no-auth stack (SurrealDB + bootstrap + server + web)
+local-up:
+    docker compose -f docker-compose.local.yml up --build
+
+# Stop and remove local no-auth stack
+local-down:
+    docker compose -f docker-compose.local.yml down
+
+# Reset local data (removes persisted SurrealDB data)
+local-reset:
+    docker compose -f docker-compose.local.yml down -v
+    rm -rf data/surreal
+
 # Run all tests (Go + Web)
 test-all: test web-test

@@ -31,6 +31,9 @@ export const env = {
   get BACKEND_URL() {
     return process.env.BACKEND_URL || "http://localhost:8484";
   },
+  get AUTH_DISABLED() {
+    return process.env.AUTH_DISABLED === "true";
+  },
   get NODE_ENV() {
     return process.env.NODE_ENV ?? "development";
   },

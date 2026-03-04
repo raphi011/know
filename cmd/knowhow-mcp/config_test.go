@@ -100,16 +100,19 @@ token = "kh_test"
 		}
 	})
 
-	t.Run("missing token", func(t *testing.T) {
+	t.Run("missing token is allowed (no-auth mode)", func(t *testing.T) {
 		path := writeTestConfig(t, dir, "no_token.toml", `
 [[instance]]
 name = "test"
 url = "http://localhost:8484"
 `)
 
-		_, err := loadConfig(path)
-		if err == nil {
-			t.Fatal("expected error for missing token")
+		cfg, err := loadConfig(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Instances[0].Token != "" {
+			t.Fatalf("expected empty token, got %q", cfg.Instances[0].Token)
 		}
 	})
 
