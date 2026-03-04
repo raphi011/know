@@ -35,5 +35,6 @@ type Message struct {
 	DocRefs      []string               `json:"doc_refs"`
 	ToolName     *string                `json:"tool_name,omitempty"`
 	ToolInput    *string                `json:"tool_input,omitempty"`
+	ToolMeta     *string                `json:"tool_meta,omitempty"`
 	CreatedAt    time.Time              `json:"created_at"`
 }

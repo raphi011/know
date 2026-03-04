@@ -105,7 +105,16 @@
     "agentToolFound": "Found {count}",
     "agentToolRead": "Read: {path}",
     "agentToolWebSearching": "Searching web: {query}",
-    "agentToolWebSearched": "Web search complete"
+    "agentToolWebSearched": "Web search complete",
+    "agentToolKbSearch": "Knowledge Search",
+    "agentToolReadDoc": "Document Read",
+    "agentToolWebSearch": "Web Search",
+    "agentToolDocs": "{count} {count, plural, one {doc} other {docs}}",
+    "agentToolChunks": "{count} {count, plural, one {chunk} other {chunks}}",
+    "agentToolDuration": "{ms}ms",
+    "agentToolSize": "{size}KB",
+    "agentToolWebResults": "{count} {count, plural, one {result} other {results}}",
+    "agentToolNotFound": "Not found"
   },
   "dnd": {
     "dropFilesHere": "Drop .md files here",

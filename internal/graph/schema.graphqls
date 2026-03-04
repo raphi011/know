@@ -154,7 +154,31 @@ type ChatMessage {
   docRefs: [String!]!
   toolName: String
   toolInput: String
+  toolMeta: ToolResultMeta
   createdAt: DateTime!
+}
+
+type ToolResultMeta {
+  durationMs: Int!
+  resultCount: Int
+  chunkCount: Int
+  matchedDocs: [ToolDocRef!]
+  documentPath: String
+  documentTitle: String
+  contentLength: Int
+  webResultCount: Int
+  webSources: [ToolWebRef!]
+}
+
+type ToolDocRef {
+  title: String!
+  path: String!
+  score: Float!
+}
+
+type ToolWebRef {
+  title: String!
+  url: String!
 }
 
 # =============================================================================

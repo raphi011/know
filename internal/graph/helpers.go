@@ -2,10 +2,12 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/raphi011/knowhow/internal/agent"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
@@ -496,8 +498,43 @@ func messageToGraphQL(m *models.Message) *ChatMessage {
 		DocRefs:   docRefs,
 		ToolName:  m.ToolName,
 		ToolInput: m.ToolInput,
+		ToolMeta:  toolResultMetaFromJSON(m.ToolMeta),
 		CreatedAt: m.CreatedAt,
 	}
+}
+
+func toolResultMetaFromJSON(s *string) *ToolResultMeta {
+	if s == nil || *s == "" {
+		return nil
+	}
+	var src agent.ToolResultMeta
+	if err := json.Unmarshal([]byte(*s), &src); err != nil {
+		slog.Warn("failed to unmarshal tool_meta JSON", "error", err, "raw", *s)
+		return nil
+	}
+	meta := &ToolResultMeta{
+		DurationMs:     int(src.DurationMs),
+		ResultCount:    src.ResultCount,
+		ChunkCount:     src.ChunkCount,
+		DocumentPath:   src.DocumentPath,
+		DocumentTitle:  src.DocumentTitle,
+		ContentLength:  src.ContentLength,
+		WebResultCount: src.WebResultCount,
+	}
+	for _, d := range src.MatchedDocs {
+		meta.MatchedDocs = append(meta.MatchedDocs, &ToolDocRef{
+			Title: d.Title,
+			Path:  d.Path,
+			Score: d.Score,
+		})
+	}
+	for _, w := range src.WebSources {
+		meta.WebSources = append(meta.WebSources, &ToolWebRef{
+			Title: w.Title,
+			URL:   w.URL,
+		})
+	}
+	return meta
 }
 
 func searchResultToGraphQL(r search.SearchResult) SearchResult {

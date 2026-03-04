@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/llm"
@@ -17,9 +18,36 @@ const maxToolIterations = 5
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type    string `json:"type"`           // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id" | "conversation_id"
-	Content string `json:"content"`        // token text, tool result, error message, or message ID
-	Tool    string `json:"tool,omitempty"` // tool name for tool_call/tool_result events
+	Type    string          `json:"type"`           // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id" | "conversation_id"
+	Content string          `json:"content"`        // token text, tool result, error message, or message ID
+	Tool    string          `json:"tool,omitempty"` // tool name for tool_call/tool_result events
+	Meta    *ToolResultMeta `json:"meta,omitempty"` // structured metadata for tool_result events
+}
+
+// ToolResultMeta contains structured metadata about a tool execution result.
+type ToolResultMeta struct {
+	DurationMs     int64        `json:"durationMs"`
+	ResultCount    *int         `json:"resultCount,omitempty"`
+	ChunkCount     *int         `json:"chunkCount,omitempty"`
+	MatchedDocs    []ToolDocRef `json:"matchedDocs,omitempty"`
+	DocumentPath   *string      `json:"documentPath,omitempty"`
+	DocumentTitle  *string      `json:"documentTitle,omitempty"`
+	ContentLength  *int         `json:"contentLength,omitempty"`
+	WebResultCount *int         `json:"webResultCount,omitempty"`
+	WebSources     []ToolWebRef `json:"webSources,omitempty"`
+}
+
+// ToolDocRef references a matched KB document.
+type ToolDocRef struct {
+	Title string  `json:"title"`
+	Path  string  `json:"path"`
+	Score float64 `json:"score"`
+}
+
+// ToolWebRef references a web search result.
+type ToolWebRef struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }
 
 // Service orchestrates the agent loop: intent detection → tool execution → streaming answer.
@@ -183,7 +211,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	// Store user message
-	userMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil)
+	userMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil)
 	if err != nil {
 		return fmt.Errorf("create user message: %w", err)
 	}
@@ -250,7 +278,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		}
 
 		if decision.Action == "tool" {
-			result, toolSources, err := s.executeTool(ctx, req.VaultID, decision, emit)
+			result, toolSources, meta, err := s.executeTool(ctx, req.VaultID, decision, emit)
 			if err != nil {
 				slog.Warn("tool execution failed", "tool", decision.Tool, "error", err)
 				emit(StreamEvent{Type: "error", Content: fmt.Sprintf("tool %s failed: %v", decision.Tool, err)})
@@ -268,13 +296,26 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			toolInput, err := json.Marshal(decision.Input)
 			if err != nil {
 				slog.Error("failed to marshal tool input", "tool", decision.Tool, "error", err)
+				toolInput = []byte(decision.Input) // fallback: use raw bytes to avoid storing empty string
 			}
 			toolInputStr := string(toolInput)
-			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolCall, "", nil, &decision.Tool, &toolInputStr)
+			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolCall, "", nil, &decision.Tool, &toolInputStr, nil)
 			if err != nil {
 				slog.Error("failed to store tool call message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
 			}
-			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, result, nil, &decision.Tool, nil)
+
+			// Marshal meta to JSON for storage
+			var toolMetaStr *string
+			if meta != nil {
+				metaJSON, metaErr := json.Marshal(meta)
+				if metaErr != nil {
+					slog.Error("failed to marshal tool meta", "tool", decision.Tool, "error", metaErr)
+				} else {
+					s := string(metaJSON)
+					toolMetaStr = &s
+				}
+			}
+			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, result, nil, &decision.Tool, nil, toolMetaStr)
 			if err != nil {
 				slog.Error("failed to store tool result message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
 			}
@@ -314,7 +355,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	// Store assistant message
-	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil)
+	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil, nil)
 	if err != nil {
 		slog.Error("failed to store assistant message", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: "Warning: response may not be saved to conversation history"})
@@ -410,29 +451,37 @@ func buildHistoryText(history []llm.ChatMessage, currentQuery string) string {
 	return sb.String()
 }
 
-func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, []docSource, error) {
+func intPtr(v int) *int { return &v }
+
+func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, []docSource, *ToolResultMeta, error) {
 	switch action.Tool {
 	case "kb_search":
 		var input searchInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, fmt.Errorf("parse search input: %w", err)
+			return "", nil, nil, fmt.Errorf("parse search input: %w", err)
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "kb_search"})
 
+		start := time.Now()
 		results, err := s.search.Search(ctx, search.SearchInput{
 			VaultID: vaultID,
 			Query:   input.Query,
 			Limit:   5,
 		})
+		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
-			return "", nil, fmt.Errorf("search: %w", err)
+			return "", nil, nil, fmt.Errorf("search: %w", err)
 		}
 
 		var sb strings.Builder
 		var sources []docSource
+		var matchedDocs []ToolDocRef
+		totalChunks := 0
 		for _, r := range results {
 			fmt.Fprintf(&sb, "## %s (%s)\n", r.Title, r.Path)
 			sources = append(sources, docSource{Title: r.Title, Path: r.Path})
+			matchedDocs = append(matchedDocs, ToolDocRef{Title: r.Title, Path: r.Path, Score: r.Score})
+			totalChunks += len(r.MatchedChunks)
 			for _, ch := range r.MatchedChunks {
 				sb.WriteString(ch.Snippet)
 				sb.WriteString("\n\n")
@@ -443,49 +492,77 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 		if result == "" {
 			result = "No results found."
 		}
-		emit(StreamEvent{Type: "tool_result", Content: fmt.Sprintf("%d results", len(results)), Tool: "kb_search"})
-		return result, sources, nil
+
+		meta := &ToolResultMeta{
+			DurationMs:  durationMs,
+			ResultCount: intPtr(len(results)),
+			ChunkCount:  intPtr(totalChunks),
+			MatchedDocs: matchedDocs,
+		}
+		emit(StreamEvent{Type: "tool_result", Content: fmt.Sprintf("%d results", len(results)), Tool: "kb_search", Meta: meta})
+		return result, sources, meta, nil
 
 	case "read_document":
 		var input readDocInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, fmt.Errorf("parse read_document input: %w", err)
+			return "", nil, nil, fmt.Errorf("parse read_document input: %w", err)
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Path, Tool: "read_document"})
 
+		start := time.Now()
 		doc, err := s.db.GetDocumentByPath(ctx, vaultID, input.Path)
+		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
-			return "", nil, fmt.Errorf("read document: %w", err)
+			return "", nil, nil, fmt.Errorf("read document: %w", err)
 		}
 		if doc == nil {
-			emit(StreamEvent{Type: "tool_result", Content: "not found", Tool: "read_document"})
-			return fmt.Sprintf("Document not found: %s", input.Path), nil, nil
+			meta := &ToolResultMeta{DurationMs: durationMs}
+			emit(StreamEvent{Type: "tool_result", Content: "not found", Tool: "read_document", Meta: meta})
+			return fmt.Sprintf("Document not found: %s", input.Path), nil, meta, nil
 		}
 
-		emit(StreamEvent{Type: "tool_result", Content: doc.Path, Tool: "read_document"})
-		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), []docSource{{Title: doc.Title, Path: doc.Path}}, nil
+		contentLen := len(doc.ContentBody)
+		meta := &ToolResultMeta{
+			DurationMs:    durationMs,
+			DocumentPath:  &doc.Path,
+			DocumentTitle: &doc.Title,
+			ContentLength: &contentLen,
+		}
+		emit(StreamEvent{Type: "tool_result", Content: doc.Path, Tool: "read_document", Meta: meta})
+		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), []docSource{{Title: doc.Title, Path: doc.Path}}, meta, nil
 
 	case "web_search":
 		var input webSearchInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, fmt.Errorf("parse web_search input: %w", err)
+			return "", nil, nil, fmt.Errorf("parse web_search input: %w", err)
 		}
 		if s.tavily == nil {
-			return "", nil, fmt.Errorf("web search not configured")
+			return "", nil, nil, fmt.Errorf("web search not configured")
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "web_search"})
 
-		result, err := s.tavily.Search(ctx, input.Query)
+		start := time.Now()
+		result, webResults, err := s.tavily.Search(ctx, input.Query)
+		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
-			return "", nil, fmt.Errorf("web search: %w", err)
+			return "", nil, nil, fmt.Errorf("web search: %w", err)
 		}
 
-		emit(StreamEvent{Type: "tool_result", Content: "Web search complete", Tool: "web_search"})
-		// web_search returns no docSources since results are external, not KB documents
-		return result, nil, nil
+		var webSources []ToolWebRef
+		for _, r := range webResults {
+			webSources = append(webSources, ToolWebRef{Title: r.Title, URL: r.URL})
+		}
+
+		meta := &ToolResultMeta{
+			DurationMs:     durationMs,
+			WebResultCount: intPtr(len(webResults)),
+			WebSources:     webSources,
+		}
+		emit(StreamEvent{Type: "tool_result", Content: "Web search complete", Tool: "web_search", Meta: meta})
+		return result, nil, meta, nil
 
 	default:
-		return "", nil, fmt.Errorf("unknown tool: %s", action.Tool)
+		return "", nil, nil, fmt.Errorf("unknown tool: %s", action.Tool)
 	}
 }
 

@@ -105,7 +105,16 @@
     "agentToolFound": "{count} gefunden",
     "agentToolRead": "Gelesen: {path}",
     "agentToolWebSearching": "Websuche: {query}",
-    "agentToolWebSearched": "Websuche abgeschlossen"
+    "agentToolWebSearched": "Websuche abgeschlossen",
+    "agentToolKbSearch": "Wissenssuche",
+    "agentToolReadDoc": "Dokument gelesen",
+    "agentToolWebSearch": "Websuche",
+    "agentToolDocs": "{count} {count, plural, one {Dokument} other {Dokumente}}",
+    "agentToolChunks": "{count} {count, plural, one {Abschnitt} other {Abschnitte}}",
+    "agentToolDuration": "{ms}ms",
+    "agentToolSize": "{size}KB",
+    "agentToolWebResults": "{count} {count, plural, one {Ergebnis} other {Ergebnisse}}",
+    "agentToolNotFound": "Nicht gefunden"
   },
   "dnd": {
     "dropFilesHere": ".md-Dateien hier ablegen",

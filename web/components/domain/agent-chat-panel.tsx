@@ -6,18 +6,86 @@ import {
   PlusIcon,
   PaperAirplaneIcon,
   TrashIcon,
-  MagnifyingGlassIcon,
   DocumentTextIcon,
-  GlobeAltIcon,
 } from "@heroicons/react/20/solid";
 import { cn } from "@/lib/utils";
-import { useAgentChat } from "@/components/domain/agent-chat-context";
+import {
+  useAgentChat,
+  type ChatMessage,
+} from "@/components/domain/agent-chat-context";
 import { MarkdownRenderer } from "@/components/domain/markdown-renderer";
 import { DocRefAutocomplete } from "@/components/domain/doc-ref-autocomplete";
+import { ToolCard } from "@/components/domain/tool-card";
 
 type AgentChatPanelProps = {
   vaultId: string | null;
 };
+
+// Pair adjacent tool_call + tool_result messages into ToolCard-compatible entries
+type PairedEntry =
+  | { type: "message"; message: ChatMessage }
+  | {
+      type: "tool_card";
+      tool: string;
+      callContent: string;
+      result?: {
+        content: string;
+        meta?: ChatMessage["toolMeta"];
+      };
+    };
+
+/** Extract display-friendly content from the stored JSON tool input. */
+function extractCallContent(toolInput: string | undefined, tool: string): string {
+  if (!toolInput) return "";
+  try {
+    const parsed = JSON.parse(toolInput) as Record<string, unknown>;
+    if (tool === "kb_search" || tool === "web_search") return String(parsed.query ?? toolInput);
+    if (tool === "read_document") return String(parsed.path ?? toolInput);
+  } catch { /* not JSON, use as-is */ }
+  return toolInput;
+}
+
+function pairMessages(messages: ChatMessage[]): PairedEntry[] {
+  const entries: PairedEntry[] = [];
+  let i = 0;
+
+  while (i < messages.length) {
+    const msg = messages[i]!;
+
+    if (msg.role === "tool_call") {
+      const tool = msg.toolName ?? "kb_search";
+      const callContent = extractCallContent(msg.toolInput, tool);
+
+      // Look ahead for a matching tool_result
+      const next = messages[i + 1];
+      if (next?.role === "tool_result" && next.toolName === msg.toolName) {
+        entries.push({
+          type: "tool_card",
+          tool,
+          callContent,
+          result: { content: next.content, meta: next.toolMeta },
+        });
+        i += 2;
+        continue;
+      }
+      // Orphaned tool_call (no matching result)
+      entries.push({ type: "tool_card", tool, callContent });
+      i++;
+      continue;
+    }
+
+    if (msg.role === "tool_result") {
+      // Orphaned tool_result (no preceding call) — skip it
+      i++;
+      continue;
+    }
+
+    entries.push({ type: "message", message: msg });
+    i++;
+  }
+
+  return entries;
+}
 
 function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
   const t = useTranslations("docs");
@@ -31,6 +99,7 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
     (c) => c.id === chat.activeConversationId,
   );
   const activeMessages = activeConv?.messages ?? [];
+  const pairedEntries = pairMessages(activeMessages);
 
   // Load conversations when vault changes
   useEffect(() => {
@@ -43,7 +112,7 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat.streamingContent, activeMessages.length]);
+  }, [chat.streamingContent, activeMessages.length, chat.toolExecutions.length]);
 
   function handleSend() {
     const trimmed = input.trim();
@@ -128,17 +197,29 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
             {t("agentPlaceholder")}
           </div>
         )}
-        {activeMessages.map((msg) =>
-          msg.role === "tool_call" || msg.role === "tool_result" ? (
-            <ToolMessage key={msg.id} message={msg} />
+
+        {/* Persisted messages — paired as ToolCards or ChatBubbles */}
+        {pairedEntries.map((entry, i) =>
+          entry.type === "tool_card" ? (
+            <ToolCard
+              key={`tool-${i}`}
+              tool={entry.tool}
+              callContent={entry.callContent}
+              result={entry.result}
+            />
           ) : (
-            <ChatBubble key={msg.id} message={msg} />
+            <ChatBubble key={entry.message.id} message={entry.message} />
           ),
         )}
 
-        {/* Tool indicators */}
-        {chat.toolEvents.map((event, i) => (
-          <ToolIndicator key={i} event={event} />
+        {/* Streaming tool executions */}
+        {chat.toolExecutions.map((exec, i) => (
+          <ToolCard
+            key={`stream-tool-${i}`}
+            tool={exec.tool}
+            callContent={exec.callContent}
+            result={exec.result}
+          />
         ))}
 
         {/* Streaming content */}
@@ -154,15 +235,17 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
         )}
 
         {/* Typing indicator */}
-        {chat.isStreaming && !chat.streamingContent && chat.toolEvents.length === 0 && (
-          <div className="mb-2">
-            <div className="flex gap-1 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
-              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+        {chat.isStreaming &&
+          !chat.streamingContent &&
+          chat.toolExecutions.length === 0 && (
+            <div className="mb-2">
+              <div className="flex gap-1 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Error */}
         {chat.error && (
@@ -190,7 +273,7 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
                   onClick={() => removeDocRef(ref)}
                   className="ml-0.5 hover:text-red-500"
                 >
-                  ×
+                  x
                 </button>
               </span>
             ))}
@@ -275,67 +358,6 @@ function ChatBubble({
           <MarkdownRenderer content={message.content} className="prose-xs" />
         )}
       </div>
-    </div>
-  );
-}
-
-function toolIcon(tool: string) {
-  if (tool === "kb_search") return <MagnifyingGlassIcon className="size-3" />;
-  if (tool === "web_search") return <GlobeAltIcon className="size-3" />;
-  return <DocumentTextIcon className="size-3" />;
-}
-
-function ToolIndicator({
-  event,
-}: {
-  event: { tool: string; type: string; content: string };
-}) {
-  const t = useTranslations("docs");
-
-  let label: string;
-  if (event.type === "call") {
-    if (event.tool === "kb_search") label = t("agentToolSearching", { query: event.content });
-    else if (event.tool === "web_search") label = t("agentToolWebSearching", { query: event.content });
-    else label = t("agentToolReading", { path: event.content });
-  } else {
-    if (event.tool === "kb_search") label = t("agentToolFound", { count: event.content });
-    else if (event.tool === "web_search") label = t("agentToolWebSearched");
-    else label = t("agentToolRead", { path: event.content });
-  }
-
-  return (
-    <div className="mb-1.5 flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-      {toolIcon(event.tool)}
-      <span className="truncate">{label}</span>
-    </div>
-  );
-}
-
-function ToolMessage({
-  message,
-}: {
-  message: { role: string; content: string; toolName?: string; toolInput?: string };
-}) {
-  const t = useTranslations("docs");
-  const tool = message.toolName ?? "kb_search";
-  const isCall = message.role === "tool_call";
-
-  let label: string;
-  if (isCall) {
-    const input = message.toolInput ?? "";
-    if (tool === "kb_search") label = t("agentToolSearching", { query: input });
-    else if (tool === "web_search") label = t("agentToolWebSearching", { query: input });
-    else label = t("agentToolReading", { path: input });
-  } else {
-    if (tool === "kb_search") label = t("agentToolFound", { count: message.content });
-    else if (tool === "web_search") label = t("agentToolWebSearched");
-    else label = t("agentToolRead", { path: message.content });
-  }
-
-  return (
-    <div className="mb-1.5 flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-      {toolIcon(tool)}
-      <span className="truncate">{label}</span>
     </div>
   );
 }
