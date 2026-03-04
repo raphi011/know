@@ -15,7 +15,13 @@ export async function loginAction(
 ): Promise<{ success: boolean; error?: string }> {
   const url = stripGraphqlPath(serverUrl.trim());
   const token = serverToken.trim();
-  const name = serverName.trim() || new URL(url).hostname;
+
+  let name: string;
+  try {
+    name = serverName.trim() || new URL(url).hostname;
+  } catch {
+    return { success: false, error: "Invalid server URL" };
+  }
 
   if (!url || !token) {
     return { success: false, error: "Server URL and token are required" };

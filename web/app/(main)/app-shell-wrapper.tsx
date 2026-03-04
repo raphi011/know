@@ -8,6 +8,7 @@ import { DocumentsProvider } from "@/components/domain/documents-context";
 import { SearchCommandPalette } from "@/components/domain/search-command-palette";
 import { VaultSwitcher } from "@/components/domain/vault-switcher";
 import { buildTree } from "@/app/lib/knowhow/tree";
+import { ToastProvider } from "@/components/ui/toast-provider";
 import type { Vault, DocumentSummary, ServerConnection } from "@/app/lib/knowhow/types";
 
 export function AppShellWrapper({
@@ -51,34 +52,38 @@ export function AppShellWrapper({
         vaults={vaults}
         activeVaultId={vault?.id ?? null}
       />
-      {vault && <DocSidebar tree={tree} vaultId={vault.id} />}
+      {vault && (
+        <DocSidebar tree={tree} vaultId={vault.id} documents={documents} />
+      )}
     </>
   );
 
   return (
-    <DocumentsProvider documents={documents}>
-      <AppShell
-        appName="Knowhow"
-        navSections={[]}
-        sidebarContent={sidebarContent}
-        profile={{
-          name: connections.find((c) => c.id === activeConnectionId)?.name ?? "Knowhow",
-          href: "/settings",
-        }}
-        activeHref={pathname}
-        onNavigate={(href) => router.push(href)}
-        onSearchClick={vault ? () => setSearchOpen(true) : undefined}
-      >
-        {children}
-      </AppShell>
+    <ToastProvider>
+      <DocumentsProvider documents={documents}>
+        <AppShell
+          appName="Knowhow"
+          navSections={[]}
+          sidebarContent={sidebarContent}
+          profile={{
+            name: connections.find((c) => c.id === activeConnectionId)?.name ?? "Knowhow",
+            href: "/settings",
+          }}
+          activeHref={pathname}
+          onNavigate={(href) => router.push(href)}
+          onSearchClick={vault ? () => setSearchOpen(true) : undefined}
+        >
+          {children}
+        </AppShell>
 
-      {vault && (
-        <SearchCommandPalette
-          vaultId={vault.id}
-          open={searchOpen}
-          onClose={() => setSearchOpen(false)}
-        />
-      )}
-    </DocumentsProvider>
+        {vault && (
+          <SearchCommandPalette
+            vaultId={vault.id}
+            open={searchOpen}
+            onClose={() => setSearchOpen(false)}
+          />
+        )}
+      </DocumentsProvider>
+    </ToastProvider>
   );
 }

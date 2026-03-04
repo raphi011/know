@@ -71,6 +71,24 @@
     "noDocumentsTitle": "No documents",
     "noDocumentsDescription": "This vault has no documents yet."
   },
+  "dnd": {
+    "dropFilesHere": "Drop .md files here",
+    "importing": "Importing…",
+    "skippedNonMarkdown": "Skipped {count} non-markdown {count, plural, one {file} other {files}}",
+    "nameConflict": "\"{name}\" already exists in {folder}",
+    "importFailed": "Failed to import \"{name}\": {error}",
+    "importSuccess": "Imported {count} {count, plural, one {file} other {files}}",
+    "moveFailed": "Failed to move: {error}",
+    "moveFailedUnknown": "Failed to move item: {error}",
+    "itemNotFound": "Item not found — please refresh and try again",
+    "pickedUp": "Picked up {item}",
+    "isOver": "{item} is over {target}",
+    "noLongerOver": "{item} is no longer over a drop target",
+    "droppedOn": "{item} was dropped on {target}",
+    "dropped": "{item} was dropped",
+    "dragCancelled": "Dragging {item} was cancelled",
+    "root": "root"
+  },
   "tree": {
     "newDocument": "New document",
     "newFolder": "New folder",

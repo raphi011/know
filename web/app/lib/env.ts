@@ -27,6 +27,10 @@ export const env = {
   get SESSION_SECRET() {
     return requiredInProduction("SESSION_SECRET");
   },
+  /** Optional default server URL shown on the login page. */
+  get BACKEND_URL() {
+    return process.env.BACKEND_URL || "http://localhost:8484";
+  },
   get NODE_ENV() {
     return process.env.NODE_ENV ?? "development";
   },

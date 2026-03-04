@@ -1,9 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
 import {
   ChevronRightIcon,
   FolderIcon,
@@ -22,8 +36,14 @@ import {
 import type { Position } from "@/components/ui/context-menu";
 import { InlineTreeInput } from "@/components/inline-tree-input";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { FileDropZone } from "@/components/file-drop-zone";
 import { cn } from "@/lib/utils";
-import type { TreeNode } from "@/app/lib/knowhow/types";
+import type { TreeNode, DocumentSummary } from "@/app/lib/knowhow/types";
+import {
+  resolveDropPath,
+  hasNameConflict,
+  validateInternalDrop,
+} from "@/app/lib/knowhow/dnd-utils";
 import {
   createDocument,
   deleteDocument,
@@ -31,6 +51,7 @@ import {
   deleteDocumentsByPrefix,
   moveDocumentsByPrefix,
 } from "@/app/lib/knowhow/mutations";
+import { useToast } from "@/components/ui/toast-provider";
 
 type EditingState =
   | { type: "new-doc"; parentPath: string }
@@ -41,6 +62,7 @@ type DocTreeProps = {
   tree: TreeNode[];
   activePath: string;
   vaultId: string;
+  documents: DocumentSummary[];
 };
 
 function findNode(nodes: TreeNode[], path: string): TreeNode | undefined {
@@ -69,9 +91,38 @@ function getSiblingNames(tree: TreeNode[], path: string): string[] {
   return parent.children.filter((n) => n.path !== path).map((n) => n.name);
 }
 
-function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
+function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
   const router = useRouter();
   const t = useTranslations("tree");
+  const tDnd = useTranslations("dnd");
+  const { toast } = useToast();
+
+  const announcements: Announcements = {
+    onDragStart({ active }) {
+      return tDnd("pickedUp", { item: active.id });
+    },
+    onDragOver({ active, over }) {
+      if (over) {
+        const target = String(over.id).startsWith("drop:")
+          ? over.data.current?.folderPath || tDnd("root")
+          : over.id;
+        return tDnd("isOver", { item: active.id, target });
+      }
+      return tDnd("noLongerOver", { item: active.id });
+    },
+    onDragEnd({ active, over }) {
+      if (over) {
+        const target = String(over.id).startsWith("drop:")
+          ? over.data.current?.folderPath || tDnd("root")
+          : over.id;
+        return tDnd("droppedOn", { item: active.id, target });
+      }
+      return tDnd("dropped", { item: active.id });
+    },
+    onDragCancel({ active }) {
+      return tDnd("dragCancelled", { item: active.id });
+    },
+  };
 
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // Auto-expand folders that contain the active document
@@ -97,6 +148,102 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
 
   // Inline editing error state
   const [editingError, setEditingError] = useState<string | null>(null);
+
+  // Drag-and-drop state
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeNode = activeId ? findNode(tree, activeId) ?? null : null;
+
+  const pointerSensor = useSensor(PointerSensor, {
+    activationConstraint: { distance: 8 },
+  });
+  const keyboardSensor = useSensor(KeyboardSensor);
+  const sensors = useSensors(pointerSensor, keyboardSensor);
+
+  const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id));
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    const overId = event.over?.id;
+
+    // Clear timer if we left the previous folder
+    if (expandTimer.current) {
+      clearTimeout(expandTimer.current);
+      expandTimer.current = null;
+    }
+
+    if (!overId || typeof overId !== "string" || !overId.startsWith("drop:")) return;
+    const folderPath = event.over?.data.current?.folderPath;
+    if (!folderPath) return; // Root zone or missing data, nothing to expand
+
+    // Auto-expand after 500ms of hovering
+    if (!expanded.has(folderPath)) {
+      expandTimer.current = setTimeout(() => {
+        setExpanded((prev) => new Set([...prev, folderPath]));
+      }, 500);
+    }
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    if (expandTimer.current) {
+      clearTimeout(expandTimer.current);
+      expandTimer.current = null;
+    }
+
+    const { active, over } = event;
+    if (!over) return;
+
+    const draggedPath = String(active.id);
+    const overId = String(over.id);
+    if (!overId.startsWith("drop:")) return;
+
+    const targetFolder = over.data.current?.folderPath ?? "";
+
+    const validation = validateInternalDrop(draggedPath, targetFolder);
+    if (!validation.valid) return;
+
+    const newPath = resolveDropPath(draggedPath, targetFolder);
+
+    if (hasNameConflict(documents, newPath)) {
+      toast({
+        variant: "error",
+        title: tDnd("nameConflict", {
+          name: draggedPath.split("/").pop() ?? draggedPath,
+          folder: targetFolder || tDnd("root"),
+        }),
+      });
+      return;
+    }
+
+    const draggedNode = findNode(tree, draggedPath);
+    if (!draggedNode) {
+      toast({ variant: "error", title: tDnd("itemNotFound") });
+      return;
+    }
+
+    try {
+      let result;
+      if (draggedNode.type === "folder") {
+        result = await moveDocumentsByPrefix(vaultId, draggedPath, newPath);
+      } else {
+        result = await moveDocument(vaultId, draggedPath, newPath);
+      }
+
+      if (!result.success) {
+        toast({ variant: "error", title: tDnd("moveFailed", { error: result.error }) });
+        return;
+      }
+
+      router.refresh();
+    } catch (err) {
+      console.error("Drag-and-drop move failed:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ variant: "error", title: tDnd("moveFailedUnknown", { error: message }) });
+    }
+  }
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<TreeNode | null>(null);
@@ -252,48 +399,76 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
 
   return (
     <>
-      <ScrollArea className="h-full">
-        <div
-          className="min-h-full space-y-0.5 py-1"
-          onContextMenu={(e) => handleContextMenu(e, null)}
-        >
-          {tree.map((node) => (
-            <TreeNodeItem
-              key={node.path}
-              node={node}
-              tree={tree}
-              depth={0}
-              activePath={activePath}
-              expanded={expanded}
-              onToggle={toggleFolder}
-              onContextMenu={handleContextMenu}
-              editing={editing}
-              editingError={editingError}
-              onInlineConfirm={handleInlineConfirm}
-              onInlineCancel={() => {
-                setEditing(null);
-                setEditingError(null);
-              }}
-            />
-          ))}
-          {editing && !editing.parentPath && editing.type !== "rename" && (
-            <InlineTreeInput
-              type={editing.type === "new-folder" ? "folder" : "document"}
-              depth={0}
-              siblingNames={tree.map((n) => n.name)}
-              error={editingError}
-              onConfirm={handleInlineConfirm}
-              onCancel={() => {
-                setEditing(null);
-                setEditingError(null);
-              }}
-              placeholder={
-                t(editing.type === "new-folder" ? "newFolder" : "newDocument")
-              }
-            />
-          )}
-        </div>
-      </ScrollArea>
+      <FileDropZone
+        vaultId={vaultId}
+        targetFolderPath=""
+        documents={documents}
+        onImportComplete={() => router.refresh()}
+      >
+        <ScrollArea className="h-full">
+          <DndContext
+            sensors={sensors}
+            accessibility={{ announcements }}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+          >
+            <div
+              className="min-h-full space-y-0.5 py-1"
+              onContextMenu={(e) => handleContextMenu(e, null)}
+            >
+              {tree.map((node) => (
+                <TreeNodeItem
+                  key={node.path}
+                  node={node}
+                  tree={tree}
+                  depth={0}
+                  activePath={activePath}
+                  expanded={expanded}
+                  onToggle={toggleFolder}
+                  onContextMenu={handleContextMenu}
+                  editing={editing}
+                  editingError={editingError}
+                  onInlineConfirm={handleInlineConfirm}
+                  onInlineCancel={() => {
+                    setEditing(null);
+                    setEditingError(null);
+                  }}
+                />
+              ))}
+              {editing && !editing.parentPath && editing.type !== "rename" && (
+                <InlineTreeInput
+                  type={editing.type === "new-folder" ? "folder" : "document"}
+                  depth={0}
+                  siblingNames={tree.map((n) => n.name)}
+                  error={editingError}
+                  onConfirm={handleInlineConfirm}
+                  onCancel={() => {
+                    setEditing(null);
+                    setEditingError(null);
+                  }}
+                  placeholder={
+                    t(editing.type === "new-folder" ? "newFolder" : "newDocument")
+                  }
+                />
+              )}
+            </div>
+            <RootDropZone />
+            <DragOverlay>
+              {activeNode ? (
+                <div className="flex items-center gap-2 rounded bg-white px-3 py-1.5 shadow-lg text-sm dark:bg-zinc-800">
+                  {activeNode.type === "folder" ? (
+                    <FolderIcon className="h-4 w-4 text-zinc-400" />
+                  ) : (
+                    <DocumentTextIcon className="h-4 w-4 text-zinc-400" />
+                  )}
+                  {activeNode.name}
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </ScrollArea>
+      </FileDropZone>
 
       {contextMenu && (
         <ContextMenu
@@ -388,6 +563,23 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   );
 }
 
+function RootDropZone() {
+  const { setNodeRef, isOver } = useDroppable({
+    id: "drop:root",
+    data: { folderPath: "" },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "min-h-8 flex-1",
+        isOver && "bg-blue-50 dark:bg-blue-950",
+      )}
+    />
+  );
+}
+
 function TreeNodeItem({
   node,
   tree,
@@ -413,7 +605,27 @@ function TreeNodeItem({
   onInlineConfirm: (name: string) => void;
   onInlineCancel: () => void;
 }) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: node.path,
+    data: { node },
+  });
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `drop:${node.path}`,
+    data: { folderPath: node.path },
+    disabled: node.type !== "folder",
+  });
+
   const isFolder = node.type === "folder";
+
+  const combinedRef = useCallback(
+    (el: HTMLElement | null) => {
+      setDragRef(el);
+      if (isFolder) setDropRef(el);
+    },
+    [setDragRef, setDropRef, isFolder],
+  );
+
   const isExpanded = expanded.has(node.path);
   const isActive = !isFolder && node.path === activePath;
   const isBeingRenamed =
@@ -439,6 +651,8 @@ function TreeNodeItem({
     isActive
       ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-400"
       : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
+    isDragging && "opacity-50",
+    isOver && isFolder && "bg-blue-50 ring-1 ring-blue-300 dark:bg-blue-950 dark:ring-blue-700",
   );
 
   const itemContent = (
@@ -466,6 +680,9 @@ function TreeNodeItem({
     <>
       {isFolder ? (
         <button
+          ref={combinedRef}
+          {...listeners}
+          {...attributes}
           onClick={() => onToggle(node.path)}
           onContextMenu={(e) => onContextMenu(e, node)}
           className={itemClasses}
@@ -475,6 +692,9 @@ function TreeNodeItem({
         </button>
       ) : (
         <Link
+          ref={combinedRef}
+          {...listeners}
+          {...attributes}
           href={`/docs/${node.path}`}
           onContextMenu={(e) => onContextMenu(e, node)}
           className={itemClasses}
