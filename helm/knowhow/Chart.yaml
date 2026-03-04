@@ -2,8 +2,8 @@ apiVersion: v2
 name: knowhow
 description: Knowhow - Personal Knowledge RAG Database with GraphQL API and Web UI
 type: application
-version: 0.2.1
-appVersion: "0.2.1"
+version: 0.3.0
+appVersion: "0.3.0"
 keywords:
   - knowhow
   - knowledge-graph
