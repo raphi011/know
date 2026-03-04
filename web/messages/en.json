@@ -86,7 +86,17 @@
     "collapsePanel": "Collapse panel",
     "expandPanel": "Expand panel",
     "documentOutline": "Document outline",
-    "panelError": "Panel unavailable"
+    "panelError": "Panel unavailable",
+    "agent": "Agent",
+    "agentPlaceholder": "Ask about your knowledge base…",
+    "agentSend": "Send",
+    "agentNewChat": "New chat",
+    "agentSearching": "Searching…",
+    "agentReading": "Reading…",
+    "agentError": "Agent error",
+    "agentNoModel": "No LLM configured",
+    "agentTyping": "Thinking…",
+    "agentDeleteConversation": "Delete conversation"
   },
   "dnd": {
     "dropFilesHere": "Drop .md files here",

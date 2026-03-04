@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DocSidebar } from "@/components/domain/doc-sidebar";
 import { DocumentsProvider } from "@/components/domain/documents-context";
+import { AgentChatProvider } from "@/components/domain/agent-chat-context";
 import { SearchCommandPalette } from "@/components/domain/search-command-palette";
 import { VaultSwitcher } from "@/components/domain/vault-switcher";
 import { buildTree } from "@/app/lib/knowhow/tree";
@@ -61,6 +62,7 @@ export function AppShellWrapper({
   return (
     <ToastProvider>
       <DocumentsProvider documents={documents}>
+        <AgentChatProvider vaultId={vault?.id ?? null}>
         <AppShell
           appName="Knowhow"
           navSections={[]}
@@ -83,6 +85,7 @@ export function AppShellWrapper({
             onClose={() => setSearchOpen(false)}
           />
         )}
+      </AgentChatProvider>
       </DocumentsProvider>
     </ToastProvider>
   );

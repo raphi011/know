@@ -450,6 +450,74 @@ func (r *mutationResolver) RejectProposal(ctx context.Context, id string, notes 
 	return true, nil
 }
 
+// CreateConversation is the resolver for the createConversation field.
+func (r *mutationResolver) CreateConversation(ctx context.Context, vaultID string) (*Conversation, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	ac, err := auth.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conv, err := r.db.CreateConversation(ctx, vaultID, ac.UserID)
+	if err != nil {
+		return nil, err
+	}
+	result := conversationToGraphQL(conv)
+	result.Messages = []*ChatMessage{}
+	return result, nil
+}
+
+// DeleteConversation is the resolver for the deleteConversation field.
+func (r *mutationResolver) DeleteConversation(ctx context.Context, id string) (bool, error) {
+	conv, err := r.db.GetConversation(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if conv == nil {
+		return false, fmt.Errorf("conversation not found")
+	}
+	vaultID, err := models.RecordIDString(conv.Vault)
+	if err != nil {
+		return false, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return false, err
+	}
+	if err := r.db.DeleteConversation(ctx, id); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RenameConversation is the resolver for the renameConversation field.
+func (r *mutationResolver) RenameConversation(ctx context.Context, id string, title string) (*Conversation, error) {
+	conv, err := r.db.GetConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+	vaultID, err := models.RecordIDString(conv.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	if err := r.db.UpdateConversationTitle(ctx, id, title); err != nil {
+		return nil, err
+	}
+	updated, err := r.db.GetConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	result := conversationToGraphQL(updated)
+	result.Messages = []*ChatMessage{}
+	return result, nil
+}
+
 // Me is the resolver for the me field.
 func (r *queryResolver) Me(ctx context.Context) (*Me, error) {
 	ac, err := auth.FromContext(ctx)
@@ -628,6 +696,55 @@ func (r *queryResolver) Proposals(ctx context.Context, vaultID string, status *P
 	result := make([]*DocumentProposal, len(proposals))
 	for i := range proposals {
 		result[i] = proposalToGraphQL(&proposals[i])
+	}
+	return result, nil
+}
+
+// Conversations is the resolver for the conversations field.
+func (r *queryResolver) Conversations(ctx context.Context, vaultID string) ([]*Conversation, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	ac, err := auth.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	convs, err := r.db.ListConversations(ctx, vaultID, ac.UserID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Conversation, len(convs))
+	for i := range convs {
+		result[i] = conversationToGraphQL(&convs[i])
+		result[i].Messages = []*ChatMessage{}
+	}
+	return result, nil
+}
+
+// Conversation is the resolver for the conversation field.
+func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversation, error) {
+	conv, err := r.db.GetConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, nil
+	}
+	vaultID, err := models.RecordIDString(conv.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	result := conversationToGraphQL(conv)
+	msgs, err := r.db.ListMessages(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	result.Messages = make([]*ChatMessage, len(msgs))
+	for i := range msgs {
+		result.Messages[i] = messageToGraphQL(&msgs[i])
 	}
 	return result, nil
 }

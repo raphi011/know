@@ -86,7 +86,17 @@
     "collapsePanel": "Panel einklappen",
     "expandPanel": "Panel ausklappen",
     "documentOutline": "Dokumentgliederung",
-    "panelError": "Panel nicht verfügbar"
+    "panelError": "Panel nicht verfügbar",
+    "agent": "Agent",
+    "agentPlaceholder": "Frag deine Wissensdatenbank…",
+    "agentSend": "Senden",
+    "agentNewChat": "Neuer Chat",
+    "agentSearching": "Suche…",
+    "agentReading": "Lese…",
+    "agentError": "Agent-Fehler",
+    "agentNoModel": "Kein LLM konfiguriert",
+    "agentTyping": "Denkt nach…",
+    "agentDeleteConversation": "Konversation löschen"
   },
   "dnd": {
     "dropFilesHere": ".md-Dateien hier ablegen",

@@ -128,6 +128,7 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
             headings={headings}
             document={document}
             scrollContainer={previewElement}
+            vaultId={vaultId}
           />
         </div>
       )}

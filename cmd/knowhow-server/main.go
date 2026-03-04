@@ -79,6 +79,9 @@ func main() {
 	authMw := auth.Middleware(resolver.DBClient())
 	mux.Handle("/query", authMw(srv))
 
+	// Agent chat SSE endpoint
+	mux.Handle("/agent/chat", authMw(resolver.AgentService().HandleChat()))
+
 	// Playground is unauthenticated (for dev)
 	mux.Handle("/playground", playground.Handler("Knowhow v2", "/query"))
 
@@ -92,7 +95,7 @@ func main() {
 		Addr:         ":" + port,
 		Handler:      mux,
 		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 

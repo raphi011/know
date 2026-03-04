@@ -6,6 +6,7 @@ import {
   ListBulletIcon,
   ChevronDoubleRightIcon,
   InformationCircleIcon,
+  ChatBubbleLeftRightIcon,
 } from "@heroicons/react/20/solid";
 import { Tabs } from "@/components/ui/tabs";
 import { Sheet } from "@/components/ui/sheet";
@@ -13,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { DocumentOutline } from "@/components/domain/document-outline";
 import { DocumentInfo } from "@/components/domain/document-info";
+import { AgentChatPanel } from "@/components/domain/agent-chat-panel";
 import type { Heading } from "@/app/lib/extract-headings";
 import type { Document } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
@@ -21,12 +23,14 @@ type DocumentPanelProps = {
   headings: Heading[];
   document: Document;
   scrollContainer: HTMLElement | null;
+  vaultId: string | null;
 };
 
 function DocumentPanel({
   headings,
   document,
   scrollContainer,
+  vaultId,
 }: DocumentPanelProps) {
   const t = useTranslations("docs");
   const [collapsed, setCollapsed] = useState(false);
@@ -45,6 +49,10 @@ function DocumentPanel({
     {
       label: t("info"),
       content: <DocumentInfo document={document} />,
+    },
+    {
+      label: t("agent"),
+      content: <AgentChatPanel vaultId={vaultId} />,
     },
   ];
 
