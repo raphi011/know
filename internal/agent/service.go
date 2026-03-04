@@ -17,7 +17,7 @@ const maxToolIterations = 5
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type    string `json:"type"`              // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id"
+	Type    string `json:"type"`              // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id" | "conversation_id"
 	Content string `json:"content"`           // token text, tool result, error message, or message ID
 	Tool    string `json:"tool,omitempty"`     // tool name for tool_call/tool_result events
 }
@@ -66,7 +66,8 @@ When the user asks a question:
 - If you already have enough context from previous tool results, answer directly
 
 Always cite document paths when referencing information from the knowledge base.
-Be concise and helpful. Answer based on the knowledge base content when available.`
+Be concise and helpful. Answer based on the knowledge base content when available.
+Do not include a sources section at the end of your response — one will be added automatically.`
 
 const intentPrompt = `Based on the conversation so far, decide your next action.
 
@@ -80,6 +81,11 @@ If you have enough information to answer the user's question, respond with EXACT
 {"action":"answer"}
 
 Respond with ONLY the JSON, no explanation.`
+
+type docSource struct {
+	Title string
+	Path  string
+}
 
 // ChatRequest contains the parameters for a chat request.
 type ChatRequest struct {
@@ -134,6 +140,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		doc, err := s.db.GetDocumentByPath(ctx, req.VaultID, ref)
 		if err != nil {
 			slog.Warn("failed to read referenced doc", "path", ref, "error", err)
+			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("Could not read referenced document: %s", ref)})
 			continue
 		}
 		if doc != nil {
@@ -149,6 +156,10 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		toolContext.WriteString("\n")
 	}
 
+	// Track all documents referenced during tool execution for the sources section
+	seen := map[string]bool{}
+	var sources []docSource
+
 	for i := range maxToolIterations {
 		// Build history for intent detection
 		history := s.buildHistory(messages, toolContext.String())
@@ -162,6 +173,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		decision, err := s.detectIntent(ctx, history, intentQuery, i == 0)
 		if err != nil {
 			slog.Warn("intent detection failed, falling back to direct answer", "error", err)
+			emit(StreamEvent{Type: "error", Content: "Knowledge base search unavailable, answering from general knowledge"})
 			break // fall through to streaming answer
 		}
 
@@ -170,24 +182,33 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		}
 
 		if decision.Action == "tool" {
-			result, err := s.executeTool(ctx, req.VaultID, decision, emit)
+			result, toolSources, err := s.executeTool(ctx, req.VaultID, decision, emit)
 			if err != nil {
 				slog.Warn("tool execution failed", "tool", decision.Tool, "error", err)
 				emit(StreamEvent{Type: "error", Content: fmt.Sprintf("tool %s failed: %v", decision.Tool, err)})
 				break
 			}
+			for _, src := range toolSources {
+				if !seen[src.Path] {
+					seen[src.Path] = true
+					sources = append(sources, src)
+				}
+			}
 			fmt.Fprintf(&toolContext, "\n--- Tool result (%s) ---\n%s\n", decision.Tool, result)
 
 			// Store tool call and result as messages
-			toolInput, _ := json.Marshal(decision.Input)
+			toolInput, err := json.Marshal(decision.Input)
+			if err != nil {
+				slog.Error("failed to marshal tool input", "tool", decision.Tool, "error", err)
+			}
 			toolInputStr := string(toolInput)
 			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolCall, "", nil, &decision.Tool, &toolInputStr)
 			if err != nil {
-				slog.Warn("failed to store tool call message", "error", err)
+				slog.Error("failed to store tool call message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
 			}
 			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, result, nil, &decision.Tool, nil)
 			if err != nil {
-				slog.Warn("failed to store tool result message", "error", err)
+				slog.Error("failed to store tool result message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
 			}
 
 			continue
@@ -207,24 +228,40 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		return nil
 	})
 	if err != nil {
+		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
 		return nil
+	}
+
+	// Append deterministic sources section with clickable links
+	if len(sources) > 0 {
+		var srcSection strings.Builder
+		srcSection.WriteString("\n\n---\n**Sources:**\n")
+		for _, src := range sources {
+			fmt.Fprintf(&srcSection, "- [%s](/docs%s)\n", src.Title, src.Path)
+		}
+		srcText := srcSection.String()
+		answer.WriteString(srcText)
+		emit(StreamEvent{Type: "token", Content: srcText})
 	}
 
 	// Store assistant message
 	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil)
 	if err != nil {
-		slog.Warn("failed to store assistant message", "error", err)
+		slog.Error("failed to store assistant message", "conversation_id", req.ConversationID, "error", err)
+		emit(StreamEvent{Type: "error", Content: "Warning: response may not be saved to conversation history"})
 	} else {
 		msgID, err := models.RecordIDString(assistantMsg.ID)
-		if err == nil {
+		if err != nil {
+			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", err)
+		} else {
 			emit(StreamEvent{Type: "message_id", Content: msgID})
 		}
 	}
 
 	emit(StreamEvent{Type: "done", Content: ""})
 
-	// Auto-title: if this is the first exchange (2 messages: user + assistant), generate a title
+	// Auto-title: if this is the first user message in the conversation, generate a title
 	if len(messages) <= 1 {
 		go s.autoTitle(context.Background(), req.ConversationID, req.Content)
 	}
@@ -235,7 +272,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 func (s *Service) buildHistory(messages []models.Message, toolContext string) []llm.ChatMessage {
 	var history []llm.ChatMessage
 
-	// Add tool context as a system-like user message if present
+	// Inject tool/reference context as a synthetic user-assistant pair, since the LLM API doesn't support separate system context in multi-turn history
 	if toolContext != "" {
 		history = append(history, llm.ChatMessage{
 			Role:    "user",
@@ -253,7 +290,7 @@ func (s *Service) buildHistory(messages []models.Message, toolContext string) []
 			history = append(history, llm.ChatMessage{Role: "user", Content: msg.Content})
 		case models.RoleAssistant:
 			history = append(history, llm.ChatMessage{Role: "assistant", Content: msg.Content})
-		// Skip tool_call and tool_result — they're captured in toolContext
+		// Skip tool_call and tool_result — current turn's results are in toolContext; historical tool messages are omitted
 		}
 	}
 
@@ -287,7 +324,8 @@ func (s *Service) detectIntent(ctx context.Context, history []llm.ChatMessage, q
 
 	var action toolAction
 	if err := json.Unmarshal([]byte(response), &action); err != nil {
-		// If we can't parse, assume the model wants to answer
+		slog.Warn("intent detection returned unparseable response, falling back to direct answer",
+			"error", err, "response", response)
 		return &toolAction{Action: "answer"}, nil
 	}
 	return &action, nil
@@ -302,12 +340,12 @@ func buildHistoryText(history []llm.ChatMessage, currentQuery string) string {
 	return sb.String()
 }
 
-func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, error) {
+func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, []docSource, error) {
 	switch action.Tool {
 	case "kb_search":
 		var input searchInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", fmt.Errorf("parse search input: %w", err)
+			return "", nil, fmt.Errorf("parse search input: %w", err)
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "kb_search"})
 
@@ -317,12 +355,14 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			Limit:   5,
 		})
 		if err != nil {
-			return "", fmt.Errorf("search: %w", err)
+			return "", nil, fmt.Errorf("search: %w", err)
 		}
 
 		var sb strings.Builder
+		var sources []docSource
 		for _, r := range results {
 			fmt.Fprintf(&sb, "## %s (%s)\n", r.Title, r.Path)
+			sources = append(sources, docSource{Title: r.Title, Path: r.Path})
 			for _, ch := range r.MatchedChunks {
 				sb.WriteString(ch.Snippet)
 				sb.WriteString("\n\n")
@@ -334,29 +374,29 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			result = "No results found."
 		}
 		emit(StreamEvent{Type: "tool_result", Content: fmt.Sprintf("%d results", len(results)), Tool: "kb_search"})
-		return result, nil
+		return result, sources, nil
 
 	case "read_document":
 		var input readDocInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", fmt.Errorf("parse read_document input: %w", err)
+			return "", nil, fmt.Errorf("parse read_document input: %w", err)
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Path, Tool: "read_document"})
 
 		doc, err := s.db.GetDocumentByPath(ctx, vaultID, input.Path)
 		if err != nil {
-			return "", fmt.Errorf("read document: %w", err)
+			return "", nil, fmt.Errorf("read document: %w", err)
 		}
 		if doc == nil {
 			emit(StreamEvent{Type: "tool_result", Content: "not found", Tool: "read_document"})
-			return fmt.Sprintf("Document not found: %s", input.Path), nil
+			return fmt.Sprintf("Document not found: %s", input.Path), nil, nil
 		}
 
 		emit(StreamEvent{Type: "tool_result", Content: doc.Path, Tool: "read_document"})
-		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), nil
+		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), []docSource{{Title: doc.Title, Path: doc.Path}}, nil
 
 	default:
-		return "", fmt.Errorf("unknown tool: %s", action.Tool)
+		return "", nil, fmt.Errorf("unknown tool: %s", action.Tool)
 	}
 }
 

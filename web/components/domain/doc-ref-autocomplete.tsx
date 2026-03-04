@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { DocumentTextIcon } from "@heroicons/react/20/solid";
 import { useDocuments } from "@/components/domain/documents-context";
 import { cn } from "@/lib/utils";
@@ -11,6 +12,7 @@ type DocRefAutocompleteProps = {
 };
 
 function DocRefAutocomplete({ onSelect, onClose }: DocRefAutocompleteProps) {
+  const t = useTranslations("docs");
   const documents = useDocuments();
   const [filter, setFilter] = useState("");
 
@@ -33,7 +35,7 @@ function DocRefAutocomplete({ onSelect, onClose }: DocRefAutocompleteProps) {
             onSelect(filtered[0]!.path);
           }
         }}
-        placeholder="Search documents..."
+        placeholder={t("agentSearchDocuments")}
         autoFocus
         className={cn(
           "w-full border-b border-slate-200 bg-white px-2.5 py-1.5 text-xs",
@@ -63,7 +65,7 @@ function DocRefAutocomplete({ onSelect, onClose }: DocRefAutocompleteProps) {
         ))}
         {filtered.length === 0 && (
           <div className="px-2.5 py-2 text-xs text-slate-400">
-            No documents found
+            {t("agentNoDocuments")}
           </div>
         )}
       </div>

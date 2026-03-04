@@ -70,7 +70,11 @@ export async function POST(request: NextRequest) {
           controller.enqueue(value);
         }
       } catch (err) {
-        console.error("Stream error:", err);
+        console.error("Stream relay error:", err);
+        const errorEvent = new TextEncoder().encode(
+          `data: ${JSON.stringify({ type: "error", content: "Connection to agent lost" })}\n\n`,
+        );
+        controller.enqueue(errorEvent);
       } finally {
         controller.close();
       }

@@ -96,7 +96,14 @@
     "agentError": "Agent-Fehler",
     "agentNoModel": "Kein LLM konfiguriert",
     "agentTyping": "Denkt nach…",
-    "agentDeleteConversation": "Konversation löschen"
+    "agentDeleteConversation": "Konversation löschen",
+    "agentSearchDocuments": "Dokumente suchen...",
+    "agentNoDocuments": "Keine Dokumente gefunden",
+    "agentReferenceDoc": "Dokument referenzieren (@)",
+    "agentToolSearching": "Suche: {query}",
+    "agentToolReading": "Lese: {path}",
+    "agentToolFound": "{count} gefunden",
+    "agentToolRead": "Gelesen: {path}"
   },
   "dnd": {
     "dropFilesHere": ".md-Dateien hier ablegen",

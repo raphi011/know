@@ -16,7 +16,7 @@ type chatRequestBody struct {
 	DocRefs        []string `json:"docRefs"`
 }
 
-// HandleChat returns an http.HandlerFunc that handles POST /agent/chat.
+// HandleChat returns an HTTP handler for POST /agent/chat that streams SSE events back to the client.
 func (s *Service) HandleChat() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -30,6 +30,7 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB max
 		var body chatRequestBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -81,8 +82,8 @@ func (s *Service) HandleChat() http.HandlerFunc {
 		}
 
 		if err := s.Chat(r.Context(), req, emit); err != nil {
-			slog.Error("agent chat error", "error", err)
-			emit(StreamEvent{Type: "error", Content: "internal error"})
+			slog.Error("agent chat error", "error", err, "vault_id", req.VaultID, "user_id", req.UserID)
+			emit(StreamEvent{Type: "error", Content: "Failed to process chat request. Please try again."})
 		}
 	}
 }

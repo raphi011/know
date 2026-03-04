@@ -207,7 +207,7 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
             type="button"
             onClick={() => setShowAutocomplete(!showAutocomplete)}
             className="mb-0.5 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-            title="Reference document (@)"
+            title={t("agentReferenceDoc")}
           >
             <DocumentTextIcon className="size-4" />
           </button>
@@ -281,6 +281,7 @@ function ToolIndicator({
 }: {
   event: { tool: string; type: string; content: string };
 }) {
+  const t = useTranslations("docs");
   const icon =
     event.tool === "kb_search" ? (
       <MagnifyingGlassIcon className="size-3" />
@@ -291,11 +292,11 @@ function ToolIndicator({
   const label =
     event.type === "call"
       ? event.tool === "kb_search"
-        ? `Searching: ${event.content}`
-        : `Reading: ${event.content}`
+        ? t("agentToolSearching", { query: event.content })
+        : t("agentToolReading", { path: event.content })
       : event.tool === "kb_search"
-        ? `Found ${event.content}`
-        : `Read: ${event.content}`;
+        ? t("agentToolFound", { count: event.content })
+        : t("agentToolRead", { path: event.content });
 
   return (
     <div className="mb-1.5 flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">

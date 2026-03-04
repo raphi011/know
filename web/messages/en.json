@@ -96,7 +96,14 @@
     "agentError": "Agent error",
     "agentNoModel": "No LLM configured",
     "agentTyping": "Thinking…",
-    "agentDeleteConversation": "Delete conversation"
+    "agentDeleteConversation": "Delete conversation",
+    "agentSearchDocuments": "Search documents...",
+    "agentNoDocuments": "No documents found",
+    "agentReferenceDoc": "Reference document (@)",
+    "agentToolSearching": "Searching: {query}",
+    "agentToolReading": "Reading: {path}",
+    "agentToolFound": "Found {count}",
+    "agentToolRead": "Read: {path}"
   },
   "dnd": {
     "dropFilesHere": "Drop .md files here",

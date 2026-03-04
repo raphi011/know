@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useReducer, useRef } from "react";
+import { createContext, useContext, useEffect, useReducer, useRef } from "react";
 
 // --- Types ---
 
@@ -155,10 +155,16 @@ async function graphqlQuery<T>(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const json = await response.json();
-  if (json.errors?.length) throw new Error(json.errors[0].message);
-  return json.data;
+  if (!response.ok) throw new Error(`GraphQL request failed: HTTP ${response.status}`);
+  let json: { data?: T; errors?: Array<{ message?: string }> };
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error("GraphQL response was not valid JSON");
+  }
+  if (json.errors?.length)
+    throw new Error(json.errors[0]?.message ?? "Unknown GraphQL error");
+  return json.data as T;
 }
 
 async function graphqlMutate<T>(
@@ -199,6 +205,11 @@ export function AgentChatProvider({
   const [state, dispatch] = useReducer(reducer, initialState);
   const abortRef = useRef<AbortController | null>(null);
   const loadedVaultRef = useRef<string | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Abort any in-flight stream on unmount
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Load conversations when vault changes
   const loadConversations = async (vid: string) => {
@@ -217,8 +228,43 @@ export function AgentChatProvider({
         { vaultId: vid },
       );
       dispatch({ type: "SET_CONVERSATIONS", conversations: data.conversations });
+      // Auto-select the most recent conversation and load its messages
+      const first = data.conversations[0];
+      if (first) {
+        dispatch({ type: "SET_ACTIVE", id: first.id });
+        try {
+          const msgData = await graphqlQuery<{
+            conversation: Conversation | null;
+          }>(
+            `query ($id: ID!) {
+              conversation(id: $id) {
+                id vaultId title createdAt updatedAt
+                messages { id role content docRefs toolName toolInput createdAt }
+              }
+            }`,
+            { id: first.id },
+          );
+          if (msgData.conversation) {
+            dispatch({
+              type: "SET_MESSAGES",
+              id: first.id,
+              messages: msgData.conversation.messages,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to load messages for active conversation:", err);
+          dispatch({
+            type: "SET_ERROR",
+            error: err instanceof Error ? err.message : "Failed to load messages",
+          });
+        }
+      }
     } catch (err) {
       console.error("Failed to load conversations:", err);
+      dispatch({
+        type: "SET_ERROR",
+        error: err instanceof Error ? err.message : "Failed to load conversations",
+      });
     }
   };
 
@@ -247,8 +293,8 @@ export function AgentChatProvider({
 
   const switchConversation = async (id: string) => {
     dispatch({ type: "SET_ACTIVE", id });
-    // Load messages if not already loaded
-    const conv = state.conversations.find((c) => c.id === id);
+    // Load messages if not already loaded — read from ref to avoid stale closure
+    const conv = stateRef.current.conversations.find((c) => c.id === id);
     if (conv && conv.messages.length === 0) {
       try {
         const data = await graphqlQuery<{
@@ -271,6 +317,10 @@ export function AgentChatProvider({
         }
       } catch (err) {
         console.error("Failed to load messages:", err);
+        dispatch({
+          type: "SET_ERROR",
+          error: err instanceof Error ? err.message : "Failed to load messages",
+        });
       }
     }
   };
@@ -284,11 +334,19 @@ export function AgentChatProvider({
       dispatch({ type: "REMOVE_CONVERSATION", id });
     } catch (err) {
       console.error("Failed to delete conversation:", err);
+      dispatch({
+        type: "SET_ERROR",
+        error: err instanceof Error ? err.message : "Failed to delete conversation",
+      });
     }
   };
 
   const sendMessage = (content: string, docRefs: string[] = []) => {
-    if (state.isStreaming || !vaultId) return;
+    if (state.isStreaming) return;
+    if (!vaultId) {
+      dispatch({ type: "SET_ERROR", error: "No vault selected" });
+      return;
+    }
 
     // Abort any previous stream
     abortRef.current?.abort();
@@ -351,82 +409,92 @@ export function AgentChatProvider({
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             const jsonStr = line.slice(6);
-            try {
-              const event: StreamEvent = JSON.parse(jsonStr);
 
-              switch (event.type) {
-                case "token":
-                  dispatch({ type: "STREAM_TOKEN", content: event.content });
-                  break;
-                case "tool_call":
-                  dispatch({
-                    type: "STREAM_TOOL",
-                    event: {
-                      tool: event.tool ?? "",
-                      type: "call",
-                      content: event.content,
-                    },
-                  });
-                  break;
-                case "tool_result":
-                  dispatch({
-                    type: "STREAM_TOOL",
-                    event: {
-                      tool: event.tool ?? "",
-                      type: "result",
-                      content: event.content,
-                    },
-                  });
-                  break;
-                case "conversation_id":
-                  newConvId = event.content;
-                  // Reload conversations to get the new one
-                  if (vaultId) {
-                    loadedVaultRef.current = null;
-                    await loadConversations(vaultId);
-                  }
-                  dispatch({ type: "SET_ACTIVE", id: newConvId });
-                  break;
-                case "error":
-                  dispatch({ type: "SET_ERROR", error: event.content });
-                  break;
-                case "done": {
-                  // Reload the conversation to get the final messages
-                  if (newConvId) {
-                    try {
-                      const data = await graphqlQuery<{
-                        conversation: Conversation | null;
-                      }>(
-                        `query ($id: ID!) {
-                          conversation(id: $id) {
-                            id vaultId title createdAt updatedAt
-                            messages { id role content docRefs toolName toolInput createdAt }
-                          }
-                        }`,
-                        { id: newConvId },
-                      );
-                      if (data.conversation) {
-                        dispatch({
-                          type: "SET_MESSAGES",
-                          id: newConvId,
-                          messages: data.conversation.messages,
-                        });
-                        // Update title in case it was auto-generated
-                        dispatch({
-                          type: "UPDATE_TITLE",
-                          id: newConvId,
-                          title: data.conversation.title,
-                        });
-                      }
-                    } catch (err) {
-                      console.error("Failed to reload conversation:", err);
-                    }
-                  }
-                  break;
-                }
-              }
+            let event: StreamEvent;
+            try {
+              event = JSON.parse(jsonStr);
             } catch {
               // Skip malformed SSE lines
+              continue;
+            }
+
+            switch (event.type) {
+              case "token":
+                dispatch({ type: "STREAM_TOKEN", content: event.content });
+                break;
+              case "tool_call":
+                dispatch({
+                  type: "STREAM_TOOL",
+                  event: {
+                    tool: event.tool ?? "",
+                    type: "call",
+                    content: event.content,
+                  },
+                });
+                break;
+              case "tool_result":
+                dispatch({
+                  type: "STREAM_TOOL",
+                  event: {
+                    tool: event.tool ?? "",
+                    type: "result",
+                    content: event.content,
+                  },
+                });
+                break;
+              case "conversation_id":
+                newConvId = event.content;
+                // Reload conversations to get the new one
+                if (vaultId) {
+                  loadedVaultRef.current = null;
+                  await loadConversations(vaultId);
+                }
+                dispatch({ type: "SET_ACTIVE", id: newConvId });
+                break;
+              case "error":
+                dispatch({ type: "SET_ERROR", error: event.content });
+                break;
+              case "done": {
+                // Reload the conversation to get the final messages
+                if (newConvId) {
+                  try {
+                    const data = await graphqlQuery<{
+                      conversation: Conversation | null;
+                    }>(
+                      `query ($id: ID!) {
+                        conversation(id: $id) {
+                          id vaultId title createdAt updatedAt
+                          messages { id role content docRefs toolName toolInput createdAt }
+                        }
+                      }`,
+                      { id: newConvId },
+                    );
+                    if (data.conversation) {
+                      dispatch({
+                        type: "SET_MESSAGES",
+                        id: newConvId,
+                        messages: data.conversation.messages,
+                      });
+                      // Update title in case it was auto-generated
+                      dispatch({
+                        type: "UPDATE_TITLE",
+                        id: newConvId,
+                        title: data.conversation.title,
+                      });
+                    }
+                  } catch (err) {
+                    console.error("Failed to reload conversation:", err);
+                    dispatch({
+                      type: "SET_ERROR",
+                      error:
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to reload conversation",
+                    });
+                  }
+                }
+                break;
+              }
             }
           }
         }
