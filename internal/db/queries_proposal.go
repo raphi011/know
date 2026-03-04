@@ -60,47 +60,31 @@ func (c *Client) ListProposals(ctx context.Context, vaultID string, status *stri
 	start := c.startOp()
 	defer c.recordTiming("db.list_proposals", start)
 
-	var sql string
-	vars := map[string]any{
+	return c.listProposals(ctx, `vault = type::record("vault", $vault_id)`, map[string]any{
 		"vault_id": bareID("vault", vaultID),
-	}
-
-	if status != nil {
-		sql = `SELECT * FROM document_proposal WHERE vault = type::record("vault", $vault_id) AND status = $status ORDER BY created_at DESC`
-		vars["status"] = *status
-	} else {
-		sql = `SELECT * FROM document_proposal WHERE vault = type::record("vault", $vault_id) ORDER BY created_at DESC`
-	}
-
-	results, err := surrealdb.Query[[]models.DocumentProposal](ctx, c.DB(), sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("list proposals: %w", err)
-	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	}, status)
 }
 
 func (c *Client) ListProposalsByDocument(ctx context.Context, documentID string, status *string) ([]models.DocumentProposal, error) {
 	start := c.startOp()
 	defer c.recordTiming("db.list_proposals_by_document", start)
 
-	var sql string
-	vars := map[string]any{
+	return c.listProposals(ctx, `document = type::record("document", $document_id)`, map[string]any{
 		"document_id": documentID,
-	}
+	}, status)
+}
 
+func (c *Client) listProposals(ctx context.Context, filter string, vars map[string]any, status *string) ([]models.DocumentProposal, error) {
+	sql := "SELECT * FROM document_proposal WHERE " + filter
 	if status != nil {
-		sql = `SELECT * FROM document_proposal WHERE document = type::record("document", $document_id) AND status = $status ORDER BY created_at DESC`
+		sql += " AND status = $status"
 		vars["status"] = *status
-	} else {
-		sql = `SELECT * FROM document_proposal WHERE document = type::record("document", $document_id) ORDER BY created_at DESC`
 	}
+	sql += " ORDER BY created_at DESC"
 
 	results, err := surrealdb.Query[[]models.DocumentProposal](ctx, c.DB(), sql, vars)
 	if err != nil {
-		return nil, fmt.Errorf("list proposals by document: %w", err)
+		return nil, fmt.Errorf("list proposals: %w", err)
 	}
 	if results == nil || len(*results) == 0 {
 		return nil, nil

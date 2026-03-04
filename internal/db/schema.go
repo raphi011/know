@@ -77,6 +77,19 @@ func SchemaSQL(dimension int) string {
     };
 
     -- ==========================================================================
+    -- FOLDER TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS folder SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS vault      ON folder TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS path       ON folder TYPE string;
+    DEFINE FIELD IF NOT EXISTS name       ON folder TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_at ON folder TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_folder_vault_path ON folder FIELDS vault, path UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_folder_vault      ON folder FIELDS vault;
+
+    -- ==========================================================================
     -- CHUNK TABLE
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS chunk SCHEMAFULL;

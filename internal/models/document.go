@@ -55,9 +55,11 @@ type DocumentInput struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-// Folder is a virtual folder derived from document paths.
+// Folder is a first-class folder record backed by the folder table.
 type Folder struct {
-	Path     string `json:"path"`
-	Name     string `json:"name"`
-	DocCount int    `json:"doc_count"`
+	ID        surrealmodels.RecordID `json:"id"`
+	Vault     surrealmodels.RecordID `json:"vault"`
+	Path      string                 `json:"path"`
+	Name      string                 `json:"name"`
+	CreatedAt time.Time              `json:"created_at"`
 }

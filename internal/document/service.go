@@ -93,6 +93,11 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		Metadata:    metadata,
 	}
 
+	// Auto-create parent folders before document upsert
+	if err := s.db.EnsureFolders(ctx, input.VaultID, path); err != nil {
+		return nil, fmt.Errorf("ensure parent folders: %w", err)
+	}
+
 	doc, created, err := s.db.UpsertDocument(ctx, dbInput)
 	if err != nil {
 		return nil, fmt.Errorf("upsert document: %w", err)
@@ -217,7 +222,17 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 	if prefix == "/" {
 		return 0, fmt.Errorf("delete by prefix: refusing to delete root prefix")
 	}
-	return s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
+	count, err := s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
+	if err != nil {
+		return 0, err
+	}
+
+	// Clean up folder records under the same prefix
+	if _, err := s.db.DeleteFoldersByPrefix(ctx, vaultID, prefix); err != nil {
+		return count, fmt.Errorf("delete folder records: %w", err)
+	}
+
+	return count, nil
 }
 
 // MoveByPrefix renames all documents whose path starts with oldPrefix,
@@ -240,7 +255,21 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	if oldNorm == newNorm {
 		return 0, nil
 	}
-	return s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
+	count, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
+	if err != nil {
+		return 0, err
+	}
+
+	// Move folder records to match
+	if _, err := s.db.MoveFoldersByPrefix(ctx, vaultID, oldNorm, newNorm); err != nil {
+		return count, fmt.Errorf("move folder records: %w", err)
+	}
+	// Ensure destination ancestor folders exist
+	if err := s.db.EnsureFolderPath(ctx, vaultID, strings.TrimSuffix(newNorm, "/")); err != nil {
+		return count, fmt.Errorf("ensure destination folders: %w", err)
+	}
+
+	return count, nil
 }
 
 // Move changes a document's path.
@@ -258,7 +287,18 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 		return nil, fmt.Errorf("extract doc id: %w", err)
 	}
 
-	return s.db.MoveDocument(ctx, docID, models.NormalizePath(newPath))
+	normalizedNew := models.NormalizePath(newPath)
+	doc, err = s.db.MoveDocument(ctx, docID, normalizedNew)
+	if err != nil {
+		return nil, fmt.Errorf("move document: %w", err)
+	}
+
+	// Ensure destination folders exist
+	if err := s.db.EnsureFolders(ctx, vaultID, normalizedNew); err != nil {
+		return nil, fmt.Errorf("ensure destination folders: %w", err)
+	}
+
+	return doc, nil
 }
 
 func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content string) error {

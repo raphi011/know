@@ -168,6 +168,106 @@ ORDER BY rrf_score DESC
 LIMIT $limit;
 ```
 
+## Query Gotchas
+
+### Compound OR in WHERE Clauses
+
+As of v3.0.2, parenthesized OR conditions in WHERE clauses can cause parse errors:
+
+```sql
+-- FAILS: parse error "Unexpected token `an identifier` expected delimiter `)`"
+DELETE FROM folder WHERE vault = type::record("vault", $id)
+  AND (path = $path OR string::starts_with(path, $prefix))
+```
+
+**Workaround**: Split into two separate queries:
+
+```sql
+DELETE FROM folder WHERE vault = type::record("vault", $id) AND path = $path;
+DELETE FROM folder WHERE vault = type::record("vault", $id) AND string::starts_with(path, $prefix);
+```
+
+### Negative Array Indexing
+
+Bracket-based negative indexing (`[-1]`) is unreliable in SurrealQL — it returns NONE instead of the last element. Use `array::last()` or `array::at()` instead:
+
+```sql
+-- BAD: returns NONE
+string::split("/a/b/c", "/")[-1]
+
+-- GOOD: returns "c"
+array::last(string::split("/a/b/c", "/"))
+```
+
+### `STARTS WITH` Operator vs `string::starts_with()`
+
+The `STARTS WITH` operator can fail in compound WHERE clauses. Use the `string::starts_with()` function instead:
+
+```sql
+-- May fail in compound WHERE
+SELECT * FROM folder WHERE vault = $v AND path STARTS WITH $prefix
+
+-- Reliable
+SELECT * FROM folder WHERE vault = $v AND string::starts_with(path, $prefix)
+```
+
+## Performance Patterns
+
+### Batch INSERT to Avoid N+1
+
+Instead of looping over rows in Go and sending one INSERT per iteration, use `INSERT INTO table $rows` with an array parameter. This sends a single query regardless of how many rows are being inserted:
+
+```go
+// BAD: N round-trips for N folders
+for _, f := range folders {
+    surrealdb.Query(ctx, db, `INSERT INTO folder { vault: $v, path: $p, name: $n }`, ...)
+}
+
+// GOOD: 1 round-trip for N folders
+rows := make([]map[string]any, len(folders))
+for i, f := range folders {
+    rows[i] = map[string]any{"vault": vaultRecord, "path": f.Path, "name": f.Name}
+}
+surrealdb.Query(ctx, db, `INSERT INTO folder $rows ON DUPLICATE KEY UPDATE id = id`, map[string]any{"rows": rows})
+```
+
+**Important**: For `record<T>` fields in batch inserts, pass typed `surrealmodels.RecordID` values (not strings). The `type::record()` function doesn't work inside `INSERT ... $rows` — the rows are treated as literal objects.
+
+This also works with `ON DUPLICATE KEY UPDATE id = id` for idempotent upserts.
+
+### Multi-Statement Queries to Reduce Round-Trips
+
+Send multiple statements separated by `;` in a single `surrealdb.Query` call. Each statement returns its own result set in the response array. All statements share the same parameter map:
+
+```go
+// BAD: 4 round-trips
+surrealdb.Query(ctx, db, `DELETE FROM document WHERE vault = $v`, vars)
+surrealdb.Query(ctx, db, `DELETE FROM folder WHERE vault = $v`, vars)
+surrealdb.Query(ctx, db, `DELETE FROM template WHERE vault = $v`, vars)
+surrealdb.Query(ctx, db, `DELETE type::record("vault", $id)`, vars)
+
+// GOOD: 1 round-trip, 4 result sets
+sql := `DELETE FROM document WHERE vault = $v;` +
+    `DELETE FROM folder WHERE vault = $v;` +
+    `DELETE FROM template WHERE vault = $v;` +
+    `DELETE type::record("vault", $id)`
+surrealdb.Query(ctx, db, sql, vars)
+```
+
+**Counting results across statements**: Use `RETURN BEFORE` and iterate all result sets:
+
+```go
+results, err := surrealdb.Query[[]MyType](ctx, db, sql, vars)
+count := 0
+if results != nil {
+    for _, r := range *results {
+        count += len(r.Result)
+    }
+}
+```
+
+**Note**: Multi-statement queries are NOT transactions — each statement commits independently. Use `BEGIN TRANSACTION; ...; COMMIT TRANSACTION;` if atomicity is needed. However, multi-statement is still useful for reducing network latency when atomicity isn't critical.
+
 ## Connection Best Practices
 
 - Use `rews` (reconnecting websocket) for production

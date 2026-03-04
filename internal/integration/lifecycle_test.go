@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	var err error
 	testContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "surrealdb/surrealdb:v3.0.0-beta.1",
+			Image:        "surrealdb/surrealdb:v3.0.2",
 			ExposedPorts: []string{"8000/tcp"},
 			Cmd:          []string{"start", "--log", "info", "--user", "root", "--pass", "root"},
 			WaitingFor:   wait.ForLog("Started web server").WithStartupTimeout(60 * time.Second),

@@ -370,6 +370,41 @@ mutation {
 }
 ```
 
+## Folders
+
+Documents are organized into first-class folders backed by DB records. Folders are auto-created when documents are added and support explicit CRUD operations.
+
+### Example Prompts
+
+```graphql
+# Create a folder (auto-creates ancestors)
+mutation {
+  createFolder(vaultId: "vault-id", path: "/projects/new-idea") {
+    id path name createdAt
+  }
+}
+
+# List all folders in a vault
+query {
+  vaults { name folders { path name } }
+}
+
+# List immediate children of a folder
+query {
+  vaults { name folders(parentPath: "/projects") { path name } }
+}
+
+# Move a folder (moves all children and documents)
+mutation {
+  moveFolder(vaultId: "vault-id", oldPath: "/guides", newPath: "/docs/guides")
+}
+
+# Delete a folder (cascades to child folders and documents)
+mutation {
+  deleteFolder(vaultId: "vault-id", path: "/guides")
+}
+```
+
 ## MCP Server (AI Agent Integration)
 
 The `knowhow-mcp` binary exposes your knowledge base to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). It aggregates one or more knowhow-server instances and provides 4 tools over Streamable HTTP.
@@ -405,6 +440,7 @@ EOF
 | `get_document` | Retrieve a document by path with full content |
 | `list_labels` | List all labels used across documents |
 | `create_memory` | Create a quick memory note under `/memories/` |
+| `list_folders` | Browse the folder structure of a vault |
 
 ### Example Prompts
 
@@ -420,6 +456,9 @@ EOF
 
 # Discover categories
 "List all labels in my knowledge base"
+
+# Browse vault structure
+"Show me the folder structure of my knowledge base"
 
 # Save a quick note
 "Remember that the deploy pipeline requires manual approval for production"

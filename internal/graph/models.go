@@ -30,9 +30,10 @@ type Document struct {
 }
 
 type Folder struct {
-	Path     string `json:"path"`
-	Name     string `json:"name"`
-	DocCount int    `json:"docCount"`
+	ID        string    `json:"id"`
+	Path      string    `json:"path"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type WikiLink struct {

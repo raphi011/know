@@ -74,10 +74,16 @@ func documentToGraphQL(d *models.Document) *Document {
 }
 
 func folderToGraphQL(f models.Folder) Folder {
+	id, err := models.RecordIDString(f.ID)
+	if err != nil {
+		slog.Warn("unexpected folder ID format in GraphQL conversion", "path", f.Path, "error", err)
+		id = fmt.Sprintf("%v", f.ID.ID)
+	}
 	return Folder{
-		Path:     f.Path,
-		Name:     f.Name,
-		DocCount: f.DocCount,
+		ID:        id,
+		Path:      f.Path,
+		Name:      f.Name,
+		CreatedAt: f.CreatedAt,
 	}
 }
 

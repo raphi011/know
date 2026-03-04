@@ -57,6 +57,17 @@ type documentResponse struct {
 	} `json:"document"`
 }
 
+type foldersResponse struct {
+	Vaults []struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Folders []struct {
+			Path string `json:"path"`
+			Name string `json:"name"`
+		} `json:"folders"`
+	} `json:"vaults"`
+}
+
 type createDocumentResponse struct {
 	CreateDocument struct {
 		Path string `json:"path"`
@@ -80,6 +91,10 @@ type GetDocumentInput struct {
 }
 
 type ListLabelsInput struct {
+	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (lists all if omitted)"`
+}
+
+type ListFoldersInput struct {
 	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (lists all if omitted)"`
 }
 
@@ -166,6 +181,11 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Name:        "list_labels",
 		Description: "List all labels used across documents. Useful for discovering available categories before searching.",
 	}, t.listLabels)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_folders",
+		Description: "List the folder structure of a knowhow vault. Use to browse and understand vault organization before searching.",
+	}, t.listFolders)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_memory",
@@ -350,6 +370,60 @@ func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, inp
 		return textResult("No labels found."), nil, nil
 	}
 	return textResult(sb.String()), nil, nil
+}
+
+func (t *mcpTools) listFolders(ctx context.Context, req *mcp.CallToolRequest, input ListFoldersInput) (*mcp.CallToolResult, any, error) {
+	instances := t.filterInstances(input.Instance)
+	if input.Instance != nil && len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", *input.Instance)
+	}
+
+	var sb strings.Builder
+	for _, inst := range instances {
+		var resp foldersResponse
+		if err := inst.client.Do(ctx, `query { vaults { id name folders { path name } } }`, nil, &resp); err != nil {
+			slog.Warn("list folders failed", "instance", inst.name, "error", err)
+			fmt.Fprintf(&sb, "## %s\nError: %v\n\n", inst.name, err)
+			continue
+		}
+
+		for _, v := range resp.Vaults {
+			if len(v.Folders) == 0 {
+				continue
+			}
+			fmt.Fprintf(&sb, "## %s / %s\n", inst.name, v.Name)
+			sb.WriteString(buildFolderTree(v.Folders))
+			sb.WriteString("\n")
+		}
+	}
+
+	if sb.Len() == 0 {
+		return textResult("No folders found."), nil, nil
+	}
+	return textResult(sb.String()), nil, nil
+}
+
+// buildFolderTree formats a flat list of folder paths into an indented tree display.
+func buildFolderTree(folders []struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}) string {
+	if len(folders) == 0 {
+		return ""
+	}
+
+	// Sort paths for consistent display
+	sort.Slice(folders, func(i, j int) bool {
+		return folders[i].Path < folders[j].Path
+	})
+
+	var sb strings.Builder
+	for _, f := range folders {
+		depth := strings.Count(strings.Trim(f.Path, "/"), "/")
+		indent := strings.Repeat("  ", depth)
+		fmt.Fprintf(&sb, "%s%s/\n", indent, f.Name)
+	}
+	return sb.String()
 }
 
 func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, input CreateMemoryInput) (*mcp.CallToolResult, any, error) {

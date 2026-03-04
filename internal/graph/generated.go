@@ -136,9 +136,10 @@ type ComplexityRoot struct {
 	}
 
 	Folder struct {
-		DocCount func(childComplexity int) int
-		Name     func(childComplexity int) int
-		Path     func(childComplexity int) int
+		CreatedAt func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Path      func(childComplexity int) int
 	}
 
 	Me struct {
@@ -151,17 +152,20 @@ type ComplexityRoot struct {
 		ApproveProposalHunks    func(childComplexity int, input ApproveHunksInput) int
 		CreateConversation      func(childComplexity int, vaultID string) int
 		CreateDocument          func(childComplexity int, vaultID string, file FileInput, source *string) int
+		CreateFolder            func(childComplexity int, vaultID string, path string) int
 		CreateRelation          func(childComplexity int, input RelationInput) int
 		CreateTemplate          func(childComplexity int, input TemplateInput) int
 		CreateVault             func(childComplexity int, input VaultInput) int
 		DeleteConversation      func(childComplexity int, id string) int
 		DeleteDocument          func(childComplexity int, vaultID string, path string) int
 		DeleteDocumentsByPrefix func(childComplexity int, vaultID string, pathPrefix string) int
+		DeleteFolder            func(childComplexity int, vaultID string, path string) int
 		DeleteRelation          func(childComplexity int, id string) int
 		DeleteTemplate          func(childComplexity int, id string) int
 		DeleteVault             func(childComplexity int, id string) int
 		MoveDocument            func(childComplexity int, vaultID string, oldPath string, newPath string) int
 		MoveDocumentsByPrefix   func(childComplexity int, vaultID string, oldPrefix string, newPrefix string) int
+		MoveFolder              func(childComplexity int, vaultID string, oldPath string, newPath string) int
 		ProposeDocumentUpdate   func(childComplexity int, input ProposeDocumentUpdateInput) int
 		RejectProposal          func(childComplexity int, id string, notes *string) int
 		RenameConversation      func(childComplexity int, id string, title string) int
@@ -292,6 +296,9 @@ type MutationResolver interface {
 	ApproveProposal(ctx context.Context, id string, notes *string) (*Document, error)
 	ApproveProposalHunks(ctx context.Context, input ApproveHunksInput) (*Document, error)
 	RejectProposal(ctx context.Context, id string, notes *string) (bool, error)
+	CreateFolder(ctx context.Context, vaultID string, path string) (*Folder, error)
+	DeleteFolder(ctx context.Context, vaultID string, path string) (bool, error)
+	MoveFolder(ctx context.Context, vaultID string, oldPath string, newPath string) (bool, error)
 	CreateConversation(ctx context.Context, vaultID string) (*Conversation, error)
 	DeleteConversation(ctx context.Context, id string) (bool, error)
 	RenameConversation(ctx context.Context, id string, title string) (*Conversation, error)
@@ -758,12 +765,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DocumentProposal.VaultID(childComplexity), true
 
-	case "Folder.docCount":
-		if e.ComplexityRoot.Folder.DocCount == nil {
+	case "Folder.createdAt":
+		if e.ComplexityRoot.Folder.CreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Folder.DocCount(childComplexity), true
+		return e.ComplexityRoot.Folder.CreatedAt(childComplexity), true
+	case "Folder.id":
+		if e.ComplexityRoot.Folder.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Folder.ID(childComplexity), true
 	case "Folder.name":
 		if e.ComplexityRoot.Folder.Name == nil {
 			break
@@ -834,6 +847,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateDocument(childComplexity, args["vaultId"].(string), args["file"].(FileInput), args["source"].(*string)), true
+	case "Mutation.createFolder":
+		if e.ComplexityRoot.Mutation.CreateFolder == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createFolder_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateFolder(childComplexity, args["vaultId"].(string), args["path"].(string)), true
 	case "Mutation.createRelation":
 		if e.ComplexityRoot.Mutation.CreateRelation == nil {
 			break
@@ -900,6 +924,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteDocumentsByPrefix(childComplexity, args["vaultId"].(string), args["pathPrefix"].(string)), true
+	case "Mutation.deleteFolder":
+		if e.ComplexityRoot.Mutation.DeleteFolder == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteFolder_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteFolder(childComplexity, args["vaultId"].(string), args["path"].(string)), true
 	case "Mutation.deleteRelation":
 		if e.ComplexityRoot.Mutation.DeleteRelation == nil {
 			break
@@ -955,6 +990,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.MoveDocumentsByPrefix(childComplexity, args["vaultId"].(string), args["oldPrefix"].(string), args["newPrefix"].(string)), true
+	case "Mutation.moveFolder":
+		if e.ComplexityRoot.Mutation.MoveFolder == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_moveFolder_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.MoveFolder(childComplexity, args["vaultId"].(string), args["oldPath"].(string), args["newPath"].(string)), true
 	case "Mutation.proposeDocumentUpdate":
 		if e.ComplexityRoot.Mutation.ProposeDocumentUpdate == nil {
 			break
@@ -1622,6 +1668,22 @@ func (ec *executionContext) field_Mutation_createDocument_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createFolder_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "path", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["path"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createRelation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1698,6 +1760,22 @@ func (ec *executionContext) field_Mutation_deleteDocumentsByPrefix_args(ctx cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_deleteFolder_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "path", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["path"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_deleteRelation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1770,6 +1848,27 @@ func (ec *executionContext) field_Mutation_moveDocumentsByPrefix_args(ctx contex
 		return nil, err
 	}
 	args["newPrefix"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_moveFolder_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "oldPath", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["oldPath"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "newPath", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["newPath"] = arg2
 	return args, nil
 }
 
@@ -4217,6 +4316,35 @@ func (ec *executionContext) fieldContext_DocumentProposal_diff(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Folder_id(ctx context.Context, field graphql.CollectedField, obj *Folder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Folder_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Folder_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Folder",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Folder_path(ctx context.Context, field graphql.CollectedField, obj *Folder) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4275,30 +4403,30 @@ func (ec *executionContext) fieldContext_Folder_name(_ context.Context, field gr
 	return fc, nil
 }
 
-func (ec *executionContext) _Folder_docCount(ctx context.Context, field graphql.CollectedField, obj *Folder) (ret graphql.Marshaler) {
+func (ec *executionContext) _Folder_createdAt(ctx context.Context, field graphql.CollectedField, obj *Folder) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_Folder_docCount,
+		ec.fieldContext_Folder_createdAt,
 		func(ctx context.Context) (any, error) {
-			return obj.DocCount, nil
+			return obj.CreatedAt, nil
 		},
 		nil,
-		ec.marshalNInt2int,
+		ec.marshalNDateTime2timeᚐTime,
 		true,
 		true,
 	)
 }
 
-func (ec *executionContext) fieldContext_Folder_docCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Folder_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Folder",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
+			return nil, errors.New("field of type DateTime does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5302,6 +5430,139 @@ func (ec *executionContext) fieldContext_Mutation_rejectProposal(ctx context.Con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_rejectProposal_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createFolder(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_createFolder,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateFolder(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
+		},
+		nil,
+		ec.marshalNFolder2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolder,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createFolder(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Folder_id(ctx, field)
+			case "path":
+				return ec.fieldContext_Folder_path(ctx, field)
+			case "name":
+				return ec.fieldContext_Folder_name(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Folder_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Folder", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createFolder_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteFolder(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_deleteFolder,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteFolder(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_deleteFolder(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteFolder_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_moveFolder(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_moveFolder,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().MoveFolder(ctx, fc.Args["vaultId"].(string), fc.Args["oldPath"].(string), fc.Args["newPath"].(string))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_moveFolder(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_moveFolder_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -7694,12 +7955,14 @@ func (ec *executionContext) fieldContext_Vault_folders(ctx context.Context, fiel
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "id":
+				return ec.fieldContext_Folder_id(ctx, field)
 			case "path":
 				return ec.fieldContext_Folder_path(ctx, field)
 			case "name":
 				return ec.fieldContext_Folder_name(ctx, field)
-			case "docCount":
-				return ec.fieldContext_Folder_docCount(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Folder_createdAt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Folder", field.Name)
 		},
@@ -10506,6 +10769,11 @@ func (ec *executionContext) _Folder(ctx context.Context, sel ast.SelectionSet, o
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Folder")
+		case "id":
+			out.Values[i] = ec._Folder_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "path":
 			out.Values[i] = ec._Folder_path(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -10516,8 +10784,8 @@ func (ec *executionContext) _Folder(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "docCount":
-			out.Values[i] = ec._Folder_docCount(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._Folder_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -10715,6 +10983,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "rejectProposal":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_rejectProposal(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createFolder":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createFolder(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteFolder":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteFolder(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "moveFolder":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_moveFolder(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -12320,6 +12609,10 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 		}
 	}
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) marshalNFolder2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolder(ctx context.Context, sel ast.SelectionSet, v Folder) graphql.Marshaler {
+	return ec._Folder(ctx, sel, &v)
 }
 
 func (ec *executionContext) marshalNFolder2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*Folder) graphql.Marshaler {

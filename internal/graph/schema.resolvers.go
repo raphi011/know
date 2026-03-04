@@ -450,6 +450,41 @@ func (r *mutationResolver) RejectProposal(ctx context.Context, id string, notes 
 	return true, nil
 }
 
+// CreateFolder is the resolver for the createFolder field.
+func (r *mutationResolver) CreateFolder(ctx context.Context, vaultID string, path string) (*Folder, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	folder, err := r.vaultService.CreateFolder(ctx, vaultID, path)
+	if err != nil {
+		return nil, err
+	}
+	f := folderToGraphQL(*folder)
+	return &f, nil
+}
+
+// DeleteFolder is the resolver for the deleteFolder field.
+func (r *mutationResolver) DeleteFolder(ctx context.Context, vaultID string, path string) (bool, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return false, err
+	}
+	if err := r.vaultService.DeleteFolder(ctx, vaultID, path); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// MoveFolder is the resolver for the moveFolder field.
+func (r *mutationResolver) MoveFolder(ctx context.Context, vaultID string, oldPath string, newPath string) (bool, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return false, err
+	}
+	if err := r.vaultService.MoveFolder(ctx, vaultID, oldPath, newPath); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // CreateConversation is the resolver for the createConversation field.
 func (r *mutationResolver) CreateConversation(ctx context.Context, vaultID string) (*Conversation, error) {
 	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
