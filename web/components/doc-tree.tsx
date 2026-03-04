@@ -36,7 +36,12 @@ import type { Position } from "@/components/ui/context-menu";
 import { InlineTreeInput } from "@/components/inline-tree-input";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { cn } from "@/lib/utils";
-import type { TreeNode } from "@/app/lib/knowhow/types";
+import type { TreeNode, DocumentSummary } from "@/app/lib/knowhow/types";
+import {
+  resolveDropPath,
+  hasNameConflict,
+  validateInternalDrop,
+} from "@/app/lib/knowhow/dnd-utils";
 import {
   createDocument,
   deleteDocument,
@@ -44,6 +49,7 @@ import {
   deleteDocumentsByPrefix,
   moveDocumentsByPrefix,
 } from "@/app/lib/knowhow/mutations";
+import { useToast } from "@/components/ui/toast-provider";
 
 type EditingState =
   | { type: "new-doc"; parentPath: string }
@@ -54,6 +60,7 @@ type DocTreeProps = {
   tree: TreeNode[];
   activePath: string;
   vaultId: string;
+  documents: DocumentSummary[];
 };
 
 function findNode(nodes: TreeNode[], path: string): TreeNode | undefined {
@@ -82,9 +89,10 @@ function getSiblingNames(tree: TreeNode[], path: string): string[] {
   return parent.children.filter((n) => n.path !== path).map((n) => n.name);
 }
 
-function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
+function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
   const router = useRouter();
   const t = useTranslations("tree");
+  const { toast } = useToast();
 
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // Auto-expand folders that contain the active document
@@ -148,13 +156,51 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
     }
   }
 
-  function handleDragEnd(_event: DragEndEvent) {
+  async function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     if (expandTimer.current) {
       clearTimeout(expandTimer.current);
       expandTimer.current = null;
     }
-    // Will be implemented in Task 8
+
+    const { active, over } = event;
+    if (!over) return;
+
+    const draggedPath = String(active.id);
+    const overId = String(over.id);
+    if (!overId.startsWith("drop:")) return;
+
+    const targetFolder = over.data.current?.folderPath ?? "";
+
+    const validation = validateInternalDrop(draggedPath, targetFolder);
+    if (!validation.valid) return;
+
+    const newPath = resolveDropPath(draggedPath, targetFolder);
+
+    if (hasNameConflict(documents, newPath)) {
+      toast({
+        variant: "error",
+        title: `"${draggedPath.split("/").pop()}" already exists in ${targetFolder || "root"}`,
+      });
+      return;
+    }
+
+    const draggedNode = findNode(tree, draggedPath);
+    if (!draggedNode) return;
+
+    let result;
+    if (draggedNode.type === "folder") {
+      result = await moveDocumentsByPrefix(vaultId, draggedPath, newPath);
+    } else {
+      result = await moveDocument(vaultId, draggedPath, newPath);
+    }
+
+    if (!result.success) {
+      toast({ variant: "error", title: `Failed to move: ${result.error}` });
+      return;
+    }
+
+    router.refresh();
   }
 
   // Delete confirmation state

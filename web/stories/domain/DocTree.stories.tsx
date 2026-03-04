@@ -1,6 +1,6 @@
 import preview from "#.storybook/preview";
 import { DocTree } from "@/components/doc-tree";
-import type { TreeNode } from "@/app/lib/knowhow/types";
+import type { TreeNode, DocumentSummary } from "@/app/lib/knowhow/types";
 
 const sampleTree: TreeNode[] = [
   {
@@ -27,6 +27,49 @@ const sampleTree: TreeNode[] = [
   { type: "document", name: "README", path: "README.md" },
 ];
 
+const sampleDocuments: DocumentSummary[] = [
+  {
+    id: "1",
+    vaultId: "vault:test",
+    path: "guides/getting-started.md",
+    title: "Getting Started",
+    labels: [],
+    docType: null,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  },
+  {
+    id: "2",
+    vaultId: "vault:test",
+    path: "guides/advanced.md",
+    title: "Advanced",
+    labels: [],
+    docType: null,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  },
+  {
+    id: "3",
+    vaultId: "vault:test",
+    path: "api/endpoints.md",
+    title: "Endpoints",
+    labels: [],
+    docType: null,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  },
+  {
+    id: "4",
+    vaultId: "vault:test",
+    path: "README.md",
+    title: "README",
+    labels: [],
+    docType: null,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  },
+];
+
 const meta = preview.meta({
   title: "Domain/DocTree",
   component: DocTree,
@@ -41,6 +84,7 @@ export const WithContextMenu = meta.story({
     tree: sampleTree,
     activePath: "guides/getting-started.md",
     vaultId: "vault:test",
+    documents: sampleDocuments,
   },
   render: (args) => (
     <div className="h-96 w-64 border border-slate-200 dark:border-slate-800">

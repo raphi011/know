@@ -2,14 +2,15 @@
 
 import { usePathname } from "next/navigation";
 import { DocTree } from "@/components/doc-tree";
-import type { TreeNode } from "@/app/lib/knowhow/types";
+import type { TreeNode, DocumentSummary } from "@/app/lib/knowhow/types";
 
 type DocSidebarProps = {
   tree: TreeNode[];
   vaultId: string;
+  documents: DocumentSummary[];
 };
 
-function DocSidebar({ tree, vaultId }: DocSidebarProps) {
+function DocSidebar({ tree, vaultId, documents }: DocSidebarProps) {
   const pathname = usePathname();
 
   // Extract document path from URL: /docs/foo/bar.md → foo/bar.md
@@ -17,7 +18,14 @@ function DocSidebar({ tree, vaultId }: DocSidebarProps) {
     ? pathname.slice("/docs/".length)
     : "";
 
-  return <DocTree tree={tree} activePath={activePath} vaultId={vaultId} />;
+  return (
+    <DocTree
+      tree={tree}
+      activePath={activePath}
+      vaultId={vaultId}
+      documents={documents}
+    />
+  );
 }
 
 export { DocSidebar };

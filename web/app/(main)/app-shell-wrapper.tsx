@@ -52,7 +52,9 @@ export function AppShellWrapper({
         vaults={vaults}
         activeVaultId={vault?.id ?? null}
       />
-      {vault && <DocSidebar tree={tree} vaultId={vault.id} />}
+      {vault && (
+        <DocSidebar tree={tree} vaultId={vault.id} documents={documents} />
+      )}
     </>
   );
 
