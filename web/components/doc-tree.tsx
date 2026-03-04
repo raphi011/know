@@ -13,6 +13,7 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
@@ -356,6 +357,33 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
     setEditing(null);
   }
 
+  const announcements: Announcements = {
+    onDragStart({ active }) {
+      return `Picked up ${active.id}`;
+    },
+    onDragOver({ active, over }) {
+      if (over) {
+        const target = String(over.id).startsWith("drop:")
+          ? over.data.current?.folderPath || "root"
+          : over.id;
+        return `${active.id} is over ${target}`;
+      }
+      return `${active.id} is no longer over a drop target`;
+    },
+    onDragEnd({ active, over }) {
+      if (over) {
+        const target = String(over.id).startsWith("drop:")
+          ? over.data.current?.folderPath || "root"
+          : over.id;
+        return `${active.id} was dropped on ${target}`;
+      }
+      return `${active.id} was dropped`;
+    },
+    onDragCancel({ active }) {
+      return `Dragging ${active.id} was cancelled`;
+    },
+  };
+
   return (
     <>
       <FileDropZone
@@ -367,6 +395,7 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
         <ScrollArea className="h-full">
           <DndContext
             sensors={sensors}
+            accessibility={{ announcements }}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
