@@ -56,7 +56,7 @@ func loadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("instance %q: url must be http or https", inst.Name)
 		}
 		if inst.Token == "" {
-			slog.Debug("instance has no token configured (no-auth mode)", "name", inst.Name)
+			slog.Warn("instance has no token configured — requests will fail if server requires auth", "name", inst.Name)
 		}
 	}
 

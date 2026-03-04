@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -36,6 +37,9 @@ type gqlError struct {
 // New creates a new GraphQL client. The url should be the full GraphQL
 // endpoint (e.g. "http://localhost:8484/query").
 func New(url, token string) *Client {
+	if token == "" {
+		slog.Debug("graphql client created without auth token (no-auth mode)", "url", url)
+	}
 	return &Client{url: url, token: token, http: &http.Client{Timeout: 30 * time.Second}}
 }
 

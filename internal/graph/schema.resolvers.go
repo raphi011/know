@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
@@ -594,6 +595,9 @@ func (r *queryResolver) Vaults(ctx context.Context) ([]*Vault, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Wildcard grants access to all vaults (no-auth mode)
+	hasWildcard := slices.Contains(ac.VaultAccess, auth.WildcardVaultAccess)
+
 	// Filter to vaults the user has access to
 	accessSet := make(map[string]bool, len(ac.VaultAccess))
 	for _, id := range ac.VaultAccess {
@@ -601,6 +605,10 @@ func (r *queryResolver) Vaults(ctx context.Context) ([]*Vault, error) {
 	}
 	var result []*Vault
 	for i := range all {
+		if hasWildcard {
+			result = append(result, vaultToGraphQL(&all[i]))
+			continue
+		}
 		id, err := models.RecordIDString(all[i].ID)
 		if err != nil {
 			slog.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)

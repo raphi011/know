@@ -48,7 +48,9 @@ services:
     environment:
       AUTH_DISABLED: "true"
       BACKEND_URL: http://knowhow-server:8484
+      # Required by env validation but unused in no-auth mode
       SESSION_SECRET: local-no-auth-not-used
+      # Ensure env validation runs at runtime (empty disables build-phase skip)
       NEXT_PHASE: ""
     depends_on:
       knowhow-server:

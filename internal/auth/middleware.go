@@ -11,13 +11,13 @@ import (
 	"github.com/raphi011/knowhow/internal/models"
 )
 
-// NoAuthMiddleware injects a hardcoded admin AuthContext, bypassing token
-// validation entirely. Use only for local/Docker setups without auth.
+// NoAuthMiddleware injects an admin AuthContext with access to all vaults,
+// bypassing token validation entirely. Use only for local/Docker setups.
 func NoAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ac := AuthContext{
 			UserID:      "admin",
-			VaultAccess: []string{"default"},
+			VaultAccess: []string{WildcardVaultAccess},
 		}
 		next.ServeHTTP(w, r.WithContext(WithAuth(r.Context(), ac)))
 	})

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/app/lib/session";
+import { env } from "@/app/lib/env";
 import { getVaults, getVaultDocuments, getVaultFolders } from "@/app/lib/knowhow/queries";
 import {
   getConnections,
@@ -13,17 +14,21 @@ export default async function MainLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
-  if (!session || session.servers.length === 0) {
-    redirect("/login");
+  let connections: Awaited<ReturnType<typeof getConnections>> = [];
+  let activeConnection: Awaited<ReturnType<typeof getActiveConnection>> = null;
+
+  if (!env.AUTH_DISABLED) {
+    const session = await getSession();
+    if (!session || session.servers.length === 0) {
+      redirect("/login");
+    }
+    connections = await getConnections();
+    activeConnection = await getActiveConnection();
   }
 
-  const connections = await getConnections();
-  const activeConnection = await getActiveConnection();
-
-  // Only fetch vaults if we have a connection
+  // Fetch vaults — in no-auth mode gql() uses BACKEND_URL directly
   let vaults: Awaited<ReturnType<typeof getVaults>> = [];
-  if (activeConnection) {
+  if (env.AUTH_DISABLED || activeConnection) {
     try {
       vaults = await getVaults();
     } catch {

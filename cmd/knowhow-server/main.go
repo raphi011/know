@@ -78,7 +78,7 @@ func main() {
 	// Auth middleware wraps GraphQL handler
 	var authMw func(http.Handler) http.Handler
 	if cfg.NoAuth {
-		slog.Info("no-auth mode enabled: skipping token validation")
+		slog.Warn("no-auth mode enabled: skipping token validation")
 		authMw = auth.NoAuthMiddleware
 	} else {
 		authMw = auth.Middleware(resolver.DBClient())

@@ -27,12 +27,20 @@ export const env = {
   get SESSION_SECRET() {
     return requiredInProduction("SESSION_SECRET");
   },
-  /** Optional default server URL shown on the login page. */
+  /** Backend server URL. In auth mode, shown as default on the login page.
+   *  In no-auth mode (AUTH_DISABLED=true), used as the sole backend URL. */
   get BACKEND_URL() {
     return process.env.BACKEND_URL || "http://localhost:8484";
   },
+  /** Disables all authentication. Only for local/Docker deployments. */
   get AUTH_DISABLED() {
-    return process.env.AUTH_DISABLED === "true";
+    const disabled = process.env.AUTH_DISABLED === "true";
+    if (disabled && process.env.NODE_ENV === "production" && !isBuildPhase) {
+      console.warn(
+        "[env] WARNING: AUTH_DISABLED=true in production — all authentication is bypassed!",
+      );
+    }
+    return disabled;
   },
   get NODE_ENV() {
     return process.env.NODE_ENV ?? "development";

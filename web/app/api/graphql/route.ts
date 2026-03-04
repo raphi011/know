@@ -70,7 +70,8 @@ async function proxyWithoutAuth(request: NextRequest) {
   let body: string;
   try {
     body = await request.text();
-  } catch {
+  } catch (err) {
+    console.error("Failed to read request body:", err);
     return NextResponse.json(
       { errors: [{ message: "Failed to read request body" }] },
       { status: 400 },
@@ -95,9 +96,10 @@ async function proxyWithoutAuth(request: NextRequest) {
   let data: unknown;
   try {
     data = await response.json();
-  } catch {
+  } catch (err) {
     console.error(
-      `Knowhow API returned non-JSON response (status ${response.status})`,
+      `Knowhow API returned non-JSON response (status ${response.status}):`,
+      err,
     );
     return NextResponse.json(
       { errors: [{ message: `Upstream error (HTTP ${response.status})` }] },
