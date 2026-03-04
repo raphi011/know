@@ -103,7 +103,9 @@
     "agentToolSearching": "Suche: {query}",
     "agentToolReading": "Lese: {path}",
     "agentToolFound": "{count} gefunden",
-    "agentToolRead": "Gelesen: {path}"
+    "agentToolRead": "Gelesen: {path}",
+    "agentToolWebSearching": "Websuche: {query}",
+    "agentToolWebSearched": "Websuche abgeschlossen"
   },
   "dnd": {
     "dropFilesHere": ".md-Dateien hier ablegen",

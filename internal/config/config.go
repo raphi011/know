@@ -48,6 +48,7 @@ type Config struct {
 	AnthropicAPIKey      string
 	GoogleAIAPIKey       string
 	BedrockModelProvider string // e.g., "anthropic" for inference profiles
+	TavilyAPIKey         string
 
 	// Logging
 	LogFile  string
@@ -104,6 +105,7 @@ func Load() Config {
 		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
 		GoogleAIAPIKey:       getEnv("GOOGLE_AI_API_KEY", ""),
 		BedrockModelProvider: getEnv("KNOWHOW_BEDROCK_MODEL_PROVIDER", ""),
+		TavilyAPIKey:         getEnv("TAVILY_API_KEY", ""),
 
 		// Logging
 		LogFile:  getEnv("KNOWHOW_LOG_FILE", "/tmp/knowhow.log"),

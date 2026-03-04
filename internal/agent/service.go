@@ -27,11 +27,16 @@ type Service struct {
 	db     *db.Client
 	model  *llm.Model
 	search *search.Service
+	tavily *tavilyClient
 }
 
 // NewService creates a new agent service.
-func NewService(db *db.Client, model *llm.Model, search *search.Service) *Service {
-	return &Service{db: db, model: model, search: search}
+func NewService(db *db.Client, model *llm.Model, search *search.Service, tavilyAPIKey string) *Service {
+	s := &Service{db: db, model: model, search: search}
+	if tavilyAPIKey != "" {
+		s.tavily = newTavilyClient(tavilyAPIKey)
+	}
+	return s
 }
 
 // Available returns true if the agent has an LLM model configured.
@@ -42,7 +47,7 @@ func (s *Service) Available() bool {
 // toolAction is the LLM's decision from intent detection.
 type toolAction struct {
 	Action string          `json:"action"` // "tool" or "answer"
-	Tool   string          `json:"tool"`   // "kb_search" or "read_document"
+	Tool   string          `json:"tool"`   // "kb_search", "read_document", or "web_search"
 	Input  json.RawMessage `json:"input"`
 }
 
@@ -54,11 +59,26 @@ type readDocInput struct {
 	Path string `json:"path"`
 }
 
-const systemPromptBase = `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
+type webSearchInput struct {
+	Query string `json:"query"`
+}
 
-You have access to two tools:
+// buildSystemPromptBase constructs the base system prompt, conditionally including web_search when Tavily is configured.
+func (s *Service) buildSystemPromptBase() string {
+	base := `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
+
+You have access to the following tools:
 1. kb_search(query) - Search the knowledge base for relevant documents
-2. read_document(path) - Read the full content of a specific document by path
+2. read_document(path) - Read the full content of a specific document by path`
+
+	if s.tavily != nil {
+		base += `
+3. web_search(query) - Search the web for information not found in the knowledge base
+
+IMPORTANT: NEVER call web_search directly. If kb_search returns no or insufficient results, tell the user and ask "Would you like me to search the web?" Only call web_search after the user explicitly confirms.`
+	}
+
+	base += `
 
 When the user asks a question:
 - If you need to find relevant information, use kb_search first
@@ -69,32 +89,51 @@ Always cite document paths when referencing information from the knowledge base.
 Be concise and helpful. Answer based on the knowledge base content when available.
 Do not include a sources section at the end of your response — one will be added automatically.`
 
-const intentPrompt = `Based on the conversation so far, decide your next action.
+	return base
+}
+
+// buildIntentPrompt constructs the intent-detection prompt with tool options matching the available tools.
+func (s *Service) buildIntentPrompt() string {
+	base := `Based on the conversation so far, decide your next action.
 
 If you need to search for information, respond with EXACTLY this JSON (no other text):
 {"action":"tool","tool":"kb_search","input":{"query":"your search query"}}
 
 If you need to read a specific document, respond with EXACTLY this JSON (no other text):
-{"action":"tool","tool":"read_document","input":{"path":"/document/path"}}
+{"action":"tool","tool":"read_document","input":{"path":"/document/path"}}`
+
+	if s.tavily != nil {
+		base += `
+
+If the user has explicitly asked you to search the web, respond with EXACTLY this JSON (no other text):
+{"action":"tool","tool":"web_search","input":{"query":"your search query"}}`
+	}
+
+	base += `
 
 If you have enough information to answer the user's question, respond with EXACTLY this JSON (no other text):
 {"action":"answer"}
 
 Respond with ONLY the JSON, no explanation.`
 
+	return base
+}
+
 // buildSystemPrompt constructs the system prompt, optionally appending the vault's folder tree.
 func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string {
+	base := s.buildSystemPromptBase()
+
 	folders, err := s.db.ListFolders(ctx, vaultID)
 	if err != nil {
 		slog.Warn("failed to list folders for system prompt", "vault_id", vaultID, "error", err)
-		return systemPromptBase
+		return base
 	}
 	if len(folders) == 0 {
-		return systemPromptBase
+		return base
 	}
 
 	var sb strings.Builder
-	sb.WriteString(systemPromptBase)
+	sb.WriteString(base)
 	sb.WriteString("\n\nVault folder structure:\n```\n/\n")
 	for _, f := range folders {
 		depth := strings.Count(strings.Trim(f.Path, "/"), "/")
@@ -196,7 +235,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		// Intent detection (non-streaming)
 		intentQuery := req.Content
 		if i > 0 {
-			intentQuery = intentPrompt
+			intentQuery = s.buildIntentPrompt()
 		}
 
 		decision, err := s.detectIntent(ctx, history, intentQuery, i == 0, sysPrompt)
@@ -327,15 +366,17 @@ func (s *Service) buildHistory(messages []models.Message, toolContext string) []
 }
 
 func (s *Service) detectIntent(ctx context.Context, history []llm.ChatMessage, query string, firstTurn bool, sysPrompt string) (*toolAction, error) {
+	intentPr := s.buildIntentPrompt()
+
 	prompt := sysPrompt
 	if !firstTurn {
-		prompt = sysPrompt + "\n\n" + intentPrompt
+		prompt = sysPrompt + "\n\n" + intentPr
 	}
 
 	// For intent detection, append the intent prompt to the user query
 	fullQuery := query
 	if firstTurn {
-		fullQuery = query + "\n\n" + intentPrompt
+		fullQuery = query + "\n\n" + intentPr
 	}
 
 	response, err := s.model.GenerateWithSystem(ctx, prompt, buildHistoryText(history, fullQuery))
@@ -423,6 +464,25 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 
 		emit(StreamEvent{Type: "tool_result", Content: doc.Path, Tool: "read_document"})
 		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), []docSource{{Title: doc.Title, Path: doc.Path}}, nil
+
+	case "web_search":
+		var input webSearchInput
+		if err := json.Unmarshal(action.Input, &input); err != nil {
+			return "", nil, fmt.Errorf("parse web_search input: %w", err)
+		}
+		if s.tavily == nil {
+			return "", nil, fmt.Errorf("web search not configured")
+		}
+		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "web_search"})
+
+		result, err := s.tavily.Search(ctx, input.Query)
+		if err != nil {
+			return "", nil, fmt.Errorf("web search: %w", err)
+		}
+
+		emit(StreamEvent{Type: "tool_result", Content: "Web search complete", Tool: "web_search"})
+		// web_search returns no docSources since results are external, not KB documents
+		return result, nil, nil
 
 	default:
 		return "", nil, fmt.Errorf("unknown tool: %s", action.Tool)

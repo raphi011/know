@@ -91,6 +91,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		"embed_dimension", cfg.EmbedDimension,
 		"semantic_search", embedder != nil,
 		"agent_chat", model != nil,
+		"web_search", cfg.TavilyAPIKey != "",
 		"chunk_threshold", chunkConfig.Threshold,
 		"chunk_target", chunkConfig.TargetSize,
 		"chunk_min", chunkConfig.MinSize,
@@ -103,7 +104,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	close(workerDone) // safe default: <-workerDone returns immediately if no worker
 
 	searchSvc := search.NewService(dbClient, embedder)
-	agentSvc := agent.NewService(dbClient, model, searchSvc)
+	agentSvc := agent.NewService(dbClient, model, searchSvc, cfg.TavilyAPIKey)
 
 	r := &Resolver{
 		db:              dbClient,

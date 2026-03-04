@@ -119,6 +119,12 @@ spec:
                   name: {{ .Values.apiKeys.existingSecret }}
                   key: google-ai-api-key
                   optional: true
+            - name: TAVILY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiKeys.existingSecret }}
+                  key: tavily-api-key
+                  optional: true
             {{- else }}
             {{- if .Values.apiKeys.openaiApiKey }}
             - name: OPENAI_API_KEY
@@ -140,6 +146,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "knowhow.fullname" . }}-api-keys
                   key: google-ai-api-key
+            {{- end }}
+            {{- if .Values.apiKeys.tavilyApiKey }}
+            - name: TAVILY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "knowhow.fullname" . }}-api-keys
+                  key: tavily-api-key
             {{- end }}
             {{- end }}
             # AWS Bedrock
