@@ -1,4 +1,4 @@
-// Package llm provides LLM and embedding services using langchaingo.
+// Package llm provides LLM and embedding services using eino.
 package llm
 
 import (
@@ -10,18 +10,24 @@ import (
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/cloudwego/eino/components/embedding"
+	geminiembed "github.com/cloudwego/eino-ext/components/embedding/gemini"
+	ollamaembed "github.com/cloudwego/eino-ext/components/embedding/ollama"
+	openaiembed "github.com/cloudwego/eino-ext/components/embedding/openai"
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/metrics"
-	"github.com/tmc/langchaingo/embeddings"
 	bedrockembed "github.com/tmc/langchaingo/embeddings/bedrock"
-	"github.com/tmc/langchaingo/llms/googleai"
-	"github.com/tmc/langchaingo/llms/ollama"
-	"github.com/tmc/langchaingo/llms/openai"
+	"google.golang.org/genai"
 )
 
-// Embedder wraps langchaingo embeddings with dimension validation.
+// einoEmbedder matches eino's embedding.Embedder interface.
+type einoEmbedder interface {
+	EmbedStrings(ctx context.Context, texts []string, opts ...embedding.Option) ([][]float64, error)
+}
+
+// Embedder wraps eino embeddings with dimension validation.
 type Embedder struct {
-	model     embeddings.Embedder
+	model     einoEmbedder
 	dimension int
 	modelName string
 	metrics   *metrics.Collector
@@ -30,19 +36,15 @@ type Embedder struct {
 // NewEmbedder creates an embedder based on configuration.
 // If mc is nil, metrics recording is disabled.
 func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*Embedder, error) {
-	var model embeddings.Embedder
+	var model einoEmbedder
 	var err error
 
 	switch cfg.EmbedProvider {
 	case config.ProviderOllama:
-		llm, ollamaErr := ollama.New(
-			ollama.WithModel(cfg.EmbedModel),
-			ollama.WithServerURL(cfg.OllamaHost),
-		)
-		if ollamaErr != nil {
-			return nil, fmt.Errorf("create ollama client: %w", ollamaErr)
-		}
-		model, err = embeddings.NewEmbedder(llm)
+		model, err = ollamaembed.NewEmbedder(ctx, &ollamaembed.EmbeddingConfig{
+			BaseURL: cfg.OllamaHost,
+			Model:   cfg.EmbedModel,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("create ollama embedder: %w", err)
 		}
@@ -51,14 +53,19 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 		if cfg.GoogleAIAPIKey == "" {
 			return nil, fmt.Errorf("google AI API key required (GOOGLE_AI_API_KEY)")
 		}
-		llm, googleErr := googleai.New(ctx,
-			googleai.WithAPIKey(cfg.GoogleAIAPIKey),
-			googleai.WithDefaultEmbeddingModel(cfg.EmbedModel),
-		)
-		if googleErr != nil {
-			return nil, fmt.Errorf("create google ai client: %w", googleErr)
+		client, clientErr := genai.NewClient(ctx, &genai.ClientConfig{
+			APIKey:  cfg.GoogleAIAPIKey,
+			Backend: genai.BackendGeminiAPI,
+		})
+		if clientErr != nil {
+			return nil, fmt.Errorf("create google ai client: %w", clientErr)
 		}
-		model, err = embeddings.NewEmbedder(llm)
+		dim := int32(cfg.EmbedDimension)
+		model, err = geminiembed.NewEmbedder(ctx, &geminiembed.EmbeddingConfig{
+			Client:               client,
+			Model:                cfg.EmbedModel,
+			OutputDimensionality: &dim,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("create google ai embedder: %w", err)
 		}
@@ -67,34 +74,26 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 		if cfg.OpenAIAPIKey == "" {
 			return nil, fmt.Errorf("openAI API key required")
 		}
-		llm, openaiErr := openai.New(
-			openai.WithToken(cfg.OpenAIAPIKey),
-			openai.WithEmbeddingModel(cfg.EmbedModel),
-		)
-		if openaiErr != nil {
-			return nil, fmt.Errorf("create openai client: %w", openaiErr)
-		}
-		model, err = embeddings.NewEmbedder(llm)
+		dim := cfg.EmbedDimension
+		model, err = openaiembed.NewEmbedder(ctx, &openaiembed.EmbeddingConfig{
+			APIKey:     cfg.OpenAIAPIKey,
+			Model:      cfg.EmbedModel,
+			Dimensions: &dim,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("create openai embedder: %w", err)
 		}
 
 	case config.ProviderAnthropic:
 		// Anthropic embeddings via Voyage AI (OpenAI-compatible API).
-		// Voyage AI (acquired by Anthropic) exposes an OpenAI-compatible
-		// embeddings endpoint at https://api.voyageai.com/v1.
 		if cfg.AnthropicAPIKey == "" {
 			return nil, fmt.Errorf("anthropic API key required (used for Voyage AI embeddings)")
 		}
-		llm, voyageErr := openai.New(
-			openai.WithToken(cfg.AnthropicAPIKey),
-			openai.WithBaseURL("https://api.voyageai.com/v1"),
-			openai.WithEmbeddingModel(cfg.EmbedModel),
-		)
-		if voyageErr != nil {
-			return nil, fmt.Errorf("create anthropic/voyage embedder: %w", voyageErr)
-		}
-		model, err = embeddings.NewEmbedder(llm)
+		model, err = openaiembed.NewEmbedder(ctx, &openaiembed.EmbeddingConfig{
+			APIKey:  cfg.AnthropicAPIKey,
+			BaseURL: "https://api.voyageai.com/v1",
+			Model:   cfg.EmbedModel,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("create anthropic/voyage embedder: %w", err)
 		}
@@ -119,13 +118,22 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 	}, nil
 }
 
+// float64sToFloat32s converts a float64 slice to float32.
+func float64sToFloat32s(in []float64) []float32 {
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v)
+	}
+	return out
+}
+
 // Embed generates an embedding vector for text.
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	textLen := len(text)
 	slog.Debug("embedding text", "model", e.modelName, "text_len", textLen)
 
 	start := time.Now()
-	vectors, err := e.model.EmbedDocuments(ctx, []string{text})
+	vectors, err := e.model.EmbedStrings(ctx, []string{text})
 	duration := time.Since(start)
 
 	if err != nil {
@@ -137,9 +145,9 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	embedding := vectors[0]
-	if len(embedding) != e.dimension {
-		return nil, fmt.Errorf("dimension mismatch: got %d, want %d", len(embedding), e.dimension)
+	vec := vectors[0]
+	if len(vec) != e.dimension {
+		return nil, fmt.Errorf("dimension mismatch: got %d, want %d", len(vec), e.dimension)
 	}
 
 	slog.Debug("embedding complete", "model", e.modelName, "text_len", textLen, "duration_ms", duration.Milliseconds())
@@ -148,7 +156,7 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
 	}
 
-	return embedding, nil
+	return float64sToFloat32s(vec), nil
 }
 
 // EmbedBatch generates embeddings for multiple texts.
@@ -158,7 +166,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 	}
 
 	start := time.Now()
-	vectors, err := e.model.EmbedDocuments(ctx, texts)
+	vectors, err := e.model.EmbedStrings(ctx, texts)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -169,19 +177,19 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 		return nil, fmt.Errorf("count mismatch: got %d, want %d", len(vectors), len(texts))
 	}
 
-	// Validate dimensions
+	result := make([][]float32, len(vectors))
 	for i, v := range vectors {
 		if len(v) != e.dimension {
 			return nil, fmt.Errorf("embedding %d dimension mismatch: got %d, want %d", i, len(v), e.dimension)
 		}
+		result[i] = float64sToFloat32s(v)
 	}
 
-	// Record one timing entry per batch (not per text)
 	if e.metrics != nil {
 		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
 	}
 
-	return vectors, nil
+	return result, nil
 }
 
 // Model returns the embedding model name.
@@ -194,8 +202,8 @@ func (e *Embedder) Dimension() int {
 	return e.dimension
 }
 
-// bedrockEmbedder wraps langchaingo's bedrock embedder with ARN support.
-// The standard bedrock embedder can't detect provider from ARN-based model IDs.
+// bedrockEmbedder wraps langchaingo's bedrock embedder with ARN support,
+// adapted to return [][]float64 for the einoEmbedder interface.
 type bedrockEmbedder struct {
 	client   *bedrockruntime.Client
 	modelID  string
@@ -204,7 +212,7 @@ type bedrockEmbedder struct {
 
 // newBedrockEmbedder creates a Bedrock embedder that supports inference profile ARNs.
 // If providerHint is empty and modelID is an ARN, returns error.
-func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (embeddings.Embedder, error) {
+func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (*bedrockEmbedder, error) {
 	// Determine provider
 	provider := providerHint
 	if provider == "" {
@@ -239,8 +247,17 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (embe
 	}, nil
 }
 
-// EmbedDocuments implements embeddings.Embedder.
-func (b *bedrockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+// float32sToFloat64s converts a float32 slice to float64.
+func float32sToFloat64s(in []float32) []float64 {
+	out := make([]float64, len(in))
+	for i, v := range in {
+		out[i] = float64(v)
+	}
+	return out
+}
+
+// EmbedStrings implements einoEmbedder.
+func (b *bedrockEmbedder) EmbedStrings(ctx context.Context, texts []string, _ ...embedding.Option) ([][]float64, error) {
 	start := time.Now()
 	totalChars := 0
 	for _, t := range texts {
@@ -263,31 +280,16 @@ func (b *bedrockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([
 	duration := time.Since(start)
 	if err != nil {
 		slog.Warn("bedrock embedding failed", "provider", b.provider, "duration_ms", duration.Milliseconds(), "error", err)
-		return nil, err
+		return nil, fmt.Errorf("bedrock %s embedding: %w", b.provider, err)
 	}
 	slog.Debug("bedrock embedding complete", "provider", b.provider, "texts", len(texts), "duration_ms", duration.Milliseconds())
-	return vecs, nil
-}
 
-// EmbedQuery implements embeddings.Embedder.
-func (b *bedrockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
-	var vecs [][]float32
-	var err error
-
-	switch b.provider {
-	case "amazon":
-		vecs, err = bedrockembed.FetchAmazonTextEmbeddings(ctx, b.client, b.modelID, []string{text})
-	case "cohere":
-		vecs, err = bedrockembed.FetchCohereTextEmbeddings(ctx, b.client, b.modelID, []string{text}, bedrockembed.CohereInputTypeQuery)
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s", b.provider)
+	// Convert float32→float64 for einoEmbedder interface. The Embedder wrapper
+	// converts back to float32 for storage. This round-trip is lossless but
+	// required because langchaingo bedrock returns float32 while eino uses float64.
+	result := make([][]float64, len(vecs))
+	for i, v := range vecs {
+		result[i] = float32sToFloat64s(v)
 	}
-
-	if err != nil {
-		return nil, err
-	}
-	if len(vecs) == 0 {
-		return nil, fmt.Errorf("no embedding returned")
-	}
-	return vecs[0], nil
+	return result, nil
 }

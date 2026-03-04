@@ -156,10 +156,6 @@ spec:
             {{- end }}
             {{- end }}
             # AWS Bedrock
-            {{- if .Values.bedrock.modelProvider }}
-            - name: KNOWHOW_BEDROCK_MODEL_PROVIDER
-              value: {{ .Values.bedrock.modelProvider | quote }}
-            {{- end }}
             {{- if .Values.bedrock.embedModelProvider }}
             - name: KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER
               value: {{ .Values.bedrock.embedModelProvider | quote }}

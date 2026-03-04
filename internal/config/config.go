@@ -43,12 +43,11 @@ type Config struct {
 	LLMModel    string
 
 	// Provider-specific settings
-	OllamaHost           string
-	OpenAIAPIKey         string
-	AnthropicAPIKey      string
-	GoogleAIAPIKey       string
-	BedrockModelProvider string // e.g., "anthropic" for inference profiles
-	TavilyAPIKey         string
+	OllamaHost      string
+	OpenAIAPIKey    string
+	AnthropicAPIKey string
+	GoogleAIAPIKey  string
+	TavilyAPIKey    string
 
 	// Logging
 	LogFile  string
@@ -104,8 +103,7 @@ func Load() Config {
 		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
 		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
 		GoogleAIAPIKey:       getEnv("GOOGLE_AI_API_KEY", ""),
-		BedrockModelProvider: getEnv("KNOWHOW_BEDROCK_MODEL_PROVIDER", ""),
-		TavilyAPIKey:         getEnv("TAVILY_API_KEY", ""),
+		TavilyAPIKey: getEnv("TAVILY_API_KEY", ""),
 
 		// Logging
 		LogFile:  getEnv("KNOWHOW_LOG_FILE", "/tmp/knowhow.log"),

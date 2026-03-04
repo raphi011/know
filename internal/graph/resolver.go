@@ -70,7 +70,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	// LLM model is optional — nil disables agent chat
 	var model *llm.Model
 	if cfg.LLMProvider != config.ProviderNone && cfg.LLMProvider != "" {
-		m, err := llm.NewModel(cfg, nil)
+		m, err := llm.NewModel(ctx, cfg, nil)
 		if err != nil {
 			slog.Warn("LLM model initialization failed, agent chat disabled", "error", err)
 		} else {
