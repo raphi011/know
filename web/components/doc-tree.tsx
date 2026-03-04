@@ -9,6 +9,7 @@ import {
   DragOverlay,
   PointerSensor,
   KeyboardSensor,
+  useDraggable,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -110,6 +111,7 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
 
   // Drag-and-drop state
   const [activeId, setActiveId] = useState<string | null>(null);
+  const activeNode = activeId ? findNode(tree, activeId) ?? null : null;
 
   const pointerSensor = useSensor(PointerSensor, {
     activationConstraint: { distance: 8 },
@@ -327,9 +329,14 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
             )}
           </div>
           <DragOverlay>
-            {activeId ? (
-              <div className="rounded bg-white px-2 py-1 shadow-md text-sm dark:bg-zinc-800">
-                {activeId}
+            {activeNode ? (
+              <div className="flex items-center gap-2 rounded bg-white px-3 py-1.5 shadow-lg text-sm dark:bg-zinc-800">
+                {activeNode.type === "folder" ? (
+                  <FolderIcon className="h-4 w-4 text-zinc-400" />
+                ) : (
+                  <DocumentTextIcon className="h-4 w-4 text-zinc-400" />
+                )}
+                {activeNode.name}
               </div>
             ) : null}
           </DragOverlay>
@@ -454,6 +461,11 @@ function TreeNodeItem({
   onInlineConfirm: (name: string) => void;
   onInlineCancel: () => void;
 }) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: node.path,
+    data: { node },
+  });
+
   const isFolder = node.type === "folder";
   const isExpanded = expanded.has(node.path);
   const isActive = !isFolder && node.path === activePath;
@@ -480,6 +492,7 @@ function TreeNodeItem({
     isActive
       ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-400"
       : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
+    isDragging && "opacity-50",
   );
 
   const itemContent = (
@@ -507,6 +520,9 @@ function TreeNodeItem({
     <>
       {isFolder ? (
         <button
+          ref={setDragRef}
+          {...listeners}
+          {...attributes}
           onClick={() => onToggle(node.path)}
           onContextMenu={(e) => onContextMenu(e, node)}
           className={itemClasses}
@@ -516,6 +532,9 @@ function TreeNodeItem({
         </button>
       ) : (
         <Link
+          ref={setDragRef}
+          {...listeners}
+          {...attributes}
           href={`/docs/${node.path}`}
           onContextMenu={(e) => onContextMenu(e, node)}
           className={itemClasses}
