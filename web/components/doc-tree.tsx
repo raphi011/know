@@ -19,8 +19,8 @@ import {
   type DragOverEvent,
 } from "@dnd-kit/core";
 import {
-  ChevronRightIcon,
   FolderIcon,
+  FolderOpenIcon,
   DocumentTextIcon,
   DocumentPlusIcon,
   FolderPlusIcon,
@@ -238,6 +238,18 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
         return;
       }
 
+      // Expand the target folder so the moved item is visible
+      if (targetFolder) {
+        setExpanded((prev) => new Set([...prev, targetFolder]));
+      }
+
+      // Navigate to new path if the active document was moved
+      if (draggedNode.type === "document" && draggedPath === activePath) {
+        router.push(`/docs/${newPath}`);
+      } else if (draggedNode.type === "folder" && activePath.startsWith(draggedPath + "/")) {
+        const updatedActive = activePath.replace(draggedPath, newPath);
+        router.push(`/docs/${updatedActive}`);
+      }
       router.refresh();
     } catch (err) {
       console.error("Drag-and-drop move failed:", err);
@@ -665,17 +677,11 @@ function TreeNodeItem({
   const itemContent = (
     <>
       {isFolder ? (
-        <ChevronRightIcon
-          className={cn(
-            "size-3.5 shrink-0 transition-transform duration-150",
-            isExpanded && "rotate-90",
-          )}
-        />
-      ) : (
-        <span className="size-3.5 shrink-0" />
-      )}
-      {isFolder ? (
-        <FolderIcon className="size-4 shrink-0" />
+        isExpanded ? (
+          <FolderOpenIcon className="size-4 shrink-0" />
+        ) : (
+          <FolderIcon className="size-4 shrink-0" />
+        )
       ) : (
         <DocumentTextIcon className="size-4 shrink-0" />
       )}
@@ -693,7 +699,7 @@ function TreeNodeItem({
           onClick={() => onToggle(node.path)}
           onContextMenu={(e) => onContextMenu(e, node)}
           className={itemClasses}
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          style={{ paddingLeft: `${depth * 16}px` }}
         >
           {itemContent}
         </button>
@@ -705,7 +711,7 @@ function TreeNodeItem({
           href={`/docs/${node.path}`}
           onContextMenu={(e) => onContextMenu(e, node)}
           className={itemClasses}
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          style={{ paddingLeft: `${depth * 16}px` }}
           aria-current={isActive ? "page" : undefined}
         >
           {itemContent}

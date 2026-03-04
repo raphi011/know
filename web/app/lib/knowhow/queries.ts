@@ -43,6 +43,29 @@ export const getVaultDocuments = cache(
   },
 );
 
+export type FolderRecord = {
+  path: string;
+};
+
+export const getVaultFolders = cache(
+  async (vaultId: string): Promise<FolderRecord[]> => {
+    const data = await gql<{ vault: { folders: FolderRecord[] } | null }>(
+      `
+    query ($id: ID!) {
+      vault(id: $id) {
+        folders {
+          path
+        }
+      }
+    }
+  `,
+      { id: vaultId },
+    );
+
+    return data.vault?.folders ?? [];
+  },
+);
+
 export async function getDocument(
   vaultId: string,
   path: string,

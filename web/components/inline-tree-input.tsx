@@ -110,7 +110,7 @@ function InlineTreeInput({
   return (
     <div
       className="flex flex-col"
-      style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      style={{ paddingLeft: `${depth * 16}px` }}
     >
       <div className="flex items-center gap-2 px-2 py-1.5">
         <span className="size-3.5 shrink-0" />
@@ -133,7 +133,7 @@ function InlineTreeInput({
         />
       </div>
       {displayError && (
-        <p className="px-2 pb-1 text-xs text-red-500 dark:text-red-400" style={{ paddingLeft: `${3.5 * 4 + 8 + 16}px` }}>
+        <p className="px-2 pb-1 text-xs text-red-500 dark:text-red-400" style={{ paddingLeft: `${3.5 * 4 + 16}px` }}>
           {validationError ? t(validationError) : displayError}
         </p>
       )}

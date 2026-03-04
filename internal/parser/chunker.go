@@ -49,9 +49,6 @@ func (c ChunkConfig) Validate() error {
 	if c.TargetSize >= c.MaxSize {
 		return fmt.Errorf("chunk TargetSize (%d) must be less than MaxSize (%d)", c.TargetSize, c.MaxSize)
 	}
-	if c.MaxSize > c.Threshold {
-		return fmt.Errorf("chunk MaxSize (%d) must not exceed Threshold (%d)", c.MaxSize, c.Threshold)
-	}
 	return nil
 }
 

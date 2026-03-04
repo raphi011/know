@@ -16,6 +16,7 @@ export function AppShellWrapper({
   vault,
   vaults,
   documents,
+  folderPaths,
   connections,
   activeConnectionId,
   children,
@@ -23,6 +24,7 @@ export function AppShellWrapper({
   vault: Vault | null;
   vaults: Vault[];
   documents: DocumentSummary[];
+  folderPaths: string[];
   connections: ServerConnection[];
   activeConnectionId: string | null;
   children: React.ReactNode;
@@ -31,7 +33,7 @@ export function AppShellWrapper({
   const pathname = usePathname();
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const tree = buildTree(documents);
+  const tree = buildTree(documents, folderPaths);
 
   // Global Cmd+K / Ctrl+K shortcut
   useEffect(() => {

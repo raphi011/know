@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/app/lib/session";
-import { getVaults, getVaultDocuments } from "@/app/lib/knowhow/queries";
+import { getVaults, getVaultDocuments, getVaultFolders } from "@/app/lib/knowhow/queries";
 import {
   getConnections,
   getActiveConnection,
@@ -35,13 +35,16 @@ export default async function MainLayout({
   const activeVaultId = await getActiveVaultId();
   const vault =
     vaults.find((v) => v.id === activeVaultId) ?? vaults[0] ?? null;
-  const documents = vault ? await getVaultDocuments(vault.id) : [];
+  const [documents, folders] = vault
+    ? await Promise.all([getVaultDocuments(vault.id), getVaultFolders(vault.id)])
+    : [[], []];
 
   return (
     <AppShellWrapper
       vault={vault}
       vaults={vaults}
       documents={documents}
+      folderPaths={folders.map((f) => f.path)}
       connections={connections}
       activeConnectionId={activeConnection?.id ?? null}
     >

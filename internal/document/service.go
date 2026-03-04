@@ -192,6 +192,7 @@ func (s *Service) Update(ctx context.Context, vaultID, path, content string) (*m
 
 // Delete removes a document and its associated data.
 func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
+	path = models.NormalizePath(path)
 	doc, err := s.db.GetDocumentByPath(ctx, vaultID, path)
 	if err != nil {
 		return fmt.Errorf("get document: %w", err)
@@ -274,6 +275,7 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 
 // Move changes a document's path.
 func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*models.Document, error) {
+	oldPath = models.NormalizePath(oldPath)
 	doc, err := s.db.GetDocumentByPath(ctx, vaultID, oldPath)
 	if err != nil {
 		return nil, fmt.Errorf("get document: %w", err)

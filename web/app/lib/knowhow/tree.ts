@@ -1,6 +1,9 @@
 import type { DocumentSummary, TreeNode } from "./types";
 
-export function buildTree(documents: DocumentSummary[]): TreeNode[] {
+export function buildTree(
+  documents: DocumentSummary[],
+  folderPaths?: string[],
+): TreeNode[] {
   const root: TreeNode[] = [];
   const folderMap = new Map<string, TreeNode & { type: "folder" }>();
 
@@ -47,6 +50,14 @@ export function buildTree(documents: DocumentSummary[]): TreeNode[] {
       const folderPath = parts.slice(0, -1).join("/");
       const parent = ensureFolder(folderPath);
       parent.children.push(docNode);
+    }
+  }
+
+  // Ensure explicitly created (possibly empty) folders appear in the tree
+  if (folderPaths) {
+    for (const fp of folderPaths) {
+      const normalized = fp.replace(/^\//, "");
+      if (normalized) ensureFolder(normalized);
     }
   }
 
