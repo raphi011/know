@@ -447,6 +447,53 @@ func diffLineToGraphQL(l review.DiffLine) *DiffLine {
 	}
 }
 
+func conversationToGraphQL(c *models.Conversation) *Conversation {
+	if c == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(c.ID)
+	if err != nil {
+		slog.Warn("unexpected conversation ID format", "error", err)
+		id = fmt.Sprintf("%v", c.ID.ID)
+	}
+	vaultID, err := models.RecordIDString(c.Vault)
+	if err != nil {
+		slog.Warn("unexpected conversation vault ID format", "error", err)
+		vaultID = fmt.Sprintf("%v", c.Vault.ID)
+	}
+	return &Conversation{
+		ID:        id,
+		VaultID:   vaultID,
+		Title:     c.Title,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+	}
+}
+
+func messageToGraphQL(m *models.Message) *ChatMessage {
+	if m == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(m.ID)
+	if err != nil {
+		slog.Warn("unexpected message ID format", "error", err)
+		id = fmt.Sprintf("%v", m.ID.ID)
+	}
+	docRefs := m.DocRefs
+	if docRefs == nil {
+		docRefs = []string{}
+	}
+	return &ChatMessage{
+		ID:        id,
+		Role:      string(m.Role),
+		Content:   m.Content,
+		DocRefs:   docRefs,
+		ToolName:  m.ToolName,
+		ToolInput: m.ToolInput,
+		CreatedAt: m.CreatedAt,
+	}
+}
+
 func searchResultToGraphQL(r search.SearchResult) SearchResult {
 	chunks := make([]ChunkMatch, len(r.MatchedChunks))
 	for i, ch := range r.MatchedChunks {

@@ -2,6 +2,29 @@
 
 package graph
 
+import (
+	"time"
+)
+
+type ChatMessage struct {
+	ID        string    `json:"id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	DocRefs   []string  `json:"docRefs"`
+	ToolName  *string   `json:"toolName,omitempty"`
+	ToolInput *string   `json:"toolInput,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type Conversation struct {
+	ID        string         `json:"id"`
+	VaultID   string         `json:"vaultId"`
+	Title     string         `json:"title"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	Messages  []*ChatMessage `json:"messages"`
+}
+
 type Mutation struct {
 }
 

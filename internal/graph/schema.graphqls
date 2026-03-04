@@ -134,6 +134,29 @@ type ScrapeResult {
 }
 
 # =============================================================================
+# CONVERSATION TYPES
+# =============================================================================
+
+type Conversation {
+  id: ID!
+  vaultId: ID!
+  title: String!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  messages: [ChatMessage!]!
+}
+
+type ChatMessage {
+  id: ID!
+  role: String!
+  content: String!
+  docRefs: [String!]!
+  toolName: String
+  toolInput: String
+  createdAt: DateTime!
+}
+
+# =============================================================================
 # PROPOSAL TYPES
 # =============================================================================
 
@@ -280,6 +303,10 @@ type Query {
   # Proposals
   proposal(id: ID!): DocumentProposal
   proposals(vaultId: ID!, status: ProposalStatus): [DocumentProposal!]!
+
+  # Conversations
+  conversations(vaultId: ID!): [Conversation!]!
+  conversation(id: ID!): Conversation
 }
 
 # =============================================================================
@@ -312,4 +339,9 @@ type Mutation {
   approveProposal(id: ID!, notes: String): Document!
   approveProposalHunks(input: ApproveHunksInput!): Document!
   rejectProposal(id: ID!, notes: String): Boolean!
+
+  # Conversations
+  createConversation(vaultId: ID!): Conversation!
+  deleteConversation(id: ID!): Boolean!
+  renameConversation(id: ID!, title: String!): Conversation!
 }

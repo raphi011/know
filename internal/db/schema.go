@@ -176,5 +176,40 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS created_at   ON api_token TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_api_token_hash ON api_token FIELDS token_hash UNIQUE;
+
+    -- ==========================================================================
+    -- CONVERSATION TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS conversation SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS vault      ON conversation TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS user       ON conversation TYPE record<user>;
+    DEFINE FIELD IF NOT EXISTS title      ON conversation TYPE string DEFAULT "New conversation";
+    DEFINE FIELD IF NOT EXISTS created_at ON conversation TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at ON conversation TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_conversation_vault ON conversation FIELDS vault;
+    DEFINE INDEX IF NOT EXISTS idx_conversation_user  ON conversation FIELDS user;
+
+    -- ==========================================================================
+    -- MESSAGE TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS conversation ON message TYPE record<conversation>;
+    DEFINE FIELD IF NOT EXISTS role         ON message TYPE string;
+    DEFINE FIELD IF NOT EXISTS content      ON message TYPE string;
+    DEFINE FIELD IF NOT EXISTS doc_refs     ON message TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS tool_name    ON message TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS tool_input   ON message TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS created_at   ON message TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_message_conversation ON message FIELDS conversation;
+
+    -- Cascade: delete messages when conversation deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_conversation_messages ON conversation
+    WHEN $event = "DELETE" THEN {
+        DELETE FROM message WHERE conversation = $before.id
+    };
 `, dimension)
 }

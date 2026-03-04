@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/raphi011/knowhow/internal/agent"
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
@@ -25,6 +26,8 @@ type Resolver struct {
 	searchService   *search.Service
 	templateService *template.Service
 	reviewService   *review.Service
+	model           *llm.Model
+	agentService    *agent.Service
 	workerCancel    context.CancelFunc
 	workerDone      chan struct{}
 }
@@ -63,10 +66,22 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		}
 	}
 
+	// LLM model is optional — nil disables agent chat
+	var model *llm.Model
+	if cfg.LLMProvider != config.ProviderNone && cfg.LLMProvider != "" {
+		m, err := llm.NewModel(cfg, nil)
+		if err != nil {
+			slog.Warn("LLM model initialization failed, agent chat disabled", "error", err)
+		} else {
+			model = m
+		}
+	}
+
 	slog.Info("resolver initialized",
 		"embed_provider", cfg.EmbedProvider,
 		"embed_dimension", cfg.EmbedDimension,
 		"semantic_search", embedder != nil,
+		"agent_chat", model != nil,
 	)
 
 	docService := document.NewService(dbClient, embedder)
@@ -74,13 +89,18 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	workerDone := make(chan struct{})
 	close(workerDone) // safe default: <-workerDone returns immediately if no worker
 
+	searchSvc := search.NewService(dbClient, embedder)
+	agentSvc := agent.NewService(dbClient, model, searchSvc)
+
 	r := &Resolver{
 		db:              dbClient,
 		vaultService:    vault.NewService(dbClient),
 		documentService: docService,
-		searchService:   search.NewService(dbClient, embedder),
+		searchService:   searchSvc,
 		templateService: template.NewService(dbClient),
 		reviewService:   review.NewService(dbClient, docService),
+		model:           model,
+		agentService:    agentSvc,
 		workerDone:      workerDone,
 	}
 
@@ -103,6 +123,11 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 // DBClient returns the underlying DB client for use by middleware.
 func (r *Resolver) DBClient() *db.Client {
 	return r.db
+}
+
+// AgentService returns the agent service for use by the SSE handler.
+func (r *Resolver) AgentService() *agent.Service {
+	return r.agentService
 }
 
 // Close stops background workers and closes all connections.

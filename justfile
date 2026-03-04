@@ -11,9 +11,9 @@ export SURREALDB_DATABASE := env_var_or_default("SURREALDB_DATABASE", "graph")
 export SURREALDB_USER := env_var_or_default("SURREALDB_USER", "root")
 export SURREALDB_PASS := env_var_or_default("SURREALDB_PASS", "root")
 
-# LLM defaults - using Anthropic for ask, configure embeddings per instance
-export KNOWHOW_LLM_PROVIDER := env_var_or_default("KNOWHOW_LLM_PROVIDER", "anthropic")
-export KNOWHOW_LLM_MODEL := env_var_or_default("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514")
+# LLM defaults - using Ollama for local dev
+export KNOWHOW_LLM_PROVIDER := env_var_or_default("KNOWHOW_LLM_PROVIDER", "ollama")
+export KNOWHOW_LLM_MODEL := env_var_or_default("KNOWHOW_LLM_MODEL", "qwen2.5:1.5b")
 export KNOWHOW_EMBED_PROVIDER := env_var_or_default("KNOWHOW_EMBED_PROVIDER", "ollama")
 export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "mxbai-embed-large")
 export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "1024")
@@ -98,9 +98,19 @@ dev-setup: db-up
 generate:
     go run github.com/99designs/gqlgen generate --config gqlgen.yml
 
-# Pull Ollama embedding model
+# Pull Ollama models (embedding + LLM)
 ollama-pull:
     ollama pull {{KNOWHOW_EMBED_MODEL}}
+    @echo "Embedding model ready: {{KNOWHOW_EMBED_MODEL}}"
+
+# Pull a small Ollama LLM for local agent chat testing
+ollama-pull-llm model="qwen2.5:1.5b":
+    ollama pull {{model}}
+    @echo ""
+    @echo "Model ready: {{model}}"
+    @echo "To use it, create .env with:"
+    @echo "  KNOWHOW_LLM_PROVIDER=ollama"
+    @echo "  KNOWHOW_LLM_MODEL={{model}}"
 
 # Start SurrealDB
 db-up:
