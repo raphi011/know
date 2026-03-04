@@ -1,5 +1,6 @@
 import preview from "#.storybook/preview";
 import { DocTree } from "@/components/doc-tree";
+import { ToastProvider } from "@/components/ui/toast-provider";
 import type { TreeNode, DocumentSummary } from "@/app/lib/knowhow/types";
 
 const sampleTree: TreeNode[] = [
@@ -87,8 +88,10 @@ export const WithContextMenu = meta.story({
     documents: sampleDocuments,
   },
   render: (args) => (
-    <div className="h-96 w-64 border border-slate-200 dark:border-slate-800">
-      <DocTree {...args} />
-    </div>
+    <ToastProvider>
+      <div className="h-96 w-64 border border-slate-200 dark:border-slate-800">
+        <DocTree {...args} />
+      </div>
+    </ToastProvider>
   ),
 });

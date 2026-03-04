@@ -91,6 +91,33 @@ function getSiblingNames(tree: TreeNode[], path: string): string[] {
   return parent.children.filter((n) => n.path !== path).map((n) => n.name);
 }
 
+const announcements: Announcements = {
+  onDragStart({ active }) {
+    return `Picked up ${active.id}`;
+  },
+  onDragOver({ active, over }) {
+    if (over) {
+      const target = String(over.id).startsWith("drop:")
+        ? over.data.current?.folderPath || "root"
+        : over.id;
+      return `${active.id} is over ${target}`;
+    }
+    return `${active.id} is no longer over a drop target`;
+  },
+  onDragEnd({ active, over }) {
+    if (over) {
+      const target = String(over.id).startsWith("drop:")
+        ? over.data.current?.folderPath || "root"
+        : over.id;
+      return `${active.id} was dropped on ${target}`;
+    }
+    return `${active.id} was dropped`;
+  },
+  onDragCancel({ active }) {
+    return `Dragging ${active.id} was cancelled`;
+  },
+};
+
 function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
   const router = useRouter();
   const t = useTranslations("tree");
@@ -147,8 +174,8 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
     }
 
     if (!overId || typeof overId !== "string" || !overId.startsWith("drop:")) return;
-    const folderPath = overId.slice(5); // Remove "drop:" prefix
-    if (!folderPath) return; // Root zone, nothing to expand
+    const folderPath = event.over?.data.current?.folderPath;
+    if (!folderPath) return; // Root zone or missing data, nothing to expand
 
     // Auto-expand after 500ms of hovering
     if (!expanded.has(folderPath)) {
@@ -190,19 +217,23 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
     const draggedNode = findNode(tree, draggedPath);
     if (!draggedNode) return;
 
-    let result;
-    if (draggedNode.type === "folder") {
-      result = await moveDocumentsByPrefix(vaultId, draggedPath, newPath);
-    } else {
-      result = await moveDocument(vaultId, draggedPath, newPath);
-    }
+    try {
+      let result;
+      if (draggedNode.type === "folder") {
+        result = await moveDocumentsByPrefix(vaultId, draggedPath, newPath);
+      } else {
+        result = await moveDocument(vaultId, draggedPath, newPath);
+      }
 
-    if (!result.success) {
-      toast({ variant: "error", title: `Failed to move: ${result.error}` });
-      return;
-    }
+      if (!result.success) {
+        toast({ variant: "error", title: `Failed to move: ${result.error}` });
+        return;
+      }
 
-    router.refresh();
+      router.refresh();
+    } catch {
+      toast({ variant: "error", title: "Failed to move item" });
+    }
   }
 
   // Delete confirmation state
@@ -356,33 +387,6 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
 
     setEditing(null);
   }
-
-  const announcements: Announcements = {
-    onDragStart({ active }) {
-      return `Picked up ${active.id}`;
-    },
-    onDragOver({ active, over }) {
-      if (over) {
-        const target = String(over.id).startsWith("drop:")
-          ? over.data.current?.folderPath || "root"
-          : over.id;
-        return `${active.id} is over ${target}`;
-      }
-      return `${active.id} is no longer over a drop target`;
-    },
-    onDragEnd({ active, over }) {
-      if (over) {
-        const target = String(over.id).startsWith("drop:")
-          ? over.data.current?.folderPath || "root"
-          : over.id;
-        return `${active.id} was dropped on ${target}`;
-      }
-      return `${active.id} was dropped`;
-    },
-    onDragCancel({ active }) {
-      return `Dragging ${active.id} was cancelled`;
-    },
-  };
 
   return (
     <>
