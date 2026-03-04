@@ -3,14 +3,13 @@ package vault
 import (
 	"context"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
-// Service manages vault CRUD and derived folder listing.
+// Service manages vault CRUD and folder operations.
 type Service struct {
 	db *db.Client
 }
@@ -40,57 +39,93 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.db.DeleteVault(ctx, id)
 }
 
-// ListFolders derives virtual folders from document paths in a vault.
+// ListFolders returns all folders in a vault. If parentPath is provided, filters
+// to immediate children of that path.
 func (s *Service) ListFolders(ctx context.Context, vaultID string, parentPath *string) ([]models.Folder, error) {
-	paths, err := s.db.ListDocumentPaths(ctx, vaultID)
+	folders, err := s.db.ListFolders(ctx, vaultID)
 	if err != nil {
-		return nil, fmt.Errorf("list document paths: %w", err)
+		return nil, fmt.Errorf("list folders: %w", err)
 	}
 
-	return deriveFolders(paths, parentPath), nil
+	if parentPath == nil {
+		return folders, nil
+	}
+
+	// Filter to immediate children of parentPath
+	prefix := *parentPath
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	var filtered []models.Folder
+	for _, f := range folders {
+		if !strings.HasPrefix(f.Path, prefix) {
+			continue
+		}
+		// Check it's an immediate child (no further "/" after prefix)
+		rel := strings.TrimPrefix(f.Path, prefix)
+		if rel != "" && !strings.Contains(rel, "/") {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered, nil
 }
 
-// deriveFolders computes virtual folders from document paths.
-func deriveFolders(paths []string, parentPath *string) []models.Folder {
-	prefix := "/"
-	if parentPath != nil {
-		prefix = *parentPath
-		if !strings.HasSuffix(prefix, "/") {
-			prefix += "/"
-		}
+// CreateFolder creates a folder and all its ancestor folders.
+func (s *Service) CreateFolder(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
+	folderPath = models.NormalizePath(folderPath)
+
+	// EnsureFolderPath creates the target folder + all ancestors in one batch
+	if err := s.db.EnsureFolderPath(ctx, vaultID, folderPath); err != nil {
+		return nil, fmt.Errorf("ensure folder path: %w", err)
+	}
+	folder, err := s.db.GetFolderByPath(ctx, vaultID, folderPath)
+	if err != nil {
+		return nil, fmt.Errorf("get created folder: %w", err)
+	}
+	if folder == nil {
+		return nil, fmt.Errorf("folder not found after creation: %s", folderPath)
+	}
+	return folder, nil
+}
+
+// DeleteFolder deletes a folder, all child folders, and all documents under the folder prefix.
+func (s *Service) DeleteFolder(ctx context.Context, vaultID, folderPath string) error {
+	folderPath = models.NormalizePath(folderPath)
+
+	// Delete child documents
+	prefix := folderPath + "/"
+	if _, err := s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix); err != nil {
+		return fmt.Errorf("delete folder documents: %w", err)
 	}
 
-	// Count docs per immediate child folder
-	folderCounts := make(map[string]int)
-	for _, p := range paths {
-		if !strings.HasPrefix(p, prefix) {
-			continue
-		}
-
-		// Get the relative part after prefix
-		rel := strings.TrimPrefix(p, prefix)
-		if rel == "" {
-			continue
-		}
-
-		// Extract the first path segment (immediate child folder)
-		parts := strings.SplitN(rel, "/", 2)
-		if len(parts) < 2 {
-			// This is a file directly in the parent folder, not a subfolder
-			continue
-		}
-
-		folderPath := prefix + parts[0]
-		folderCounts[folderPath]++
+	// Delete folder records (self + children)
+	if err := s.db.DeleteFolder(ctx, vaultID, folderPath); err != nil {
+		return fmt.Errorf("delete folder: %w", err)
 	}
 
-	folders := make([]models.Folder, 0, len(folderCounts))
-	for fp, count := range folderCounts {
-		folders = append(folders, models.Folder{
-			Path:     fp,
-			Name:     path.Base(fp),
-			DocCount: count,
-		})
+	return nil
+}
+
+// MoveFolder moves a folder and all its children (folders + documents) from oldPath to newPath.
+func (s *Service) MoveFolder(ctx context.Context, vaultID, oldPath, newPath string) error {
+	oldPath = models.NormalizePath(oldPath)
+	newPath = models.NormalizePath(newPath)
+
+	// Move folder records
+	if _, err := s.db.MoveFoldersByPrefix(ctx, vaultID, oldPath, newPath); err != nil {
+		return fmt.Errorf("move folder records: %w", err)
 	}
-	return folders
+
+	// Move documents
+	if _, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
+		return fmt.Errorf("move folder documents: %w", err)
+	}
+
+	// Ensure destination ancestor folders exist
+	if err := s.db.EnsureFolderPath(ctx, vaultID, newPath); err != nil {
+		return fmt.Errorf("ensure destination folders: %w", err)
+	}
+
+	return nil
 }

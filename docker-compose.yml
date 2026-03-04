@@ -1,6 +1,6 @@
 services:
   surrealdb:
-    image: surrealdb/surrealdb:v3.0.0-beta.2
+    image: surrealdb/surrealdb:v3.0.2
     container_name: knowhow-surrealdb
     command: start --user root --pass root memory
     ports:

@@ -1,0 +1,198 @@
+package db
+
+import (
+	"context"
+	"fmt"
+	"path"
+	"strings"
+
+	"github.com/raphi011/knowhow/internal/models"
+	"github.com/surrealdb/surrealdb.go"
+)
+
+// CreateFolder creates a single folder record. Returns the created folder.
+func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
+	name := path.Base(folderPath)
+
+	sql := `
+		INSERT INTO folder {
+			vault: type::record("vault", $vault_id),
+			path: $path,
+			name: $name
+		} ON DUPLICATE KEY UPDATE id = id
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+		"name":     name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create folder: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create folder: no result returned")
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// EnsureFolders idempotently creates all ancestor folders for a document path.
+// For example, given "/guides/sub/file.md", it creates "/guides" and "/guides/sub".
+// All folders are inserted in a single batched query to avoid N+1 round-trips.
+func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) error {
+	docPath = models.NormalizePath(docPath)
+	dir := path.Dir(docPath)
+	if dir == "/" || dir == "." {
+		return nil // root-level document, no folders to create
+	}
+	return c.EnsureFolderPath(ctx, vaultID, dir)
+}
+
+// EnsureFolderPath idempotently creates a folder and all its ancestors.
+// For example, given "/guides/sub", it creates "/guides" and "/guides/sub".
+// All folders are inserted in a single batched query to avoid N+1 round-trips.
+func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath string) error {
+	folderPath = models.NormalizePath(folderPath)
+	if folderPath == "/" || folderPath == "." {
+		return nil
+	}
+
+	// Collect the target folder and all its ancestors
+	var folders []string
+	for cur := folderPath; cur != "/" && cur != "."; cur = path.Dir(cur) {
+		folders = append(folders, cur)
+	}
+
+	// Build batch of folder rows for a single INSERT
+	rows := make([]map[string]any, len(folders))
+	vid := bareID("vault", vaultID)
+	for i, fp := range folders {
+		rows[i] = map[string]any{
+			"vault": newRecordID("vault", vid),
+			"path":  fp,
+			"name":  path.Base(fp),
+		}
+	}
+
+	sql := `INSERT INTO folder $folders ON DUPLICATE KEY UPDATE id = id`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"folders": rows,
+	}); err != nil {
+		return fmt.Errorf("ensure folder path %q: %w", folderPath, err)
+	}
+
+	return nil
+}
+
+// ListFolders returns all folders in a vault, ordered by path.
+func (c *Client) ListFolders(ctx context.Context, vaultID string) ([]models.Folder, error) {
+	sql := `SELECT * FROM folder WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC`
+	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list folders: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// GetFolderByPath returns a single folder by vault and path, or nil if not found.
+func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
+	sql := `SELECT * FROM folder WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
+	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get folder by path: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// DeleteFolder deletes a single folder and all its children (paths starting with folderPath + "/").
+func (c *Client) DeleteFolder(ctx context.Context, vaultID, folderPath string) error {
+	_, err := c.deleteFolderTree(ctx, vaultID, folderPath)
+	return err
+}
+
+// DeleteFoldersByPrefix deletes all folders whose path starts with the given prefix
+// or matches the prefix itself (without trailing slash). Returns the number of deleted folders.
+func (c *Client) DeleteFoldersByPrefix(ctx context.Context, vaultID, prefix string) (int, error) {
+	folderPath := strings.TrimSuffix(prefix, "/")
+	return c.deleteFolderTree(ctx, vaultID, folderPath)
+}
+
+// deleteFolderTree deletes a folder and all its children in a single multi-statement query.
+// Two statements are needed because SurrealDB v3 doesn't support parenthesized OR in WHERE.
+// Returns the total number of deleted folders.
+func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath string) (int, error) {
+	prefix := folderPath + "/"
+
+	// Multi-statement: delete parent + children in one round-trip.
+	// Each statement returns its own result set.
+	sql := `DELETE FROM folder WHERE vault = type::record("vault", $vault_id) AND path = $path RETURN BEFORE;` +
+		`DELETE FROM folder WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) RETURN BEFORE`
+	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+		"prefix":   prefix,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("delete folder tree %q: %w", folderPath, err)
+	}
+
+	return countMultiResults(results), nil
+}
+
+// MoveFoldersByPrefix renames all folders whose path starts with oldPrefix,
+// replacing oldPrefix with newPrefix. Also updates the name field.
+// Accepts folder paths (e.g. "/guides", "/docs") — trailing slashes are handled internally.
+// Returns the number of moved folders.
+func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newPath string) (int, error) {
+	oldFolderPath := strings.TrimSuffix(oldPath, "/")
+	newFolderPath := strings.TrimSuffix(newPath, "/")
+	oldPrefix := oldFolderPath + "/"
+	newPrefix := newFolderPath + "/"
+
+	// Multi-statement: update root folder + children in one round-trip.
+	// Statement 1: rename the root folder itself (RETURN BEFORE for counting).
+	// Statement 2: rewrite child paths by replacing the old prefix with the new one.
+	sql := `UPDATE folder SET path = $new_path, name = $new_name WHERE vault = type::record("vault", $vault_id) AND path = $old_path RETURN BEFORE;` +
+		`UPDATE folder SET
+			path = string::concat($new_prefix, string::slice(path, string::len($old_prefix))),
+			name = array::last(string::split(string::concat($new_prefix, string::slice(path, string::len($old_prefix))), "/"))
+		WHERE vault = type::record("vault", $vault_id)
+		AND string::starts_with(path, $old_prefix)
+		RETURN BEFORE`
+	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"old_path":   oldFolderPath,
+		"new_path":   newFolderPath,
+		"new_name":   path.Base(newFolderPath),
+		"old_prefix": oldPrefix,
+		"new_prefix": newPrefix,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("move folders by prefix: %w", err)
+	}
+
+	return countMultiResults(results), nil
+}
+
+// countMultiResults sums Result lengths across multi-statement query results.
+func countMultiResults[T any](results *[]surrealdb.QueryResult[[]T]) int {
+	if results == nil {
+		return 0
+	}
+	count := 0
+	for _, r := range *results {
+		count += len(r.Result)
+	}
+	return count
+}

@@ -9,31 +9,36 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// CreateWikiLinks creates wiki-link records for a document.
+// CreateWikiLinks creates wiki-link records for a document in a single batch INSERT.
 func (c *Client) CreateWikiLinks(ctx context.Context, fromDocID, vaultID string, links []WikiLinkInput) error {
+	if len(links) == 0 {
+		return nil
+	}
+
+	fromDoc := newRecordID("document", bareID("document", fromDocID))
+	vault := newRecordID("vault", bareID("vault", vaultID))
+
+	rows := make([]map[string]any, len(links))
 	for i, link := range links {
-		sql := `
-			CREATE wiki_link SET
-				from_doc = type::record("document", $from_doc_id),
-				to_doc = $to_doc,
-				raw_target = $raw_target,
-				vault = type::record("vault", $vault_id)
-		`
 		var toDoc any
 		if link.ToDocID != nil {
 			toDoc = newRecordID("document", *link.ToDocID)
 		} else {
 			toDoc = surrealmodels.None
 		}
-
-		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-			"from_doc_id": fromDocID,
-			"to_doc":      toDoc,
-			"raw_target":  link.RawTarget,
-			"vault_id":    bareID("vault", vaultID),
-		}); err != nil {
-			return fmt.Errorf("create wiki link %d: %w", i, err)
+		rows[i] = map[string]any{
+			"from_doc":   fromDoc,
+			"to_doc":     toDoc,
+			"raw_target": link.RawTarget,
+			"vault":      vault,
 		}
+	}
+
+	sql := `INSERT INTO wiki_link $links RETURN NONE`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"links": rows,
+	}); err != nil {
+		return fmt.Errorf("create wiki links: %w", err)
 	}
 	return nil
 }

@@ -46,6 +46,7 @@ import {
 } from "@/app/lib/knowhow/dnd-utils";
 import {
   createDocument,
+  createFolder,
   deleteDocument,
   moveDocument,
   deleteDocumentsByPrefix,
@@ -349,12 +350,16 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
       }
       router.refresh();
     } else if (editing.type === "new-folder") {
-      // Folders are virtual (derived from document paths), so no server call
-      // needed. Just expand the UI to show the new folder.
       const folderPath = editing.parentPath
         ? `${editing.parentPath}/${name}`
         : name;
+      const result = await createFolder(vaultId, folderPath);
+      if (!result.success) {
+        setEditingError(result.error);
+        return;
+      }
       setExpanded((prev) => new Set([...prev, folderPath]));
+      router.refresh();
     } else if (editing.type === "rename") {
       const node = findNode(tree, editing.currentPath);
       if (!node) {

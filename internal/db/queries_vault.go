@@ -95,22 +95,14 @@ func (c *Client) ListVaults(ctx context.Context) ([]models.Vault, error) {
 }
 
 func (c *Client) DeleteVault(ctx context.Context, id string) error {
-	// Delete all documents in vault (cascade events will handle chunks, wiki_links, relations)
-	sql := `DELETE FROM document WHERE vault = type::record("vault", $id)`
+	// Single multi-statement query: delete all vault data + the vault itself.
+	// Document cascade events handle chunks, wiki_links, and relations.
+	sql := `DELETE FROM document WHERE vault = type::record("vault", $id);` +
+		`DELETE FROM folder WHERE vault = type::record("vault", $id);` +
+		`DELETE FROM template WHERE vault = type::record("vault", $id);` +
+		`DELETE type::record("vault", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
-		return fmt.Errorf("delete vault documents: %w", err)
-	}
-
-	// Delete templates scoped to this vault
-	sql = `DELETE FROM template WHERE vault = type::record("vault", $id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
-		return fmt.Errorf("delete vault templates: %w", err)
-	}
-
-	// Delete the vault itself
-	sql = `DELETE type::record("vault", $id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
-		return fmt.Errorf("delete vault: %w", err)
+		return fmt.Errorf("delete vault (documents+folders+templates+vault): %w", err)
 	}
 	return nil
 }

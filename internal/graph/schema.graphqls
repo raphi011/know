@@ -62,9 +62,10 @@ type QueryResult {
 }
 
 type Folder {
+  id: ID!
   path: String!
   name: String!
-  docCount: Int!
+  createdAt: DateTime!
 }
 
 type WikiLink {
@@ -339,6 +340,11 @@ type Mutation {
   approveProposal(id: ID!, notes: String): Document!
   approveProposalHunks(input: ApproveHunksInput!): Document!
   rejectProposal(id: ID!, notes: String): Boolean!
+
+  # Folders
+  createFolder(vaultId: ID!, path: String!): Folder!
+  deleteFolder(vaultId: ID!, path: String!): Boolean!
+  moveFolder(vaultId: ID!, oldPath: String!, newPath: String!): Boolean!
 
   # Conversations
   createConversation(vaultId: ID!): Conversation!

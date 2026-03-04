@@ -54,7 +54,7 @@ type readDocInput struct {
 	Path string `json:"path"`
 }
 
-const systemPrompt = `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
+const systemPromptBase = `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
 
 You have access to two tools:
 1. kb_search(query) - Search the knowledge base for relevant documents
@@ -81,6 +81,32 @@ If you have enough information to answer the user's question, respond with EXACT
 {"action":"answer"}
 
 Respond with ONLY the JSON, no explanation.`
+
+// buildSystemPrompt constructs the system prompt, optionally appending the vault's folder tree.
+func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string {
+	folders, err := s.db.ListFolders(ctx, vaultID)
+	if err != nil {
+		slog.Warn("failed to list folders for system prompt", "vault_id", vaultID, "error", err)
+		return systemPromptBase
+	}
+	if len(folders) == 0 {
+		return systemPromptBase
+	}
+
+	var sb strings.Builder
+	sb.WriteString(systemPromptBase)
+	sb.WriteString("\n\nVault folder structure:\n```\n/\n")
+	for _, f := range folders {
+		depth := strings.Count(strings.Trim(f.Path, "/"), "/")
+		indent := strings.Repeat("  ", depth)
+		sb.WriteString(indent)
+		sb.WriteString("├── ")
+		sb.WriteString(f.Name)
+		sb.WriteString("/\n")
+	}
+	sb.WriteString("```")
+	return sb.String()
+}
 
 type docSource struct {
 	Title string
@@ -128,6 +154,9 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 	emit(StreamEvent{Type: "message_id", Content: userMsgID})
 
+	// Build dynamic system prompt with folder tree
+	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
+
 	// Build conversation history from DB
 	messages, err := s.db.ListMessages(ctx, req.ConversationID)
 	if err != nil {
@@ -170,7 +199,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			intentQuery = intentPrompt
 		}
 
-		decision, err := s.detectIntent(ctx, history, intentQuery, i == 0)
+		decision, err := s.detectIntent(ctx, history, intentQuery, i == 0, sysPrompt)
 		if err != nil {
 			slog.Warn("intent detection failed, falling back to direct answer", "error", err)
 			emit(StreamEvent{Type: "error", Content: "Knowledge base search unavailable, answering from general knowledge"})
@@ -222,7 +251,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	history := s.buildHistory(messages, toolContext.String())
 	var answer strings.Builder
 
-	err = s.model.GenerateWithSystemStreamMultiTurn(ctx, systemPrompt, history, req.Content, func(token string) error {
+	err = s.model.GenerateWithSystemStreamMultiTurn(ctx, sysPrompt, history, req.Content, func(token string) error {
 		answer.WriteString(token)
 		emit(StreamEvent{Type: "token", Content: token})
 		return nil
@@ -297,10 +326,10 @@ func (s *Service) buildHistory(messages []models.Message, toolContext string) []
 	return history
 }
 
-func (s *Service) detectIntent(ctx context.Context, history []llm.ChatMessage, query string, firstTurn bool) (*toolAction, error) {
-	prompt := systemPrompt
+func (s *Service) detectIntent(ctx context.Context, history []llm.ChatMessage, query string, firstTurn bool, sysPrompt string) (*toolAction, error) {
+	prompt := sysPrompt
 	if !firstTurn {
-		prompt = systemPrompt + "\n\n" + intentPrompt
+		prompt = sysPrompt + "\n\n" + intentPrompt
 	}
 
 	// For intent detection, append the intent prompt to the user query

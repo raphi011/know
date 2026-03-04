@@ -85,6 +85,37 @@ export function deleteDocumentsByPrefix(vaultId: string, pathPrefix: string) {
   );
 }
 
+export function createFolder(vaultId: string, path: string) {
+  return graphqlMutation(
+    `mutation ($vaultId: ID!, $path: String!) {
+      createFolder(vaultId: $vaultId, path: $path) { id }
+    }`,
+    { vaultId, path },
+  );
+}
+
+export function deleteFolder(vaultId: string, path: string) {
+  return graphqlMutation(
+    `mutation ($vaultId: ID!, $path: String!) {
+      deleteFolder(vaultId: $vaultId, path: $path)
+    }`,
+    { vaultId, path },
+  );
+}
+
+export function moveFolder(
+  vaultId: string,
+  oldPath: string,
+  newPath: string,
+) {
+  return graphqlMutation(
+    `mutation ($vaultId: ID!, $oldPath: String!, $newPath: String!) {
+      moveFolder(vaultId: $vaultId, oldPath: $oldPath, newPath: $newPath)
+    }`,
+    { vaultId, oldPath, newPath },
+  );
+}
+
 export function moveDocumentsByPrefix(
   vaultId: string,
   oldPrefix: string,
