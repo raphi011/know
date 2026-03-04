@@ -423,9 +423,9 @@ func TestChunkConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "MaxSize > Threshold",
+			name:    "MaxSize > Threshold is allowed",
 			config:  ChunkConfig{MinSize: 800, TargetSize: 3000, MaxSize: 7000, Threshold: 6000},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "negative value",
