@@ -48,8 +48,9 @@ export async function loginAction(
         error: `Server returned HTTP ${response.status}`,
       };
     }
-  } catch {
-    return { success: false, error: "Cannot reach server" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Cannot reach server: ${message}` };
   }
 
   // Add to session (or create new session)
