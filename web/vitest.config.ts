@@ -10,6 +10,11 @@ import { playwright } from "@vitest/browser-playwright";
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@": dirname,
+    },
+  },
   test: {
     coverage: {
       provider: "istanbul",
@@ -49,7 +54,12 @@ export default defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: ["app/lib/**/*.test.ts", "lib/**/*.test.ts", "*.test.ts"],
+          include: [
+            "app/lib/**/*.test.ts",
+            "lib/**/*.test.ts",
+            "*.test.ts",
+            "components/**/*.test.tsx",
+          ],
           environment: "node",
         },
       },
