@@ -103,7 +103,9 @@
     "agentToolSearching": "Searching: {query}",
     "agentToolReading": "Reading: {path}",
     "agentToolFound": "Found {count}",
-    "agentToolRead": "Read: {path}"
+    "agentToolRead": "Read: {path}",
+    "agentToolWebSearching": "Searching web: {query}",
+    "agentToolWebSearched": "Web search complete"
   },
   "dnd": {
     "dropFilesHere": "Drop .md files here",

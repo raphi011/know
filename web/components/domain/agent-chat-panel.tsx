@@ -8,6 +8,7 @@ import {
   TrashIcon,
   MagnifyingGlassIcon,
   DocumentTextIcon,
+  GlobeAltIcon,
 } from "@heroicons/react/20/solid";
 import { cn } from "@/lib/utils";
 import { useAgentChat } from "@/components/domain/agent-chat-context";
@@ -127,11 +128,13 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
             {t("agentPlaceholder")}
           </div>
         )}
-        {activeMessages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((msg) => (
+        {activeMessages.map((msg) =>
+          msg.role === "tool_call" || msg.role === "tool_result" ? (
+            <ToolMessage key={msg.id} message={msg} />
+          ) : (
             <ChatBubble key={msg.id} message={msg} />
-          ))}
+          ),
+        )}
 
         {/* Tool indicators */}
         {chat.toolEvents.map((event, i) => (
@@ -276,31 +279,62 @@ function ChatBubble({
   );
 }
 
+function toolIcon(tool: string) {
+  if (tool === "kb_search") return <MagnifyingGlassIcon className="size-3" />;
+  if (tool === "web_search") return <GlobeAltIcon className="size-3" />;
+  return <DocumentTextIcon className="size-3" />;
+}
+
 function ToolIndicator({
   event,
 }: {
   event: { tool: string; type: string; content: string };
 }) {
   const t = useTranslations("docs");
-  const icon =
-    event.tool === "kb_search" ? (
-      <MagnifyingGlassIcon className="size-3" />
-    ) : (
-      <DocumentTextIcon className="size-3" />
-    );
 
-  const label =
-    event.type === "call"
-      ? event.tool === "kb_search"
-        ? t("agentToolSearching", { query: event.content })
-        : t("agentToolReading", { path: event.content })
-      : event.tool === "kb_search"
-        ? t("agentToolFound", { count: event.content })
-        : t("agentToolRead", { path: event.content });
+  let label: string;
+  if (event.type === "call") {
+    if (event.tool === "kb_search") label = t("agentToolSearching", { query: event.content });
+    else if (event.tool === "web_search") label = t("agentToolWebSearching", { query: event.content });
+    else label = t("agentToolReading", { path: event.content });
+  } else {
+    if (event.tool === "kb_search") label = t("agentToolFound", { count: event.content });
+    else if (event.tool === "web_search") label = t("agentToolWebSearched");
+    else label = t("agentToolRead", { path: event.content });
+  }
 
   return (
     <div className="mb-1.5 flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-      {icon}
+      {toolIcon(event.tool)}
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
+function ToolMessage({
+  message,
+}: {
+  message: { role: string; content: string; toolName?: string; toolInput?: string };
+}) {
+  const t = useTranslations("docs");
+  const tool = message.toolName ?? "kb_search";
+  const isCall = message.role === "tool_call";
+
+  let label: string;
+  if (isCall) {
+    const input = message.toolInput ?? "";
+    if (tool === "kb_search") label = t("agentToolSearching", { query: input });
+    else if (tool === "web_search") label = t("agentToolWebSearching", { query: input });
+    else label = t("agentToolReading", { path: input });
+  } else {
+    if (tool === "kb_search") label = t("agentToolFound", { count: message.content });
+    else if (tool === "web_search") label = t("agentToolWebSearched");
+    else label = t("agentToolRead", { path: message.content });
+  }
+
+  return (
+    <div className="mb-1.5 flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+      {toolIcon(tool)}
       <span className="truncate">{label}</span>
     </div>
   );

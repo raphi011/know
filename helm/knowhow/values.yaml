@@ -49,6 +49,7 @@ apiKeys:
   openaiApiKey: ""
   anthropicApiKey: ""
   googleAiApiKey: ""
+  tavilyApiKey: ""
 
 # AWS Bedrock settings
 bedrock:
