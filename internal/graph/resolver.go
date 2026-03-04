@@ -4,6 +4,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -77,14 +78,26 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		}
 	}
 
+	chunkConfig := cfg.ChunkConfig()
+	if err := chunkConfig.Validate(); err != nil {
+		if closeErr := dbClient.Close(ctx); closeErr != nil {
+			slog.Warn("failed to close DB during cleanup", "error", closeErr)
+		}
+		return nil, fmt.Errorf("invalid chunk configuration: %w", err)
+	}
+
 	slog.Info("resolver initialized",
 		"embed_provider", cfg.EmbedProvider,
 		"embed_dimension", cfg.EmbedDimension,
 		"semantic_search", embedder != nil,
 		"agent_chat", model != nil,
+		"chunk_threshold", chunkConfig.Threshold,
+		"chunk_target", chunkConfig.TargetSize,
+		"chunk_min", chunkConfig.MinSize,
+		"chunk_max", chunkConfig.MaxSize,
 	)
 
-	docService := document.NewService(dbClient, embedder)
+	docService := document.NewService(dbClient, embedder, chunkConfig)
 
 	workerDone := make(chan struct{})
 	close(workerDone) // safe default: <-workerDone returns immediately if no worker

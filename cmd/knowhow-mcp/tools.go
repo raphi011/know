@@ -32,12 +32,12 @@ type vaultsResponse struct {
 
 type searchResponse struct {
 	Search []struct {
-		DocumentID string  `json:"documentId"`
-		Path       string  `json:"path"`
-		Title      string  `json:"title"`
-		Labels     []string `json:"labels"`
-		DocType    *string `json:"docType"`
-		Score      float64 `json:"score"`
+		DocumentID    string   `json:"documentId"`
+		Path          string   `json:"path"`
+		Title         string   `json:"title"`
+		Labels        []string `json:"labels"`
+		DocType       *string  `json:"docType"`
+		Score         float64  `json:"score"`
 		MatchedChunks []struct {
 			Snippet     string  `json:"snippet"`
 			HeadingPath *string `json:"headingPath"`
@@ -66,12 +66,12 @@ type createDocumentResponse struct {
 // ---------- Tool input types ----------
 
 type SearchInput struct {
-	Query    string  `json:"query" jsonschema:"description=Search query text"`
+	Query    string   `json:"query" jsonschema:"description=Search query text"`
 	Labels   []string `json:"labels,omitempty" jsonschema:"description=Filter by labels"`
-	DocType  *string `json:"doc_type,omitempty" jsonschema:"description=Filter by document type"`
-	Folder   *string `json:"folder,omitempty" jsonschema:"description=Filter by folder path prefix"`
-	Limit    *int    `json:"limit,omitempty" jsonschema:"description=Max results (default 20)"`
-	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (searches all if omitted)"`
+	DocType  *string  `json:"doc_type,omitempty" jsonschema:"description=Filter by document type"`
+	Folder   *string  `json:"folder,omitempty" jsonschema:"description=Filter by folder path prefix"`
+	Limit    *int     `json:"limit,omitempty" jsonschema:"description=Max results (default 20)"`
+	Instance *string  `json:"instance,omitempty" jsonschema:"description=Instance name (searches all if omitted)"`
 }
 
 type GetDocumentInput struct {

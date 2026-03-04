@@ -7,6 +7,7 @@ import (
 
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/review"
 	"github.com/raphi011/knowhow/internal/vault"
 )
@@ -37,7 +38,7 @@ func TestProposalLifecycle(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 	reviewSvc := review.NewService(testDB, docSvc)
 
 	// --- Create a document ---

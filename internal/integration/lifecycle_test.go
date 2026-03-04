@@ -12,6 +12,7 @@ import (
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/search"
 	"github.com/raphi011/knowhow/internal/vault"
 	"github.com/testcontainers/testcontainers-go"
@@ -132,7 +133,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// --- Documents with wiki-links ---
 
-	docSvc := document.NewService(testDB, nil) // no embedder
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig()) // no embedder
 
 	doc1, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
@@ -377,7 +378,7 @@ func TestDeleteByPrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	// Create 3 documents: 2 under /test-prefix/, 1 under /other/
 	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md", "/other/c.md"} {
@@ -445,7 +446,7 @@ func TestMoveByPrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	// Create 2 documents under /old-folder/
 	for _, path := range []string{"/old-folder/a.md", "/old-folder/b.md"} {
@@ -515,7 +516,7 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	// Create docs under similar-looking prefixes
 	paths := []string{
@@ -590,7 +591,7 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	// Create deeply nested documents
 	paths := []string{
@@ -657,7 +658,7 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	paths := []string{
 		"/guides/a.md",
@@ -723,7 +724,7 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
@@ -777,7 +778,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	vaultID := models.MustRecordIDString(v.ID)
 
 	// nil embedder — embed_at should NOT be set on any chunks
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
 	// --- Step 1: Create a document with initial content ---
 	doc, err := docSvc.Create(ctx, models.DocumentInput{
@@ -889,10 +890,9 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
 
-	// Create document with content long enough to produce multiple chunks.
-	// Default chunk config has a max of ~1500 chars, so we use heading-based splitting.
+	// Create document with content that uses heading-based splitting.
 	longContent := "# Section A\n\nContent of section A that is preserved across updates.\n\n# Section B\n\nContent of section B that will change."
 
 	doc, err := docSvc.Create(ctx, models.DocumentInput{
