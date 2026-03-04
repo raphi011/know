@@ -74,6 +74,22 @@ func TestRequireVaultAccess(t *testing.T) {
 	}
 }
 
+func TestRequireVaultAccess_Wildcard(t *testing.T) {
+	ctx := t.Context()
+	ac := AuthContext{
+		UserID:      "admin",
+		VaultAccess: []string{WildcardVaultAccess},
+	}
+	ctx = WithAuth(ctx, ac)
+
+	if err := RequireVaultAccess(ctx, "any-vault"); err != nil {
+		t.Errorf("Wildcard should grant access to any vault: %v", err)
+	}
+	if err := RequireVaultAccess(ctx, "vault:another"); err != nil {
+		t.Errorf("Wildcard should grant access to record-ID vaults: %v", err)
+	}
+}
+
 func TestMiddlewareMissingHeader(t *testing.T) {
 	handler := Middleware(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called without auth")

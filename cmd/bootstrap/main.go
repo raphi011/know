@@ -114,6 +114,13 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Created vault: %s (id: %s)\n", vault.Name, vaultID)
 
+	// In no-auth mode, skip token creation — user + vault are enough.
+	if cfg.NoAuth {
+		fmt.Fprintf(os.Stderr, "No-auth mode: skipping token creation\n")
+		fmt.Fprintf(os.Stderr, "\nVault ID: %s\n", vaultID)
+		return
+	}
+
 	// 3. Create API token with access to the new vault
 	var rawToken, tokenHash string
 	if *token != "" {

@@ -76,7 +76,13 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Auth middleware wraps GraphQL handler
-	authMw := auth.Middleware(resolver.DBClient())
+	var authMw func(http.Handler) http.Handler
+	if cfg.NoAuth {
+		slog.Warn("no-auth mode enabled: skipping token validation")
+		authMw = auth.NoAuthMiddleware
+	} else {
+		authMw = auth.Middleware(resolver.DBClient())
+	}
 	mux.Handle("/query", authMw(srv))
 
 	// Agent chat SSE endpoint

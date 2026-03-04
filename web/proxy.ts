@@ -67,6 +67,13 @@ export async function proxy(request: NextRequest) {
       return nextWithNonce(request, nonce, csp);
     }
 
+    // No-auth mode: skip all session checks.
+    // Uses process.env directly because proxy.ts runs in the edge/middleware
+    // layer where app/lib/env.ts (which imports "server-only") is unavailable.
+    if (process.env.AUTH_DISABLED === "true") {
+      return nextWithNonce(request, nonce, csp);
+    }
+
     const hasSession = request.cookies.has(SESSION_COOKIE);
 
     const isPublicRoute = PUBLIC_ROUTES.some((route) =>

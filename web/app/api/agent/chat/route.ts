@@ -1,19 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/app/lib/session";
 import { getActiveConnection } from "@/app/lib/actions/connections";
+import { env } from "@/app/lib/env";
 
 export async function POST(request: NextRequest) {
-  const session = await getSession();
-  if (!session || session.servers.length === 0) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  let backendUrl: string;
+  let authHeader: Record<string, string> = {};
 
-  const conn = await getActiveConnection();
-  if (!conn) {
-    return NextResponse.json(
-      { error: "No Knowhow server configured" },
-      { status: 503 },
-    );
+  if (env.AUTH_DISABLED) {
+    backendUrl = env.BACKEND_URL;
+  } else {
+    const session = await getSession();
+    if (!session || session.servers.length === 0) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const conn = await getActiveConnection();
+    if (!conn) {
+      return NextResponse.json(
+        { error: "No Knowhow server configured" },
+        { status: 503 },
+      );
+    }
+    backendUrl = conn.url;
+    authHeader = { Authorization: `Bearer ${conn.token}` };
   }
 
   let body: string;
@@ -28,11 +38,11 @@ export async function POST(request: NextRequest) {
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${conn.url}/agent/chat`, {
+    upstream = await fetch(`${backendUrl}/agent/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${conn.token}`,
+        ...authHeader,
       },
       body,
     });

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -55,7 +56,7 @@ func loadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("instance %q: url must be http or https", inst.Name)
 		}
 		if inst.Token == "" {
-			return nil, fmt.Errorf("instance %q: token is required", inst.Name)
+			slog.Warn("instance has no token configured — requests will fail if server requires auth", "name", inst.Name)
 		}
 	}
 

@@ -10,10 +10,13 @@ import (
 
 type contextKey struct{}
 
+// WildcardVaultAccess grants access to all vaults (used in no-auth mode).
+const WildcardVaultAccess = "*"
+
 // AuthContext carries authenticated user information through request context.
 type AuthContext struct {
 	UserID      string
-	VaultAccess []string // vault IDs the user can access
+	VaultAccess []string // vault IDs the user can access ("*" = all)
 }
 
 // WithAuth stores auth context in the request context.
@@ -32,10 +35,14 @@ func FromContext(ctx context.Context) (AuthContext, error) {
 
 // RequireVaultAccess checks if the authenticated user has access to a vault.
 // Accepts both bare IDs ("default") and record IDs ("vault:default").
+// Wildcard access ("*") grants access to all vaults (no-auth mode).
 func RequireVaultAccess(ctx context.Context, vaultID string) error {
 	ac, err := FromContext(ctx)
 	if err != nil {
 		return err
+	}
+	if slices.Contains(ac.VaultAccess, WildcardVaultAccess) {
+		return nil
 	}
 	bare := models.BareID("vault", vaultID)
 	if slices.Contains(ac.VaultAccess, bare) {

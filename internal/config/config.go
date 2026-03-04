@@ -55,6 +55,7 @@ type Config struct {
 
 	// Server settings
 	IngestConcurrency int
+	NoAuth            bool // bypass token auth (for local/Docker use)
 
 	// Embedding worker settings
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
@@ -111,6 +112,7 @@ func Load() Config {
 
 		// Server settings
 		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
+		NoAuth:            getEnvBool("KNOWHOW_NO_AUTH", false),
 
 		// Embedding worker
 		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),
@@ -139,6 +141,18 @@ func getEnvInt(key string, defaultVal int) int {
 			return defaultVal
 		}
 		return i
+	}
+	return defaultVal
+}
+
+func getEnvBool(key string, defaultVal bool) bool {
+	if val := os.Getenv(key); val != "" {
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			slog.Warn("invalid boolean env var, using default", "key", key, "value", val, "default", defaultVal, "error", err)
+			return defaultVal
+		}
+		return b
 	}
 	return defaultVal
 }

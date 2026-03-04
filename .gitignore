@@ -68,5 +68,8 @@ web/playwright-report/
 # Logs
 *.log
 
+# Local Docker data (SurrealDB persistent storage)
+data/
+
 # Worktrees
 .worktrees/
