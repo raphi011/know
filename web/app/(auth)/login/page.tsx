@@ -56,7 +56,7 @@ export default function LoginPage() {
             type="url"
             required
             placeholder={t("serverUrl")}
-            defaultValue="http://localhost:8484/query"
+            defaultValue="http://knowhow.knowhow.svc.cluster.local:8484"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
           />
           <input
