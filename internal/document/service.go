@@ -20,17 +20,19 @@ import (
 
 // Service manages document lifecycle: parse → extract → store → link → embed.
 type Service struct {
-	db       *db.Client
-	embedder *llm.Embedder // optional — nil disables embedding
-	resolver *LinkResolver
+	db          *db.Client
+	embedder    *llm.Embedder // optional — nil disables embedding
+	resolver    *LinkResolver
+	chunkConfig parser.ChunkConfig
 }
 
 // NewService creates a new document service.
-func NewService(db *db.Client, embedder *llm.Embedder) *Service {
+func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig) *Service {
 	return &Service{
-		db:       db,
-		embedder: embedder,
-		resolver: NewLinkResolver(db),
+		db:          db,
+		embedder:    embedder,
+		resolver:    NewLinkResolver(db),
+		chunkConfig: chunkConfig,
 	}
 }
 
@@ -321,7 +323,7 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 // by content, preserving embeddings for unchanged chunks and scheduling embedding
 // only for new/changed chunks.
 func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.MarkdownDoc, labels []string) error {
-	newChunkResults := parser.ChunkMarkdown(parsed, parser.DefaultChunkConfig())
+	newChunkResults := parser.ChunkMarkdown(parsed, s.chunkConfig)
 
 	oldChunks, err := s.db.GetChunks(ctx, docID)
 	if err != nil {

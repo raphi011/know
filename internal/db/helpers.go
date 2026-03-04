@@ -24,4 +24,3 @@ func optionalObject(m map[string]any) any {
 	}
 	return m
 }
-

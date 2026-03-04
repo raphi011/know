@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 )
@@ -26,6 +27,7 @@ type ChunkConfig struct {
 
 // DefaultChunkConfig returns sensible defaults for embedding-quality chunk sizes.
 // TargetSize ~750 tokens, MaxSize ~1000 tokens (at ~4 chars/token for English prose).
+// These are typically overridden by KNOWHOW_CHUNK_* environment variables (see justfile).
 func DefaultChunkConfig() ChunkConfig {
 	return ChunkConfig{
 		Threshold:  6000,
@@ -35,8 +37,26 @@ func DefaultChunkConfig() ChunkConfig {
 	}
 }
 
-// ShouldChunk returns true if content should be chunked.
-func ShouldChunk(content string, config ChunkConfig) bool {
+// Validate checks that chunk config values form a coherent configuration.
+func (c ChunkConfig) Validate() error {
+	if c.MinSize <= 0 || c.TargetSize <= 0 || c.MaxSize <= 0 || c.Threshold <= 0 {
+		return fmt.Errorf("all chunk config values must be positive: min=%d target=%d max=%d threshold=%d",
+			c.MinSize, c.TargetSize, c.MaxSize, c.Threshold)
+	}
+	if c.MinSize >= c.TargetSize {
+		return fmt.Errorf("chunk MinSize (%d) must be less than TargetSize (%d)", c.MinSize, c.TargetSize)
+	}
+	if c.TargetSize >= c.MaxSize {
+		return fmt.Errorf("chunk TargetSize (%d) must be less than MaxSize (%d)", c.TargetSize, c.MaxSize)
+	}
+	if c.MaxSize > c.Threshold {
+		return fmt.Errorf("chunk MaxSize (%d) must not exceed Threshold (%d)", c.MaxSize, c.Threshold)
+	}
+	return nil
+}
+
+// ExceedsThreshold returns true if content length exceeds the chunking threshold.
+func ExceedsThreshold(content string, config ChunkConfig) bool {
 	return len(content) > config.Threshold
 }
 
@@ -44,17 +64,21 @@ func ShouldChunk(content string, config ChunkConfig) bool {
 // Prioritizes section boundaries, then paragraph boundaries.
 // Returns empty slice if content has no semantic value for embedding.
 func ChunkMarkdown(doc *MarkdownDoc, config ChunkConfig) []ChunkResult {
-	// If content is short enough, return as single chunk (only if non-empty)
-	if !ShouldChunk(doc.Content, config) {
+	// If content is below threshold, check whether it also fits within MaxSize
+	if !ExceedsThreshold(doc.Content, config) {
 		trimmed := strings.TrimSpace(doc.Content)
 		if trimmed == "" {
-			return []ChunkResult{} // No content to chunk
+			return []ChunkResult{}
 		}
-		return []ChunkResult{{
-			Content:     doc.Content,
-			Position:    0,
-			HeadingPath: "",
-		}}
+		// Even below Threshold, if content exceeds MaxSize it must be chunked
+		// to avoid embedding context length errors
+		if len(doc.Content) <= config.MaxSize {
+			return []ChunkResult{{
+				Content:     doc.Content,
+				Position:    0,
+				HeadingPath: "",
+			}}
+		}
 	}
 
 	// If we have sections, chunk by section first

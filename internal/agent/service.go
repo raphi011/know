@@ -17,9 +17,9 @@ const maxToolIterations = 5
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type    string `json:"type"`              // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id" | "conversation_id"
-	Content string `json:"content"`           // token text, tool result, error message, or message ID
-	Tool    string `json:"tool,omitempty"`     // tool name for tool_call/tool_result events
+	Type    string `json:"type"`           // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id" | "conversation_id"
+	Content string `json:"content"`        // token text, tool result, error message, or message ID
+	Tool    string `json:"tool,omitempty"` // tool name for tool_call/tool_result events
 }
 
 // Service orchestrates the agent loop: intent detection → tool execution → streaming answer.
@@ -290,7 +290,7 @@ func (s *Service) buildHistory(messages []models.Message, toolContext string) []
 			history = append(history, llm.ChatMessage{Role: "user", Content: msg.Content})
 		case models.RoleAssistant:
 			history = append(history, llm.ChatMessage{Role: "assistant", Content: msg.Content})
-		// Skip tool_call and tool_result — current turn's results are in toolContext; historical tool messages are omitted
+			// Skip tool_call and tool_result — current turn's results are in toolContext; historical tool messages are omitted
 		}
 	}
 
