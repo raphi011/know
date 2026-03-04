@@ -125,6 +125,89 @@ Mock the entire action module (not individual Node.js modules) to cut off the wh
 
 Next.js 16 uses `proxy.ts` instead of `middleware.ts`. The project already uses the proxy convention — see `proxy.ts` at the project root.
 
+### Nonce-based CSP must be set on REQUEST headers
+
+Next.js reads the CSP from **request** headers (not response headers) to extract the nonce and auto-apply it to framework inline scripts. If you only set CSP on the response, Next.js generates its own hash-based CSP instead of using your nonce.
+
+```ts
+// proxy.ts — BOTH request and response headers are required
+function nextWithNonce(request: NextRequest, nonce: string, csp: string): NextResponse {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp); // ← CRITICAL for nonce injection
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", csp); // Also set on response
+  return response;
+}
+```
+
+Without CSP on request headers, symptoms are:
+- CSP header shows hash-based policy (`'sha256-...'`) instead of your nonce
+- Inline scripts blocked despite nonce being set
+- Framework scripts fail to load
+
+### `form-action 'self'` breaks React 19+ forms
+
+React 19 uses `action="javascript:throw new Error('React form unexpectedly submitted.')"` as a safety mechanism on forms. CSP `form-action 'self'` blocks `javascript:` URIs, silently preventing form submissions. Use `object-src 'none'` instead.
+
+### `router.refresh()` after `router.push()` causes double navigation
+
+Calling `router.refresh()` right after `router.push("/target")` triggers two separate server renders — the push navigation AND a refresh of the current route tree. This doubles all server-side work (GraphQL queries, session decryption, etc.):
+
+```tsx
+// BAD — double navigation
+router.push("/docs");
+router.refresh(); // Triggers a second render
+
+// GOOD — push already navigates to fresh server components
+router.push("/docs");
+```
+
+### Wrap expensive server-side functions in React `cache()`
+
+React's `cache()` deduplicates function calls within a single RSC request. Session decryption, GraphQL queries, and other expensive operations that are called from multiple components in the same render tree should be wrapped:
+
+```ts
+import { cache } from "react";
+
+// Called ~5 times per render (by getConnections, getActiveConnection, gql, etc.)
+// Without cache(): 5 separate decryptions per request
+// With cache(): 1 decryption, 4 instant returns
+export const getSession = cache(async (): Promise<Session | null> => {
+  // ... decrypt session cookie
+});
+```
+
+### PBKDF2 key derivation: cache at module level
+
+PBKDF2 with 100k iterations takes ~600-700ms on ARM64. If `encrypt`/`decrypt` call `deriveKey()` on every invocation, a single page render with 5 session reads takes ~3.5 seconds. Derive the key once at module load:
+
+```ts
+// Eagerly derive at module load — subsequent calls use cached Promise
+const keyPromise = deriveKey(env.SESSION_SECRET || "...");
+
+async function decrypt(encoded: string): Promise<string> {
+  const key = await keyPromise; // Instant after first call
+  // ...
+}
+```
+
+---
+
+## Docker / OCI
+
+### OCI Helm chart versions are immutable
+
+When pushing a Helm chart to an OCI registry (e.g., Zot), the chart version acts as an immutable tag. Pushing the same version again may silently succeed but not overwrite the existing chart. If you change `values.yaml` without bumping `Chart.yaml` version, the new defaults won't reach the registry.
+
+**Fix:** Always bump `Chart.yaml` version when changing defaults, OR override values in the ArgoCD Application spec (which is outside the chart).
+
+### `imagePullPolicy: IfNotPresent` prevents mutable tag updates
+
+When using mutable image tags (e.g., `knowhow-web:0.2.1` that gets overwritten on each CI build), `imagePullPolicy: IfNotPresent` means the kubelet reuses the cached image — even if a newer image with the same tag was pushed. New code never reaches the pod.
+
+**Fix:** Set `imagePullPolicy: Always` for images using mutable tags. This forces a pull on every pod creation, picking up the latest image. Alternatively, use immutable tags (e.g., git SHA or build number).
+
 ---
 
 ## Tailwind CSS v4

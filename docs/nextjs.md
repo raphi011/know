@@ -634,10 +634,13 @@ export const env = envSchema.parse(process.env)
 
 ### Content Security Policy (CSP)
 
-- Configure via `next.config.js` headers or proxy
-- Use **nonces** for inline scripts — generated fresh per request
+- Configure via proxy (not `next.config.js` headers) for nonce-based CSP
+- Use **nonces** for inline scripts — generated fresh per request in the proxy
+- **Critical**: Set CSP on **request headers** in the proxy — Next.js reads CSP from request headers to extract the nonce and auto-apply it to framework scripts. Setting CSP only on response headers results in Next.js generating its own hash-based CSP
 - Block `unsafe-inline` and `unsafe-eval` in production
+- **Do not use `form-action 'self'`** — React 19+ uses `javascript:` URIs on forms which gets blocked. Use `object-src 'none'` instead
 - Allow only trusted script sources
+- Next.js auto-applies the nonce to: framework scripts, page-specific JS bundles, inline scripts, `<Script>` components
 
 ### Server Action Security
 
@@ -678,12 +681,13 @@ const securityHeaders = [
 
 ### Audit Checklist
 
-- [ ] CSP headers configured (at least X-Frame-Options, X-Content-Type-Options)
+- [ ] Nonce-based CSP configured in proxy (CSP set on both request and response headers)
+- [ ] No `form-action 'self'` in CSP (breaks React 19+ form submissions)
+- [ ] Security headers (X-Frame-Options, X-Content-Type-Options, etc.) set in `next.config.ts`
 - [ ] Server Actions validate input and check authorization
 - [ ] Rate limiting on auth-related endpoints
 - [ ] `server-only` used in modules accessing secrets
 - [ ] No sensitive data in Server -> Client Component props
-- [ ] Security headers set in `next.config.js`
 - [ ] Next.js version is patched (15.1.4+ / latest 16.x)
 
 ---
