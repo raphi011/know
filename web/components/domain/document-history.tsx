@@ -35,15 +35,19 @@ function DocumentHistory({
     null,
   );
   const [rolling, setRolling] = useState(false);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
 
   async function handleRollback() {
     if (!rollbackTarget) return;
     setRolling(true);
+    setRollbackError(null);
     const result = await rollbackDocument(vaultId, documentId, rollbackTarget.id);
     setRolling(false);
-    setRollbackTarget(null);
     if (result.success) {
+      setRollbackTarget(null);
       router.refresh();
+    } else {
+      setRollbackError(result.error);
     }
   }
 
@@ -134,6 +138,11 @@ function DocumentHistory({
         <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
           {t("rollbackConfirmDescription")}
         </p>
+        {rollbackError && (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+            {t("rollbackError")}: {rollbackError}
+          </p>
+        )}
         <div className="flex justify-end gap-3">
           <Button
             variant="outline"

@@ -126,6 +126,7 @@
     "rollbackError": "Restore failed",
     "diffLoading": "Loading diff…",
     "diffError": "Failed to load diff",
+    "noChanges": "No changes",
     "additions": "{count} added",
     "deletions": "{count} removed",
     "currentVersion": "Current"

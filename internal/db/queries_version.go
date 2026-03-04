@@ -25,7 +25,7 @@ func (c *Client) CreateVersion(ctx context.Context, input models.DocumentVersion
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
-		"document_id":  input.DocumentID,
+		"document_id":  bareID("document", input.DocumentID),
 		"vault_id":     bareID("vault", input.VaultID),
 		"version":      version,
 		"content":      input.Content,
@@ -49,7 +49,7 @@ func (c *Client) GetVersion(ctx context.Context, id string) (*models.DocumentVer
 
 	sql := `SELECT * FROM type::record("document_version", $id)`
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
-		"id": id,
+		"id": bareID("document_version", id),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get version: %w", err)
@@ -67,7 +67,7 @@ func (c *Client) GetVersionByNumber(ctx context.Context, documentID string, vers
 
 	sql := `SELECT * FROM document_version WHERE document = type::record("document", $document_id) AND version = $version LIMIT 1`
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
-		"document_id": documentID,
+		"document_id": bareID("document", documentID),
 		"version":     version,
 	})
 	if err != nil {
@@ -93,13 +93,13 @@ func (c *Client) ListVersions(ctx context.Context, documentID string, limit, off
 		limit, offset,
 	)
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
-		"document_id": documentID,
+		"document_id": bareID("document", documentID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list versions: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return []models.DocumentVersion{}, nil
 	}
 	return (*results)[0].Result, nil
 }
@@ -111,7 +111,7 @@ func (c *Client) GetLatestVersion(ctx context.Context, documentID string) (*mode
 
 	sql := `SELECT * FROM document_version WHERE document = type::record("document", $document_id) ORDER BY version DESC LIMIT 1`
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
-		"document_id": documentID,
+		"document_id": bareID("document", documentID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get latest version: %w", err)
@@ -132,7 +132,7 @@ func (c *Client) CountVersions(ctx context.Context, documentID string) (int, err
 		Total int `json:"total"`
 	}
 	results, err := surrealdb.Query[[]countResult](ctx, c.DB(), sql, map[string]any{
-		"document_id": documentID,
+		"document_id": bareID("document", documentID),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("count versions: %w", err)
@@ -153,14 +153,14 @@ func (c *Client) DeleteOldestVersions(ctx context.Context, documentID string, ke
 		DELETE FROM document_version
 		WHERE document = type::record("document", $document_id)
 		  AND id NOT IN (
-			SELECT VALUE id FROM document_version
+			SELECT id, version FROM document_version
 			WHERE document = type::record("document", $document_id)
 			ORDER BY version DESC LIMIT $keep_count
-		  )
+		  ).id
 		RETURN BEFORE
 	`
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
-		"document_id": documentID,
+		"document_id": bareID("document", documentID),
 		"keep_count":  keepCount,
 	})
 	if err != nil {
@@ -173,16 +173,17 @@ func (c *Client) DeleteOldestVersions(ctx context.Context, documentID string, ke
 }
 
 // NextVersionNumber returns the next version number for a document.
+// Uses max(version) instead of count() to avoid collisions after retention pruning.
 func (c *Client) NextVersionNumber(ctx context.Context, documentID string) (int, error) {
 	start := c.startOp()
 	defer c.recordTiming("db.next_version_number", start)
 
-	sql := `SELECT count() AS total FROM document_version WHERE document = type::record("document", $document_id) GROUP ALL`
-	type countResult struct {
-		Total int `json:"total"`
+	sql := `SELECT version FROM document_version WHERE document = type::record("document", $document_id) ORDER BY version DESC LIMIT 1`
+	type versionResult struct {
+		Version int `json:"version"`
 	}
-	results, err := surrealdb.Query[[]countResult](ctx, c.DB(), sql, map[string]any{
-		"document_id": documentID,
+	results, err := surrealdb.Query[[]versionResult](ctx, c.DB(), sql, map[string]any{
+		"document_id": bareID("document", documentID),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("next version number: %w", err)
@@ -190,5 +191,5 @@ func (c *Client) NextVersionNumber(ctx context.Context, documentID string) (int,
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
 		return 1, nil
 	}
-	return (*results)[0].Result[0].Total + 1, nil
+	return (*results)[0].Result[0].Version + 1, nil
 }

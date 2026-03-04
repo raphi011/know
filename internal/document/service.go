@@ -35,6 +35,14 @@ type Service struct {
 
 // NewService creates a new document service.
 func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig) *Service {
+	if versionConfig.RetentionCount < 1 {
+		slog.Warn("version retention count too low, clamping to 1", "configured", versionConfig.RetentionCount)
+		versionConfig.RetentionCount = 1
+	}
+	if versionConfig.CoalesceMinutes < 0 {
+		slog.Warn("version coalesce minutes negative, clamping to 0", "configured", versionConfig.CoalesceMinutes)
+		versionConfig.CoalesceMinutes = 0
+	}
 	return &Service{
 		db:            db,
 		embedder:      embedder,

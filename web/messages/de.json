@@ -126,6 +126,7 @@
     "rollbackError": "Wiederherstellung fehlgeschlagen",
     "diffLoading": "Diff wird geladen…",
     "diffError": "Diff konnte nicht geladen werden",
+    "noChanges": "Keine Änderungen",
     "additions": "{count} hinzugefügt",
     "deletions": "{count} entfernt",
     "currentVersion": "Aktuell"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import type { VersionDiff, DiffHunk, DiffLine } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
@@ -11,20 +11,24 @@ type VersionDiffViewProps = {
   toVersionId?: string;
 };
 
+type DiffState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "done"; diff: VersionDiff };
+
 function VersionDiffView({
   documentId,
   fromVersionId,
   toVersionId,
 }: VersionDiffViewProps) {
   const t = useTranslations("docs");
-  const [diff, setDiff] = useState<VersionDiff | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<DiffState>({ status: "loading" });
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    setDiff(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     const query = `query ($documentId: ID!, $fromVersionId: ID, $toVersionId: ID) {
       versionDiff(documentId: $documentId, fromVersionId: $fromVersionId, toVersionId: $toVersionId) {
@@ -44,18 +48,23 @@ function VersionDiffView({
         query,
         variables: { documentId, fromVersionId, toVersionId: toVersionId ?? null },
       }),
+      signal: controller.signal,
     })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (json.errors?.length) throw new Error(json.errors[0].message);
-        setDiff(json.data.versionDiff);
+        setState({ status: "done", diff: json.data.versionDiff });
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setState({ status: "error", message: err.message });
+      });
+
+    return () => controller.abort();
   }, [documentId, fromVersionId, toVersionId]);
 
-  if (loading) {
+  if (state.status === "loading") {
     return (
       <p className="px-1 text-xs text-slate-400 dark:text-slate-500">
         {t("diffLoading")}
@@ -63,14 +72,20 @@ function VersionDiffView({
     );
   }
 
-  if (error) {
+  if (state.status === "error") {
     return (
-      <p className="px-1 text-xs text-red-500">{t("diffError")}</p>
+      <p className="px-1 text-xs text-red-500">
+        {t("diffError")}: {state.message}
+      </p>
     );
   }
 
-  if (!diff || diff.hunks.length === 0) {
-    return null;
+  if (state.diff.hunks.length === 0) {
+    return (
+      <p className="px-1 text-xs text-slate-400 dark:text-slate-500">
+        {t("noChanges")}
+      </p>
+    );
   }
 
   return (
@@ -78,16 +93,16 @@ function VersionDiffView({
       {/* Stats summary */}
       <div className="flex gap-3 px-1 text-xs">
         <span className="text-green-600 dark:text-green-400">
-          {t("additions", { count: diff.stats.additions })}
+          {t("additions", { count: state.diff.stats.additions })}
         </span>
         <span className="text-red-600 dark:text-red-400">
-          {t("deletions", { count: diff.stats.deletions })}
+          {t("deletions", { count: state.diff.stats.deletions })}
         </span>
       </div>
 
       {/* Hunks */}
       <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-        {diff.hunks.map((hunk) => (
+        {state.diff.hunks.map((hunk) => (
           <HunkView key={hunk.index} hunk={hunk} />
         ))}
       </div>

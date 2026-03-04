@@ -838,11 +838,36 @@ func (r *queryResolver) DocumentVersion(ctx context.Context, id string) (*Docume
 	if err != nil {
 		return nil, fmt.Errorf("get version: %w", err)
 	}
+	if v == nil {
+		return nil, nil
+	}
+	vaultID, err := models.RecordIDString(v.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from version: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
 	return versionToGraphQL(v), nil
 }
 
 // DocumentVersions is the resolver for the documentVersions field.
 func (r *queryResolver) DocumentVersions(ctx context.Context, documentID string, limit *int, offset *int) (*DocumentVersionConnection, error) {
+	doc, err := r.db.GetDocumentByID(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("document not found: %s", documentID)
+	}
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from document: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+
 	l, o := 20, 0
 	if limit != nil {
 		l = *limit
@@ -870,6 +895,21 @@ func (r *queryResolver) DocumentVersions(ctx context.Context, documentID string,
 
 // VersionDiff is the resolver for the versionDiff field.
 func (r *queryResolver) VersionDiff(ctx context.Context, documentID string, fromVersionID *string, toVersionID *string) (*ProposalDiff, error) {
+	doc, err := r.db.GetDocumentByID(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("document not found: %s", documentID)
+	}
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from document: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+
 	fromContent, err := r.documentService.VersionContent(ctx, documentID, fromVersionID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve from content: %w", err)

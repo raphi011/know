@@ -17,16 +17,18 @@ func (s *Service) maybeCreateVersion(ctx context.Context, docID, vaultID string,
 		return
 	}
 
-	// Coalescing: check if last version is too recent
-	latest, err := s.db.GetLatestVersion(ctx, docID)
-	if err != nil {
-		slog.Warn("failed to check latest version for coalescing", "doc_id", docID, "error", err)
-		return
-	}
-	if latest != nil {
-		threshold := time.Now().Add(-time.Duration(s.versionConfig.CoalesceMinutes) * time.Minute)
-		if latest.CreatedAt.After(threshold) {
+	// Coalescing: skip version if last one is too recent (0 = disabled)
+	if s.versionConfig.CoalesceMinutes > 0 {
+		latest, err := s.db.GetLatestVersion(ctx, docID)
+		if err != nil {
+			slog.Warn("failed to check latest version for coalescing", "doc_id", docID, "error", err)
 			return
+		}
+		if latest != nil {
+			threshold := time.Now().Add(-time.Duration(s.versionConfig.CoalesceMinutes) * time.Minute)
+			if latest.CreatedAt.After(threshold) {
+				return
+			}
 		}
 	}
 
@@ -79,6 +81,14 @@ func (s *Service) Rollback(ctx context.Context, vaultID, documentID, versionID s
 	}
 	if version == nil {
 		return nil, fmt.Errorf("version not found: %s", versionID)
+	}
+
+	versionDocID, err := models.RecordIDString(version.Document)
+	if err != nil {
+		return nil, fmt.Errorf("extract document ID from version: %w", err)
+	}
+	if versionDocID != documentID {
+		return nil, fmt.Errorf("version %s does not belong to document %s", versionID, documentID)
 	}
 
 	doc, err := s.db.GetDocumentByID(ctx, documentID)
