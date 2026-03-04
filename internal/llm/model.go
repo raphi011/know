@@ -4,18 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+	"github.com/cloudwego/eino-ext/components/model/claude"
+	einogemini "github.com/cloudwego/eino-ext/components/model/gemini"
+	einoollama "github.com/cloudwego/eino-ext/components/model/ollama"
+	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/metrics"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/anthropic"
-	"github.com/tmc/langchaingo/llms/bedrock"
-	"github.com/tmc/langchaingo/llms/googleai"
-	"github.com/tmc/langchaingo/llms/ollama"
-	"github.com/tmc/langchaingo/llms/openai"
+	"google.golang.org/genai"
 )
 
 // ErrFatalAPI indicates a non-recoverable API error (billing, auth, etc.)
@@ -57,44 +59,102 @@ func wrapFatalError(err error) error {
 // charsPerToken is used to estimate token counts when real counts unavailable.
 const charsPerToken = 4
 
-// Model wraps langchaingo LLM for text generation.
+// Model wraps eino chat models for text generation.
 type Model struct {
-	llm       llms.Model
+	chatModel model.BaseChatModel
 	modelName string
 	metrics   *metrics.Collector
 }
 
-// extractTokenCounts gets input/output token counts from GenerationInfo.
-// Returns actual counts from API response, or estimates if unavailable.
-// Provider key names vary: OpenAI uses PromptTokens/CompletionTokens,
-// Anthropic uses InputTokens/OutputTokens.
-func extractTokenCounts(info map[string]any, inputChars, outputChars int) (input, output int64) {
-	// Try OpenAI-style keys first
-	if v, ok := info["PromptTokens"]; ok {
-		if i, ok := toInt64(v); ok {
-			input = i
+// NewModel creates an LLM model based on configuration.
+// If mc is nil, metrics recording is disabled.
+func NewModel(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*Model, error) {
+	var chatModel model.BaseChatModel
+	var err error
+
+	switch cfg.LLMProvider {
+	case config.ProviderNone:
+		return nil, nil
+
+	case config.ProviderOllama:
+		chatModel, err = einoollama.NewChatModel(ctx, &einoollama.ChatModelConfig{
+			BaseURL: cfg.OllamaHost,
+			Model:   cfg.LLMModel,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create ollama model: %w", err)
 		}
-	}
-	if v, ok := info["CompletionTokens"]; ok {
-		if i, ok := toInt64(v); ok {
-			output = i
+
+	case config.ProviderGoogleAI:
+		if cfg.GoogleAIAPIKey == "" {
+			return nil, fmt.Errorf("google AI API key required (GOOGLE_AI_API_KEY)")
 		}
+		client, clientErr := genai.NewClient(ctx, &genai.ClientConfig{
+			APIKey:  cfg.GoogleAIAPIKey,
+			Backend: genai.BackendGeminiAPI,
+		})
+		if clientErr != nil {
+			return nil, fmt.Errorf("create google ai client: %w", clientErr)
+		}
+		chatModel, err = einogemini.NewChatModel(ctx, &einogemini.Config{
+			Client: client,
+			Model:  cfg.LLMModel,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create google ai model: %w", err)
+		}
+
+	case config.ProviderOpenAI:
+		if cfg.OpenAIAPIKey == "" {
+			return nil, fmt.Errorf("openAI API key required")
+		}
+		chatModel, err = einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
+			APIKey: cfg.OpenAIAPIKey,
+			Model:  cfg.LLMModel,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create openai model: %w", err)
+		}
+
+	case config.ProviderAnthropic:
+		if cfg.AnthropicAPIKey == "" {
+			return nil, fmt.Errorf("anthropic API key required")
+		}
+		chatModel, err = claude.NewChatModel(ctx, &claude.Config{
+			APIKey: cfg.AnthropicAPIKey,
+			Model:  cfg.LLMModel,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create anthropic model: %w", err)
+		}
+
+	case config.ProviderBedrock:
+		// AWS SDK auto-detects region from AWS_REGION env var
+		chatModel, err = claude.NewChatModel(ctx, &claude.Config{
+			ByBedrock: true,
+			Model:     cfg.LLMModel,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create bedrock model: %w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported LLM provider: %s", cfg.LLMProvider)
 	}
 
-	// Try Anthropic-style keys
-	if input == 0 {
-		if v, ok := info["InputTokens"]; ok {
-			if i, ok := toInt64(v); ok {
-				input = i
-			}
-		}
-	}
-	if output == 0 {
-		if v, ok := info["OutputTokens"]; ok {
-			if i, ok := toInt64(v); ok {
-				output = i
-			}
-		}
+	return &Model{
+		chatModel: chatModel,
+		modelName: cfg.LLMModel,
+		metrics:   mc,
+	}, nil
+}
+
+// extractTokenCounts gets input/output token counts from ResponseMeta.
+// Returns actual counts from API response, or estimates if unavailable.
+func extractTokenCounts(meta *schema.ResponseMeta, inputChars, outputChars int) (input, output int64) {
+	if meta != nil && meta.Usage != nil {
+		input = int64(meta.Usage.PromptTokens)
+		output = int64(meta.Usage.CompletionTokens)
 	}
 
 	// Fall back to estimates if API didn't provide counts
@@ -108,101 +168,6 @@ func extractTokenCounts(info map[string]any, inputChars, outputChars int) (input
 	return input, output
 }
 
-// toInt64 converts various numeric types to int64.
-func toInt64(v any) (int64, bool) {
-	switch n := v.(type) {
-	case int:
-		return int64(n), true
-	case int64:
-		return n, true
-	case float64:
-		return int64(n), true
-	case float32:
-		return int64(n), true
-	default:
-		return 0, false
-	}
-}
-
-// NewModel creates an LLM model based on configuration.
-// If mc is nil, metrics recording is disabled.
-func NewModel(cfg config.Config, mc *metrics.Collector) (*Model, error) {
-	var model llms.Model
-	var err error
-
-	switch cfg.LLMProvider {
-	case config.ProviderNone:
-		return nil, nil
-
-	case config.ProviderOllama:
-		model, err = ollama.New(
-			ollama.WithModel(cfg.LLMModel),
-			ollama.WithServerURL(cfg.OllamaHost),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create ollama model: %w", err)
-		}
-
-	case config.ProviderGoogleAI:
-		if cfg.GoogleAIAPIKey == "" {
-			return nil, fmt.Errorf("google AI API key required (GOOGLE_AI_API_KEY)")
-		}
-		model, err = googleai.New(context.Background(),
-			googleai.WithAPIKey(cfg.GoogleAIAPIKey),
-			googleai.WithDefaultModel(cfg.LLMModel),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create google ai model: %w", err)
-		}
-
-	case config.ProviderOpenAI:
-		if cfg.OpenAIAPIKey == "" {
-			return nil, fmt.Errorf("openAI API key required")
-		}
-		model, err = openai.New(
-			openai.WithToken(cfg.OpenAIAPIKey),
-			openai.WithModel(cfg.LLMModel),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create openai model: %w", err)
-		}
-
-	case config.ProviderAnthropic:
-		if cfg.AnthropicAPIKey == "" {
-			return nil, fmt.Errorf("anthropic API key required")
-		}
-		model, err = anthropic.New(
-			anthropic.WithToken(cfg.AnthropicAPIKey),
-			anthropic.WithModel(cfg.LLMModel),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create anthropic model: %w", err)
-		}
-
-	case config.ProviderBedrock:
-		// AWS SDK automatically picks up env vars: AWS_ACCESS_KEY_ID,
-		// AWS_SECRET_ACCESS_KEY, AWS_REGION, HTTPS_PROXY, AWS_CA_BUNDLE
-		opts := []bedrock.Option{bedrock.WithModel(cfg.LLMModel)}
-		// For inference profiles, provider can't be auto-detected from ARN
-		if cfg.BedrockModelProvider != "" {
-			opts = append(opts, bedrock.WithModelProvider(cfg.BedrockModelProvider))
-		}
-		model, err = bedrock.New(opts...)
-		if err != nil {
-			return nil, fmt.Errorf("create bedrock model: %w", err)
-		}
-
-	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s", cfg.LLMProvider)
-	}
-
-	return &Model{
-		llm:       model,
-		modelName: cfg.LLMModel,
-		metrics:   mc,
-	}, nil
-}
-
 // GenerateWithSystem generates text with a system prompt.
 func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	systemLen := len(systemPrompt)
@@ -211,13 +176,13 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 
 	slog.Debug("LLM generate starting", "model", m.modelName, "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
 
-	messages := []llms.MessageContent{
-		llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt),
-		llms.TextParts(llms.ChatMessageTypeHuman, userPrompt),
+	messages := []*schema.Message{
+		{Role: schema.System, Content: systemPrompt},
+		{Role: schema.User, Content: userPrompt},
 	}
 
 	start := time.Now()
-	response, err := m.llm.GenerateContent(ctx, messages, llms.WithMaxTokens(8192))
+	resp, err := m.chatModel.Generate(ctx, messages, model.WithMaxTokens(8192))
 	duration := time.Since(start)
 
 	if err != nil {
@@ -225,20 +190,20 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 		return "", wrapFatalError(fmt.Errorf("generate with system: %w", err))
 	}
 
-	if len(response.Choices) == 0 {
-		return "", fmt.Errorf("no response choices")
+	if resp.Content == "" {
+		slog.Warn("LLM returned empty response", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds())
+		return "", fmt.Errorf("empty response from model")
 	}
 
-	choice := response.Choices[0]
-	responseLen := len(choice.Content)
+	responseLen := len(resp.Content)
 	slog.Debug("LLM generate complete", "model", m.modelName, "total_len", totalLen, "response_len", responseLen, "duration_ms", duration.Milliseconds())
 
 	if m.metrics != nil {
-		inputTokens, outputTokens := extractTokenCounts(choice.GenerationInfo, totalLen, responseLen)
+		inputTokens, outputTokens := extractTokenCounts(resp.ResponseMeta, totalLen, responseLen)
 		m.metrics.RecordLLMUsage(metrics.OpLLMGenerate, duration, inputTokens, outputTokens)
 	}
 
-	return choice.Content, nil
+	return resp.Content, nil
 }
 
 // Model returns the LLM model name.
@@ -294,38 +259,49 @@ func (m *Model) GenerateWithSystemStream(
 
 	slog.Debug("LLM streaming generate starting", "model", m.modelName, "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
 
-	messages := []llms.MessageContent{
-		llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt),
-		llms.TextParts(llms.ChatMessageTypeHuman, userPrompt),
+	messages := []*schema.Message{
+		{Role: schema.System, Content: systemPrompt},
+		{Role: schema.User, Content: userPrompt},
 	}
 
 	start := time.Now()
 
-	// Track output length for metrics
-	var outputLen int
-
-	// Use streaming callback option - supported by all langchaingo providers
-	streamingFunc := func(ctx context.Context, chunk []byte) error {
-		outputLen += len(chunk)
-		return onToken(string(chunk))
-	}
-
-	response, err := m.llm.GenerateContent(ctx, messages, llms.WithMaxTokens(8192), llms.WithStreamingFunc(streamingFunc))
-	duration := time.Since(start)
-
+	sr, err := m.chatModel.Stream(ctx, messages, model.WithMaxTokens(8192))
 	if err != nil {
-		slog.Warn("LLM streaming generate failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
+		slog.Warn("LLM streaming generate failed to start", "model", m.modelName, "total_len", totalLen, "error", err)
 		return wrapFatalError(fmt.Errorf("generate with system stream: %w", err))
 	}
+	defer sr.Close()
 
+	var outputLen int
+	var lastMeta *schema.ResponseMeta
+
+	for {
+		msg, recvErr := sr.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			break
+		}
+		if recvErr != nil {
+			duration := time.Since(start)
+			slog.Warn("LLM streaming generate failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", recvErr)
+			return wrapFatalError(fmt.Errorf("generate with system stream: %w", recvErr))
+		}
+		if msg.Content != "" {
+			outputLen += len(msg.Content)
+			if tokenErr := onToken(msg.Content); tokenErr != nil {
+				return fmt.Errorf("streaming token callback: %w", tokenErr)
+			}
+		}
+		if msg.ResponseMeta != nil {
+			lastMeta = msg.ResponseMeta
+		}
+	}
+
+	duration := time.Since(start)
 	slog.Debug("LLM streaming generate complete", "model", m.modelName, "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
 
 	if m.metrics != nil {
-		var genInfo map[string]any
-		if len(response.Choices) > 0 {
-			genInfo = response.Choices[0].GenerationInfo
-		}
-		inputTokens, outputTokens := extractTokenCounts(genInfo, totalLen, outputLen)
+		inputTokens, outputTokens := extractTokenCounts(lastMeta, totalLen, outputLen)
 		m.metrics.RecordLLMUsage(metrics.OpLLMStream, duration, inputTokens, outputTokens)
 	}
 
@@ -364,19 +340,21 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	onToken func(token string) error,
 ) error {
 	// Build message array: system + history + current query
-	messages := make([]llms.MessageContent, 0, 2+len(history))
-	messages = append(messages, llms.TextParts(llms.ChatMessageTypeSystem, systemPrompt))
+	messages := make([]*schema.Message, 0, 2+len(history))
+	messages = append(messages, &schema.Message{Role: schema.System, Content: systemPrompt})
 
-	for _, msg := range history {
+	for i, msg := range history {
 		switch msg.Role {
 		case "user":
-			messages = append(messages, llms.TextParts(llms.ChatMessageTypeHuman, msg.Content))
+			messages = append(messages, &schema.Message{Role: schema.User, Content: msg.Content})
 		case "assistant":
-			messages = append(messages, llms.TextParts(llms.ChatMessageTypeAI, msg.Content))
+			messages = append(messages, &schema.Message{Role: schema.Assistant, Content: msg.Content})
+		default:
+			slog.Warn("unknown chat message role, skipping", "role", msg.Role, "index", i)
 		}
 	}
 
-	messages = append(messages, llms.TextParts(llms.ChatMessageTypeHuman, currentQuery))
+	messages = append(messages, &schema.Message{Role: schema.User, Content: currentQuery})
 
 	// Calculate total input length for metrics
 	totalLen := len(systemPrompt) + len(currentQuery)
@@ -387,29 +365,43 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	slog.Debug("LLM multi-turn streaming starting", "model", m.modelName, "history_len", len(history), "total_len", totalLen)
 
 	start := time.Now()
-	var outputLen int
 
-	streamingFunc := func(ctx context.Context, chunk []byte) error {
-		outputLen += len(chunk)
-		return onToken(string(chunk))
-	}
-
-	response, err := m.llm.GenerateContent(ctx, messages, llms.WithMaxTokens(8192), llms.WithStreamingFunc(streamingFunc))
-	duration := time.Since(start)
-
+	sr, err := m.chatModel.Stream(ctx, messages, model.WithMaxTokens(8192))
 	if err != nil {
-		slog.Warn("LLM multi-turn streaming failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
+		slog.Warn("LLM multi-turn streaming failed to start", "model", m.modelName, "total_len", totalLen, "error", err)
 		return wrapFatalError(fmt.Errorf("generate multi-turn stream: %w", err))
 	}
+	defer sr.Close()
 
+	var outputLen int
+	var lastMeta *schema.ResponseMeta
+
+	for {
+		msg, recvErr := sr.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			break
+		}
+		if recvErr != nil {
+			duration := time.Since(start)
+			slog.Warn("LLM multi-turn streaming failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", recvErr)
+			return wrapFatalError(fmt.Errorf("generate multi-turn stream: %w", recvErr))
+		}
+		if msg.Content != "" {
+			outputLen += len(msg.Content)
+			if tokenErr := onToken(msg.Content); tokenErr != nil {
+				return fmt.Errorf("streaming token callback: %w", tokenErr)
+			}
+		}
+		if msg.ResponseMeta != nil {
+			lastMeta = msg.ResponseMeta
+		}
+	}
+
+	duration := time.Since(start)
 	slog.Debug("LLM multi-turn streaming complete", "model", m.modelName, "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
 
 	if m.metrics != nil {
-		var genInfo map[string]any
-		if len(response.Choices) > 0 {
-			genInfo = response.Choices[0].GenerationInfo
-		}
-		inputTokens, outputTokens := extractTokenCounts(genInfo, totalLen, outputLen)
+		inputTokens, outputTokens := extractTokenCounts(lastMeta, totalLen, outputLen)
 		m.metrics.RecordLLMUsage(metrics.OpLLMStream, duration, inputTokens, outputTokens)
 	}
 

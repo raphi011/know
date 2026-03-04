@@ -53,7 +53,6 @@ apiKeys:
 
 # AWS Bedrock settings
 bedrock:
-  modelProvider: ""       # e.g. anthropic
   embedModelProvider: ""  # e.g. amazon
   region: ""              # e.g. eu-central-1
 
