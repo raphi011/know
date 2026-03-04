@@ -128,7 +128,7 @@ export function FileDropZone({
 
   return (
     <div
-      className="relative"
+      className="relative flex flex-1 min-h-0 flex-col"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

@@ -15,9 +15,20 @@ export type DocumentSummary = {
   updatedAt: string;
 };
 
+export type WikiLink = {
+  id: string;
+  fromDocId: string;
+  rawTarget: string;
+} & (
+  | { resolved: true; toDocId: string }
+  | { resolved: false; toDocId: null }
+);
+
 export type Document = DocumentSummary & {
   content: string;
   contentBody: string;
+  wikiLinks: WikiLink[];
+  backlinks: WikiLink[];
 };
 
 export type TreeNode =
