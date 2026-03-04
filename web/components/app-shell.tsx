@@ -103,7 +103,7 @@ function AppShell({
       {/* Main content */}
       <main
         className={cn(
-          "@container px-4 pb-24 pt-2",
+          "@container overflow-x-hidden px-4 pb-24 pt-2",
           "lg:ml-60 lg:px-6 lg:pb-6 lg:pt-6",
         )}
       >

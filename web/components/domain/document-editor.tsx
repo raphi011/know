@@ -120,7 +120,7 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
           <div
             ref={previewCallbackRef}
             tabIndex={0}
-            className="min-h-0 flex-1 overflow-y-auto"
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto"
           >
             <MarkdownRenderer content={previewContent} />
           </div>

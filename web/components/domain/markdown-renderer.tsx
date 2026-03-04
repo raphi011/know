@@ -78,9 +78,13 @@ function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
         // Inline code
         "prose-code:rounded prose-code:bg-slate-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-sm prose-code:font-normal prose-code:text-slate-700 prose-code:before:content-none prose-code:after:content-none",
         "dark:prose-code:bg-slate-800 dark:prose-code:text-slate-300",
-        // Code blocks — visible background to set apart from content
-        "prose-pre:rounded-lg prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800/80",
+        // Code blocks — visible background, horizontal scroll on overflow
+        "prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800/80",
         "[&_.hljs]:bg-transparent [&_.hljs]:border-0",
+        // Tables — horizontal scroll on overflow
+        "[&_table]:block [&_table]:overflow-x-auto",
+        // Images — constrain to container
+        "prose-img:max-w-full prose-img:h-auto",
         // Blockquotes — subtle left border
         "prose-blockquote:border-l-slate-300 prose-blockquote:text-slate-600 prose-blockquote:font-normal dark:prose-blockquote:border-l-slate-600 dark:prose-blockquote:text-slate-400",
         className,
