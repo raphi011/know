@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/raphi011/knowhow/internal/parser"
 )
 
 // LLMProvider identifies the LLM provider.
@@ -57,6 +59,22 @@ type Config struct {
 	// Embedding worker settings
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
 	EmbedWorkerBatch    int // max chunks per tick (default: 10)
+
+	// Chunking settings
+	ChunkThreshold  int // only chunk if content exceeds this length (default: 6000)
+	ChunkTargetSize int // ideal chunk size in chars (default: 3000)
+	ChunkMinSize    int // minimum chunk size in chars (default: 800)
+	ChunkMaxSize    int // maximum chunk size in chars (default: 4000)
+}
+
+// ChunkConfig returns the chunking configuration as a parser.ChunkConfig.
+func (c Config) ChunkConfig() parser.ChunkConfig {
+	return parser.ChunkConfig{
+		Threshold:  c.ChunkThreshold,
+		TargetSize: c.ChunkTargetSize,
+		MinSize:    c.ChunkMinSize,
+		MaxSize:    c.ChunkMaxSize,
+	}
 }
 
 // Load reads configuration from environment variables.
@@ -97,6 +115,12 @@ func Load() Config {
 		// Embedding worker
 		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),
 		EmbedWorkerBatch:    getEnvInt("KNOWHOW_EMBED_WORKER_BATCH", 10),
+
+		// Chunking
+		ChunkThreshold:  getEnvInt("KNOWHOW_CHUNK_THRESHOLD", 6000),
+		ChunkTargetSize: getEnvInt("KNOWHOW_CHUNK_TARGET_SIZE", 3000),
+		ChunkMinSize:    getEnvInt("KNOWHOW_CHUNK_MIN_SIZE", 800),
+		ChunkMaxSize:    getEnvInt("KNOWHOW_CHUNK_MAX_SIZE", 4000),
 	}
 }
 

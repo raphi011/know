@@ -19,6 +19,12 @@ export KNOWHOW_EMBED_MODEL := env_var_or_default("KNOWHOW_EMBED_MODEL", "mxbai-e
 export KNOWHOW_EMBED_DIMENSION := env_var_or_default("KNOWHOW_EMBED_DIMENSION", "1024")
 export OLLAMA_HOST := env_var_or_default("OLLAMA_HOST", "http://localhost:11434")
 
+# Chunk sizes tuned for mxbai-embed-large (512 token max sequence length ≈ 2048 chars)
+export KNOWHOW_CHUNK_THRESHOLD := env_var_or_default("KNOWHOW_CHUNK_THRESHOLD", "1800")
+export KNOWHOW_CHUNK_TARGET_SIZE := env_var_or_default("KNOWHOW_CHUNK_TARGET_SIZE", "1000")
+export KNOWHOW_CHUNK_MIN_SIZE := env_var_or_default("KNOWHOW_CHUNK_MIN_SIZE", "200")
+export KNOWHOW_CHUNK_MAX_SIZE := env_var_or_default("KNOWHOW_CHUNK_MAX_SIZE", "1500")
+
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
 export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8484/query")

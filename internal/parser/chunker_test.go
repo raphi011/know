@@ -219,7 +219,7 @@ func TestChunkBySections_CodeBlockAtomic(t *testing.T) {
 func TestChunkBySections_CodeBlockSmallMergesIntoParent(t *testing.T) {
 	config := DefaultChunkConfig()
 	parentContent := strings.Repeat("Parent context. ", 30) // ~480 chars
-	codeContent := "```\nsmall code\n```"                    // tiny
+	codeContent := "```\nsmall code\n```"                   // tiny
 
 	sections := []Section{
 		{Level: 2, Path: "## Setup", Content: parentContent},
@@ -321,6 +321,126 @@ func TestChunkMarkdown_FallbackToParagraphs(t *testing.T) {
 
 	if len(chunks) < 2 {
 		t.Errorf("expected paragraph-based splitting, got %d chunks", len(chunks))
+	}
+}
+
+func TestChunkMarkdown_BelowThresholdAboveMaxSize(t *testing.T) {
+	// Regression: documents below Threshold but above MaxSize were returned
+	// as a single unchunked blob, causing embedding context length errors.
+	config := ChunkConfig{
+		Threshold:  6000,
+		TargetSize: 3000,
+		MinSize:    800,
+		MaxSize:    4000,
+	}
+
+	// ~5000 chars: below Threshold (6000) but above MaxSize (4000)
+	content := strings.Repeat("This is a paragraph with enough content to be meaningful for testing. ", 70)
+	if len(content) <= config.MaxSize || len(content) >= config.Threshold {
+		t.Fatalf("test content %d chars, need >%d and <%d", len(content), config.MaxSize, config.Threshold)
+	}
+
+	doc, err := ParseMarkdown(content)
+	if err != nil {
+		t.Fatalf("ParseMarkdown() error = %v", err)
+	}
+
+	chunks := ChunkMarkdown(doc, config)
+
+	if len(chunks) < 2 {
+		t.Errorf("content of %d chars (>MaxSize %d) should produce multiple chunks, got %d",
+			len(content), config.MaxSize, len(chunks))
+	}
+
+	for i, chunk := range chunks {
+		if len(chunk.Content) > config.MaxSize {
+			t.Errorf("chunk[%d] length %d exceeds MaxSize %d", i, len(chunk.Content), config.MaxSize)
+		}
+	}
+}
+
+func TestChunkMarkdown_BelowThresholdAboveMaxSize_WithSections(t *testing.T) {
+	config := ChunkConfig{
+		Threshold:  6000,
+		TargetSize: 3000,
+		MinSize:    800,
+		MaxSize:    4000,
+	}
+
+	// Build content with headings that totals ~5000 chars
+	content := "# Title\n\n## Section A\n\n" +
+		strings.Repeat("Content for section A. ", 100) + "\n\n" +
+		"## Section B\n\n" +
+		strings.Repeat("Content for section B. ", 100)
+
+	if len(content) <= config.MaxSize || len(content) >= config.Threshold {
+		t.Fatalf("test content %d chars, need >%d and <%d", len(content), config.MaxSize, config.Threshold)
+	}
+
+	doc, err := ParseMarkdown(content)
+	if err != nil {
+		t.Fatalf("ParseMarkdown() error = %v", err)
+	}
+
+	chunks := ChunkMarkdown(doc, config)
+
+	if len(chunks) < 2 {
+		t.Errorf("sectioned content of %d chars should produce multiple chunks, got %d",
+			len(content), len(chunks))
+	}
+
+	for i, chunk := range chunks {
+		if len(chunk.Content) > config.MaxSize {
+			t.Errorf("chunk[%d] length %d exceeds MaxSize %d", i, len(chunk.Content), config.MaxSize)
+		}
+	}
+}
+
+func TestChunkConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ChunkConfig
+		wantErr bool
+	}{
+		{
+			name:    "valid defaults",
+			config:  DefaultChunkConfig(),
+			wantErr: false,
+		},
+		{
+			name:    "zero values",
+			config:  ChunkConfig{},
+			wantErr: true,
+		},
+		{
+			name:    "MinSize >= TargetSize",
+			config:  ChunkConfig{MinSize: 3000, TargetSize: 3000, MaxSize: 4000, Threshold: 6000},
+			wantErr: true,
+		},
+		{
+			name:    "TargetSize >= MaxSize",
+			config:  ChunkConfig{MinSize: 800, TargetSize: 4000, MaxSize: 4000, Threshold: 6000},
+			wantErr: true,
+		},
+		{
+			name:    "MaxSize > Threshold",
+			config:  ChunkConfig{MinSize: 800, TargetSize: 3000, MaxSize: 7000, Threshold: 6000},
+			wantErr: true,
+		},
+		{
+			name:    "negative value",
+			config:  ChunkConfig{MinSize: -1, TargetSize: 3000, MaxSize: 4000, Threshold: 6000},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

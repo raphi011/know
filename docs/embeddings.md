@@ -91,6 +91,25 @@ Research consensus (Pinecone, LlamaIndex, OpenAI cookbook):
 - Match chunk size to embedding model's training data (most trained on ~512 token passages)
 
 Our defaults are in `DefaultChunkConfig()` in `internal/parser/chunker.go`.
+Chunk sizes are configurable via environment variables:
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `KNOWHOW_CHUNK_THRESHOLD` | 6000 | Only chunk if content exceeds this length |
+| `KNOWHOW_CHUNK_TARGET_SIZE` | 3000 | Ideal chunk size in chars |
+| `KNOWHOW_CHUNK_MIN_SIZE` | 800 | Minimum chunk size (smaller merges with neighbors) |
+| `KNOWHOW_CHUNK_MAX_SIZE` | 4000 | Maximum chunk size (larger chunks get split) |
+
+### Model-Specific Chunk Sizes
+
+For `mxbai-embed-large` via Ollama (512 token max sequence length ≈ 2048 chars, with headroom):
+
+```bash
+KNOWHOW_CHUNK_THRESHOLD=1200
+KNOWHOW_CHUNK_TARGET_SIZE=1000
+KNOWHOW_CHUNK_MIN_SIZE=200
+KNOWHOW_CHUNK_MAX_SIZE=1500
+```
 
 ### AST-Based Markdown Chunking
 
