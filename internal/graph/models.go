@@ -266,6 +266,24 @@ type ApproveHunksInput struct {
 	Notes       *string `json:"notes,omitempty"`
 }
 
+// Version types
+
+type DocumentVersion struct {
+	ID          string    `json:"id"`
+	DocumentID  string    `json:"documentId"`
+	VaultID     string    `json:"vaultId"`
+	Version     int       `json:"version"`
+	Title       string    `json:"title"`
+	ContentHash string    `json:"contentHash"`
+	Source      string    `json:"source"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+type DocumentVersionConnection struct {
+	Versions   []*DocumentVersion `json:"versions"`
+	TotalCount int                `json:"totalCount"`
+}
+
 // Input types
 
 type VaultInput struct {

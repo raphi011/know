@@ -117,6 +117,7 @@ type ComplexityRoot struct {
 		Title       func(childComplexity int) int
 		UpdatedAt   func(childComplexity int) int
 		VaultID     func(childComplexity int) int
+		Versions    func(childComplexity int, limit *int, offset *int) int
 		WikiLinks   func(childComplexity int) int
 	}
 
@@ -134,6 +135,22 @@ type ComplexityRoot struct {
 		Source          func(childComplexity int) int
 		Status          func(childComplexity int) int
 		VaultID         func(childComplexity int) int
+	}
+
+	DocumentVersion struct {
+		ContentHash func(childComplexity int) int
+		CreatedAt   func(childComplexity int) int
+		DocumentID  func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Source      func(childComplexity int) int
+		Title       func(childComplexity int) int
+		VaultID     func(childComplexity int) int
+		Version     func(childComplexity int) int
+	}
+
+	DocumentVersionConnection struct {
+		TotalCount func(childComplexity int) int
+		Versions   func(childComplexity int) int
 	}
 
 	Folder struct {
@@ -170,6 +187,7 @@ type ComplexityRoot struct {
 		ProposeDocumentUpdate   func(childComplexity int, input ProposeDocumentUpdateInput) int
 		RejectProposal          func(childComplexity int, id string, notes *string) int
 		RenameConversation      func(childComplexity int, id string, title string) int
+		RollbackDocument        func(childComplexity int, vaultID string, documentID string, versionID string) int
 		UpdateDocument          func(childComplexity int, vaultID string, path string, content string) int
 	}
 
@@ -180,18 +198,21 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		Conversation  func(childComplexity int, id string) int
-		Conversations func(childComplexity int, vaultID string) int
-		Document      func(childComplexity int, vaultID string, path string) int
-		DocumentByID  func(childComplexity int, id string) int
-		Me            func(childComplexity int) int
-		Proposal      func(childComplexity int, id string) int
-		Proposals     func(childComplexity int, vaultID string, status *ProposalStatus) int
-		Search        func(childComplexity int, input SearchInput) int
-		Template      func(childComplexity int, id string) int
-		Templates     func(childComplexity int, vaultID *string) int
-		Vault         func(childComplexity int, id string) int
-		Vaults        func(childComplexity int) int
+		Conversation     func(childComplexity int, id string) int
+		Conversations    func(childComplexity int, vaultID string) int
+		Document         func(childComplexity int, vaultID string, path string) int
+		DocumentByID     func(childComplexity int, id string) int
+		DocumentVersion  func(childComplexity int, id string) int
+		DocumentVersions func(childComplexity int, documentID string, limit *int, offset *int) int
+		Me               func(childComplexity int) int
+		Proposal         func(childComplexity int, id string) int
+		Proposals        func(childComplexity int, vaultID string, status *ProposalStatus) int
+		Search           func(childComplexity int, input SearchInput) int
+		Template         func(childComplexity int, id string) int
+		Templates        func(childComplexity int, vaultID *string) int
+		Vault            func(childComplexity int, id string) int
+		Vaults           func(childComplexity int) int
+		VersionDiff      func(childComplexity int, documentID string, fromVersionID *string, toVersionID *string) int
 	}
 
 	QueryBlock struct {
@@ -295,6 +316,7 @@ type DocumentResolver interface {
 	Relations(ctx context.Context, obj *Document) ([]*DocRelation, error)
 	QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error)
 	Proposals(ctx context.Context, obj *Document, status *ProposalStatus) ([]*DocumentProposal, error)
+	Versions(ctx context.Context, obj *Document, limit *int, offset *int) (*DocumentVersionConnection, error)
 }
 type DocumentProposalResolver interface {
 	Document(ctx context.Context, obj *DocumentProposal) (*Document, error)
@@ -326,6 +348,7 @@ type MutationResolver interface {
 	CreateConversation(ctx context.Context, vaultID string) (*Conversation, error)
 	DeleteConversation(ctx context.Context, id string) (bool, error)
 	RenameConversation(ctx context.Context, id string, title string) (*Conversation, error)
+	RollbackDocument(ctx context.Context, vaultID string, documentID string, versionID string) (*Document, error)
 }
 type QueryResolver interface {
 	Me(ctx context.Context) (*Me, error)
@@ -340,6 +363,9 @@ type QueryResolver interface {
 	Proposals(ctx context.Context, vaultID string, status *ProposalStatus) ([]*DocumentProposal, error)
 	Conversations(ctx context.Context, vaultID string) ([]*Conversation, error)
 	Conversation(ctx context.Context, id string) (*Conversation, error)
+	DocumentVersion(ctx context.Context, id string) (*DocumentVersion, error)
+	DocumentVersions(ctx context.Context, documentID string, limit *int, offset *int) (*DocumentVersionConnection, error)
+	VersionDiff(ctx context.Context, documentID string, fromVersionID *string, toVersionID *string) (*ProposalDiff, error)
 }
 type VaultResolver interface {
 	Labels(ctx context.Context, obj *Vault) ([]string, error)
@@ -709,6 +735,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Document.VaultID(childComplexity), true
+	case "Document.versions":
+		if e.ComplexityRoot.Document.Versions == nil {
+			break
+		}
+
+		args, err := ec.field_Document_versions_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Document.Versions(childComplexity, args["limit"].(*int), args["offset"].(*int)), true
 	case "Document.wikiLinks":
 		if e.ComplexityRoot.Document.WikiLinks == nil {
 			break
@@ -794,6 +831,68 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DocumentProposal.VaultID(childComplexity), true
+
+	case "DocumentVersion.contentHash":
+		if e.ComplexityRoot.DocumentVersion.ContentHash == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.ContentHash(childComplexity), true
+	case "DocumentVersion.createdAt":
+		if e.ComplexityRoot.DocumentVersion.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.CreatedAt(childComplexity), true
+	case "DocumentVersion.documentId":
+		if e.ComplexityRoot.DocumentVersion.DocumentID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.DocumentID(childComplexity), true
+	case "DocumentVersion.id":
+		if e.ComplexityRoot.DocumentVersion.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.ID(childComplexity), true
+	case "DocumentVersion.source":
+		if e.ComplexityRoot.DocumentVersion.Source == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.Source(childComplexity), true
+	case "DocumentVersion.title":
+		if e.ComplexityRoot.DocumentVersion.Title == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.Title(childComplexity), true
+	case "DocumentVersion.vaultId":
+		if e.ComplexityRoot.DocumentVersion.VaultID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.VaultID(childComplexity), true
+	case "DocumentVersion.version":
+		if e.ComplexityRoot.DocumentVersion.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersion.Version(childComplexity), true
+
+	case "DocumentVersionConnection.totalCount":
+		if e.ComplexityRoot.DocumentVersionConnection.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersionConnection.TotalCount(childComplexity), true
+	case "DocumentVersionConnection.versions":
+		if e.ComplexityRoot.DocumentVersionConnection.Versions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DocumentVersionConnection.Versions(childComplexity), true
 
 	case "Folder.createdAt":
 		if e.ComplexityRoot.Folder.CreatedAt == nil {
@@ -1064,6 +1163,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RenameConversation(childComplexity, args["id"].(string), args["title"].(string)), true
+	case "Mutation.rollbackDocument":
+		if e.ComplexityRoot.Mutation.RollbackDocument == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_rollbackDocument_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RollbackDocument(childComplexity, args["vaultId"].(string), args["documentId"].(string), args["versionId"].(string)), true
 	case "Mutation.updateDocument":
 		if e.ComplexityRoot.Mutation.UpdateDocument == nil {
 			break
@@ -1139,6 +1249,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.DocumentByID(childComplexity, args["id"].(string)), true
+	case "Query.documentVersion":
+		if e.ComplexityRoot.Query.DocumentVersion == nil {
+			break
+		}
+
+		args, err := ec.field_Query_documentVersion_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DocumentVersion(childComplexity, args["id"].(string)), true
+	case "Query.documentVersions":
+		if e.ComplexityRoot.Query.DocumentVersions == nil {
+			break
+		}
+
+		args, err := ec.field_Query_documentVersions_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.DocumentVersions(childComplexity, args["documentId"].(string), args["limit"].(*int), args["offset"].(*int)), true
 
 	case "Query.me":
 		if e.ComplexityRoot.Query.Me == nil {
@@ -1218,6 +1350,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Vaults(childComplexity), true
+	case "Query.versionDiff":
+		if e.ComplexityRoot.Query.VersionDiff == nil {
+			break
+		}
+
+		args, err := ec.field_Query_versionDiff_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.VersionDiff(childComplexity, args["documentId"].(string), args["fromVersionId"].(*string), args["toVersionId"].(*string)), true
 
 	case "QueryBlock.error":
 		if e.ComplexityRoot.QueryBlock.Error == nil {
@@ -1726,6 +1869,22 @@ func (ec *executionContext) field_Document_proposals_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Document_versions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_approveProposalHunks_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2032,6 +2191,27 @@ func (ec *executionContext) field_Mutation_renameConversation_args(ctx context.C
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_rollbackDocument_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "documentId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["documentId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "versionId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["versionId"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updateDocument_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2094,6 +2274,38 @@ func (ec *executionContext) field_Query_documentById_args(ctx context.Context, r
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_documentVersion_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_documentVersions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "documentId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["documentId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg2
 	return args, nil
 }
 
@@ -2181,6 +2393,27 @@ func (ec *executionContext) field_Query_vault_args(ctx context.Context, rawArgs 
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_versionDiff_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "documentId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["documentId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "fromVersionId", ec.unmarshalOID2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["fromVersionId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "toVersionId", ec.unmarshalOID2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["toVersionId"] = arg2
 	return args, nil
 }
 
@@ -4059,6 +4292,53 @@ func (ec *executionContext) fieldContext_Document_proposals(ctx context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Document_versions(ctx context.Context, field graphql.CollectedField, obj *Document) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Document_versions,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Document().Versions(ctx, obj, fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNDocumentVersionConnection2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersionConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Document_versions(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Document",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "versions":
+				return ec.fieldContext_DocumentVersionConnection_versions(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_DocumentVersionConnection_totalCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentVersionConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Document_versions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DocumentProposal_id(ctx context.Context, field graphql.CollectedField, obj *DocumentProposal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4179,6 +4459,8 @@ func (ec *executionContext) fieldContext_DocumentProposal_document(_ context.Con
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -4479,6 +4761,314 @@ func (ec *executionContext) fieldContext_DocumentProposal_diff(_ context.Context
 				return ec.fieldContext_ProposalDiff_stats(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProposalDiff", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_id(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_documentId(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_documentId,
+		func(ctx context.Context) (any, error) {
+			return obj.DocumentID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_documentId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_vaultId(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_vaultId,
+		func(ctx context.Context) (any, error) {
+			return obj.VaultID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_vaultId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_version(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_title(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_title,
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_contentHash(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_contentHash,
+		func(ctx context.Context) (any, error) {
+			return obj.ContentHash, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_contentHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_source(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_source,
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersion_createdAt(ctx context.Context, field graphql.CollectedField, obj *DocumentVersion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersion_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersion_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersion",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersionConnection_versions(ctx context.Context, field graphql.CollectedField, obj *DocumentVersionConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersionConnection_versions,
+		func(ctx context.Context) (any, error) {
+			return obj.Versions, nil
+		},
+		nil,
+		ec.marshalNDocumentVersion2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersionConnection_versions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersionConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DocumentVersion_id(ctx, field)
+			case "documentId":
+				return ec.fieldContext_DocumentVersion_documentId(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_DocumentVersion_vaultId(ctx, field)
+			case "version":
+				return ec.fieldContext_DocumentVersion_version(ctx, field)
+			case "title":
+				return ec.fieldContext_DocumentVersion_title(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_DocumentVersion_contentHash(ctx, field)
+			case "source":
+				return ec.fieldContext_DocumentVersion_source(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_DocumentVersion_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentVersion", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DocumentVersionConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *DocumentVersionConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_DocumentVersionConnection_totalCount,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_DocumentVersionConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DocumentVersionConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4833,6 +5423,8 @@ func (ec *executionContext) fieldContext_Mutation_createDocument(ctx context.Con
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -4914,6 +5506,8 @@ func (ec *executionContext) fieldContext_Mutation_updateDocument(ctx context.Con
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -4995,6 +5589,8 @@ func (ec *executionContext) fieldContext_Mutation_moveDocument(ctx context.Conte
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -5464,6 +6060,8 @@ func (ec *executionContext) fieldContext_Mutation_approveProposal(ctx context.Co
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -5545,6 +6143,8 @@ func (ec *executionContext) fieldContext_Mutation_approveProposalHunks(ctx conte
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -5888,6 +6488,89 @@ func (ec *executionContext) fieldContext_Mutation_renameConversation(ctx context
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_rollbackDocument(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_rollbackDocument,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RollbackDocument(ctx, fc.Args["vaultId"].(string), fc.Args["documentId"].(string), fc.Args["versionId"].(string))
+		},
+		nil,
+		ec.marshalNDocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_rollbackDocument(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Document_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_Document_vaultId(ctx, field)
+			case "path":
+				return ec.fieldContext_Document_path(ctx, field)
+			case "title":
+				return ec.fieldContext_Document_title(ctx, field)
+			case "content":
+				return ec.fieldContext_Document_content(ctx, field)
+			case "contentBody":
+				return ec.fieldContext_Document_contentBody(ctx, field)
+			case "labels":
+				return ec.fieldContext_Document_labels(ctx, field)
+			case "docType":
+				return ec.fieldContext_Document_docType(ctx, field)
+			case "source":
+				return ec.fieldContext_Document_source(ctx, field)
+			case "sourcePath":
+				return ec.fieldContext_Document_sourcePath(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_Document_contentHash(ctx, field)
+			case "metadata":
+				return ec.fieldContext_Document_metadata(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Document_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Document_updatedAt(ctx, field)
+			case "wikiLinks":
+				return ec.fieldContext_Document_wikiLinks(ctx, field)
+			case "backlinks":
+				return ec.fieldContext_Document_backlinks(ctx, field)
+			case "relations":
+				return ec.fieldContext_Document_relations(ctx, field)
+			case "queryBlocks":
+				return ec.fieldContext_Document_queryBlocks(ctx, field)
+			case "proposals":
+				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_rollbackDocument_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ProposalDiff_hunks(ctx context.Context, field graphql.CollectedField, obj *ProposalDiff) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6207,6 +6890,8 @@ func (ec *executionContext) fieldContext_Query_document(ctx context.Context, fie
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -6288,6 +6973,8 @@ func (ec *executionContext) fieldContext_Query_documentById(ctx context.Context,
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -6723,6 +7410,161 @@ func (ec *executionContext) fieldContext_Query_conversation(ctx context.Context,
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_conversation_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_documentVersion(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_documentVersion,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DocumentVersion(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		ec.marshalODocumentVersion2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersion,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_documentVersion(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_DocumentVersion_id(ctx, field)
+			case "documentId":
+				return ec.fieldContext_DocumentVersion_documentId(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_DocumentVersion_vaultId(ctx, field)
+			case "version":
+				return ec.fieldContext_DocumentVersion_version(ctx, field)
+			case "title":
+				return ec.fieldContext_DocumentVersion_title(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_DocumentVersion_contentHash(ctx, field)
+			case "source":
+				return ec.fieldContext_DocumentVersion_source(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_DocumentVersion_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentVersion", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_documentVersion_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_documentVersions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_documentVersions,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().DocumentVersions(ctx, fc.Args["documentId"].(string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNDocumentVersionConnection2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersionConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_documentVersions(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "versions":
+				return ec.fieldContext_DocumentVersionConnection_versions(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_DocumentVersionConnection_totalCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DocumentVersionConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_documentVersions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_versionDiff(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_versionDiff,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().VersionDiff(ctx, fc.Args["documentId"].(string), fc.Args["fromVersionId"].(*string), fc.Args["toVersionId"].(*string))
+		},
+		nil,
+		ec.marshalNProposalDiff2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐProposalDiff,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_versionDiff(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hunks":
+				return ec.fieldContext_ProposalDiff_hunks(ctx, field)
+			case "hasConflict":
+				return ec.fieldContext_ProposalDiff_hasConflict(ctx, field)
+			case "stats":
+				return ec.fieldContext_ProposalDiff_stats(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ProposalDiff", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_versionDiff_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8500,6 +9342,8 @@ func (ec *executionContext) fieldContext_Vault_documents(ctx context.Context, fi
 				return ec.fieldContext_Document_queryBlocks(ctx, field)
 			case "proposals":
 				return ec.fieldContext_Document_proposals(ctx, field)
+			case "versions":
+				return ec.fieldContext_Document_versions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Document", field.Name)
 		},
@@ -11142,6 +11986,42 @@ func (ec *executionContext) _Document(ctx context.Context, sel ast.SelectionSet,
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "versions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Document_versions(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11325,6 +12205,124 @@ func (ec *executionContext) _DocumentProposal(ctx context.Context, sel ast.Selec
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var documentVersionImplementors = []string{"DocumentVersion"}
+
+func (ec *executionContext) _DocumentVersion(ctx context.Context, sel ast.SelectionSet, obj *DocumentVersion) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, documentVersionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DocumentVersion")
+		case "id":
+			out.Values[i] = ec._DocumentVersion_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "documentId":
+			out.Values[i] = ec._DocumentVersion_documentId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "vaultId":
+			out.Values[i] = ec._DocumentVersion_vaultId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "version":
+			out.Values[i] = ec._DocumentVersion_version(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._DocumentVersion_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "contentHash":
+			out.Values[i] = ec._DocumentVersion_contentHash(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "source":
+			out.Values[i] = ec._DocumentVersion_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._DocumentVersion_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var documentVersionConnectionImplementors = []string{"DocumentVersionConnection"}
+
+func (ec *executionContext) _DocumentVersionConnection(ctx context.Context, sel ast.SelectionSet, obj *DocumentVersionConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, documentVersionConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DocumentVersionConnection")
+		case "versions":
+			out.Values[i] = ec._DocumentVersionConnection_versions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._DocumentVersionConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11615,6 +12613,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "renameConversation":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_renameConversation(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rollbackDocument":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_rollbackDocument(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -11947,6 +12952,69 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_conversation(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "documentVersion":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_documentVersion(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "documentVersions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_documentVersions(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "versionDiff":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_versionDiff(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -13328,6 +14396,46 @@ func (ec *executionContext) marshalNDocumentProposal2ᚖgithubᚗcomᚋraphi011�
 	return ec._DocumentProposal(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNDocumentVersion2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersionᚄ(ctx context.Context, sel ast.SelectionSet, v []*DocumentVersion) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNDocumentVersion2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersion(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDocumentVersion2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersion(ctx context.Context, sel ast.SelectionSet, v *DocumentVersion) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DocumentVersion(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNDocumentVersionConnection2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersionConnection(ctx context.Context, sel ast.SelectionSet, v DocumentVersionConnection) graphql.Marshaler {
+	return ec._DocumentVersionConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDocumentVersionConnection2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersionConnection(ctx context.Context, sel ast.SelectionSet, v *DocumentVersionConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._DocumentVersionConnection(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNFileInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐFileInput(ctx context.Context, v any) (FileInput, error) {
 	res, err := ec.unmarshalInputFileInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -14011,6 +15119,13 @@ func (ec *executionContext) marshalODocumentProposal2ᚖgithubᚗcomᚋraphi011�
 		return graphql.Null
 	}
 	return ec._DocumentProposal(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalODocumentVersion2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocumentVersion(ctx context.Context, sel ast.SelectionSet, v *DocumentVersion) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._DocumentVersion(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOID2ᚖstring(ctx context.Context, v any) (*string, error) {

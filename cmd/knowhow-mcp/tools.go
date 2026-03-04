@@ -68,6 +68,21 @@ type foldersResponse struct {
 	} `json:"vaults"`
 }
 
+type documentVersionsResponse struct {
+	DocumentVersions struct {
+		Versions []struct {
+			ID          string `json:"id"`
+			DocumentID  string `json:"documentId"`
+			Version     int    `json:"version"`
+			Title       string `json:"title"`
+			ContentHash string `json:"contentHash"`
+			Source      string `json:"source"`
+			CreatedAt   string `json:"createdAt"`
+		} `json:"versions"`
+		TotalCount int `json:"totalCount"`
+	} `json:"documentVersions"`
+}
+
 type createDocumentResponse struct {
 	CreateDocument struct {
 		Path string `json:"path"`
@@ -96,6 +111,12 @@ type ListLabelsInput struct {
 
 type ListFoldersInput struct {
 	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (lists all if omitted)"`
+}
+
+type GetDocumentVersionsInput struct {
+	Path     string  `json:"path" jsonschema:"description=Document path"`
+	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (tries all if omitted)"`
+	Limit    *int    `json:"limit,omitempty" jsonschema:"description=Max versions to return (default 20)"`
 }
 
 type CreateMemoryInput struct {
@@ -186,6 +207,11 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Name:        "list_folders",
 		Description: "List the folder structure of a knowhow vault. Use to browse and understand vault organization before searching.",
 	}, t.listFolders)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_document_versions",
+		Description: "Get version history for a document by path. Returns previous versions with timestamps, sources, and titles.",
+	}, t.getDocumentVersions)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_memory",
@@ -484,6 +510,90 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 
 	return textResult(fmt.Sprintf("Memory created at %s (instance: %s, vault: %s)", resp.CreateDocument.Path, inst.name, vaultID)), nil, nil
+}
+
+func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolRequest, input GetDocumentVersionsInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Path) == "" {
+		return nil, nil, fmt.Errorf("path is required")
+	}
+	if input.Limit != nil && *input.Limit < 1 {
+		return nil, nil, fmt.Errorf("limit must be positive")
+	}
+
+	instances := t.filterInstances(input.Instance)
+	if input.Instance != nil && len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", *input.Instance)
+	}
+
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+	}
+
+	var errs []string
+	for _, inst := range instances {
+		if err := inst.resolveVaults(ctx); err != nil {
+			slog.Warn("vault resolution failed", "instance", inst.name, "error", err)
+			errs = append(errs, fmt.Sprintf("%s: %v", inst.name, err))
+			continue
+		}
+		for _, vaultID := range inst.vaultIDs {
+			// First resolve document to get its ID
+			docVars := map[string]any{
+				"vaultId": vaultID,
+				"path":    input.Path,
+			}
+			var docResp struct {
+				Document *struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"document"`
+			}
+			if err := inst.client.Do(ctx, `query GetDoc($vaultId: ID!, $path: String!) { document(vaultId: $vaultId, path: $path) { id title } }`, docVars, &docResp); err != nil {
+				slog.Warn("get document for versions failed", "instance", inst.name, "vault", vaultID, "path", input.Path, "error", err)
+				errs = append(errs, fmt.Sprintf("%s: %v", inst.name, err))
+				continue
+			}
+			if docResp.Document == nil {
+				continue
+			}
+
+			// Now query versions
+			versVars := map[string]any{
+				"documentId": docResp.Document.ID,
+				"limit":      limit,
+			}
+			var versResp documentVersionsResponse
+			if err := inst.client.Do(ctx, `query GetVersions($documentId: ID!, $limit: Int) { documentVersions(documentId: $documentId, limit: $limit) { versions { id documentId version title contentHash source createdAt } totalCount } }`, versVars, &versResp); err != nil {
+				slog.Warn("get versions failed", "instance", inst.name, "vault", vaultID, "error", err)
+				errs = append(errs, fmt.Sprintf("%s: %v", inst.name, err))
+				continue
+			}
+
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "## %s\n", inst.name)
+			fmt.Fprintf(&sb, "Document: %s (%s)\n", input.Path, docResp.Document.Title)
+			fmt.Fprintf(&sb, "Total versions: %d\n\n", versResp.DocumentVersions.TotalCount)
+
+			if len(versResp.DocumentVersions.Versions) == 0 {
+				sb.WriteString("No previous versions.\n")
+			} else {
+				for _, v := range versResp.DocumentVersions.Versions {
+					fmt.Fprintf(&sb, "### Version %d\n", v.Version)
+					fmt.Fprintf(&sb, "- Title: %s\n", v.Title)
+					fmt.Fprintf(&sb, "- Created: %s\n", v.CreatedAt)
+					fmt.Fprintf(&sb, "- Source: %s\n", v.Source)
+					fmt.Fprintf(&sb, "- Hash: %s\n\n", v.ContentHash)
+				}
+			}
+			return textResult(sb.String()), nil, nil
+		}
+	}
+
+	if len(errs) > 0 {
+		return textResult(fmt.Sprintf("Document not found: %s\n\nErrors:\n- %s", input.Path, strings.Join(errs, "\n- "))), nil, nil
+	}
+	return textResult(fmt.Sprintf("Document not found: %s", input.Path)), nil, nil
 }
 
 // ---------- helpers ----------

@@ -1,7 +1,12 @@
 import "server-only";
 import { cache } from "react";
 import { gql } from "./client";
-import type { Vault, Document, DocumentSummary } from "./types";
+import type {
+  Vault,
+  Document,
+  DocumentSummary,
+  DocumentVersionConnection,
+} from "./types";
 
 export const getVaults = cache(async (): Promise<Vault[]> => {
   const data = await gql<{ vaults: Vault[] }>(`
@@ -106,3 +111,36 @@ export async function getDocument(
 
   return data.document;
 }
+
+export const getDocumentVersions = cache(
+  async (
+    documentId: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<DocumentVersionConnection> => {
+    const data = await gql<{
+      documentVersions: DocumentVersionConnection;
+    }>(
+      `
+    query ($documentId: ID!, $limit: Int, $offset: Int) {
+      documentVersions(documentId: $documentId, limit: $limit, offset: $offset) {
+        versions {
+          id
+          documentId
+          vaultId
+          version
+          title
+          contentHash
+          source
+          createdAt
+        }
+        totalCount
+      }
+    }
+  `,
+      { documentId, limit, offset },
+    );
+
+    return data.documentVersions;
+  },
+);

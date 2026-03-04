@@ -15,6 +15,7 @@ import (
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
+	"github.com/raphi011/knowhow/internal/review"
 	"github.com/raphi011/knowhow/internal/search"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -85,6 +86,33 @@ func (r *documentResolver) Proposals(ctx context.Context, obj *Document, status 
 		result[i] = proposalToGraphQL(&proposals[i])
 	}
 	return result, nil
+}
+
+// Versions is the resolver for the versions field.
+func (r *documentResolver) Versions(ctx context.Context, obj *Document, limit *int, offset *int) (*DocumentVersionConnection, error) {
+	l, o := 20, 0
+	if limit != nil {
+		l = *limit
+	}
+	if offset != nil {
+		o = *offset
+	}
+	versions, err := r.db.ListVersions(ctx, obj.ID, l, o)
+	if err != nil {
+		return nil, fmt.Errorf("list versions: %w", err)
+	}
+	count, err := r.db.CountVersions(ctx, obj.ID)
+	if err != nil {
+		return nil, fmt.Errorf("count versions: %w", err)
+	}
+	gqlVersions := make([]*DocumentVersion, len(versions))
+	for i := range versions {
+		gqlVersions[i] = versionToGraphQL(&versions[i])
+	}
+	return &DocumentVersionConnection{
+		Versions:   gqlVersions,
+		TotalCount: count,
+	}, nil
 }
 
 // Document is the resolver for the document field.
@@ -554,6 +582,18 @@ func (r *mutationResolver) RenameConversation(ctx context.Context, id string, ti
 	return result, nil
 }
 
+// RollbackDocument is the resolver for the rollbackDocument field.
+func (r *mutationResolver) RollbackDocument(ctx context.Context, vaultID string, documentID string, versionID string) (*Document, error) {
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	doc, err := r.documentService.Rollback(ctx, vaultID, documentID, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("rollback document: %w", err)
+	}
+	return documentToGraphQL(doc), nil
+}
+
 // Me is the resolver for the me field.
 func (r *queryResolver) Me(ctx context.Context) (*Me, error) {
 	ac, err := auth.FromContext(ctx)
@@ -790,6 +830,112 @@ func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversat
 		result.Messages[i] = messageToGraphQL(&msgs[i])
 	}
 	return result, nil
+}
+
+// DocumentVersion is the resolver for the documentVersion field.
+func (r *queryResolver) DocumentVersion(ctx context.Context, id string) (*DocumentVersion, error) {
+	v, err := r.db.GetVersion(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get version: %w", err)
+	}
+	if v == nil {
+		return nil, nil
+	}
+	vaultID, err := models.RecordIDString(v.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from version: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+	return versionToGraphQL(v), nil
+}
+
+// DocumentVersions is the resolver for the documentVersions field.
+func (r *queryResolver) DocumentVersions(ctx context.Context, documentID string, limit *int, offset *int) (*DocumentVersionConnection, error) {
+	doc, err := r.db.GetDocumentByID(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("document not found: %s", documentID)
+	}
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from document: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+
+	l, o := 20, 0
+	if limit != nil {
+		l = *limit
+	}
+	if offset != nil {
+		o = *offset
+	}
+	versions, err := r.db.ListVersions(ctx, documentID, l, o)
+	if err != nil {
+		return nil, fmt.Errorf("list versions: %w", err)
+	}
+	count, err := r.db.CountVersions(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("count versions: %w", err)
+	}
+	gqlVersions := make([]*DocumentVersion, len(versions))
+	for i := range versions {
+		gqlVersions[i] = versionToGraphQL(&versions[i])
+	}
+	return &DocumentVersionConnection{
+		Versions:   gqlVersions,
+		TotalCount: count,
+	}, nil
+}
+
+// VersionDiff is the resolver for the versionDiff field.
+func (r *queryResolver) VersionDiff(ctx context.Context, documentID string, fromVersionID *string, toVersionID *string) (*ProposalDiff, error) {
+	doc, err := r.db.GetDocumentByID(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("document not found: %s", documentID)
+	}
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID from document: %w", err)
+	}
+	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		return nil, err
+	}
+
+	fromContent, err := r.documentService.VersionContent(ctx, documentID, fromVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve from content: %w", err)
+	}
+	toContent, err := r.documentService.VersionContent(ctx, documentID, toVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve to content: %w", err)
+	}
+	hunks, err := review.ComputeHunks(fromContent, toContent, 3)
+	if err != nil {
+		return nil, fmt.Errorf("compute diff: %w", err)
+	}
+	stats := review.ComputeStats(hunks)
+	gqlHunks := make([]*DiffHunk, len(hunks))
+	for i, h := range hunks {
+		gqlHunks[i] = hunkToGraphQL(h)
+	}
+	return &ProposalDiff{
+		Hunks:       gqlHunks,
+		HasConflict: false,
+		Stats: &DiffStats{
+			Additions:  stats.Additions,
+			Deletions:  stats.Deletions,
+			HunksCount: stats.HunksCount,
+		},
+	}, nil
 }
 
 // Labels is the resolver for the labels field.

@@ -293,6 +293,37 @@ func resolveQueryBlock(ctx context.Context, dbClient *db.Client, vaultID string,
 	return block
 }
 
+func versionToGraphQL(v *models.DocumentVersion) *DocumentVersion {
+	if v == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(v.ID)
+	if err != nil {
+		slog.Warn("unexpected version ID format", "version", v.Version, "error", err)
+		id = fmt.Sprintf("%v", v.ID.ID)
+	}
+	docID, err := models.RecordIDString(v.Document)
+	if err != nil {
+		slog.Warn("unexpected version document ID format", "version", v.Version, "error", err)
+		docID = fmt.Sprintf("%v", v.Document.ID)
+	}
+	vaultID, err := models.RecordIDString(v.Vault)
+	if err != nil {
+		slog.Warn("unexpected version vault ID format", "version", v.Version, "error", err)
+		vaultID = fmt.Sprintf("%v", v.Vault.ID)
+	}
+	return &DocumentVersion{
+		ID:          id,
+		DocumentID:  docID,
+		VaultID:     vaultID,
+		Version:     v.Version,
+		Title:       v.Title,
+		ContentHash: v.ContentHash,
+		Source:      string(v.Source),
+		CreatedAt:   v.CreatedAt,
+	}
+}
+
 func proposalToGraphQL(p *models.DocumentProposal) *DocumentProposal {
 	if p == nil {
 		return nil

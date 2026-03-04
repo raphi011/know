@@ -98,7 +98,11 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		"chunk_max", chunkConfig.MaxSize,
 	)
 
-	docService := document.NewService(dbClient, embedder, chunkConfig)
+	versionConfig := document.VersionConfig{
+		CoalesceMinutes: cfg.VersionCoalesceMinutes,
+		RetentionCount:  cfg.VersionRetentionCount,
+	}
+	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig)
 
 	workerDone := make(chan struct{})
 	close(workerDone) // safe default: <-workerDone returns immediately if no worker

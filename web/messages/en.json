@@ -114,7 +114,22 @@
     "agentToolDuration": "{ms}ms",
     "agentToolSize": "{size}KB",
     "agentToolWebResults": "{count} {count, plural, one {result} other {results}}",
-    "agentToolNotFound": "Not found"
+    "agentToolNotFound": "Not found",
+    "history": "History",
+    "noVersions": "No previous versions",
+    "version": "Version {number}",
+    "versionSource": "Source",
+    "rollback": "Restore",
+    "rollbackConfirmTitle": "Restore version {number}?",
+    "rollbackConfirmDescription": "The current content will be saved as a new version before restoring.",
+    "rollbackSuccess": "Version restored",
+    "rollbackError": "Restore failed",
+    "diffLoading": "Loading diff…",
+    "diffError": "Failed to load diff",
+    "noChanges": "No changes",
+    "additions": "{count} added",
+    "deletions": "{count} removed",
+    "currentVersion": "Current"
   },
   "dnd": {
     "dropFilesHere": "Drop .md files here",

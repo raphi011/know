@@ -116,6 +116,19 @@ export function moveFolder(
   );
 }
 
+export function rollbackDocument(
+  vaultId: string,
+  documentId: string,
+  versionId: string,
+) {
+  return graphqlMutation(
+    `mutation ($vaultId: ID!, $documentId: ID!, $versionId: ID!) {
+      rollbackDocument(vaultId: $vaultId, documentId: $documentId, versionId: $versionId) { id }
+    }`,
+    { vaultId, documentId, versionId },
+  );
+}
+
 export function moveDocumentsByPrefix(
   vaultId: string,
   oldPrefix: string,

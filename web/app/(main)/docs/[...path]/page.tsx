@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation";
-import { getVaults, getDocument } from "@/app/lib/knowhow/queries";
+import {
+  getVaults,
+  getDocument,
+  getDocumentVersions,
+} from "@/app/lib/knowhow/queries";
 import { getActiveVaultId } from "@/app/lib/actions/connections";
 import { DocumentEditor } from "@/components/domain/document-editor";
 
@@ -25,5 +29,14 @@ export default async function DocumentPage({ params }: Props) {
     notFound();
   }
 
-  return <DocumentEditor document={document} vaultId={vault.id} />;
+  const versionData = await getDocumentVersions(document.id, 20);
+
+  return (
+    <DocumentEditor
+      document={document}
+      vaultId={vault.id}
+      versions={versionData.versions}
+      versionsTotalCount={versionData.totalCount}
+    />
+  );
 }

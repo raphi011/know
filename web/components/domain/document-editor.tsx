@@ -10,7 +10,7 @@ import { DocumentPanel } from "@/components/domain/document-panel";
 import { useShowToolbarTitle } from "@/hooks/use-h1-visibility";
 import { saveDocument } from "@/app/lib/knowhow/mutations";
 import { extractHeadings } from "@/app/lib/extract-headings";
-import type { Document } from "@/app/lib/knowhow/types";
+import type { Document, DocumentVersion } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
 
 type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
@@ -18,13 +18,20 @@ type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 type DocumentEditorProps = {
   document: Document;
   vaultId: string;
+  versions: DocumentVersion[];
+  versionsTotalCount: number;
 };
 
 const SAVE_DELAY_MS = 1500;
 
 type Mode = "edit" | "preview";
 
-function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
+function DocumentEditor({
+  document,
+  vaultId,
+  versions,
+  versionsTotalCount,
+}: DocumentEditorProps) {
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("preview");
@@ -129,6 +136,8 @@ function DocumentEditor({ document, vaultId }: DocumentEditorProps) {
             document={document}
             scrollContainer={previewElement}
             vaultId={vaultId}
+            versions={versions}
+            versionsTotalCount={versionsTotalCount}
           />
         </div>
       )}

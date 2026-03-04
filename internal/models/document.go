@@ -13,12 +13,13 @@ const (
 	SourceScrape      DocumentSource = "scrape"
 	SourceMCP         DocumentSource = "mcp"
 	SourceAIGenerated DocumentSource = "ai_generated"
+	SourceRollback    DocumentSource = "rollback"
 )
 
 // Valid returns true if the DocumentSource is a known value.
 func (s DocumentSource) Valid() bool {
 	switch s {
-	case SourceManual, SourceScrape, SourceMCP, SourceAIGenerated:
+	case SourceManual, SourceScrape, SourceMCP, SourceAIGenerated, SourceRollback:
 		return true
 	}
 	return false

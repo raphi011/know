@@ -36,7 +36,7 @@ func TestFolderAutoCreate(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "autocreate-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	// Create a document at /guides/sub/file.md
 	_, err := docSvc.Create(ctx, models.DocumentInput{
@@ -78,7 +78,7 @@ func TestFolderRootDocNoFolders(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "rootdoc-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	_, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
@@ -136,7 +136,7 @@ func TestFolderEmptyPersistence(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "empty-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	// Create a document to auto-create folders
 	_, err := docSvc.Create(ctx, models.DocumentInput{
@@ -211,7 +211,7 @@ func TestFolderDeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "cascade-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	// Create docs under /guides/
 	for _, p := range []string{"/guides/a.md", "/guides/sub/b.md"} {
@@ -284,7 +284,7 @@ func TestFolderMoveBasic(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "move-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	// Create docs under /guides/ and /guides/sub/
 	for _, p := range []string{"/guides/a.md", "/guides/sub/b.md"} {
@@ -376,7 +376,7 @@ func TestFolderMoveCreatesAncestors(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "move-ancestors-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	_, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
@@ -419,7 +419,7 @@ func TestFolderListByParent(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "listparent-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	// Create a nested structure: /a/b/c/file.md
 	_, err := docSvc.Create(ctx, models.DocumentInput{
@@ -478,7 +478,7 @@ func TestFolderListAll(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "listall-"+fmt.Sprint(time.Now().UnixNano()))
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig())
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50})
 
 	paths := []string{
 		"/guides/getting-started.md",

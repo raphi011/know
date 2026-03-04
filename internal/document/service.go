@@ -18,21 +18,37 @@ import (
 	"github.com/raphi011/knowhow/internal/parser"
 )
 
+// VersionConfig holds versioning settings.
+type VersionConfig struct {
+	CoalesceMinutes int // minutes between version snapshots
+	RetentionCount  int // max versions per document
+}
+
 // Service manages document lifecycle: parse → extract → store → link → embed.
 type Service struct {
-	db          *db.Client
-	embedder    *llm.Embedder // optional — nil disables embedding
-	resolver    *LinkResolver
-	chunkConfig parser.ChunkConfig
+	db            *db.Client
+	embedder      *llm.Embedder // optional — nil disables embedding
+	resolver      *LinkResolver
+	chunkConfig   parser.ChunkConfig
+	versionConfig VersionConfig
 }
 
 // NewService creates a new document service.
-func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig) *Service {
+func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig) *Service {
+	if versionConfig.RetentionCount < 1 {
+		slog.Warn("version retention count too low, clamping to 1", "configured", versionConfig.RetentionCount)
+		versionConfig.RetentionCount = 1
+	}
+	if versionConfig.CoalesceMinutes < 0 {
+		slog.Warn("version coalesce minutes negative, clamping to 0", "configured", versionConfig.CoalesceMinutes)
+		versionConfig.CoalesceMinutes = 0
+	}
 	return &Service{
-		db:          db,
-		embedder:    embedder,
-		resolver:    NewLinkResolver(db),
-		chunkConfig: chunkConfig,
+		db:            db,
+		embedder:      embedder,
+		resolver:      NewLinkResolver(db),
+		chunkConfig:   chunkConfig,
+		versionConfig: versionConfig,
 	}
 }
 
@@ -98,7 +114,7 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		return nil, fmt.Errorf("ensure parent folders: %w", err)
 	}
 
-	doc, created, err := s.db.UpsertDocument(ctx, dbInput)
+	doc, created, previousDoc, err := s.db.UpsertDocument(ctx, dbInput)
 	if err != nil {
 		return nil, fmt.Errorf("upsert document: %w", err)
 	}
@@ -106,6 +122,11 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	docID, err := models.RecordIDString(doc.ID)
 	if err != nil {
 		return nil, fmt.Errorf("extract doc id: %w", err)
+	}
+
+	// 8.5 Create version snapshot of old content (if this was an update)
+	if !created && previousDoc != nil {
+		s.maybeCreateVersion(ctx, docID, input.VaultID, previousDoc, contentHash)
 	}
 
 	// 9. Sync chunks (with smart diffing — only re-embed changed chunks)
