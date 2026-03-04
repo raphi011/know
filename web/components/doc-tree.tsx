@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -10,6 +10,7 @@ import {
   PointerSensor,
   KeyboardSensor,
   useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -328,6 +329,7 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
               />
             )}
           </div>
+          <RootDropZone />
           <DragOverlay>
             {activeNode ? (
               <div className="flex items-center gap-2 rounded bg-white px-3 py-1.5 shadow-lg text-sm dark:bg-zinc-800">
@@ -436,6 +438,23 @@ function DocTree({ tree, activePath, vaultId }: DocTreeProps) {
   );
 }
 
+function RootDropZone() {
+  const { setNodeRef, isOver } = useDroppable({
+    id: "drop:root",
+    data: { folderPath: "" },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "min-h-8 flex-1",
+        isOver && "bg-blue-50 dark:bg-blue-950",
+      )}
+    />
+  );
+}
+
 function TreeNodeItem({
   node,
   tree,
@@ -466,7 +485,22 @@ function TreeNodeItem({
     data: { node },
   });
 
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `drop:${node.path}`,
+    data: { folderPath: node.path },
+    disabled: node.type !== "folder",
+  });
+
   const isFolder = node.type === "folder";
+
+  const combinedRef = useCallback(
+    (el: HTMLElement | null) => {
+      setDragRef(el);
+      if (isFolder) setDropRef(el);
+    },
+    [setDragRef, setDropRef, isFolder],
+  );
+
   const isExpanded = expanded.has(node.path);
   const isActive = !isFolder && node.path === activePath;
   const isBeingRenamed =
@@ -493,6 +527,7 @@ function TreeNodeItem({
       ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-400"
       : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
     isDragging && "opacity-50",
+    isOver && isFolder && "bg-blue-50 ring-1 ring-blue-300 dark:bg-blue-950 dark:ring-blue-700",
   );
 
   const itemContent = (
@@ -520,7 +555,7 @@ function TreeNodeItem({
     <>
       {isFolder ? (
         <button
-          ref={setDragRef}
+          ref={combinedRef}
           {...listeners}
           {...attributes}
           onClick={() => onToggle(node.path)}
@@ -532,7 +567,7 @@ function TreeNodeItem({
         </button>
       ) : (
         <Link
-          ref={setDragRef}
+          ref={combinedRef}
           {...listeners}
           {...attributes}
           href={`/docs/${node.path}`}
