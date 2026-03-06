@@ -53,8 +53,6 @@
     "semanticSearch": "Semantische Suche",
     "agentChat": "Agent-Chat",
     "webSearch": "Websuche",
-    "enabled": "Aktiviert",
-    "disabled": "Deaktiviert",
     "aiConfig": "KI-Konfiguration",
     "llmProvider": "LLM-Anbieter",
     "llmModel": "LLM-Modell",
@@ -72,7 +70,8 @@
     "versionCoalesceMinutes": "Zusammenfassungsfenster",
     "minutes": "{count} Min.",
     "versionRetentionCount": "Aufbewahrungsanzahl",
-    "versions": "{count} Versionen"
+    "versions": "{count} Versionen",
+    "configError": "Serverkonfiguration konnte nicht geladen werden."
   },
   "vaultSwitcher": {
     "noServer": "Kein Server",

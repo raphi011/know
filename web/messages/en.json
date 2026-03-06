@@ -53,8 +53,6 @@
     "semanticSearch": "Semantic Search",
     "agentChat": "Agent Chat",
     "webSearch": "Web Search",
-    "enabled": "Enabled",
-    "disabled": "Disabled",
     "aiConfig": "AI Configuration",
     "llmProvider": "LLM Provider",
     "llmModel": "LLM Model",
@@ -72,7 +70,8 @@
     "versionCoalesceMinutes": "Coalesce Window",
     "minutes": "{count} min",
     "versionRetentionCount": "Retention Count",
-    "versions": "{count} versions"
+    "versions": "{count} versions",
+    "configError": "Failed to load server configuration."
   },
   "vaultSwitcher": {
     "noServer": "No server",

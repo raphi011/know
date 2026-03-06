@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function SettingsPage() {
   const [t, serverConfig] = await Promise.all([
     getTranslations("settings"),
-    getServerConfig(),
+    getServerConfig().catch(() => null),
   ]);
 
   return (

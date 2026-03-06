@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { useTranslations } from "next-intl";
 import {
   ListBulletIcon,
@@ -20,18 +20,9 @@ import type { Heading } from "@/app/lib/extract-headings";
 import type { Document, DocumentVersion } from "@/app/lib/knowhow/types";
 import { cn } from "@/lib/utils";
 
-const PANEL_STORAGE_KEY = "kh_panel_width";
 const PANEL_MIN_WIDTH = 256;
-const PANEL_DEFAULT_WIDTH = 256;
+const PANEL_DEFAULT_WIDTH = 384;
 const PANEL_MAX_WIDTH_RATIO = 0.5;
-
-function getStoredWidth(): number {
-  if (typeof window === "undefined") return PANEL_DEFAULT_WIDTH;
-  const stored = localStorage.getItem(PANEL_STORAGE_KEY);
-  if (!stored) return PANEL_DEFAULT_WIDTH;
-  const parsed = Number(stored);
-  return Number.isFinite(parsed) ? Math.max(PANEL_MIN_WIDTH, parsed) : PANEL_DEFAULT_WIDTH;
-}
 
 type DocumentPanelProps = {
   headings: Heading[];
@@ -53,11 +44,11 @@ function DocumentPanel({
   const t = useTranslations("docs");
   const [collapsed, setCollapsed] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(getStoredWidth);
+  const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_WIDTH);
   const isDragging = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
+  const onPointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     isDragging.current = true;
     globalThis.document.body.style.cursor = "col-resize";
@@ -65,7 +56,6 @@ function DocumentPanel({
 
     const onPointerMove = (ev: PointerEvent) => {
       if (!isDragging.current || !panelRef.current) return;
-      // Use the parent flex container (preview + panel) to calculate max width
       const parent = panelRef.current.parentElement;
       if (!parent) return;
       const parentRect = parent.getBoundingClientRect();
@@ -80,16 +70,11 @@ function DocumentPanel({
       globalThis.document.body.style.userSelect = "";
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
-      // Persist final width
-      setPanelWidth((w) => {
-        localStorage.setItem(PANEL_STORAGE_KEY, String(Math.round(w)));
-        return w;
-      });
     };
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
-  }, []);
+  };
 
   const tabItems = [
     {
