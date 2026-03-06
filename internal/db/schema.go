@@ -240,6 +240,8 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS tool_name    ON message TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS tool_input   ON message TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS tool_meta    ON message TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS tool_call_id ON message TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS tool_calls   ON message TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS created_at   ON message TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_message_conversation ON message FIELDS conversation;

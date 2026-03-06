@@ -206,7 +206,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	// Store user message
-	userMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil)
+	userMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil, nil, nil)
 	if err != nil {
 		return fmt.Errorf("create user message: %w", err)
 	}
@@ -284,7 +284,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 				toolInput = []byte(decision.Input) // fallback: use raw bytes to avoid storing empty string
 			}
 			toolInputStr := string(toolInput)
-			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolCall, "", nil, &decision.Tool, &toolInputStr, nil)
+			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolCall, "", nil, &decision.Tool, &toolInputStr, nil, nil, nil)
 			if err != nil {
 				slog.Error("failed to store tool call message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
 			}
@@ -300,7 +300,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 					toolMetaStr = &s
 				}
 			}
-			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, result, nil, &decision.Tool, nil, toolMetaStr)
+			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, result, nil, &decision.Tool, nil, toolMetaStr, nil, nil)
 			if err != nil {
 				slog.Error("failed to store tool result message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
 			}
@@ -328,7 +328,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	// Store assistant message
-	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil, nil)
+	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		slog.Error("failed to store assistant message", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: "Warning: response may not be saved to conversation history"})

@@ -36,5 +36,7 @@ type Message struct {
 	ToolName     *string                `json:"tool_name,omitempty"`
 	ToolInput    *string                `json:"tool_input,omitempty"`
 	ToolMeta     *string                `json:"tool_meta,omitempty"`
+	ToolCallID   *string                `json:"tool_call_id,omitempty"`
+	ToolCalls    *string                `json:"tool_calls,omitempty"`
 	CreatedAt    time.Time              `json:"created_at"`
 }
