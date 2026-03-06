@@ -7,14 +7,16 @@ import (
 )
 
 type ChatMessage struct {
-	ID        string          `json:"id"`
-	Role      string          `json:"role"`
-	Content   string          `json:"content"`
-	DocRefs   []string        `json:"docRefs"`
-	ToolName  *string         `json:"toolName,omitempty"`
-	ToolInput *string         `json:"toolInput,omitempty"`
-	ToolMeta  *ToolResultMeta `json:"toolMeta,omitempty"`
-	CreatedAt time.Time       `json:"createdAt"`
+	ID         string          `json:"id"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	DocRefs    []string        `json:"docRefs"`
+	ToolName   *string         `json:"toolName,omitempty"`
+	ToolInput  *string         `json:"toolInput,omitempty"`
+	ToolMeta   *ToolResultMeta `json:"toolMeta,omitempty"`
+	ToolCallID *string         `json:"toolCallId,omitempty"`
+	ToolCalls  *string         `json:"toolCalls,omitempty"`
+	CreatedAt  time.Time       `json:"createdAt"`
 }
 
 type Conversation struct {

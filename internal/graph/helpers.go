@@ -523,14 +523,16 @@ func messageToGraphQL(m *models.Message) *ChatMessage {
 		docRefs = []string{}
 	}
 	return &ChatMessage{
-		ID:        id,
-		Role:      string(m.Role),
-		Content:   m.Content,
-		DocRefs:   docRefs,
-		ToolName:  m.ToolName,
-		ToolInput: m.ToolInput,
-		ToolMeta:  toolResultMetaFromJSON(m.ToolMeta),
-		CreatedAt: m.CreatedAt,
+		ID:         id,
+		Role:       string(m.Role),
+		Content:    m.Content,
+		DocRefs:    docRefs,
+		ToolName:   m.ToolName,
+		ToolInput:  m.ToolInput,
+		ToolMeta:   toolResultMetaFromJSON(m.ToolMeta),
+		ToolCallID: m.ToolCallID,
+		ToolCalls:  m.ToolCalls,
+		CreatedAt:  m.CreatedAt,
 	}
 }
 

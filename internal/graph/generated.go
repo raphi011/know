@@ -40,14 +40,16 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	ChatMessage struct {
-		Content   func(childComplexity int) int
-		CreatedAt func(childComplexity int) int
-		DocRefs   func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Role      func(childComplexity int) int
-		ToolInput func(childComplexity int) int
-		ToolMeta  func(childComplexity int) int
-		ToolName  func(childComplexity int) int
+		Content    func(childComplexity int) int
+		CreatedAt  func(childComplexity int) int
+		DocRefs    func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Role       func(childComplexity int) int
+		ToolCallID func(childComplexity int) int
+		ToolCalls  func(childComplexity int) int
+		ToolInput  func(childComplexity int) int
+		ToolMeta   func(childComplexity int) int
+		ToolName   func(childComplexity int) int
 	}
 
 	ChunkMatch struct {
@@ -435,6 +437,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ChatMessage.Role(childComplexity), true
+	case "ChatMessage.toolCallId":
+		if e.ComplexityRoot.ChatMessage.ToolCallID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatMessage.ToolCallID(childComplexity), true
+	case "ChatMessage.toolCalls":
+		if e.ComplexityRoot.ChatMessage.ToolCalls == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChatMessage.ToolCalls(childComplexity), true
 	case "ChatMessage.toolInput":
 		if e.ComplexityRoot.ChatMessage.ToolInput == nil {
 			break
@@ -2827,6 +2841,64 @@ func (ec *executionContext) fieldContext_ChatMessage_toolMeta(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _ChatMessage_toolCallId(ctx context.Context, field graphql.CollectedField, obj *ChatMessage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChatMessage_toolCallId,
+		func(ctx context.Context) (any, error) {
+			return obj.ToolCallID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChatMessage_toolCallId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChatMessage",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChatMessage_toolCalls(ctx context.Context, field graphql.CollectedField, obj *ChatMessage) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChatMessage_toolCalls,
+		func(ctx context.Context) (any, error) {
+			return obj.ToolCalls, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChatMessage_toolCalls(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChatMessage",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChatMessage_createdAt(ctx context.Context, field graphql.CollectedField, obj *ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3155,6 +3227,10 @@ func (ec *executionContext) fieldContext_Conversation_messages(_ context.Context
 				return ec.fieldContext_ChatMessage_toolInput(ctx, field)
 			case "toolMeta":
 				return ec.fieldContext_ChatMessage_toolMeta(ctx, field)
+			case "toolCallId":
+				return ec.fieldContext_ChatMessage_toolCallId(ctx, field)
+			case "toolCalls":
+				return ec.fieldContext_ChatMessage_toolCalls(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_ChatMessage_createdAt(ctx, field)
 			}
@@ -11901,6 +11977,10 @@ func (ec *executionContext) _ChatMessage(ctx context.Context, sel ast.SelectionS
 			out.Values[i] = ec._ChatMessage_toolInput(ctx, field, obj)
 		case "toolMeta":
 			out.Values[i] = ec._ChatMessage_toolMeta(ctx, field, obj)
+		case "toolCallId":
+			out.Values[i] = ec._ChatMessage_toolCallId(ctx, field, obj)
+		case "toolCalls":
+			out.Values[i] = ec._ChatMessage_toolCalls(ctx, field, obj)
 		case "createdAt":
 			out.Values[i] = ec._ChatMessage_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

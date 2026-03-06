@@ -156,6 +156,8 @@ type ChatMessage {
   toolName: String
   toolInput: String
   toolMeta: ToolResultMeta
+  toolCallId: String
+  toolCalls: String
   createdAt: DateTime!
 }
 
