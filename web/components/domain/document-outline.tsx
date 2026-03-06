@@ -7,16 +7,15 @@ import { cn } from "@/lib/utils";
 
 type DocumentOutlineProps = {
   headings: Heading[];
-  scrollContainer: HTMLElement | null;
 };
 
-function DocumentOutline({ headings, scrollContainer }: DocumentOutlineProps) {
+function DocumentOutline({ headings }: DocumentOutlineProps) {
   const t = useTranslations("docs");
   const [activeId, setActiveId] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
-    if (!scrollContainer || headings.length === 0) return;
+    if (headings.length === 0) return;
 
     // Track which headings are currently visible
     const visibleHeadings = new Map<string, IntersectionObserverEntry>();
@@ -45,7 +44,7 @@ function DocumentOutline({ headings, scrollContainer }: DocumentOutlineProps) {
         }
       },
       {
-        root: scrollContainer,
+        root: null,
         rootMargin: "0px 0px -80% 0px",
         threshold: 0,
       },
@@ -53,7 +52,7 @@ function DocumentOutline({ headings, scrollContainer }: DocumentOutlineProps) {
 
     // Observe all heading elements by ID
     for (const h of headings) {
-      const el = scrollContainer.querySelector(`#${CSS.escape(h.id)}`);
+      const el = document.getElementById(h.id);
       if (el) {
         observerRef.current.observe(el);
       } else if (process.env.NODE_ENV === "development") {
@@ -66,7 +65,7 @@ function DocumentOutline({ headings, scrollContainer }: DocumentOutlineProps) {
     return () => {
       observerRef.current?.disconnect();
     };
-  }, [headings, scrollContainer]);
+  }, [headings]);
 
   if (headings.length === 0) {
     return (
@@ -79,8 +78,7 @@ function DocumentOutline({ headings, scrollContainer }: DocumentOutlineProps) {
   const minLevel = Math.min(...headings.map((h) => h.level));
 
   function handleClick(id: string) {
-    if (!scrollContainer) return;
-    const el = scrollContainer.querySelector(`#${CSS.escape(id)}`);
+    const el = document.getElementById(id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }

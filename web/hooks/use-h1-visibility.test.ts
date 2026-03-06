@@ -27,31 +27,23 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function makeContainer(hasH1: boolean) {
-  const container = document.createElement("div");
-  if (hasH1) {
-    container.appendChild(document.createElement("h1"));
-  }
-  return { current: container };
-}
-
 describe("useShowToolbarTitle", () => {
   it("returns true when disabled (edit mode)", () => {
-    const ref = makeContainer(true);
-    const { result } = renderHook(() => useShowToolbarTitle(ref, false));
+    const { result } = renderHook(() => useShowToolbarTitle(false));
     expect(result.current).toBe(true);
   });
 
-  it("returns false initially (h1 assumed visible)", () => {
-    const ref = makeContainer(true);
-    const { result } = renderHook(() => useShowToolbarTitle(ref, true));
+  it("returns false initially when h1 exists (h1 assumed visible)", () => {
+    document.body.appendChild(document.createElement("h1"));
+    const { result } = renderHook(() => useShowToolbarTitle(true));
     // h1Visible starts as true → !true = false (toolbar title hidden)
     expect(result.current).toBe(false);
+    document.body.innerHTML = "";
   });
 
   it("returns true when h1 is scrolled out of view", () => {
-    const ref = makeContainer(true);
-    const { result } = renderHook(() => useShowToolbarTitle(ref, true));
+    document.body.appendChild(document.createElement("h1"));
+    const { result } = renderHook(() => useShowToolbarTitle(true));
 
     act(() => {
       observerCallback([
@@ -60,11 +52,12 @@ describe("useShowToolbarTitle", () => {
     });
 
     expect(result.current).toBe(true);
+    document.body.innerHTML = "";
   });
 
   it("returns false when h1 is intersecting", () => {
-    const ref = makeContainer(true);
-    const { result } = renderHook(() => useShowToolbarTitle(ref, true));
+    document.body.appendChild(document.createElement("h1"));
+    const { result } = renderHook(() => useShowToolbarTitle(true));
 
     act(() => {
       observerCallback([
@@ -73,12 +66,12 @@ describe("useShowToolbarTitle", () => {
     });
 
     expect(result.current).toBe(false);
+    document.body.innerHTML = "";
   });
 
-  it("returns true when container has no h1", () => {
+  it("returns true when document has no h1", () => {
     vi.useFakeTimers();
-    const ref = makeContainer(false);
-    const { result } = renderHook(() => useShowToolbarTitle(ref, true));
+    const { result } = renderHook(() => useShowToolbarTitle(true));
 
     // requestAnimationFrame defers the state update
     act(() => {
@@ -91,19 +84,12 @@ describe("useShowToolbarTitle", () => {
   });
 
   it("disconnects observer on unmount", () => {
-    const ref = makeContainer(true);
-    const { unmount } = renderHook(() => useShowToolbarTitle(ref, true));
+    document.body.appendChild(document.createElement("h1"));
+    const { unmount } = renderHook(() => useShowToolbarTitle(true));
 
     unmount();
 
     expect(observerDisconnect).toHaveBeenCalled();
-  });
-
-  it("returns true when container ref is null", () => {
-    const ref = { current: null };
-    const { result } = renderHook(() => useShowToolbarTitle(ref, true));
-    // Effect exits early, h1Visible stays true → !true = false
-    // But this is the "no container" edge case — toolbar title hidden
-    expect(result.current).toBe(false);
+    document.body.innerHTML = "";
   });
 });

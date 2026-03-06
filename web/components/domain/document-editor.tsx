@@ -36,20 +36,11 @@ function DocumentEditor({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("preview");
   const [previewContent, setPreviewContent] = useState(document.content);
-  const [previewElement, setPreviewElement] = useState<HTMLDivElement | null>(
-    null,
-  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = useRef(document.content);
-  const previewRef = useRef<HTMLDivElement>(null);
   const t = useTranslations("docs");
 
-  const previewCallbackRef = (node: HTMLDivElement | null) => {
-    previewRef.current = node;
-    setPreviewElement(node);
-  };
-
-  const showToolbarTitle = useShowToolbarTitle(previewRef, mode === "preview");
+  const showToolbarTitle = useShowToolbarTitle(mode === "preview");
   const headings = extractHeadings(previewContent);
 
   useEffect(() => {
@@ -93,9 +84,9 @@ function DocumentEditor({
   }
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] flex-col gap-3 lg:h-[calc(100vh-3rem)]">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-3">
+      {/* Toolbar — sticky so it stays visible while body scrolls */}
+      <div className="sticky top-0 z-10 -mx-4 flex items-center gap-3 bg-slate-50/95 px-4 py-2 backdrop-blur-sm lg:-mx-6 lg:px-6 dark:bg-slate-950/95">
         <h1
           className={cn(
             "min-w-0 truncate text-lg font-semibold text-slate-900 transition-opacity duration-200 dark:text-white",
@@ -121,20 +112,15 @@ function DocumentEditor({
         <MarkdownEditor content={document.content} onChange={handleChange} />
       </div>
 
-      {/* Preview + Panel */}
+      {/* Preview + Panel — body scrolls the preview, panel is sticky */}
       {mode === "preview" && (
-        <div className="flex min-h-0 flex-1">
-          <div
-            ref={previewCallbackRef}
-            tabIndex={0}
-            className="min-h-0 min-w-0 flex-1 overflow-y-auto"
-          >
+        <div className="flex items-start">
+          <div className="min-w-0 flex-1">
             <MarkdownRenderer content={previewContent} />
           </div>
           <DocumentPanel
             headings={headings}
             document={document}
-            scrollContainer={previewElement}
             vaultId={vaultId}
             versions={versions}
             versionsTotalCount={versionsTotalCount}
