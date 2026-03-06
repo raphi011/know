@@ -105,7 +105,7 @@ function DocumentPanel({
   return (
     <>
       {/* Desktop panel (lg+) — sticky so it stays in place while body scrolls */}
-      <div className="hidden self-start lg:sticky lg:top-0 lg:flex lg:max-h-screen" ref={panelRef}>
+      <div className="hidden self-start lg:sticky lg:top-10 lg:flex lg:max-h-[calc(100vh-2.5rem)]" ref={panelRef}>
         {!collapsed && (
           <div
             className="relative flex shrink-0 flex-col border-l border-slate-200 dark:border-slate-700"

@@ -25,6 +25,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  document.body.innerHTML = "";
 });
 
 describe("useShowToolbarTitle", () => {
@@ -34,15 +35,20 @@ describe("useShowToolbarTitle", () => {
   });
 
   it("returns false initially when h1 exists (h1 assumed visible)", () => {
-    document.body.appendChild(document.createElement("h1"));
+    const prose = document.createElement("div");
+    prose.classList.add("prose");
+    prose.appendChild(document.createElement("h1"));
+    document.body.appendChild(prose);
     const { result } = renderHook(() => useShowToolbarTitle(true));
     // h1Visible starts as true → !true = false (toolbar title hidden)
     expect(result.current).toBe(false);
-    document.body.innerHTML = "";
   });
 
   it("returns true when h1 is scrolled out of view", () => {
-    document.body.appendChild(document.createElement("h1"));
+    const prose = document.createElement("div");
+    prose.classList.add("prose");
+    prose.appendChild(document.createElement("h1"));
+    document.body.appendChild(prose);
     const { result } = renderHook(() => useShowToolbarTitle(true));
 
     act(() => {
@@ -52,11 +58,13 @@ describe("useShowToolbarTitle", () => {
     });
 
     expect(result.current).toBe(true);
-    document.body.innerHTML = "";
   });
 
   it("returns false when h1 is intersecting", () => {
-    document.body.appendChild(document.createElement("h1"));
+    const prose = document.createElement("div");
+    prose.classList.add("prose");
+    prose.appendChild(document.createElement("h1"));
+    document.body.appendChild(prose);
     const { result } = renderHook(() => useShowToolbarTitle(true));
 
     act(() => {
@@ -66,7 +74,6 @@ describe("useShowToolbarTitle", () => {
     });
 
     expect(result.current).toBe(false);
-    document.body.innerHTML = "";
   });
 
   it("returns true when document has no h1", () => {
@@ -84,12 +91,14 @@ describe("useShowToolbarTitle", () => {
   });
 
   it("disconnects observer on unmount", () => {
-    document.body.appendChild(document.createElement("h1"));
+    const prose = document.createElement("div");
+    prose.classList.add("prose");
+    prose.appendChild(document.createElement("h1"));
+    document.body.appendChild(prose);
     const { unmount } = renderHook(() => useShowToolbarTitle(true));
 
     unmount();
 
     expect(observerDisconnect).toHaveBeenCalled();
-    document.body.innerHTML = "";
   });
 });

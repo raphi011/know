@@ -85,8 +85,8 @@ function DocumentEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Toolbar — sticky so it stays visible while body scrolls */}
-      <div className="sticky top-0 z-10 -mx-4 flex items-center gap-3 bg-slate-50/95 px-4 py-2 backdrop-blur-sm lg:-mx-6 lg:px-6 dark:bg-slate-950/95">
+      {/* Toolbar — sticky, spans full width including panel area */}
+      <div className="sticky top-[3.75rem] z-10 -mx-4 flex items-center gap-3 bg-slate-50/95 px-4 py-2 backdrop-blur-sm lg:top-0 lg:-mx-6 lg:px-6 dark:bg-slate-950/95">
         <h1
           className={cn(
             "min-w-0 truncate text-lg font-semibold text-slate-900 transition-opacity duration-200 dark:text-white",

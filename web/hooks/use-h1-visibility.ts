@@ -14,7 +14,7 @@ function useShowToolbarTitle(enabled: boolean): boolean {
   useEffect(() => {
     if (!enabled) return;
 
-    const h1 = document.querySelector("h1");
+    const h1 = document.querySelector(".prose h1");
     if (!h1) {
       // Defer to avoid synchronous setState in effect body (react-hooks/set-state-in-effect).
       // The one-frame delay is imperceptible since the toolbar uses a 200ms opacity transition.
