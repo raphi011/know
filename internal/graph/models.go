@@ -284,6 +284,24 @@ type DocumentVersionConnection struct {
 	TotalCount int                `json:"totalCount"`
 }
 
+// ServerConfig holds the server's effective configuration for display.
+type ServerConfig struct {
+	LLMProvider            string `json:"llmProvider"`
+	LLMModel               string `json:"llmModel"`
+	EmbedProvider          string `json:"embedProvider"`
+	EmbedModel             string `json:"embedModel"`
+	EmbedDimension         int    `json:"embedDimension"`
+	SemanticSearchEnabled  bool   `json:"semanticSearchEnabled"`
+	AgentChatEnabled       bool   `json:"agentChatEnabled"`
+	WebSearchEnabled       bool   `json:"webSearchEnabled"`
+	ChunkThreshold         int    `json:"chunkThreshold"`
+	ChunkTargetSize        int    `json:"chunkTargetSize"`
+	ChunkMinSize           int    `json:"chunkMinSize"`
+	ChunkMaxSize           int    `json:"chunkMaxSize"`
+	VersionCoalesceMinutes int    `json:"versionCoalesceMinutes"`
+	VersionRetentionCount  int    `json:"versionRetentionCount"`
+}
+
 // Input types
 
 type VaultInput struct {

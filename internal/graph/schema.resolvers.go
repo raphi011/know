@@ -832,6 +832,11 @@ func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversat
 	return result, nil
 }
 
+// ServerConfig is the resolver for the serverConfig field.
+func (r *queryResolver) ServerConfig(ctx context.Context) (*ServerConfig, error) {
+	return &r.serverConfig, nil
+}
+
 // DocumentVersion is the resolver for the documentVersion field.
 func (r *queryResolver) DocumentVersion(ctx context.Context, id string) (*DocumentVersion, error) {
 	v, err := r.db.GetVersion(ctx, id)

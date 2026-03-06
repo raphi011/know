@@ -95,6 +95,23 @@ export type VersionDiff = {
   stats: DiffStats;
 };
 
+export type ServerConfig = {
+  llmProvider: string;
+  llmModel: string;
+  embedProvider: string;
+  embedModel: string;
+  embedDimension: number;
+  semanticSearchEnabled: boolean;
+  agentChatEnabled: boolean;
+  webSearchEnabled: boolean;
+  chunkThreshold: number;
+  chunkTargetSize: number;
+  chunkMinSize: number;
+  chunkMaxSize: number;
+  versionCoalesceMinutes: number;
+  versionRetentionCount: number;
+};
+
 export type ServerConnection = {
   id: string;
   name: string;
