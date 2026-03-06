@@ -106,6 +106,12 @@ func TestBuildEmbeddingContext(t *testing.T) {
 			docTitle: "",
 			want:     "Raw content.",
 		},
+		{
+			name:     "empty heading path",
+			chunk:    models.Chunk{Content: "Some text.", HeadingPath: hp("")},
+			docTitle: "My Doc",
+			want:     "Document: My Doc\n\nSome text.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -127,6 +133,7 @@ func TestStripMarkdownHeadingPrefixes(t *testing.T) {
 		{"# Title", "Title"},
 		{"## Single", "Single"},
 		{"# A > ## B > ### C", "A > B > C"},
+		{"## #channels", "#channels"},
 	}
 	for _, tt := range tests {
 		got := stripMarkdownHeadingPrefixes(tt.input)

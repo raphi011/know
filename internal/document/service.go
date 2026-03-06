@@ -175,7 +175,10 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 			continue
 		}
 
-		docID, _ := models.RecordIDString(chunk.Document)
+		docID, err := models.RecordIDString(chunk.Document)
+		if err != nil {
+			slog.Warn("failed to extract document ID for contextual embedding", "chunk_id", chunkID, "error", err)
+		}
 		embeddingText := buildEmbeddingContext(chunk, docTitles[docID])
 
 		emb, err := s.embedder.Embed(ctx, embeddingText)
@@ -208,6 +211,7 @@ func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map
 	for _, chunk := range chunks {
 		docID, err := models.RecordIDString(chunk.Document)
 		if err != nil {
+			slog.Warn("failed to extract document ID for title lookup", "error", err)
 			continue
 		}
 		if !seen[docID] {
@@ -229,6 +233,7 @@ func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map
 	for _, doc := range docs {
 		docID, err := models.RecordIDString(doc.ID)
 		if err != nil {
+			slog.Warn("failed to extract document ID from fetched doc", "error", err)
 			continue
 		}
 		titles[docID] = doc.Title
@@ -261,7 +266,7 @@ func buildEmbeddingContext(chunk models.Chunk, docTitle string) string {
 func stripMarkdownHeadingPrefixes(path string) string {
 	parts := strings.Split(path, " > ")
 	for i, part := range parts {
-		parts[i] = strings.TrimLeft(part, "# ")
+		parts[i] = strings.TrimPrefix(strings.TrimLeft(part, "#"), " ")
 	}
 	return strings.Join(parts, " > ")
 }
