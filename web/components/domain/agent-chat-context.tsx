@@ -83,6 +83,7 @@ type Action =
       meta?: ToolResultMeta;
     }
   | { type: "STREAM_END" }
+  | { type: "CLEAR_STREAMING" }
   | { type: "SET_ERROR"; error: string | null };
 
 function reducer(state: State, action: Action): State {
@@ -182,6 +183,8 @@ function reducer(state: State, action: Action): State {
     }
     case "STREAM_END":
       return { ...state, isStreaming: false };
+    case "CLEAR_STREAMING":
+      return { ...state, streamingContent: "", toolExecutions: [] };
     case "SET_ERROR":
       return { ...state, error: action.error, isStreaming: false };
   }
@@ -517,6 +520,8 @@ export function AgentChatProvider({
                         id: newConvId,
                         title: data.conversation.title,
                       });
+                      // Clear transient streaming state now that persisted messages are loaded
+                      dispatch({ type: "CLEAR_STREAMING" });
                     }
                   } catch (err) {
                     console.error("Failed to reload conversation:", err);

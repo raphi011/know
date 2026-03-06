@@ -7,3 +7,9 @@ services:
     command: start --user root --pass root memory
     ports:
       - "4002:8000"
+
+  surrealist:
+    image: surrealdb/surrealist:latest
+    container_name: knowhow-surrealist
+    ports:
+      - "4003:8080"

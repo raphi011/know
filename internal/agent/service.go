@@ -115,7 +115,7 @@ When the user asks a question:
 
 Always cite document paths when referencing information from the knowledge base.
 Be concise and helpful. Answer based on the knowledge base content when available.
-Do not include a sources section at the end of your response — one will be added automatically.`
+Do not include a sources section at the end of your response — sources are shown separately in the UI.`
 
 	return base
 }
@@ -173,11 +173,6 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 	}
 	sb.WriteString("```")
 	return sb.String()
-}
-
-type docSource struct {
-	Title string
-	Path  string
 }
 
 // ChatRequest contains the parameters for a chat request.
@@ -252,10 +247,6 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		toolContext.WriteString("\n")
 	}
 
-	// Track all documents referenced during tool execution for the sources section
-	seen := map[string]bool{}
-	var sources []docSource
-
 	for i := range maxToolIterations {
 		// Build history for intent detection
 		history := s.buildHistory(messages, toolContext.String())
@@ -278,17 +269,11 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		}
 
 		if decision.Action == "tool" {
-			result, toolSources, meta, err := s.executeTool(ctx, req.VaultID, decision, emit)
+			result, meta, err := s.executeTool(ctx, req.VaultID, decision, emit)
 			if err != nil {
 				slog.Warn("tool execution failed", "tool", decision.Tool, "error", err)
 				emit(StreamEvent{Type: "error", Content: fmt.Sprintf("tool %s failed: %v", decision.Tool, err)})
 				break
-			}
-			for _, src := range toolSources {
-				if !seen[src.Path] {
-					seen[src.Path] = true
-					sources = append(sources, src)
-				}
 			}
 			fmt.Fprintf(&toolContext, "\n--- Tool result (%s) ---\n%s\n", decision.Tool, result)
 
@@ -340,18 +325,6 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
 		return nil
-	}
-
-	// Append deterministic sources section with clickable links
-	if len(sources) > 0 {
-		var srcSection strings.Builder
-		srcSection.WriteString("\n\n---\n**Sources:**\n")
-		for _, src := range sources {
-			fmt.Fprintf(&srcSection, "- [%s](/docs%s)\n", src.Title, src.Path)
-		}
-		srcText := srcSection.String()
-		answer.WriteString(srcText)
-		emit(StreamEvent{Type: "token", Content: srcText})
 	}
 
 	// Store assistant message
@@ -453,12 +426,12 @@ func buildHistoryText(history []llm.ChatMessage, currentQuery string) string {
 
 func intPtr(v int) *int { return &v }
 
-func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, []docSource, *ToolResultMeta, error) {
+func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, *ToolResultMeta, error) {
 	switch action.Tool {
 	case "kb_search":
 		var input searchInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, nil, fmt.Errorf("parse search input: %w", err)
+			return "", nil, fmt.Errorf("parse search input: %w", err)
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "kb_search"})
 
@@ -470,16 +443,14 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 		})
 		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("search: %w", err)
+			return "", nil, fmt.Errorf("search: %w", err)
 		}
 
 		var sb strings.Builder
-		var sources []docSource
 		var matchedDocs []ToolDocRef
 		totalChunks := 0
 		for _, r := range results {
 			fmt.Fprintf(&sb, "## %s (%s)\n", r.Title, r.Path)
-			sources = append(sources, docSource{Title: r.Title, Path: r.Path})
 			matchedDocs = append(matchedDocs, ToolDocRef{Title: r.Title, Path: r.Path, Score: r.Score})
 			totalChunks += len(r.MatchedChunks)
 			for _, ch := range r.MatchedChunks {
@@ -500,12 +471,12 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			MatchedDocs: matchedDocs,
 		}
 		emit(StreamEvent{Type: "tool_result", Content: fmt.Sprintf("%d results", len(results)), Tool: "kb_search", Meta: meta})
-		return result, sources, meta, nil
+		return result, meta, nil
 
 	case "read_document":
 		var input readDocInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, nil, fmt.Errorf("parse read_document input: %w", err)
+			return "", nil, fmt.Errorf("parse read_document input: %w", err)
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Path, Tool: "read_document"})
 
@@ -513,12 +484,12 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 		doc, err := s.db.GetDocumentByPath(ctx, vaultID, input.Path)
 		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("read document: %w", err)
+			return "", nil, fmt.Errorf("read document: %w", err)
 		}
 		if doc == nil {
 			meta := &ToolResultMeta{DurationMs: durationMs}
 			emit(StreamEvent{Type: "tool_result", Content: "not found", Tool: "read_document", Meta: meta})
-			return fmt.Sprintf("Document not found: %s", input.Path), nil, meta, nil
+			return fmt.Sprintf("Document not found: %s", input.Path), meta, nil
 		}
 
 		contentLen := len(doc.ContentBody)
@@ -529,15 +500,15 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			ContentLength: &contentLen,
 		}
 		emit(StreamEvent{Type: "tool_result", Content: doc.Path, Tool: "read_document", Meta: meta})
-		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), []docSource{{Title: doc.Title, Path: doc.Path}}, meta, nil
+		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), meta, nil
 
 	case "web_search":
 		var input webSearchInput
 		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, nil, fmt.Errorf("parse web_search input: %w", err)
+			return "", nil, fmt.Errorf("parse web_search input: %w", err)
 		}
 		if s.tavily == nil {
-			return "", nil, nil, fmt.Errorf("web search not configured")
+			return "", nil, fmt.Errorf("web search not configured")
 		}
 		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "web_search"})
 
@@ -545,7 +516,7 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 		result, webResults, err := s.tavily.Search(ctx, input.Query)
 		durationMs := time.Since(start).Milliseconds()
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("web search: %w", err)
+			return "", nil, fmt.Errorf("web search: %w", err)
 		}
 
 		var webSources []ToolWebRef
@@ -559,10 +530,10 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			WebSources:     webSources,
 		}
 		emit(StreamEvent{Type: "tool_result", Content: "Web search complete", Tool: "web_search", Meta: meta})
-		return result, nil, meta, nil
+		return result, meta, nil
 
 	default:
-		return "", nil, nil, fmt.Errorf("unknown tool: %s", action.Tool)
+		return "", nil, fmt.Errorf("unknown tool: %s", action.Tool)
 	}
 }
 
