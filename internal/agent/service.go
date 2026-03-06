@@ -8,20 +8,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/search"
 )
 
-const maxToolIterations = 5
-
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type    string          `json:"type"`           // "token" | "tool_call" | "tool_result" | "done" | "error" | "message_id" | "conversation_id"
-	Content string          `json:"content"`        // token text, tool result, error message, or message ID
-	Tool    string          `json:"tool,omitempty"` // tool name for tool_call/tool_result events
-	Meta    *ToolResultMeta `json:"meta,omitempty"` // structured metadata for tool_result events
+	Type    string          `json:"type"`              // "text" | "tool_start" | "tool_end" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Content string          `json:"content,omitempty"`
+	ConvID  string          `json:"convId,omitempty"`
+	MsgID   string          `json:"msgId,omitempty"`
+	CallID  string          `json:"callId,omitempty"`
+	Tool    string          `json:"tool,omitempty"`
+	Input   map[string]any  `json:"input,omitempty"`
+	Meta    *ToolResultMeta `json:"meta,omitempty"`
 }
 
 // ToolResultMeta contains structured metadata about a tool execution result.
@@ -50,7 +53,7 @@ type ToolWebRef struct {
 	URL   string `json:"url"`
 }
 
-// Service orchestrates the agent loop: intent detection → tool execution → streaming answer.
+// Service orchestrates the agent loop: native tool calling → streaming answer.
 type Service struct {
 	db     *db.Client
 	model  *llm.Model
@@ -72,84 +75,16 @@ func (s *Service) Available() bool {
 	return s.model != nil
 }
 
-// toolAction is the LLM's decision from intent detection.
-type toolAction struct {
-	Action string          `json:"action"` // "tool" or "answer"
-	Tool   string          `json:"tool"`   // "kb_search", "read_document", or "web_search"
-	Input  json.RawMessage `json:"input"`
-}
-
-type searchInput struct {
-	Query string `json:"query"`
-}
-
-type readDocInput struct {
-	Path string `json:"path"`
-}
-
-type webSearchInput struct {
-	Query string `json:"query"`
-}
-
-// buildSystemPromptBase constructs the base system prompt, conditionally including web_search when Tavily is configured.
-func (s *Service) buildSystemPromptBase() string {
-	base := `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
-
-You have access to the following tools:
-1. kb_search(query) - Search the knowledge base for relevant documents
-2. read_document(path) - Read the full content of a specific document by path`
-
-	if s.tavily != nil {
-		base += `
-3. web_search(query) - Search the web for information not found in the knowledge base
-
-IMPORTANT: NEVER call web_search directly. If kb_search returns no or insufficient results, tell the user and ask "Would you like me to search the web?" Only call web_search after the user explicitly confirms.`
-	}
-
-	base += `
-
-When the user asks a question:
-- If you need to find relevant information, use kb_search first
-- If you need the full content of a specific document, use read_document
-- If you already have enough context from previous tool results, answer directly
-
-Always cite document paths when referencing information from the knowledge base.
-Be concise and helpful. Answer based on the knowledge base content when available.
-Do not include a sources section at the end of your response — sources are shown separately in the UI.`
-
-	return base
-}
-
-// buildIntentPrompt constructs the intent-detection prompt with tool options matching the available tools.
-func (s *Service) buildIntentPrompt() string {
-	base := `Based on the conversation so far, decide your next action.
-
-If you need to search for information, respond with EXACTLY this JSON (no other text):
-{"action":"tool","tool":"kb_search","input":{"query":"your search query"}}
-
-If you need to read a specific document, respond with EXACTLY this JSON (no other text):
-{"action":"tool","tool":"read_document","input":{"path":"/document/path"}}`
-
-	if s.tavily != nil {
-		base += `
-
-If the user has explicitly asked you to search the web, respond with EXACTLY this JSON (no other text):
-{"action":"tool","tool":"web_search","input":{"query":"your search query"}}`
-	}
-
-	base += `
-
-If you have enough information to answer the user's question, respond with EXACTLY this JSON (no other text):
-{"action":"answer"}
-
-Respond with ONLY the JSON, no explanation.`
-
-	return base
-}
-
 // buildSystemPrompt constructs the system prompt, optionally appending the vault's folder tree.
 func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string {
-	base := s.buildSystemPromptBase()
+	base := `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
+
+- Use kb_search to find relevant documents in the knowledge base
+- Use read_document to read the full content of a specific document by path
+- If the knowledge base has no results, tell the user and offer to search the web
+- NEVER call web_search without the user's explicit permission
+- Always cite document paths when referencing information from the knowledge base
+- Do not include a sources section at the end of your response — sources are shown separately in the UI`
 
 	folders, err := s.db.ListFolders(ctx, vaultID)
 	if err != nil {
@@ -175,6 +110,79 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 	return sb.String()
 }
 
+// buildTools returns the tool definitions for native tool calling.
+func (s *Service) buildTools() []*schema.ToolInfo {
+	tools := []*schema.ToolInfo{
+		{
+			Name: "kb_search",
+			Desc: "Search the knowledge base for relevant documents",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+				"query": {
+					Type:     schema.String,
+					Desc:     "The search query",
+					Required: true,
+				},
+			}),
+		},
+		{
+			Name: "read_document",
+			Desc: "Read the full content of a specific document by its path",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+				"path": {
+					Type:     schema.String,
+					Desc:     "The document path (e.g. /folder/document-name)",
+					Required: true,
+				},
+			}),
+		},
+	}
+
+	if s.tavily != nil {
+		tools = append(tools, &schema.ToolInfo{
+			Name: "web_search",
+			Desc: "Search the web for information not found in the knowledge base. Only call this after the user explicitly asks to search the web.",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+				"query": {
+					Type:     schema.String,
+					Desc:     "The web search query",
+					Required: true,
+				},
+			}),
+		})
+	}
+
+	return tools
+}
+
+// buildMessages converts DB messages to eino schema messages.
+func buildMessages(dbMsgs []models.Message) []*schema.Message {
+	var out []*schema.Message
+	for _, msg := range dbMsgs {
+		switch msg.Role {
+		case models.RoleUser:
+			out = append(out, &schema.Message{Role: schema.User, Content: msg.Content})
+		case models.RoleAssistant:
+			m := &schema.Message{Role: schema.Assistant, Content: msg.Content}
+			if msg.ToolCalls != nil && *msg.ToolCalls != "" {
+				var toolCalls []schema.ToolCall
+				if err := json.Unmarshal([]byte(*msg.ToolCalls), &toolCalls); err != nil {
+					slog.Warn("failed to deserialize tool calls from history", "error", err)
+				} else {
+					m.ToolCalls = toolCalls
+				}
+			}
+			out = append(out, m)
+		case models.RoleToolResult:
+			callID := ""
+			if msg.ToolCallID != nil {
+				callID = *msg.ToolCallID
+			}
+			out = append(out, schema.ToolMessage(msg.Content, callID))
+		}
+	}
+	return out
+}
+
 // ChatRequest contains the parameters for a chat request.
 type ChatRequest struct {
 	ConversationID string
@@ -184,14 +192,14 @@ type ChatRequest struct {
 	DocRefs        []string
 }
 
-// Chat runs the agent loop and emits SSE events via the callback.
+// Chat runs the agent loop using native tool calling and emits SSE events via the callback.
 func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEvent)) error {
 	if s.model == nil {
 		emit(StreamEvent{Type: "error", Content: "agent not available: no LLM configured"})
 		return nil
 	}
 
-	// Create conversation if needed
+	// 1. Create conversation if needed
 	if req.ConversationID == "" {
 		conv, err := s.db.CreateConversation(ctx, req.VaultID, req.UserID)
 		if err != nil {
@@ -202,10 +210,10 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			return fmt.Errorf("extract conversation ID: %w", err)
 		}
 		req.ConversationID = convID
-		emit(StreamEvent{Type: "conversation_id", Content: convID})
+		emit(StreamEvent{Type: "conv_id", ConvID: convID})
 	}
 
-	// Store user message
+	// 2. Store user message
 	userMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil, nil, nil)
 	if err != nil {
 		return fmt.Errorf("create user message: %w", err)
@@ -214,226 +222,174 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	if err != nil {
 		return fmt.Errorf("extract user message ID: %w", err)
 	}
-	emit(StreamEvent{Type: "message_id", Content: userMsgID})
+	_ = userMsgID // emitted via msg_start below
 
-	// Build dynamic system prompt with folder tree
-	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
-
-	// Build conversation history from DB
-	messages, err := s.db.ListMessages(ctx, req.ConversationID)
+	// 3. Load history (all messages); the last one is the user message we just stored — exclude it
+	allMessages, err := s.db.ListMessages(ctx, req.ConversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
 	}
+	history := allMessages
+	if len(history) > 0 {
+		history = history[:len(history)-1]
+	}
 
-	// Build context from @-referenced documents
-	var refContext strings.Builder
-	for _, ref := range req.DocRefs {
-		doc, err := s.db.GetDocumentByPath(ctx, req.VaultID, ref)
-		if err != nil {
-			slog.Warn("failed to read referenced doc", "path", ref, "error", err)
-			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("Could not read referenced document: %s", ref)})
-			continue
+	// 4. Build message list: system + history + doc refs context + current user message
+	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
+	messages := make([]*schema.Message, 0, 2+len(history)+len(req.DocRefs)*2+1)
+	messages = append(messages, &schema.Message{Role: schema.System, Content: sysPrompt})
+	messages = append(messages, buildMessages(history)...)
+
+	// Inject doc refs as a user+assistant pair
+	if len(req.DocRefs) > 0 {
+		var refContext strings.Builder
+		for _, ref := range req.DocRefs {
+			doc, docErr := s.db.GetDocumentByPath(ctx, req.VaultID, ref)
+			if docErr != nil {
+				slog.Warn("failed to read referenced doc", "path", ref, "error", docErr)
+				emit(StreamEvent{Type: "error", Content: fmt.Sprintf("could not read referenced document: %s", ref)})
+				continue
+			}
+			if doc != nil {
+				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, doc.ContentBody)
+			}
 		}
-		if doc != nil {
-			fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, doc.ContentBody)
+		if refContext.Len() > 0 {
+			messages = append(messages,
+				&schema.Message{Role: schema.User, Content: "Referenced documents:\n" + refContext.String()},
+				&schema.Message{Role: schema.Assistant, Content: "I'll use these referenced documents to help answer your question."},
+			)
 		}
 	}
 
-	// Agent loop: intent detection → tool execution → repeat or answer
-	var toolContext strings.Builder
-	if refContext.Len() > 0 {
-		toolContext.WriteString("Referenced documents:\n")
-		toolContext.WriteString(refContext.String())
-		toolContext.WriteString("\n")
+	messages = append(messages, &schema.Message{Role: schema.User, Content: req.Content})
+
+	// 5. Emit msg_start
+	emit(StreamEvent{Type: "msg_start", MsgID: userMsgID})
+
+	// Track tool calls and results for storage
+	type toolCallRecord struct {
+		call   schema.ToolCall
+		result string
+		meta   *ToolResultMeta
 	}
-
-	for i := range maxToolIterations {
-		// Build history for intent detection
-		history := s.buildHistory(messages, toolContext.String())
-
-		// Intent detection (non-streaming)
-		intentQuery := req.Content
-		if i > 0 {
-			intentQuery = s.buildIntentPrompt()
-		}
-
-		decision, err := s.detectIntent(ctx, history, intentQuery, i == 0, sysPrompt)
-		if err != nil {
-			slog.Warn("intent detection failed, falling back to direct answer", "error", err)
-			emit(StreamEvent{Type: "error", Content: "Knowledge base search unavailable, answering from general knowledge"})
-			break // fall through to streaming answer
-		}
-
-		if decision.Action == "answer" {
-			break // proceed to streaming answer
-		}
-
-		if decision.Action == "tool" {
-			result, meta, err := s.executeTool(ctx, req.VaultID, decision, emit)
-			if err != nil {
-				slog.Warn("tool execution failed", "tool", decision.Tool, "error", err)
-				emit(StreamEvent{Type: "error", Content: fmt.Sprintf("tool %s failed: %v", decision.Tool, err)})
-				break
-			}
-			fmt.Fprintf(&toolContext, "\n--- Tool result (%s) ---\n%s\n", decision.Tool, result)
-
-			// Store tool call and result as messages
-			toolInput, err := json.Marshal(decision.Input)
-			if err != nil {
-				slog.Error("failed to marshal tool input", "tool", decision.Tool, "error", err)
-				toolInput = []byte(decision.Input) // fallback: use raw bytes to avoid storing empty string
-			}
-			toolInputStr := string(toolInput)
-			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolCall, "", nil, &decision.Tool, &toolInputStr, nil, nil, nil)
-			if err != nil {
-				slog.Error("failed to store tool call message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
-			}
-
-			// Marshal meta to JSON for storage
-			var toolMetaStr *string
-			if meta != nil {
-				metaJSON, metaErr := json.Marshal(meta)
-				if metaErr != nil {
-					slog.Error("failed to marshal tool meta", "tool", decision.Tool, "error", metaErr)
-				} else {
-					s := string(metaJSON)
-					toolMetaStr = &s
-				}
-			}
-			_, err = s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, result, nil, &decision.Tool, nil, toolMetaStr, nil, nil)
-			if err != nil {
-				slog.Error("failed to store tool result message", "conversation_id", req.ConversationID, "tool", decision.Tool, "error", err)
-			}
-
-			continue
-		}
-
-		// Unknown action, fall through to answer
-		break
-	}
-
-	// Stream the final answer
-	history := s.buildHistory(messages, toolContext.String())
+	var toolCallRecords []toolCallRecord
 	var answer strings.Builder
 
-	err = s.model.GenerateWithSystemStreamMultiTurn(ctx, sysPrompt, history, req.Content, func(token string) error {
-		answer.WriteString(token)
-		emit(StreamEvent{Type: "token", Content: token})
-		return nil
-	})
+	tools := s.buildTools()
+
+	// 6. Call GenerateStreamWithTools
+	err = s.model.GenerateStreamWithTools(ctx, messages, tools,
+		func(token string) error {
+			answer.WriteString(token)
+			emit(StreamEvent{Type: "text", Content: token})
+			return nil
+		},
+		func(call schema.ToolCall) (string, error) {
+			// Parse input for emit
+			var inputMap map[string]any
+			if jsonErr := json.Unmarshal([]byte(call.Function.Arguments), &inputMap); jsonErr != nil {
+				inputMap = map[string]any{"raw": call.Function.Arguments}
+			}
+			emit(StreamEvent{Type: "tool_start", CallID: call.ID, Tool: call.Function.Name, Input: inputMap})
+
+			result, meta, execErr := s.executeTool(ctx, req.VaultID, call.Function.Name, call.Function.Arguments)
+			if execErr != nil {
+				slog.Warn("tool execution failed", "tool", call.Function.Name, "error", execErr)
+				emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: call.Function.Name, Content: fmt.Sprintf("error: %v", execErr)})
+				toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: fmt.Sprintf("error: %v", execErr), meta: nil})
+				return fmt.Sprintf("error: %v", execErr), nil
+			}
+
+			emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: call.Function.Name, Meta: meta})
+			toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result, meta: meta})
+			return result, nil
+		},
+	)
 	if err != nil {
 		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
 		return nil
 	}
 
-	// Store assistant message
-	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		slog.Error("failed to store assistant message", "conversation_id", req.ConversationID, "error", err)
-		emit(StreamEvent{Type: "error", Content: "Warning: response may not be saved to conversation history"})
-	} else {
-		msgID, err := models.RecordIDString(assistantMsg.ID)
-		if err != nil {
-			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", err)
+	// 7. Store assistant message with tool calls JSON if applicable
+	var toolCallsJSON *string
+	if len(toolCallRecords) > 0 {
+		// Collect all tool calls
+		var tcs []schema.ToolCall
+		for _, r := range toolCallRecords {
+			tcs = append(tcs, r.call)
+		}
+		b, marshalErr := json.Marshal(tcs)
+		if marshalErr != nil {
+			slog.Error("failed to marshal tool calls", "error", marshalErr)
 		} else {
-			emit(StreamEvent{Type: "message_id", Content: msgID})
+			s := string(b)
+			toolCallsJSON = &s
 		}
 	}
 
-	emit(StreamEvent{Type: "done", Content: ""})
+	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil, nil, nil, toolCallsJSON)
+	if err != nil {
+		slog.Error("failed to store assistant message", "conversation_id", req.ConversationID, "error", err)
+		emit(StreamEvent{Type: "error", Content: "warning: response may not be saved to conversation history"})
+	}
 
-	// Auto-title: if this is the first user message in the conversation, generate a title
-	if len(messages) <= 1 {
+	// 8. Store tool result messages
+	for _, r := range toolCallRecords {
+		toolName := r.call.Function.Name
+		toolInput := r.call.Function.Arguments
+		callID := r.call.ID
+
+		var toolMetaStr *string
+		if r.meta != nil {
+			metaJSON, metaErr := json.Marshal(r.meta)
+			if metaErr != nil {
+				slog.Error("failed to marshal tool meta", "tool", toolName, "error", metaErr)
+			} else {
+				ms := string(metaJSON)
+				toolMetaStr = &ms
+			}
+		}
+
+		_, storeErr := s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, r.result, nil, &toolName, &toolInput, toolMetaStr, &callID, nil)
+		if storeErr != nil {
+			slog.Error("failed to store tool result message", "conversation_id", req.ConversationID, "tool", toolName, "error", storeErr)
+		}
+	}
+
+	// 9. Emit msg_end with assistant message ID
+	if assistantMsg != nil {
+		assistantMsgID, idErr := models.RecordIDString(assistantMsg.ID)
+		if idErr != nil {
+			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", idErr)
+		} else {
+			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID})
+		}
+	} else {
+		emit(StreamEvent{Type: "msg_end"})
+	}
+
+	// 10. Auto-title if first message
+	if len(history) == 0 {
 		go s.autoTitle(context.Background(), req.ConversationID, req.Content)
 	}
 
 	return nil
 }
 
-func (s *Service) buildHistory(messages []models.Message, toolContext string) []llm.ChatMessage {
-	var history []llm.ChatMessage
-
-	// Inject tool/reference context as a synthetic user-assistant pair, since the LLM API doesn't support separate system context in multi-turn history
-	if toolContext != "" {
-		history = append(history, llm.ChatMessage{
-			Role:    "user",
-			Content: "Context from knowledge base:\n" + toolContext,
-		})
-		history = append(history, llm.ChatMessage{
-			Role:    "assistant",
-			Content: "I'll use this context to answer your question.",
-		})
-	}
-
-	for _, msg := range messages {
-		switch msg.Role {
-		case models.RoleUser:
-			history = append(history, llm.ChatMessage{Role: "user", Content: msg.Content})
-		case models.RoleAssistant:
-			history = append(history, llm.ChatMessage{Role: "assistant", Content: msg.Content})
-			// Skip tool_call and tool_result — current turn's results are in toolContext; historical tool messages are omitted
-		}
-	}
-
-	return history
-}
-
-func (s *Service) detectIntent(ctx context.Context, history []llm.ChatMessage, query string, firstTurn bool, sysPrompt string) (*toolAction, error) {
-	intentPr := s.buildIntentPrompt()
-
-	prompt := sysPrompt
-	if !firstTurn {
-		prompt = sysPrompt + "\n\n" + intentPr
-	}
-
-	// For intent detection, append the intent prompt to the user query
-	fullQuery := query
-	if firstTurn {
-		fullQuery = query + "\n\n" + intentPr
-	}
-
-	response, err := s.model.GenerateWithSystem(ctx, prompt, buildHistoryText(history, fullQuery))
-	if err != nil {
-		return nil, fmt.Errorf("intent detection: %w", err)
-	}
-
-	// Parse JSON response
-	response = strings.TrimSpace(response)
-	// Strip markdown code fences if present
-	response = strings.TrimPrefix(response, "```json")
-	response = strings.TrimPrefix(response, "```")
-	response = strings.TrimSuffix(response, "```")
-	response = strings.TrimSpace(response)
-
-	var action toolAction
-	if err := json.Unmarshal([]byte(response), &action); err != nil {
-		slog.Warn("intent detection returned unparseable response, falling back to direct answer",
-			"error", err, "response", response)
-		return &toolAction{Action: "answer"}, nil
-	}
-	return &action, nil
-}
-
-func buildHistoryText(history []llm.ChatMessage, currentQuery string) string {
-	var sb strings.Builder
-	for _, msg := range history {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", msg.Role, msg.Content))
-	}
-	sb.WriteString(fmt.Sprintf("[user]: %s", currentQuery))
-	return sb.String()
-}
-
 func intPtr(v int) *int { return &v }
 
-func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolAction, emit func(StreamEvent)) (string, *ToolResultMeta, error) {
-	switch action.Tool {
+// executeTool executes a named tool with the given JSON arguments string.
+func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments string) (string, *ToolResultMeta, error) {
+	switch toolName {
 	case "kb_search":
-		var input searchInput
-		if err := json.Unmarshal(action.Input, &input); err != nil {
-			return "", nil, fmt.Errorf("parse search input: %w", err)
+		var input struct {
+			Query string `json:"query"`
 		}
-		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "kb_search"})
+		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
+			return "", nil, fmt.Errorf("parse kb_search input: %w", err)
+		}
 
 		start := time.Now()
 		results, err := s.search.Search(ctx, search.SearchInput{
@@ -470,15 +426,15 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			ChunkCount:  intPtr(totalChunks),
 			MatchedDocs: matchedDocs,
 		}
-		emit(StreamEvent{Type: "tool_result", Content: fmt.Sprintf("%d results", len(results)), Tool: "kb_search", Meta: meta})
 		return result, meta, nil
 
 	case "read_document":
-		var input readDocInput
-		if err := json.Unmarshal(action.Input, &input); err != nil {
+		var input struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
 			return "", nil, fmt.Errorf("parse read_document input: %w", err)
 		}
-		emit(StreamEvent{Type: "tool_call", Content: input.Path, Tool: "read_document"})
 
 		start := time.Now()
 		doc, err := s.db.GetDocumentByPath(ctx, vaultID, input.Path)
@@ -488,7 +444,6 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 		}
 		if doc == nil {
 			meta := &ToolResultMeta{DurationMs: durationMs}
-			emit(StreamEvent{Type: "tool_result", Content: "not found", Tool: "read_document", Meta: meta})
 			return fmt.Sprintf("Document not found: %s", input.Path), meta, nil
 		}
 
@@ -499,18 +454,18 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			DocumentTitle: &doc.Title,
 			ContentLength: &contentLen,
 		}
-		emit(StreamEvent{Type: "tool_result", Content: doc.Path, Tool: "read_document", Meta: meta})
 		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), meta, nil
 
 	case "web_search":
-		var input webSearchInput
-		if err := json.Unmarshal(action.Input, &input); err != nil {
+		var input struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
 			return "", nil, fmt.Errorf("parse web_search input: %w", err)
 		}
 		if s.tavily == nil {
 			return "", nil, fmt.Errorf("web search not configured")
 		}
-		emit(StreamEvent{Type: "tool_call", Content: input.Query, Tool: "web_search"})
 
 		start := time.Now()
 		result, webResults, err := s.tavily.Search(ctx, input.Query)
@@ -529,11 +484,10 @@ func (s *Service) executeTool(ctx context.Context, vaultID string, action *toolA
 			WebResultCount: intPtr(len(webResults)),
 			WebSources:     webSources,
 		}
-		emit(StreamEvent{Type: "tool_result", Content: "Web search complete", Tool: "web_search", Meta: meta})
 		return result, meta, nil
 
 	default:
-		return "", nil, fmt.Errorf("unknown tool: %s", action.Tool)
+		return "", nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
 }
 
