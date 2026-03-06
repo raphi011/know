@@ -22,7 +22,6 @@ export OLLAMA_HOST := env_var_or_default("OLLAMA_HOST", "http://localhost:11434"
 # Chunk sizes tuned for mxbai-embed-large (512 token context ≈ 2048 chars)
 export KNOWHOW_CHUNK_THRESHOLD := env_var_or_default("KNOWHOW_CHUNK_THRESHOLD", "1200")
 export KNOWHOW_CHUNK_TARGET_SIZE := env_var_or_default("KNOWHOW_CHUNK_TARGET_SIZE", "1000")
-export KNOWHOW_CHUNK_MIN_SIZE := env_var_or_default("KNOWHOW_CHUNK_MIN_SIZE", "200")
 export KNOWHOW_CHUNK_MAX_SIZE := env_var_or_default("KNOWHOW_CHUNK_MAX_SIZE", "1500")
 
 # Server defaults

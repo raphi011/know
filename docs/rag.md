@@ -4,25 +4,37 @@ Technical learnings about Retrieval-Augmented Generation patterns.
 
 ## Chunking Strategy
 
-### Markdown-Aware Chunking
+### Markdown-Aware Chunking (One Chunk Per Heading)
 
-Chunk documents by Markdown structure, not arbitrary byte boundaries:
+Chunk documents at heading boundaries — each heading section becomes its own chunk with no cross-heading merging. Large sections exceeding `MaxSize` are split at paragraph boundaries.
 
 ```go
-// Split on headers, preserve hierarchy
+// Each heading = one chunk (or multiple if large)
 sections := splitByHeaders(content)
 for _, section := range sections {
     if len(section.Content) > maxChunkSize {
-        // Split large sections at paragraph boundaries
         subChunks := splitAtParagraphs(section.Content, maxChunkSize)
     }
 }
 ```
 
 Benefits:
-- Preserves semantic coherence
-- Heading path provides context ("## Setup > ### Install")
-- Better retrieval quality vs fixed-size chunks
+- **Accurate heading paths**: Each chunk's `heading_path` exactly matches its content
+- **Precise `#hash` navigation**: Search results link to the correct anchor
+- **No diluted embeddings**: Small chunks get context via contextual retrieval prefix
+
+### Contextual Retrieval (Embedding-Time Context)
+
+Before embedding, each chunk gets a context prefix prepended (not stored):
+
+```
+Document: Getting Started Guide
+Section: Setup > Installation
+
+<actual chunk content>
+```
+
+This compensates for small chunks that would otherwise lack semantic context. BM25 search uses raw content (no prefix), so keyword matching is unaffected.
 
 ### Chunk Metadata
 

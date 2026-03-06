@@ -64,7 +64,6 @@ type Config struct {
 	// Chunking settings
 	ChunkThreshold  int // only chunk if content exceeds this length (default: 6000)
 	ChunkTargetSize int // ideal chunk size in chars (default: 3000)
-	ChunkMinSize    int // minimum chunk size in chars (default: 800)
 	ChunkMaxSize    int // maximum chunk size in chars (default: 4000)
 
 	// Versioning settings
@@ -77,7 +76,6 @@ func (c Config) ChunkConfig() parser.ChunkConfig {
 	return parser.ChunkConfig{
 		Threshold:  c.ChunkThreshold,
 		TargetSize: c.ChunkTargetSize,
-		MinSize:    c.ChunkMinSize,
 		MaxSize:    c.ChunkMaxSize,
 	}
 }
@@ -125,7 +123,6 @@ func Load() Config {
 		// Chunking
 		ChunkThreshold:  getEnvInt("KNOWHOW_CHUNK_THRESHOLD", 6000),
 		ChunkTargetSize: getEnvInt("KNOWHOW_CHUNK_TARGET_SIZE", 3000),
-		ChunkMinSize:    getEnvInt("KNOWHOW_CHUNK_MIN_SIZE", 800),
 		ChunkMaxSize:    getEnvInt("KNOWHOW_CHUNK_MAX_SIZE", 4000),
 
 		// Versioning

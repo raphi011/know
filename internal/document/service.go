@@ -151,6 +151,8 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 }
 
 // EmbedPendingChunks claims chunks that are due for embedding and embeds them.
+// Uses contextual retrieval: prepends document title and section path to chunk
+// content before embedding, improving semantic precision without altering stored content.
 // Returns the number of chunks successfully embedded.
 func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error) {
 	if s.embedder == nil {
@@ -162,6 +164,9 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 		return 0, fmt.Errorf("claim chunks for embedding: %w", err)
 	}
 
+	// Batch-fetch document titles for contextual embedding
+	docTitles := s.fetchDocTitles(ctx, chunks)
+
 	embedded := 0
 	for _, chunk := range chunks {
 		chunkID, err := models.RecordIDString(chunk.ID)
@@ -170,7 +175,10 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 			continue
 		}
 
-		emb, err := s.embedder.Embed(ctx, chunk.Content)
+		docID, _ := models.RecordIDString(chunk.Document)
+		embeddingText := buildEmbeddingContext(chunk, docTitles[docID])
+
+		emb, err := s.embedder.Embed(ctx, embeddingText)
 		if err != nil {
 			slog.Warn("failed to embed chunk", "chunk_id", chunkID, "error", err)
 			s.rescheduleChunk(chunkID)
@@ -187,6 +195,75 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 	}
 
 	return embedded, nil
+}
+
+// fetchDocTitles collects unique document IDs from a batch of chunks and
+// batch-fetches their titles. Returns a map of docID → title.
+func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map[string]string {
+	titles := make(map[string]string)
+
+	// Collect unique doc IDs
+	seen := make(map[string]bool)
+	var docIDs []string
+	for _, chunk := range chunks {
+		docID, err := models.RecordIDString(chunk.Document)
+		if err != nil {
+			continue
+		}
+		if !seen[docID] {
+			seen[docID] = true
+			docIDs = append(docIDs, docID)
+		}
+	}
+
+	if len(docIDs) == 0 {
+		return titles
+	}
+
+	docs, err := s.db.GetDocumentsByIDs(ctx, docIDs)
+	if err != nil {
+		slog.Warn("failed to fetch document titles for contextual embedding", "error", err)
+		return titles
+	}
+
+	for _, doc := range docs {
+		docID, err := models.RecordIDString(doc.ID)
+		if err != nil {
+			continue
+		}
+		titles[docID] = doc.Title
+	}
+
+	return titles
+}
+
+// buildEmbeddingContext prepends document and section context to chunk content
+// for better embedding quality (contextual retrieval technique).
+// The context prefix is only used at embedding time, not stored in the chunk.
+func buildEmbeddingContext(chunk models.Chunk, docTitle string) string {
+	var b strings.Builder
+	if docTitle != "" {
+		fmt.Fprintf(&b, "Document: %s\n", docTitle)
+	}
+	if chunk.HeadingPath != nil && *chunk.HeadingPath != "" {
+		section := stripMarkdownHeadingPrefixes(*chunk.HeadingPath)
+		fmt.Fprintf(&b, "Section: %s\n", section)
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	b.WriteString(chunk.Content)
+	return b.String()
+}
+
+// stripMarkdownHeadingPrefixes removes markdown heading markers from a heading path.
+// e.g. "## Setup > ### Install" → "Setup > Install"
+func stripMarkdownHeadingPrefixes(path string) string {
+	parts := strings.Split(path, " > ")
+	for i, part := range parts {
+		parts[i] = strings.TrimLeft(part, "# ")
+	}
+	return strings.Join(parts, " > ")
 }
 
 // rescheduleChunk re-schedules a chunk for embedding after a failure, using a

@@ -63,7 +63,6 @@
     "chunking": "Chunking",
     "chunkThreshold": "Schwellenwert",
     "chunkTargetSize": "Zielgröße",
-    "chunkMinSize": "Mindestgröße",
     "chunkMaxSize": "Maximalgröße",
     "chars": "{count} Zeichen",
     "versioning": "Versionierung",
