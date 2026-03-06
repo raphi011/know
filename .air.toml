@@ -12,8 +12,8 @@ cmd = "go build -buildvcs=false -o ./bin/knowhow-server ./cmd/knowhow-server && 
 bin = "./bin/knowhow-server"
 # Watch these file extensions
 include_ext = ["go", "toml", "graphqls"]
-# Watch .env file explicitly
-include_file = [".env"]
+# Don't watch .env — it changes on every bedrock-setup and causes port-bind races
+include_file = []
 # Exclude directories
 exclude_dir = ["bin", "tmp", "vendor", ".git", "web"]
 # Exclude generated files to avoid rebuild loops

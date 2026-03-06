@@ -2,6 +2,8 @@ package document
 
 import (
 	"testing"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 func TestExtractInlineLabels(t *testing.T) {
@@ -68,6 +70,76 @@ func TestExtractInlineLabels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildEmbeddingContext(t *testing.T) {
+	hp := func(s string) *string { return &s }
+
+	tests := []struct {
+		name     string
+		chunk    models.Chunk
+		docTitle string
+		want     string
+	}{
+		{
+			name:     "full context",
+			chunk:    models.Chunk{Content: "Install with pip.", HeadingPath: hp("## Setup > ### Install")},
+			docTitle: "Getting Started",
+			want:     "Document: Getting Started\nSection: Setup > Install\n\nInstall with pip.",
+		},
+		{
+			name:     "no title",
+			chunk:    models.Chunk{Content: "Some content.", HeadingPath: hp("## Section")},
+			docTitle: "",
+			want:     "Section: Section\n\nSome content.",
+		},
+		{
+			name:     "no heading path",
+			chunk:    models.Chunk{Content: "Preamble text."},
+			docTitle: "My Doc",
+			want:     "Document: My Doc\n\nPreamble text.",
+		},
+		{
+			name:     "no context at all",
+			chunk:    models.Chunk{Content: "Raw content."},
+			docTitle: "",
+			want:     "Raw content.",
+		},
+		{
+			name:     "empty heading path",
+			chunk:    models.Chunk{Content: "Some text.", HeadingPath: hp("")},
+			docTitle: "My Doc",
+			want:     "Document: My Doc\n\nSome text.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildEmbeddingContext(tt.chunk, tt.docTitle)
+			if got != tt.want {
+				t.Errorf("buildEmbeddingContext() =\n%q\nwant:\n%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripMarkdownHeadingPrefixes(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"## Setup > ### Install", "Setup > Install"},
+		{"# Title", "Title"},
+		{"## Single", "Single"},
+		{"# A > ## B > ### C", "A > B > C"},
+		{"## #channels", "#channels"},
+	}
+	for _, tt := range tests {
+		got := stripMarkdownHeadingPrefixes(tt.input)
+		if got != tt.want {
+			t.Errorf("stripMarkdownHeadingPrefixes(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 

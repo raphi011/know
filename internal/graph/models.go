@@ -296,7 +296,6 @@ type ServerConfig struct {
 	WebSearchEnabled       bool   `json:"webSearchEnabled"`
 	ChunkThreshold         int    `json:"chunkThreshold"`
 	ChunkTargetSize        int    `json:"chunkTargetSize"`
-	ChunkMinSize           int    `json:"chunkMinSize"`
 	ChunkMaxSize           int    `json:"chunkMaxSize"`
 	VersionCoalesceMinutes int    `json:"versionCoalesceMinutes"`
 	VersionRetentionCount  int    `json:"versionRetentionCount"`

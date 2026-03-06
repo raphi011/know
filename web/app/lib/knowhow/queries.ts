@@ -127,7 +127,6 @@ export const getServerConfig = cache(async (): Promise<ServerConfig> => {
         webSearchEnabled
         chunkThreshold
         chunkTargetSize
-        chunkMinSize
         chunkMaxSize
         versionCoalesceMinutes
         versionRetentionCount

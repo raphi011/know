@@ -97,7 +97,6 @@ Chunk sizes are configurable via environment variables:
 |---------|---------|-------------|
 | `KNOWHOW_CHUNK_THRESHOLD` | 6000 | Only chunk if content exceeds this length |
 | `KNOWHOW_CHUNK_TARGET_SIZE` | 3000 | Ideal chunk size in chars |
-| `KNOWHOW_CHUNK_MIN_SIZE` | 800 | Minimum chunk size (smaller merges with neighbors) |
 | `KNOWHOW_CHUNK_MAX_SIZE` | 4000 | Maximum chunk size (larger chunks get split) |
 
 ### Model-Specific Chunk Sizes
@@ -107,7 +106,6 @@ For `mxbai-embed-large` via Ollama (512 token max sequence length ≈ 2048 chars
 ```bash
 KNOWHOW_CHUNK_THRESHOLD=1200
 KNOWHOW_CHUNK_TARGET_SIZE=1000
-KNOWHOW_CHUNK_MIN_SIZE=200
 KNOWHOW_CHUNK_MAX_SIZE=1500
 ```
 
@@ -136,14 +134,30 @@ We previously used 100-char overlap between chunks. This was removed because:
 - Code-block sections are kept atomic up to `maxAtomicCodeBlockSize` (8000 chars)
 - Beyond that limit, they fall through to standard paragraph/sentence splitting
 
-### Hierarchical Merge
+### One Chunk Per Heading (No Cross-Heading Merging)
 
-When a section is below `MinSize`:
-1. **Try parent merge**: Merge into the parent heading's chunk (e.g., `### Subsection` merges into `## Parent`)
-2. **Overflow check**: Only merge if combined size stays under `MaxSize`
-3. **Fallback**: If no parent or parent is full, merge with previous chunk or create standalone
+Each heading section becomes its own chunk, regardless of size. No small sections are merged into parent or sibling chunks. This gives:
 
-This preserves semantic relationships — a small subsection belongs with its parent heading, not with an unrelated preceding section.
+1. **Accurate heading paths**: Each chunk's `heading_path` exactly matches its content
+2. **Precise hash navigation**: Search results link to the correct `#heading` anchor
+3. **Better embeddings**: Small chunks get meaningful embeddings via contextual retrieval (see below)
+
+### Contextual Retrieval
+
+Small chunks (e.g., a short `### Install` subsection) would normally produce poor embeddings due to insufficient context. We compensate by prepending document/section context **only at embedding time**:
+
+```
+Document: Getting Started Guide
+Section: Setup > Installation
+
+<actual chunk content>
+```
+
+This context prefix is **not stored** in the chunk — only used when calling the embedding model. BM25 fulltext search operates on raw `chunk.content` without the prefix, avoiding keyword noise from the context.
+
+Based on [Anthropic's contextual retrieval research (2024)](https://www.anthropic.com/news/contextual-retrieval), this technique reduces retrieval failures by ~49% when combined with BM25.
+
+Implementation: `buildEmbeddingContext()` in `internal/document/service.go`.
 
 ### Chunk Change Detection
 

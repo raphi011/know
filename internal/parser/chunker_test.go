@@ -77,7 +77,7 @@ func TestChunkBySections_SkipsEmptySections(t *testing.T) {
 	sections := []Section{
 		{Path: "Empty", Content: ""},
 		{Path: "Whitespace", Content: "   \n\t  "},
-		{Path: "HasContent", Content: strings.Repeat("x", 900)},
+		{Path: "HasContent", Content: strings.Repeat("x", 100)},
 		{Path: "AnotherEmpty", Content: ""},
 	}
 
@@ -144,11 +144,11 @@ func TestChunkMarkdown_LongContentWithEmptySections(t *testing.T) {
 	}
 }
 
-func TestChunkBySections_HierarchicalMerge(t *testing.T) {
-	// Small subsections should merge into parent heading's chunk
+func TestChunkBySections_EachHeadingGetsOwnChunk(t *testing.T) {
+	// Small subsections should each get their own chunk (no merging)
 	config := DefaultChunkConfig()
-	parentContent := strings.Repeat("Parent section content. ", 30) // ~720 chars
-	childContent := "Small child section."                          // 20 chars, below MinSize
+	parentContent := "Parent section content."
+	childContent := "Small child section."
 
 	sections := []Section{
 		{Level: 2, Path: "## Parent", Content: parentContent},
@@ -157,48 +157,51 @@ func TestChunkBySections_HierarchicalMerge(t *testing.T) {
 
 	chunks := chunkBySections(sections, config)
 
-	// Child should have been merged into parent
-	if len(chunks) != 1 {
-		t.Errorf("expected 1 chunk (merged), got %d", len(chunks))
+	// Each section gets its own chunk — no merging
+	if len(chunks) != 2 {
+		t.Errorf("expected 2 chunks (one per heading), got %d", len(chunks))
 		for i, c := range chunks {
 			t.Errorf("  chunk[%d] path=%q len=%d", i, c.HeadingPath, len(c.Content))
 		}
 		return
 	}
 
-	if !strings.Contains(chunks[0].Content, childContent) {
-		t.Error("parent chunk should contain merged child content")
-	}
 	if chunks[0].HeadingPath != "## Parent" {
-		t.Errorf("merged chunk should keep parent path, got %q", chunks[0].HeadingPath)
+		t.Errorf("chunk[0].HeadingPath = %q, want '## Parent'", chunks[0].HeadingPath)
+	}
+	if chunks[1].HeadingPath != "## Parent > ### Child" {
+		t.Errorf("chunk[1].HeadingPath = %q, want '## Parent > ### Child'", chunks[1].HeadingPath)
+	}
+	if chunks[0].Content != parentContent {
+		t.Errorf("chunk[0] should contain only parent content")
+	}
+	if chunks[1].Content != childContent {
+		t.Errorf("chunk[1] should contain only child content")
 	}
 }
 
-func TestChunkBySections_HierarchicalMerge_OverflowCreatesNewChunk(t *testing.T) {
+func TestChunkBySections_SmallSectionsStaySeparate(t *testing.T) {
 	config := DefaultChunkConfig()
-	// Parent already near max
-	parentContent := strings.Repeat("x", config.MaxSize-100)
-	childContent := strings.Repeat("y", 200) // Would exceed max if merged
+	// Two small top-level sections should each get their own chunk
+	smallContent := "Short section content."
 
 	sections := []Section{
-		{Level: 2, Path: "## Parent", Content: parentContent},
-		{Level: 3, Path: "## Parent > ### Child", Content: childContent},
+		{Level: 2, Path: "## Alpha", Content: smallContent},
+		{Level: 2, Path: "## Beta", Content: smallContent},
 	}
 
 	chunks := chunkBySections(sections, config)
 
-	// Child should be standalone since parent is too full
 	if len(chunks) != 2 {
-		t.Errorf("expected 2 chunks (overflow), got %d", len(chunks))
+		t.Errorf("expected 2 separate chunks, got %d", len(chunks))
 		for i, c := range chunks {
-			t.Errorf("  chunk[%d] path=%q len=%d", i, c.HeadingPath, len(c.Content))
+			t.Logf("  chunk[%d] path=%q len=%d", i, c.HeadingPath, len(c.Content))
 		}
 	}
 }
 
 func TestChunkBySections_CodeBlockAtomic(t *testing.T) {
 	config := DefaultChunkConfig()
-	// Create a code-block section that's between MinSize and MaxSize
 	codeContent := "```go\n" + strings.Repeat("fmt.Println(\"hello\")\n", 80) + "```"
 
 	sections := []Section{
@@ -216,7 +219,7 @@ func TestChunkBySections_CodeBlockAtomic(t *testing.T) {
 	}
 }
 
-func TestChunkBySections_CodeBlockSmallMergesIntoParent(t *testing.T) {
+func TestChunkBySections_SmallCodeBlockGetsOwnChunk(t *testing.T) {
 	config := DefaultChunkConfig()
 	parentContent := strings.Repeat("Parent context. ", 30) // ~480 chars
 	codeContent := "```\nsmall code\n```"                   // tiny
@@ -228,25 +231,25 @@ func TestChunkBySections_CodeBlockSmallMergesIntoParent(t *testing.T) {
 
 	chunks := chunkBySections(sections, config)
 
-	// Small code block should merge into parent
-	if len(chunks) != 1 {
-		t.Errorf("expected 1 chunk (merged code block), got %d", len(chunks))
+	// Each section gets its own chunk — no merging
+	if len(chunks) != 2 {
+		t.Errorf("expected 2 chunks (no merging), got %d", len(chunks))
 		for i, c := range chunks {
 			t.Errorf("  chunk[%d] path=%q len=%d", i, c.HeadingPath, len(c.Content))
 		}
 		return
 	}
 
-	if !strings.Contains(chunks[0].Content, "small code") {
-		t.Error("merged chunk should contain the code block")
+	if chunks[0].HeadingPath != "## Setup" {
+		t.Errorf("chunk[0] should be parent, got %q", chunks[0].HeadingPath)
+	}
+	if chunks[1].HeadingPath != "## Setup > ### Code" {
+		t.Errorf("chunk[1] should be code child, got %q", chunks[1].HeadingPath)
 	}
 }
 
 func TestChunkBySections_CodeBlockExceedsHardLimit(t *testing.T) {
 	config := DefaultChunkConfig()
-	// Code block > maxAtomicCodeBlockSize loses atomic protection and enters
-	// the normal section splitting path. With splittable content (paragraphs
-	// separated by \n\n), it should produce multiple chunks.
 	largeCode := strings.Repeat("This is paragraph one with enough content to be meaningful.\n\n", 200)
 
 	sections := []Section{
@@ -267,7 +270,6 @@ func TestChunkBySections_CodeBlockExceedsHardLimit(t *testing.T) {
 
 func TestChunkBySections_LargeSectionSplitPreservesHeadingPath(t *testing.T) {
 	config := DefaultChunkConfig()
-	// Section content > MaxSize
 	bigContent := strings.Repeat("This is a long paragraph with enough words. ", 200)
 
 	sections := []Section{
@@ -286,32 +288,8 @@ func TestChunkBySections_LargeSectionSplitPreservesHeadingPath(t *testing.T) {
 	}
 }
 
-func TestChunkBySections_TopLevelSmallSectionsMergeWithPrevious(t *testing.T) {
-	config := DefaultChunkConfig()
-	// Two unrelated top-level sections, both below MinSize.
-	// With the findParentChunk fix (returns nil for empty parent),
-	// these fall through to the "merge with previous" path.
-	smallContent := strings.Repeat("x", config.MinSize-10)
-
-	sections := []Section{
-		{Level: 2, Path: "## Alpha", Content: smallContent},
-		{Level: 2, Path: "## Beta", Content: smallContent},
-	}
-
-	chunks := chunkBySections(sections, config)
-
-	// Both below MinSize → merged into one chunk
-	if len(chunks) != 1 {
-		t.Errorf("expected 1 merged chunk, got %d", len(chunks))
-		for i, c := range chunks {
-			t.Logf("  chunk[%d] path=%q len=%d", i, c.HeadingPath, len(c.Content))
-		}
-	}
-}
-
 func TestChunkMarkdown_FallbackToParagraphs(t *testing.T) {
 	config := DefaultChunkConfig()
-	// Construct a MarkdownDoc directly with empty Sections to test fallback
 	doc := &MarkdownDoc{
 		Content:  strings.Repeat("Paragraph content here. ", 300),
 		Sections: nil,
@@ -325,12 +303,9 @@ func TestChunkMarkdown_FallbackToParagraphs(t *testing.T) {
 }
 
 func TestChunkMarkdown_BelowThresholdAboveMaxSize(t *testing.T) {
-	// Regression: documents below Threshold but above MaxSize were returned
-	// as a single unchunked blob, causing embedding context length errors.
 	config := ChunkConfig{
 		Threshold:  6000,
 		TargetSize: 3000,
-		MinSize:    800,
 		MaxSize:    4000,
 	}
 
@@ -363,11 +338,9 @@ func TestChunkMarkdown_BelowThresholdAboveMaxSize_WithSections(t *testing.T) {
 	config := ChunkConfig{
 		Threshold:  6000,
 		TargetSize: 3000,
-		MinSize:    800,
 		MaxSize:    4000,
 	}
 
-	// Build content with headings that totals ~5000 chars
 	content := "# Title\n\n## Section A\n\n" +
 		strings.Repeat("Content for section A. ", 100) + "\n\n" +
 		"## Section B\n\n" +
@@ -413,23 +386,18 @@ func TestChunkConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "MinSize >= TargetSize",
-			config:  ChunkConfig{MinSize: 3000, TargetSize: 3000, MaxSize: 4000, Threshold: 6000},
-			wantErr: true,
-		},
-		{
 			name:    "TargetSize >= MaxSize",
-			config:  ChunkConfig{MinSize: 800, TargetSize: 4000, MaxSize: 4000, Threshold: 6000},
+			config:  ChunkConfig{TargetSize: 4000, MaxSize: 4000, Threshold: 6000},
 			wantErr: true,
 		},
 		{
 			name:    "MaxSize > Threshold is allowed",
-			config:  ChunkConfig{MinSize: 800, TargetSize: 3000, MaxSize: 7000, Threshold: 6000},
+			config:  ChunkConfig{TargetSize: 3000, MaxSize: 7000, Threshold: 6000},
 			wantErr: false,
 		},
 		{
 			name:    "negative value",
-			config:  ChunkConfig{MinSize: -1, TargetSize: 3000, MaxSize: 4000, Threshold: 6000},
+			config:  ChunkConfig{TargetSize: -1, MaxSize: 4000, Threshold: 6000},
 			wantErr: true,
 		},
 	}
@@ -455,8 +423,5 @@ func TestDefaultChunkConfig_Values(t *testing.T) {
 	}
 	if config.MaxSize != 4000 {
 		t.Errorf("MaxSize = %d, want 4000", config.MaxSize)
-	}
-	if config.MinSize != 800 {
-		t.Errorf("MinSize = %d, want 800", config.MinSize)
 	}
 }

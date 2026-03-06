@@ -27,7 +27,6 @@ const PANEL_MAX_WIDTH_RATIO = 0.5;
 type DocumentPanelProps = {
   headings: Heading[];
   document: Document;
-  scrollContainer: HTMLElement | null;
   vaultId: string | null;
   versions: DocumentVersion[];
   versionsTotalCount: number;
@@ -36,7 +35,6 @@ type DocumentPanelProps = {
 function DocumentPanel({
   headings,
   document,
-  scrollContainer,
   vaultId,
   versions,
   versionsTotalCount,
@@ -80,10 +78,7 @@ function DocumentPanel({
     {
       label: t("outline"),
       content: (
-        <DocumentOutline
-          headings={headings}
-          scrollContainer={scrollContainer}
-        />
+        <DocumentOutline headings={headings} />
       ),
     },
     {
@@ -109,8 +104,8 @@ function DocumentPanel({
 
   return (
     <>
-      {/* Desktop panel (lg+) */}
-      <div className="hidden lg:flex" ref={panelRef}>
+      {/* Desktop panel (lg+) — sticky so it stays in place while body scrolls */}
+      <div className="hidden self-start lg:sticky lg:top-10 lg:flex lg:max-h-[calc(100vh-2.5rem)]" ref={panelRef}>
         {!collapsed && (
           <div
             className="relative flex shrink-0 flex-col border-l border-slate-200 dark:border-slate-700"

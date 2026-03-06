@@ -205,10 +205,6 @@ export function SettingsView({
                     value={t("chars", { count: serverConfig.chunkTargetSize })}
                   />
                   <ConfigRow
-                    label={t("chunkMinSize")}
-                    value={t("chars", { count: serverConfig.chunkMinSize })}
-                  />
-                  <ConfigRow
                     label={t("chunkMaxSize")}
                     value={t("chars", { count: serverConfig.chunkMaxSize })}
                   />

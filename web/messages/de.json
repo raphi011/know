@@ -30,7 +30,7 @@
   "login": {
     "title": "Mit Knowhow verbinden",
     "subtitle": "Server-URL und API-Token eingeben.",
-    "serverUrl": "Server-URL (z.B. http://localhost:8484/query)",
+    "serverUrl": "Server-URL (z.B. http://localhost:4001/query)",
     "apiToken": "API-Token (kh_...)",
     "serverName": "Name (optional, z.B. Arbeit)",
     "connect": "Verbinden",
@@ -63,7 +63,6 @@
     "chunking": "Chunking",
     "chunkThreshold": "Schwellenwert",
     "chunkTargetSize": "Zielgröße",
-    "chunkMinSize": "Mindestgröße",
     "chunkMaxSize": "Maximalgröße",
     "chars": "{count} Zeichen",
     "versioning": "Versionierung",

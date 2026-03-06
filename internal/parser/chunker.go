@@ -19,8 +19,6 @@ type ChunkConfig struct {
 	Threshold int
 	// TargetSize: ideal chunk size
 	TargetSize int
-	// MinSize: minimum chunk size (smaller chunks merge with neighbors)
-	MinSize int
 	// MaxSize: maximum chunk size (larger chunks split at sentences)
 	MaxSize int
 }
@@ -32,19 +30,15 @@ func DefaultChunkConfig() ChunkConfig {
 	return ChunkConfig{
 		Threshold:  6000,
 		TargetSize: 3000,
-		MinSize:    800,
 		MaxSize:    4000,
 	}
 }
 
 // Validate checks that chunk config values form a coherent configuration.
 func (c ChunkConfig) Validate() error {
-	if c.MinSize <= 0 || c.TargetSize <= 0 || c.MaxSize <= 0 || c.Threshold <= 0 {
-		return fmt.Errorf("all chunk config values must be positive: min=%d target=%d max=%d threshold=%d",
-			c.MinSize, c.TargetSize, c.MaxSize, c.Threshold)
-	}
-	if c.MinSize >= c.TargetSize {
-		return fmt.Errorf("chunk MinSize (%d) must be less than TargetSize (%d)", c.MinSize, c.TargetSize)
+	if c.TargetSize <= 0 || c.MaxSize <= 0 || c.Threshold <= 0 {
+		return fmt.Errorf("all chunk config values must be positive: target=%d max=%d threshold=%d",
+			c.TargetSize, c.MaxSize, c.Threshold)
 	}
 	if c.TargetSize >= c.MaxSize {
 		return fmt.Errorf("chunk TargetSize (%d) must be less than MaxSize (%d)", c.TargetSize, c.MaxSize)
@@ -91,38 +85,12 @@ func ChunkMarkdown(doc *MarkdownDoc, config ChunkConfig) []ChunkResult {
 // Code blocks exceeding this fall through to standard paragraph/sentence splitting.
 const maxAtomicCodeBlockSize = 8000
 
-// chunkBySections creates chunks from document sections using hierarchical merging.
-// Empty sections are skipped. Small sections merge into their parent heading's chunk
-// rather than the positional predecessor, preserving semantic relationships.
+// chunkBySections creates one chunk per heading section (no cross-heading merging).
+// Empty sections are skipped. Each heading with content becomes its own chunk.
 // Code-block-dominated sections are treated as atomic up to maxAtomicCodeBlockSize.
 func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 	var chunks []ChunkResult
 	position := 0
-
-	// parentPath returns the parent heading path for hierarchical merging.
-	// e.g. "# A > ## B > ### C" → "# A > ## B"
-	parentPath := func(path string) string {
-		if idx := strings.LastIndex(path, " > "); idx >= 0 {
-			return path[:idx]
-		}
-		return ""
-	}
-
-	// findParentChunk finds the most recent chunk whose heading path matches
-	// or is a descendant of the parent path. Returns nil for top-level sections
-	// (no parent in the hierarchy).
-	findParentChunk := func(path string) *ChunkResult {
-		parent := parentPath(path)
-		if parent == "" {
-			return nil
-		}
-		for i := len(chunks) - 1; i >= 0; i-- {
-			if chunks[i].HeadingPath == parent || strings.HasPrefix(chunks[i].HeadingPath, parent) {
-				return &chunks[i]
-			}
-		}
-		return nil
-	}
 
 	for _, section := range sections {
 		trimmed := strings.TrimSpace(section.Content)
@@ -130,81 +98,15 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 			continue
 		}
 
-		// Code-block-dominated sections: keep atomic unless they exceed
-		// the hard size limit (code blocks beyond this fall through to splitting)
-		if section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize {
-			if len(trimmed) >= config.MinSize {
-				chunks = append(chunks, ChunkResult{
-					Content:     trimmed,
-					Position:    position,
-					HeadingPath: section.Path,
-				})
-				position++
-			} else {
-				// Small code block: try to merge with parent
-				if parent := findParentChunk(section.Path); parent != nil {
-					parent.Content += "\n\n" + trimmed
-				} else if len(chunks) > 0 {
-					chunks[len(chunks)-1].Content += "\n\n" + trimmed
-				} else {
-					chunks = append(chunks, ChunkResult{
-						Content:     trimmed,
-						Position:    position,
-						HeadingPath: section.Path,
-					})
-					position++
-				}
-			}
-			continue
-		}
-
-		// If section fits in a chunk
-		if len(trimmed) <= config.MaxSize {
-			if len(trimmed) >= config.MinSize {
-				chunks = append(chunks, ChunkResult{
-					Content:     trimmed,
-					Position:    position,
-					HeadingPath: section.Path,
-				})
-				position++
-			} else {
-				// Small section: hierarchical merge — try parent first
-				if parent := findParentChunk(section.Path); parent != nil {
-					merged := parent.Content + "\n\n" + trimmed
-					if len(merged) <= config.MaxSize {
-						parent.Content = merged
-					} else {
-						// Parent too full, create standalone chunk
-						chunks = append(chunks, ChunkResult{
-							Content:     trimmed,
-							Position:    position,
-							HeadingPath: section.Path,
-						})
-						position++
-					}
-				} else if len(chunks) > 0 {
-					// No parent found, merge with previous
-					merged := chunks[len(chunks)-1].Content + "\n\n" + trimmed
-					if len(merged) <= config.MaxSize {
-						chunks[len(chunks)-1].Content = merged
-					} else {
-						chunks = append(chunks, ChunkResult{
-							Content:     trimmed,
-							Position:    position,
-							HeadingPath: section.Path,
-						})
-						position++
-					}
-				} else {
-					// First chunk
-					chunks = append(chunks, ChunkResult{
-						Content:     trimmed,
-						Position:    position,
-						HeadingPath: section.Path,
-					})
-					position++
-				}
-			}
+		// Keep section as a single chunk if it fits: code blocks get a higher
+		// size ceiling (maxAtomicCodeBlockSize) while regular sections use MaxSize.
+		if (section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize) || len(trimmed) <= config.MaxSize {
+			chunks = append(chunks, ChunkResult{
+				Content:     trimmed,
+				Position:    position,
+				HeadingPath: section.Path,
+			})
+			position++
 			continue
 		}
 

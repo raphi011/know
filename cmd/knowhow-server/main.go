@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -41,6 +42,15 @@ func main() {
 	slog.SetDefault(logger)
 
 	slog.Info("starting knowhow-server", "port", port)
+
+	// Bind the port early so we fail fast if another instance is still running.
+	// This prevents the race where initialization succeeds but ListenAndServe
+	// fails because the old process hasn't released the port yet.
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		slog.Error("failed to bind port", "port", port, "error", err)
+		os.Exit(1)
+	}
 
 	// Create resolver with all dependencies
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -109,7 +119,7 @@ func main() {
 		slog.Info("GraphQL playground available", "url", fmt.Sprintf("http://localhost:%s/playground", port))
 		slog.Info("GraphQL endpoint available", "url", fmt.Sprintf("http://localhost:%s/query", port))
 
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
 		}

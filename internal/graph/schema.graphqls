@@ -283,7 +283,6 @@ type ServerConfig {
   webSearchEnabled: Boolean!
   chunkThreshold: Int!
   chunkTargetSize: Int!
-  chunkMinSize: Int!
   chunkMaxSize: Int!
   versionCoalesceMinutes: Int!
   versionRetentionCount: Int!

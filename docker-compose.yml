@@ -1,35 +1,9 @@
+# Dev-only: in-memory SurrealDB for fast iteration.
+# Usage: just dev / just dev-all (starts this automatically via db-up)
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.2
     container_name: knowhow-surrealdb
     command: start --user root --pass root memory
     ports:
-      - "8000:8000"
-    restart: unless-stopped
-
-  knowhow-server:
-    build: .
-    container_name: knowhow-server
-    ports:
-      - "8484:8484"
-    environment:
-      - SURREALDB_URL=ws://surrealdb:8000/rpc
-      - SURREALDB_NAMESPACE=knowledge
-      - SURREALDB_DATABASE=graph
-      - SURREALDB_USER=root
-      - SURREALDB_PASS=root
-      - SURREALDB_AUTH_LEVEL=root
-      - KNOWHOW_SERVER_PORT=8484
-      # Configure embedding provider per instance:
-      # Google AI (private): KNOWHOW_EMBED_PROVIDER=googleai, KNOWHOW_EMBED_MODEL=gemini-embedding-001
-      # Anthropic/Voyage (work): KNOWHOW_EMBED_PROVIDER=anthropic, KNOWHOW_EMBED_MODEL=voyage-3-large
-    depends_on:
-      - surrealdb
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8484/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
+      - "4002:8000"

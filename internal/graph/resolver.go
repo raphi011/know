@@ -95,7 +95,6 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		"web_search", cfg.TavilyAPIKey != "",
 		"chunk_threshold", chunkConfig.Threshold,
 		"chunk_target", chunkConfig.TargetSize,
-		"chunk_min", chunkConfig.MinSize,
 		"chunk_max", chunkConfig.MaxSize,
 	)
 
@@ -132,7 +131,6 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 			WebSearchEnabled:       cfg.TavilyAPIKey != "",
 			ChunkThreshold:         chunkConfig.Threshold,
 			ChunkTargetSize:        chunkConfig.TargetSize,
-			ChunkMinSize:           chunkConfig.MinSize,
 			ChunkMaxSize:           chunkConfig.MaxSize,
 			VersionCoalesceMinutes: cfg.VersionCoalesceMinutes,
 			VersionRetentionCount:  cfg.VersionRetentionCount,

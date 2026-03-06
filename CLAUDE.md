@@ -122,6 +122,7 @@ Available docs:
 - `docs/testing-strategy.md` - Testing pyramid: Vitest, Storybook, Playwright
 - `docs/a11y.md` - Accessibility guide, axe-core, common violations
 - `docs/docker.md` - Docker Compose, Colima, SurrealDB v3 image gotchas
+- `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
 
 ## Web Frontend
 

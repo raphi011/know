@@ -106,7 +106,6 @@ export type ServerConfig = {
   webSearchEnabled: boolean;
   chunkThreshold: number;
   chunkTargetSize: number;
-  chunkMinSize: number;
   chunkMaxSize: number;
   versionCoalesceMinutes: number;
   versionRetentionCount: number;

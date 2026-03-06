@@ -41,6 +41,9 @@ CLAUDE.md
 web/node_modules/
 web/dist/
 
+# Local data (SurrealDB persistent volumes)
+data/
+
 # Dev tooling
 tmp/
 .air.toml

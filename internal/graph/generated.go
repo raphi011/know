@@ -252,7 +252,6 @@ type ComplexityRoot struct {
 	ServerConfig struct {
 		AgentChatEnabled       func(childComplexity int) int
 		ChunkMaxSize           func(childComplexity int) int
-		ChunkMinSize           func(childComplexity int) int
 		ChunkTargetSize        func(childComplexity int) int
 		ChunkThreshold         func(childComplexity int) int
 		EmbedDimension         func(childComplexity int) int
@@ -1529,12 +1528,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ServerConfig.ChunkMaxSize(childComplexity), true
-	case "ServerConfig.chunkMinSize":
-		if e.ComplexityRoot.ServerConfig.ChunkMinSize == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ServerConfig.ChunkMinSize(childComplexity), true
 	case "ServerConfig.chunkTargetSize":
 		if e.ComplexityRoot.ServerConfig.ChunkTargetSize == nil {
 			break
@@ -7570,8 +7563,6 @@ func (ec *executionContext) fieldContext_Query_serverConfig(_ context.Context, f
 				return ec.fieldContext_ServerConfig_chunkThreshold(ctx, field)
 			case "chunkTargetSize":
 				return ec.fieldContext_ServerConfig_chunkTargetSize(ctx, field)
-			case "chunkMinSize":
-				return ec.fieldContext_ServerConfig_chunkMinSize(ctx, field)
 			case "chunkMaxSize":
 				return ec.fieldContext_ServerConfig_chunkMaxSize(ctx, field)
 			case "versionCoalesceMinutes":
@@ -8755,35 +8746,6 @@ func (ec *executionContext) _ServerConfig_chunkTargetSize(ctx context.Context, f
 }
 
 func (ec *executionContext) fieldContext_ServerConfig_chunkTargetSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ServerConfig",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ServerConfig_chunkMinSize(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ServerConfig_chunkMinSize,
-		func(ctx context.Context) (any, error) {
-			return obj.ChunkMinSize, nil
-		},
-		nil,
-		ec.marshalNInt2int,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ServerConfig_chunkMinSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ServerConfig",
 		Field:      field,
@@ -13942,11 +13904,6 @@ func (ec *executionContext) _ServerConfig(ctx context.Context, sel ast.Selection
 			}
 		case "chunkTargetSize":
 			out.Values[i] = ec._ServerConfig_chunkTargetSize(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "chunkMinSize":
-			out.Values[i] = ec._ServerConfig_chunkMinSize(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

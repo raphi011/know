@@ -250,7 +250,16 @@ function SearchCommandPalette({
   function handleSelect(value: SelectionValue | null) {
     if (!value) return;
     const hash = headingPathToHash(value.headingPath);
-    router.push(`/docs/${value.path}${hash}`);
+    const url = `/docs/${value.path}${hash}`;
+
+    if (hash) {
+      // Full navigation so the browser scrolls to the #hash after the
+      // server-rendered page loads. router.push does a client-side SPA
+      // transition which skips native hash scrolling.
+      window.location.href = url;
+    } else {
+      router.push(url);
+    }
     onClose();
   }
 

@@ -21,7 +21,7 @@ function requiredInProduction(name: string): string {
 
 export const env = {
   get APP_URL() {
-    return requiredInProduction("APP_URL") || "http://localhost:3000";
+    return requiredInProduction("APP_URL") || "http://localhost:4000";
   },
   /** Secret used to encrypt session cookies. Required in production. */
   get SESSION_SECRET() {
@@ -30,7 +30,7 @@ export const env = {
   /** Backend server URL. In auth mode, shown as default on the login page.
    *  In no-auth mode (AUTH_DISABLED=true), used as the sole backend URL. */
   get BACKEND_URL() {
-    return process.env.BACKEND_URL || "http://localhost:8484";
+    return process.env.BACKEND_URL || "http://localhost:4001";
   },
   /** Disables all authentication. Only for local/Docker deployments. */
   get AUTH_DISABLED() {
