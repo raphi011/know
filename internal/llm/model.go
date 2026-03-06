@@ -478,6 +478,86 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	return nil
 }
 
+// GenerateStreamWithTools runs an agentic loop: stream LLM output, invoke tools when requested,
+// and continue until the model produces a final text response or the iteration limit is reached.
+//
+// onToken is called for each streamed text chunk. onToolCall is called for each tool invocation
+// and must return the tool result string. If onToolCall is nil and a tool call is received, an
+// error is returned.
+func (m *Model) GenerateStreamWithTools(
+	ctx context.Context,
+	messages []*schema.Message,
+	tools []*schema.ToolInfo,
+	onToken func(token string) error,
+	onToolCall func(call schema.ToolCall) (string, error),
+) error {
+	opts := []model.Option{model.WithMaxTokens(8192)}
+	if len(tools) > 0 {
+		opts = append(opts, model.WithTools(tools))
+	}
+
+	// Work on a copy so the caller's slice is not mutated.
+	msgs := make([]*schema.Message, len(messages))
+	copy(msgs, messages)
+
+	const maxIterations = 10
+	for i := range maxIterations {
+		sr, err := m.chatModel.Stream(ctx, msgs, opts...)
+		if err != nil {
+			return wrapFatalError(fmt.Errorf("generate stream with tools (iteration %d): %w", i, err))
+		}
+
+		var (
+			textBuilder strings.Builder
+			toolCalls   []schema.ToolCall
+		)
+
+		for {
+			msg, recvErr := sr.Recv()
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			if recvErr != nil {
+				sr.Close()
+				return wrapFatalError(fmt.Errorf("generate stream with tools recv (iteration %d): %w", i, recvErr))
+			}
+			if msg.Content != "" {
+				textBuilder.WriteString(msg.Content)
+				if tokenErr := onToken(msg.Content); tokenErr != nil {
+					sr.Close()
+					return fmt.Errorf("streaming token callback: %w", tokenErr)
+				}
+			}
+			toolCalls = append(toolCalls, msg.ToolCalls...)
+		}
+		sr.Close()
+
+		// No tool calls — model produced a final answer.
+		if len(toolCalls) == 0 {
+			return nil
+		}
+
+		if onToolCall == nil {
+			return fmt.Errorf("model requested tool call but onToolCall is nil")
+		}
+
+		// Append assistant turn with the tool calls.
+		msgs = append(msgs, schema.AssistantMessage(textBuilder.String(), toolCalls))
+
+		// Execute each tool and append results.
+		for _, tc := range toolCalls {
+			result, toolErr := onToolCall(tc)
+			if toolErr != nil {
+				msgs = append(msgs, schema.ToolMessage(fmt.Sprintf("error: %v", toolErr), tc.ID))
+			} else {
+				msgs = append(msgs, schema.ToolMessage(result, tc.ID))
+			}
+		}
+	}
+
+	return fmt.Errorf("generate stream with tools: exceeded maximum iterations (%d)", maxIterations)
+}
+
 // ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).
 func (m *Model) ExtractEntitiesAndRelations(ctx context.Context, text string, existingEntities []string) (string, error) {
 	entitiesStr := ""
