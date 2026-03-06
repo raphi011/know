@@ -272,6 +272,23 @@ type DocumentVersionConnection {
   totalCount: Int!
 }
 
+type ServerConfig {
+  llmProvider: String!
+  llmModel: String!
+  embedProvider: String!
+  embedModel: String!
+  embedDimension: Int!
+  semanticSearchEnabled: Boolean!
+  agentChatEnabled: Boolean!
+  webSearchEnabled: Boolean!
+  chunkThreshold: Int!
+  chunkTargetSize: Int!
+  chunkMinSize: Int!
+  chunkMaxSize: Int!
+  versionCoalesceMinutes: Int!
+  versionRetentionCount: Int!
+}
+
 # =============================================================================
 # INPUTS
 # =============================================================================
@@ -353,6 +370,9 @@ type Query {
   # Conversations
   conversations(vaultId: ID!): [Conversation!]!
   conversation(id: ID!): Conversation
+
+  # Server
+  serverConfig: ServerConfig!
 
   # Versions
   documentVersion(id: ID!): DocumentVersion

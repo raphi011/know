@@ -208,6 +208,7 @@ type ComplexityRoot struct {
 		Proposal         func(childComplexity int, id string) int
 		Proposals        func(childComplexity int, vaultID string, status *ProposalStatus) int
 		Search           func(childComplexity int, input SearchInput) int
+		ServerConfig     func(childComplexity int) int
 		Template         func(childComplexity int, id string) int
 		Templates        func(childComplexity int, vaultID *string) int
 		Vault            func(childComplexity int, id string) int
@@ -246,6 +247,23 @@ type ComplexityRoot struct {
 		Path          func(childComplexity int) int
 		Score         func(childComplexity int) int
 		Title         func(childComplexity int) int
+	}
+
+	ServerConfig struct {
+		AgentChatEnabled       func(childComplexity int) int
+		ChunkMaxSize           func(childComplexity int) int
+		ChunkMinSize           func(childComplexity int) int
+		ChunkTargetSize        func(childComplexity int) int
+		ChunkThreshold         func(childComplexity int) int
+		EmbedDimension         func(childComplexity int) int
+		EmbedModel             func(childComplexity int) int
+		EmbedProvider          func(childComplexity int) int
+		LLMModel               func(childComplexity int) int
+		LLMProvider            func(childComplexity int) int
+		SemanticSearchEnabled  func(childComplexity int) int
+		VersionCoalesceMinutes func(childComplexity int) int
+		VersionRetentionCount  func(childComplexity int) int
+		WebSearchEnabled       func(childComplexity int) int
 	}
 
 	Template struct {
@@ -363,6 +381,7 @@ type QueryResolver interface {
 	Proposals(ctx context.Context, vaultID string, status *ProposalStatus) ([]*DocumentProposal, error)
 	Conversations(ctx context.Context, vaultID string) ([]*Conversation, error)
 	Conversation(ctx context.Context, id string) (*Conversation, error)
+	ServerConfig(ctx context.Context) (*ServerConfig, error)
 	DocumentVersion(ctx context.Context, id string) (*DocumentVersion, error)
 	DocumentVersions(ctx context.Context, documentID string, limit *int, offset *int) (*DocumentVersionConnection, error)
 	VersionDiff(ctx context.Context, documentID string, fromVersionID *string, toVersionID *string) (*ProposalDiff, error)
@@ -1311,6 +1330,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Search(childComplexity, args["input"].(SearchInput)), true
+	case "Query.serverConfig":
+		if e.ComplexityRoot.Query.ServerConfig == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ServerConfig(childComplexity), true
 	case "Query.template":
 		if e.ComplexityRoot.Query.Template == nil {
 			break
@@ -1491,6 +1516,91 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SearchResult.Title(childComplexity), true
+
+	case "ServerConfig.agentChatEnabled":
+		if e.ComplexityRoot.ServerConfig.AgentChatEnabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.AgentChatEnabled(childComplexity), true
+	case "ServerConfig.chunkMaxSize":
+		if e.ComplexityRoot.ServerConfig.ChunkMaxSize == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.ChunkMaxSize(childComplexity), true
+	case "ServerConfig.chunkMinSize":
+		if e.ComplexityRoot.ServerConfig.ChunkMinSize == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.ChunkMinSize(childComplexity), true
+	case "ServerConfig.chunkTargetSize":
+		if e.ComplexityRoot.ServerConfig.ChunkTargetSize == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.ChunkTargetSize(childComplexity), true
+	case "ServerConfig.chunkThreshold":
+		if e.ComplexityRoot.ServerConfig.ChunkThreshold == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.ChunkThreshold(childComplexity), true
+	case "ServerConfig.embedDimension":
+		if e.ComplexityRoot.ServerConfig.EmbedDimension == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.EmbedDimension(childComplexity), true
+	case "ServerConfig.embedModel":
+		if e.ComplexityRoot.ServerConfig.EmbedModel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.EmbedModel(childComplexity), true
+	case "ServerConfig.embedProvider":
+		if e.ComplexityRoot.ServerConfig.EmbedProvider == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.EmbedProvider(childComplexity), true
+	case "ServerConfig.llmModel":
+		if e.ComplexityRoot.ServerConfig.LLMModel == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.LLMModel(childComplexity), true
+	case "ServerConfig.llmProvider":
+		if e.ComplexityRoot.ServerConfig.LLMProvider == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.LLMProvider(childComplexity), true
+	case "ServerConfig.semanticSearchEnabled":
+		if e.ComplexityRoot.ServerConfig.SemanticSearchEnabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.SemanticSearchEnabled(childComplexity), true
+	case "ServerConfig.versionCoalesceMinutes":
+		if e.ComplexityRoot.ServerConfig.VersionCoalesceMinutes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.VersionCoalesceMinutes(childComplexity), true
+	case "ServerConfig.versionRetentionCount":
+		if e.ComplexityRoot.ServerConfig.VersionRetentionCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.VersionRetentionCount(childComplexity), true
+	case "ServerConfig.webSearchEnabled":
+		if e.ComplexityRoot.ServerConfig.WebSearchEnabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ServerConfig.WebSearchEnabled(childComplexity), true
 
 	case "Template.content":
 		if e.ComplexityRoot.Template.Content == nil {
@@ -7416,6 +7526,65 @@ func (ec *executionContext) fieldContext_Query_conversation(ctx context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_serverConfig(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_serverConfig,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ServerConfig(ctx)
+		},
+		nil,
+		ec.marshalNServerConfig2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐServerConfig,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_serverConfig(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "llmProvider":
+				return ec.fieldContext_ServerConfig_llmProvider(ctx, field)
+			case "llmModel":
+				return ec.fieldContext_ServerConfig_llmModel(ctx, field)
+			case "embedProvider":
+				return ec.fieldContext_ServerConfig_embedProvider(ctx, field)
+			case "embedModel":
+				return ec.fieldContext_ServerConfig_embedModel(ctx, field)
+			case "embedDimension":
+				return ec.fieldContext_ServerConfig_embedDimension(ctx, field)
+			case "semanticSearchEnabled":
+				return ec.fieldContext_ServerConfig_semanticSearchEnabled(ctx, field)
+			case "agentChatEnabled":
+				return ec.fieldContext_ServerConfig_agentChatEnabled(ctx, field)
+			case "webSearchEnabled":
+				return ec.fieldContext_ServerConfig_webSearchEnabled(ctx, field)
+			case "chunkThreshold":
+				return ec.fieldContext_ServerConfig_chunkThreshold(ctx, field)
+			case "chunkTargetSize":
+				return ec.fieldContext_ServerConfig_chunkTargetSize(ctx, field)
+			case "chunkMinSize":
+				return ec.fieldContext_ServerConfig_chunkMinSize(ctx, field)
+			case "chunkMaxSize":
+				return ec.fieldContext_ServerConfig_chunkMaxSize(ctx, field)
+			case "versionCoalesceMinutes":
+				return ec.fieldContext_ServerConfig_versionCoalesceMinutes(ctx, field)
+			case "versionRetentionCount":
+				return ec.fieldContext_ServerConfig_versionRetentionCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ServerConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_documentVersion(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8303,6 +8472,412 @@ func (ec *executionContext) fieldContext_SearchResult_matchedChunks(_ context.Co
 				return ec.fieldContext_ChunkMatch_score(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChunkMatch", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_llmProvider(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_llmProvider,
+		func(ctx context.Context) (any, error) {
+			return obj.LLMProvider, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_llmProvider(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_llmModel(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_llmModel,
+		func(ctx context.Context) (any, error) {
+			return obj.LLMModel, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_llmModel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_embedProvider(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_embedProvider,
+		func(ctx context.Context) (any, error) {
+			return obj.EmbedProvider, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_embedProvider(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_embedModel(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_embedModel,
+		func(ctx context.Context) (any, error) {
+			return obj.EmbedModel, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_embedModel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_embedDimension(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_embedDimension,
+		func(ctx context.Context) (any, error) {
+			return obj.EmbedDimension, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_embedDimension(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_semanticSearchEnabled(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_semanticSearchEnabled,
+		func(ctx context.Context) (any, error) {
+			return obj.SemanticSearchEnabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_semanticSearchEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_agentChatEnabled(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_agentChatEnabled,
+		func(ctx context.Context) (any, error) {
+			return obj.AgentChatEnabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_agentChatEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_webSearchEnabled(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_webSearchEnabled,
+		func(ctx context.Context) (any, error) {
+			return obj.WebSearchEnabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_webSearchEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_chunkThreshold(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_chunkThreshold,
+		func(ctx context.Context) (any, error) {
+			return obj.ChunkThreshold, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_chunkThreshold(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_chunkTargetSize(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_chunkTargetSize,
+		func(ctx context.Context) (any, error) {
+			return obj.ChunkTargetSize, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_chunkTargetSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_chunkMinSize(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_chunkMinSize,
+		func(ctx context.Context) (any, error) {
+			return obj.ChunkMinSize, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_chunkMinSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_chunkMaxSize(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_chunkMaxSize,
+		func(ctx context.Context) (any, error) {
+			return obj.ChunkMaxSize, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_chunkMaxSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_versionCoalesceMinutes(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_versionCoalesceMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.VersionCoalesceMinutes, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_versionCoalesceMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ServerConfig_versionRetentionCount(ctx context.Context, field graphql.CollectedField, obj *ServerConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ServerConfig_versionRetentionCount,
+		func(ctx context.Context) (any, error) {
+			return obj.VersionRetentionCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ServerConfig_versionRetentionCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ServerConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -12961,6 +13536,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "serverConfig":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_serverConfig(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "documentVersion":
 			field := field
 
@@ -13261,6 +13858,110 @@ func (ec *executionContext) _SearchResult(ctx context.Context, sel ast.Selection
 			}
 		case "matchedChunks":
 			out.Values[i] = ec._SearchResult_matchedChunks(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var serverConfigImplementors = []string{"ServerConfig"}
+
+func (ec *executionContext) _ServerConfig(ctx context.Context, sel ast.SelectionSet, obj *ServerConfig) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, serverConfigImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ServerConfig")
+		case "llmProvider":
+			out.Values[i] = ec._ServerConfig_llmProvider(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "llmModel":
+			out.Values[i] = ec._ServerConfig_llmModel(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "embedProvider":
+			out.Values[i] = ec._ServerConfig_embedProvider(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "embedModel":
+			out.Values[i] = ec._ServerConfig_embedModel(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "embedDimension":
+			out.Values[i] = ec._ServerConfig_embedDimension(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "semanticSearchEnabled":
+			out.Values[i] = ec._ServerConfig_semanticSearchEnabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "agentChatEnabled":
+			out.Values[i] = ec._ServerConfig_agentChatEnabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "webSearchEnabled":
+			out.Values[i] = ec._ServerConfig_webSearchEnabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chunkThreshold":
+			out.Values[i] = ec._ServerConfig_chunkThreshold(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chunkTargetSize":
+			out.Values[i] = ec._ServerConfig_chunkTargetSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chunkMinSize":
+			out.Values[i] = ec._ServerConfig_chunkMinSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chunkMaxSize":
+			out.Values[i] = ec._ServerConfig_chunkMaxSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "versionCoalesceMinutes":
+			out.Values[i] = ec._ServerConfig_versionCoalesceMinutes(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "versionRetentionCount":
+			out.Values[i] = ec._ServerConfig_versionRetentionCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -14743,6 +15444,20 @@ func (ec *executionContext) marshalNSearchResult2ᚖgithubᚗcomᚋraphi011ᚋkn
 		return graphql.Null
 	}
 	return ec._SearchResult(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNServerConfig2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐServerConfig(ctx context.Context, sel ast.SelectionSet, v ServerConfig) graphql.Marshaler {
+	return ec._ServerConfig(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNServerConfig2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐServerConfig(ctx context.Context, sel ast.SelectionSet, v *ServerConfig) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ServerConfig(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {

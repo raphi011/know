@@ -81,6 +81,8 @@ models:
     model: github.com/raphi011/knowhow/internal/graph.ProposeDocumentUpdateInput
   ApproveHunksInput:
     model: github.com/raphi011/knowhow/internal/graph.ApproveHunksInput
+  ServerConfig:
+    model: github.com/raphi011/knowhow/internal/graph.ServerConfig
   DocumentVersion:
     model: github.com/raphi011/knowhow/internal/graph.DocumentVersion
   DocumentVersionConnection:

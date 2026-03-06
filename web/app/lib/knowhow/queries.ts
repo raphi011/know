@@ -6,6 +6,7 @@ import type {
   Document,
   DocumentSummary,
   DocumentVersionConnection,
+  ServerConfig,
 } from "./types";
 
 export const getVaults = cache(async (): Promise<Vault[]> => {
@@ -111,6 +112,31 @@ export async function getDocument(
 
   return data.document;
 }
+
+export const getServerConfig = cache(async (): Promise<ServerConfig> => {
+  const data = await gql<{ serverConfig: ServerConfig }>(`
+    query {
+      serverConfig {
+        llmProvider
+        llmModel
+        embedProvider
+        embedModel
+        embedDimension
+        semanticSearchEnabled
+        agentChatEnabled
+        webSearchEnabled
+        chunkThreshold
+        chunkTargetSize
+        chunkMinSize
+        chunkMaxSize
+        versionCoalesceMinutes
+        versionRetentionCount
+      }
+    }
+  `);
+
+  return data.serverConfig;
+});
 
 export const getDocumentVersions = cache(
   async (

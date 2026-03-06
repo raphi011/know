@@ -31,6 +31,7 @@ type Resolver struct {
 	agentService    *agent.Service
 	workerCancel    context.CancelFunc
 	workerDone      chan struct{}
+	serverConfig    ServerConfig
 }
 
 // NewResolver creates a new resolver with all dependencies.
@@ -120,6 +121,22 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		model:           model,
 		agentService:    agentSvc,
 		workerDone:      workerDone,
+		serverConfig: ServerConfig{
+			LLMProvider:            string(cfg.LLMProvider),
+			LLMModel:               cfg.LLMModel,
+			EmbedProvider:          string(cfg.EmbedProvider),
+			EmbedModel:             cfg.EmbedModel,
+			EmbedDimension:         cfg.EmbedDimension,
+			SemanticSearchEnabled:  embedder != nil,
+			AgentChatEnabled:       model != nil,
+			WebSearchEnabled:       cfg.TavilyAPIKey != "",
+			ChunkThreshold:         chunkConfig.Threshold,
+			ChunkTargetSize:        chunkConfig.TargetSize,
+			ChunkMinSize:           chunkConfig.MinSize,
+			ChunkMaxSize:           chunkConfig.MaxSize,
+			VersionCoalesceMinutes: cfg.VersionCoalesceMinutes,
+			VersionRetentionCount:  cfg.VersionRetentionCount,
+		},
 	}
 
 	// Start background embedding worker if embedder is available
