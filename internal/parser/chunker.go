@@ -98,20 +98,9 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 			continue
 		}
 
-		// Code-block-dominated sections: keep atomic unless they exceed
-		// the hard size limit (code blocks beyond this fall through to splitting)
-		if section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize {
-			chunks = append(chunks, ChunkResult{
-				Content:     trimmed,
-				Position:    position,
-				HeadingPath: section.Path,
-			})
-			position++
-			continue
-		}
-
-		// If section fits in a chunk, create one chunk
-		if len(trimmed) <= config.MaxSize {
+		// Keep section as a single chunk if it fits: code blocks get a higher
+		// size ceiling (maxAtomicCodeBlockSize) while regular sections use MaxSize.
+		if (section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize) || len(trimmed) <= config.MaxSize {
 			chunks = append(chunks, ChunkResult{
 				Content:     trimmed,
 				Position:    position,

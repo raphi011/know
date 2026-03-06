@@ -48,8 +48,8 @@ func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, 
 	if caBundle != "" {
 		// Bug 1: unset to prevent AWS SDK panic.
 		// Errors from Unsetenv/Setenv are impossible here (key is a valid, non-empty string).
-		_ = os.Unsetenv("AWS_CA_BUNDLE")          //nolint:errcheck
-		defer func() { _ = os.Setenv("AWS_CA_BUNDLE", caBundle) }() //nolint:errcheck
+		_ = os.Unsetenv("AWS_CA_BUNDLE")
+		defer func() { _ = os.Setenv("AWS_CA_BUNDLE", caBundle) }()
 
 		// Bug 2: patch http.DefaultTransport with the CA so the Anthropic
 		// SDK's http.DefaultClient trusts the proxy certificate.
@@ -75,6 +75,7 @@ func addCAToDefaultTransport(caPath string) error {
 
 	pool, err := x509.SystemCertPool()
 	if err != nil {
+		slog.Warn("failed to load system cert pool, using empty pool", "error", err)
 		pool = x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(caPEM) {
