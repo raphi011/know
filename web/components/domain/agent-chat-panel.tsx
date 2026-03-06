@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import {
   useAgentChat,
   type ChatMessage,
+  type StreamSegment,
 } from "@/components/domain/agent-chat-context";
 import { MarkdownRenderer } from "@/components/domain/markdown-renderer";
 import { DocRefAutocomplete } from "@/components/domain/doc-ref-autocomplete";
@@ -21,15 +22,16 @@ type AgentChatPanelProps = {
   vaultId: string | null;
 };
 
-// Pair adjacent tool_call + tool_result messages into ToolCard-compatible entries
-type PairedEntry =
+// Build display entries from persisted messages, using toolCallId to link assistant tool calls with their results
+type DisplayEntry =
   | { type: "message"; message: ChatMessage }
   | {
       type: "tool_card";
+      callId: string;
       tool: string;
       callContent: string;
       result?: {
-        content: string;
+        content?: string;
         meta?: ChatMessage["toolMeta"];
       };
     };
@@ -45,43 +47,53 @@ function extractCallContent(toolInput: string | undefined, tool: string): string
   return toolInput;
 }
 
-function pairMessages(messages: ChatMessage[]): PairedEntry[] {
-  const entries: PairedEntry[] = [];
-  let i = 0;
+type ToolCallInfo = { id: string; name: string; arguments: string };
 
-  while (i < messages.length) {
-    const msg = messages[i]!;
+function buildEntries(messages: ChatMessage[]): DisplayEntry[] {
+  // Index tool_result messages by toolCallId
+  const resultsByCallId = new Map<string, ChatMessage>();
+  for (const msg of messages) {
+    if (msg.role === "tool_result" && msg.toolCallId) {
+      resultsByCallId.set(msg.toolCallId, msg);
+    }
+  }
 
-    if (msg.role === "tool_call") {
-      const tool = msg.toolName ?? "kb_search";
-      const callContent = extractCallContent(msg.toolInput, tool);
+  const entries: DisplayEntry[] = [];
 
-      // Look ahead for a matching tool_result
-      const next = messages[i + 1];
-      if (next?.role === "tool_result" && next.toolName === msg.toolName) {
-        entries.push({
-          type: "tool_card",
-          tool,
-          callContent,
-          result: { content: next.content, meta: next.toolMeta },
-        });
-        i += 2;
-        continue;
-      }
-      // Orphaned tool_call (no matching result)
-      entries.push({ type: "tool_card", tool, callContent });
-      i++;
+  for (const msg of messages) {
+    if (msg.role === "tool_result") {
+      // Rendered via assistant's toolCalls — skip standalone
       continue;
     }
 
-    if (msg.role === "tool_result") {
-      // Orphaned tool_result (no preceding call) — skip it
-      i++;
+    if (msg.role === "assistant" && msg.toolCalls) {
+      // Parse tool calls and render a ToolCard for each, then the text
+      let calls: ToolCallInfo[] = [];
+      try {
+        calls = JSON.parse(msg.toolCalls) as ToolCallInfo[];
+      } catch { /* skip if unparseable */ }
+
+      for (const call of calls) {
+        const resultMsg = resultsByCallId.get(call.id);
+        entries.push({
+          type: "tool_card",
+          callId: call.id,
+          tool: call.name,
+          callContent: extractCallContent(call.arguments, call.name),
+          result: resultMsg
+            ? { content: resultMsg.content, meta: resultMsg.toolMeta }
+            : undefined,
+        });
+      }
+
+      // Render the text content if any
+      if (msg.content.trim()) {
+        entries.push({ type: "message", message: msg });
+      }
       continue;
     }
 
     entries.push({ type: "message", message: msg });
-    i++;
   }
 
   return entries;
@@ -99,7 +111,7 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
     (c) => c.id === chat.activeConversationId,
   );
   const activeMessages = activeConv?.messages ?? [];
-  const pairedEntries = pairMessages(activeMessages);
+  const displayEntries = buildEntries(activeMessages);
 
   // Load conversations when vault changes
   useEffect(() => {
@@ -112,7 +124,7 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat.streamingContent, activeMessages.length, chat.toolExecutions.length]);
+  }, [chat.streamSegments, activeMessages.length]);
 
   function handleSend() {
     const trimmed = input.trim();
@@ -198,12 +210,13 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
           </div>
         )}
 
-        {/* Persisted messages — paired as ToolCards or ChatBubbles */}
-        {pairedEntries.map((entry, i) =>
+        {/* Persisted messages */}
+        {displayEntries.map((entry, i) =>
           entry.type === "tool_card" ? (
             <ToolCard
-              key={`tool-${i}`}
+              key={`tool-${entry.callId}-${i}`}
               tool={entry.tool}
+              callId={entry.callId}
               callContent={entry.callContent}
               result={entry.result}
             />
@@ -212,40 +225,21 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
           ),
         )}
 
-        {/* Streaming tool executions */}
-        {chat.toolExecutions.map((exec, i) => (
-          <ToolCard
-            key={`stream-tool-${i}`}
-            tool={exec.tool}
-            callContent={exec.callContent}
-            result={exec.result}
-          />
+        {/* Streaming segments */}
+        {chat.streamSegments.map((seg, i) => (
+          <StreamSegmentView key={`stream-${i}`} segment={seg} />
         ))}
 
-        {/* Streaming content */}
-        {chat.isStreaming && chat.streamingContent && (
+        {/* Typing indicator */}
+        {chat.isStreaming && chat.streamSegments.length === 0 && (
           <div className="mb-2">
-            <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs dark:bg-slate-800">
-              <MarkdownRenderer
-                content={chat.streamingContent}
-                className="prose-xs"
-              />
+            <div className="flex gap-1 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
             </div>
           </div>
         )}
-
-        {/* Typing indicator */}
-        {chat.isStreaming &&
-          !chat.streamingContent &&
-          chat.toolExecutions.length === 0 && (
-            <div className="mb-2">
-              <div className="flex gap-1 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
-                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
-              </div>
-            </div>
-          )}
 
         {/* Error */}
         {chat.error && (
@@ -334,6 +328,34 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
 }
 
 // --- Sub-components ---
+
+function StreamSegmentView({ segment }: { segment: StreamSegment }) {
+  if (segment.type === "text") {
+    return (
+      <div className="mb-2">
+        <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs dark:bg-slate-800">
+          <MarkdownRenderer content={segment.content} className="prose-xs" />
+        </div>
+      </div>
+    );
+  }
+
+  // Tool segment
+  const input = segment.input;
+  const callContent =
+    "query" in input ? String(input.query) :
+    "path" in input ? String(input.path) :
+    JSON.stringify(input);
+
+  return (
+    <ToolCard
+      tool={segment.tool}
+      callId={segment.callId}
+      callContent={callContent}
+      result={segment.result}
+    />
+  );
+}
 
 function ChatBubble({
   message,

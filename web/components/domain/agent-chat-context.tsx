@@ -17,27 +17,26 @@ export type ToolResultMeta = {
 };
 
 export type StreamEvent = {
-  type:
-    | "token"
-    | "tool_call"
-    | "tool_result"
-    | "done"
-    | "error"
-    | "message_id"
-    | "conversation_id";
-  content: string;
+  type: "text" | "tool_start" | "tool_end" | "msg_start" | "msg_end" | "conv_id" | "error";
+  content?: string;
+  convId?: string;
+  msgId?: string;
+  callId?: string;
   tool?: string;
+  input?: Record<string, unknown>;
   meta?: ToolResultMeta;
 };
 
 export type ChatMessage = {
   id: string;
-  role: "user" | "assistant" | "tool_call" | "tool_result";
+  role: "user" | "assistant" | "tool_result";
   content: string;
   docRefs: string[];
   toolName?: string;
   toolInput?: string;
   toolMeta?: ToolResultMeta;
+  toolCallId?: string;
+  toolCalls?: string;
   createdAt: string;
 };
 
@@ -50,18 +49,21 @@ export type Conversation = {
   messages: ChatMessage[];
 };
 
-export type ToolExecution = {
-  tool: string;
-  callContent: string;
-  result?: { content: string; meta?: ToolResultMeta };
-};
+export type StreamSegment =
+  | { type: "text"; content: string }
+  | {
+      type: "tool";
+      callId: string;
+      tool: string;
+      input: Record<string, unknown>;
+      result?: { meta?: ToolResultMeta };
+    };
 
 type State = {
   conversations: Conversation[];
   activeConversationId: string | null;
   isStreaming: boolean;
-  streamingContent: string;
-  toolExecutions: ToolExecution[];
+  streamSegments: StreamSegment[];
   error: string | null;
 };
 
@@ -73,17 +75,11 @@ type Action =
   | { type: "UPDATE_TITLE"; id: string; title: string }
   | { type: "SET_MESSAGES"; id: string; messages: ChatMessage[] }
   | { type: "ADD_MESSAGE"; id: string; message: ChatMessage }
-  | { type: "STREAM_START" }
-  | { type: "STREAM_TOKEN"; content: string }
-  | { type: "STREAM_TOOL_CALL"; tool: string; content: string }
-  | {
-      type: "STREAM_TOOL_RESULT";
-      tool: string;
-      content: string;
-      meta?: ToolResultMeta;
-    }
-  | { type: "STREAM_END" }
-  | { type: "CLEAR_STREAMING" }
+  | { type: "MSG_START" }
+  | { type: "STREAM_TEXT"; content: string }
+  | { type: "TOOL_START"; callId: string; tool: string; input: Record<string, unknown> }
+  | { type: "TOOL_END"; callId: string; meta?: ToolResultMeta }
+  | { type: "MSG_END" }
   | { type: "SET_ERROR"; error: string | null };
 
 function reducer(state: State, action: Action): State {
@@ -94,8 +90,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         activeConversationId: action.id,
-        streamingContent: "",
-        toolExecutions: [],
+        streamSegments: [],
         error: null,
       };
     case "ADD_CONVERSATION":
@@ -140,51 +135,41 @@ function reducer(state: State, action: Action): State {
             : c,
         ),
       };
-    case "STREAM_START":
+    case "MSG_START":
       return {
         ...state,
         isStreaming: true,
-        streamingContent: "",
-        toolExecutions: [],
+        streamSegments: [],
         error: null,
       };
-    case "STREAM_TOKEN":
+    case "STREAM_TEXT": {
+      const segments = [...state.streamSegments];
+      const last = segments[segments.length - 1];
+      if (last && last.type === "text") {
+        segments[segments.length - 1] = { type: "text", content: last.content + action.content };
+      } else {
+        segments.push({ type: "text", content: action.content });
+      }
+      return { ...state, streamSegments: segments };
+    }
+    case "TOOL_START":
       return {
         ...state,
-        streamingContent: state.streamingContent + action.content,
-      };
-    case "STREAM_TOOL_CALL":
-      return {
-        ...state,
-        toolExecutions: [
-          ...state.toolExecutions,
-          { tool: action.tool, callContent: action.content },
+        streamSegments: [
+          ...state.streamSegments,
+          { type: "tool", callId: action.callId, tool: action.tool, input: action.input },
         ],
       };
-    case "STREAM_TOOL_RESULT": {
-      // Find the last execution with matching tool that has no result yet
-      const execs = [...state.toolExecutions];
-      let matched = false;
-      for (let i = execs.length - 1; i >= 0; i--) {
-        const exec = execs[i];
-        if (exec && exec.tool === action.tool && !exec.result) {
-          execs[i] = {
-            ...exec,
-            result: { content: action.content, meta: action.meta },
-          };
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        console.warn("STREAM_TOOL_RESULT: no matching unresolved tool execution", action.tool);
-      }
-      return { ...state, toolExecutions: execs };
+    case "TOOL_END": {
+      const segments = state.streamSegments.map((seg) =>
+        seg.type === "tool" && seg.callId === action.callId
+          ? { ...seg, result: { meta: action.meta } }
+          : seg,
+      );
+      return { ...state, streamSegments: segments };
     }
-    case "STREAM_END":
-      return { ...state, isStreaming: false };
-    case "CLEAR_STREAMING":
-      return { ...state, streamingContent: "", toolExecutions: [] };
+    case "MSG_END":
+      return { ...state, isStreaming: false, streamSegments: [] };
     case "SET_ERROR":
       return { ...state, error: action.error, isStreaming: false };
   }
@@ -200,7 +185,7 @@ const TOOL_META_FIELDS = `toolMeta {
   webSources { title url }
 }`;
 
-const MESSAGE_FIELDS = `id role content docRefs toolName toolInput ${TOOL_META_FIELDS} createdAt`;
+const MESSAGE_FIELDS = `id role content docRefs toolName toolInput ${TOOL_META_FIELDS} toolCallId toolCalls createdAt`;
 const CONVERSATION_FIELDS = `id vaultId title createdAt updatedAt messages { ${MESSAGE_FIELDS} }`;
 
 async function graphqlQuery<T>(
@@ -249,8 +234,7 @@ const initialState: State = {
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
-  streamingContent: "",
-  toolExecutions: [],
+  streamSegments: [],
   error: null,
 };
 
@@ -265,7 +249,11 @@ export function AgentChatProvider({
   const abortRef = useRef<AbortController | null>(null);
   const loadedVaultRef = useRef<string | null>(null);
   const stateRef = useRef(state);
-  stateRef.current = state;
+
+  // Keep stateRef in sync for use in async callbacks
+  useEffect(() => {
+    stateRef.current = state;
+  });
 
   // Abort any in-flight stream on unmount
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -400,7 +388,7 @@ export function AgentChatProvider({
     const controller = new AbortController();
     abortRef.current = controller;
 
-    dispatch({ type: "STREAM_START" });
+    dispatch({ type: "MSG_START" });
 
     // Add optimistic user message
     const convId = state.activeConversationId;
@@ -466,26 +454,26 @@ export function AgentChatProvider({
             }
 
             switch (event.type) {
-              case "token":
-                dispatch({ type: "STREAM_TOKEN", content: event.content });
+              case "text":
+                dispatch({ type: "STREAM_TEXT", content: event.content ?? "" });
                 break;
-              case "tool_call":
+              case "tool_start":
                 dispatch({
-                  type: "STREAM_TOOL_CALL",
+                  type: "TOOL_START",
+                  callId: event.callId ?? "",
                   tool: event.tool ?? "",
-                  content: event.content,
+                  input: event.input ?? {},
                 });
                 break;
-              case "tool_result":
+              case "tool_end":
                 dispatch({
-                  type: "STREAM_TOOL_RESULT",
-                  tool: event.tool ?? "",
-                  content: event.content,
+                  type: "TOOL_END",
+                  callId: event.callId ?? "",
                   meta: event.meta,
                 });
                 break;
-              case "conversation_id":
-                newConvId = event.content;
+              case "conv_id":
+                newConvId = event.convId ?? event.content ?? "";
                 // Reload conversations to get the new one
                 if (vaultId) {
                   loadedVaultRef.current = null;
@@ -494,9 +482,9 @@ export function AgentChatProvider({
                 dispatch({ type: "SET_ACTIVE", id: newConvId });
                 break;
               case "error":
-                dispatch({ type: "SET_ERROR", error: event.content });
+                dispatch({ type: "SET_ERROR", error: event.content ?? "Unknown error" });
                 break;
-              case "done": {
+              case "msg_end": {
                 // Reload the conversation to get the final messages
                 if (newConvId) {
                   try {
@@ -520,8 +508,6 @@ export function AgentChatProvider({
                         id: newConvId,
                         title: data.conversation.title,
                       });
-                      // Clear transient streaming state now that persisted messages are loaded
-                      dispatch({ type: "CLEAR_STREAMING" });
                     }
                   } catch (err) {
                     console.error("Failed to reload conversation:", err);
@@ -534,6 +520,7 @@ export function AgentChatProvider({
                     });
                   }
                 }
+                dispatch({ type: "MSG_END" });
                 break;
               }
             }
@@ -545,8 +532,6 @@ export function AgentChatProvider({
           type: "SET_ERROR",
           error: err instanceof Error ? err.message : "Stream failed",
         });
-      } finally {
-        dispatch({ type: "STREAM_END" });
       }
     };
 
