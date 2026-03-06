@@ -1,14 +1,14 @@
 # SurrealDB
 
-Technical learnings about SurrealDB v3.0 patterns and gotchas.
+Technical learnings about SurrealDB v3.0 patterns and gotchas. Updated for v3.0.2.
 
 ## HNSW Vector Index
 
 ### Definition
 
 ```sql
-DEFINE INDEX idx_entity_embedding ON entity FIELDS embedding
-    HNSW DIMENSION 1024 DIST COSINE TYPE F32 EFC 150 M 12;
+DEFINE INDEX idx_chunk_embedding ON chunk FIELDS embedding
+    HNSW DIMENSION 1024 DIST COSINE TYPE F32 EFC 150 M 12 HASHED_VECTOR;
 ```
 
 Parameters:
@@ -17,13 +17,13 @@ Parameters:
 - `TYPE F32` - 32-bit floats
 - `EFC 150` - Expansion factor at construction (higher = better quality, slower build)
 - `M 12` - Max connections per node (higher = better recall, more memory)
+- `HASHED_VECTOR` - (v3.0.0+) Uses BLAKE3 hash as storage key instead of full vector, reducing storage overhead
 
 ### Gotchas
 
 1. **Dimension changes require fresh DB** - Can't ALTER index dimension
 2. **Optional embeddings** - Use `option<array<float>>` for nullable
-3. **Batch inserts** - HNSW builds during insert, can be slow for large batches
-4. **HNSW rejects NONE values** - Even on `option<array<float>>` fields, the HNSW index cannot index NONE values. Setting `embedding = NONE` in a CREATE statement causes: `Couldn't coerce value for field 'embedding': Expected 'array' but found 'NONE'`. **Fix**: Omit the embedding field entirely from the CREATE statement when no embedding is available. The async embedding worker can UPDATE the field later — UPDATE works fine because it replaces NONE with the actual vector.
+3. **HNSW rejects NONE values** - Even on `option<array<float>>` fields, the HNSW index cannot index NONE values. Setting `embedding = NONE` in a CREATE statement causes: `Couldn't coerce value for field 'embedding': Expected 'array' but found 'NONE'`. **Fix**: Omit the embedding field entirely from the CREATE statement when no embedding is available. The async embedding worker can UPDATE the field later — UPDATE works fine because it replaces NONE with the actual vector.
 
 ```sql
 -- BAD: HNSW chokes on NONE
@@ -35,6 +35,80 @@ CREATE chunk SET content = $content
 UPDATE chunk:xyz SET embedding = $embedding
 ```
 
+## Database-Level Strict Mode
+
+In v3.0, `--strict` server flag was replaced by per-database strictness:
+
+```sql
+DEFINE DATABASE IF NOT EXISTS mydb STRICT;
+```
+
+This is better than server-wide strictness — allows mixing strict and non-strict databases on the same instance. Non-existent tables error in strict mode instead of silently returning empty arrays.
+
+## Async Events
+
+Events can run asynchronously with bounded retries (v3.0.0+):
+
+```sql
+DEFINE EVENT cascade_delete ON document
+WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+    DELETE FROM chunk WHERE document = $before.id
+};
+```
+
+- `ASYNC` - Event runs in background after commit (keeps writes fast)
+- `RETRY n` - Bounded retries on failure
+- Eventually consistent, may be out of order across events
+- If all retries fail, the event is silently dropped — orphaned records possible
+- Use for cascade deletes and non-critical side effects where eventual consistency is acceptable
+
+## SDK Transactions (v1.3.0+)
+
+Interactive transactions via the Go SDK — replaces multi-statement workarounds with proper ACID guarantees:
+
+```go
+tx, err := db.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Cancel(ctx) // safe if already committed
+
+_, err = surrealdb.Query[any](ctx, tx, "DELETE FROM document WHERE vault = $v", vars)
+if err != nil {
+    return err
+}
+
+err = tx.Commit(ctx)
+```
+
+Key points:
+- `*Transaction` satisfies the `sendable` constraint (the SDK's interface accepted by `surrealdb.Query[T]()`) — all query calls work unchanged, just pass `tx` instead of `db`
+- `tx.Cancel()` returns an error if already committed — safe to ignore in defer
+- WebSocket-only (not HTTP connections)
+- Transactions inherit auth/namespace/database from the session that started them
+
+### When to use transactions vs multi-statement
+
+- **Transactions**: When atomicity matters (e.g., deleting vault + all its data)
+- **Multi-statement** (`sql1; sql2`): Still useful for read-only operations where atomicity doesn't matter but you want fewer round-trips
+
+## SDK Error Types
+
+The Go SDK provides three error types (v1.4.0+):
+
+| Type | When | Use |
+|------|------|-----|
+| `RPCError` | Transport/protocol failures | Retriable |
+| `QueryError` | SurrealQL syntax/type errors | Not retriable |
+| `ServerError` | Structured v3 errors with Kind/Details/Cause chain | Branch on `Kind` for specific handling |
+
+```go
+var se *surrealdb.ServerError
+if errors.As(err, &se) {
+    fmt.Println(se.Kind, se.Details) // e.g. "NotFound", "NotAllowed"
+}
+```
+
 ## v3.0 Breaking Changes
 
 ### KNN Operator
@@ -44,28 +118,60 @@ UPDATE chunk:xyz SET embedding = $embedding
 vector::distance::knn(embedding, $query_vec)
 
 -- v3.0 (new)
-embedding <|10,COSINE|> $query_vec
+embedding <|10|> $query_vec
 ```
 
 The `<|K,DIST|>` operator:
 - K = number of nearest neighbors
-- DIST = distance metric (COSINE, EUCLIDEAN, etc.)
+- DIST = distance metric (COSINE, EUCLIDEAN, etc.) — optional, defaults to the index's configured metric
 - Returns pre-filtered results from HNSW index
+- In this codebase we omit DIST since the index already specifies `DIST COSINE`
 
 ### Fulltext Search
 
 ```sql
--- BM25 scoring with analyzer
-DEFINE ANALYZER entity_analyzer
+DEFINE ANALYZER knowhow_analyzer
     TOKENIZERS class
     FILTERS lowercase, ascii, snowball(english);
 
-DEFINE INDEX idx_content_ft ON entity FIELDS content
-    FULLTEXT ANALYZER entity_analyzer BM25;
+DEFINE INDEX idx_content_ft ON chunk FIELDS content
+    FULLTEXT ANALYZER knowhow_analyzer BM25;
 
 -- Query
-SELECT * FROM entity WHERE content @@ 'search terms';
+SELECT * FROM chunk WHERE content @@ 'search terms';
 ```
+
+### Other Breaking Changes (v3.0.0)
+
+- `type::thing()` → `type::record()`
+- `rand::guid()` → `rand::id()`
+- `duration::from::*` → `duration::from_*`
+- `string::is::*` → `string::is_*`
+- `DEFINE TOKEN` / `DEFINE SCOPE` removed
+- `MTREE` index removed (use HNSW)
+- `SEARCH ANALYZER` → `FULLTEXT ANALYZER`
+- `PARALLEL` clause removed from SELECT
+- `LET` keyword now mandatory: `$x = 10` → `LET $x = 10`
+- `.id` idiom removed → use `.id()` function
+- Similarity operators (`~`, `!~`, `?~`, `*~`) removed → use `string::similarity::*` functions
+- Reserved words need backtick escaping (not angle brackets)
+
+### v3.0.2 Critical Fixes
+
+- **RRF scoring bug fixed**: `search::rrf()` returned incorrect results in all pre-v3.0.2 versions (Rust min/max heap mixup)
+- **Parameterized BM25 fixed**: `content @0@ $query` with bind parameters was silently broken in v3.0.0–v3.0.1 — only literal strings worked
+- **DEFINE FUNCTION parse bug fixed**: String literals containing colons in function bodies were corrupted to record IDs
+
+### New in v3.0.0
+
+- **Streaming execution engine**: Pipelines data as streams instead of loading entire datasets into memory
+- **COMPUTED fields**: `DEFINE FIELD chunk_count ON document VALUE (SELECT count() FROM chunk WHERE document = $this GROUP ALL)[0].count ?? 0` — recalculates on every read, cannot be indexed
+- **ALTER FIELD**: Modify field definitions without full redefine
+- **ALTER COMPACT**: Trigger storage compaction at runtime
+- **DEFINE API**: Custom HTTP endpoints inside SurrealDB
+- **Duration arithmetic**: `1h * 3` = `3h`, `1h / 2` = `30m`
+- **HNSW concurrent writes**: Multiple writers no longer block each other
+- **HNSW bulk insert**: Fixed O(N²) memory explosion on bulk insert
 
 ## Record ID Handling
 
@@ -97,41 +203,25 @@ func RecordIDString(id any) (string, error) {
 **Fix**: Strip the table prefix at the DB boundary with a `bareID` helper:
 
 ```go
-// bareID strips the "table:" prefix if present.
-// Callers can pass either "default" or "vault:default" — both work.
 func bareID(table, id string) string {
     return strings.TrimPrefix(id, table+":")
 }
-
-// Usage in queries
-vars := map[string]any{
-    "vault_id": bareID("vault", vaultID),
-}
 ```
 
-Apply `bareID` to **every** query parameter that feeds into `type::record()`. Missing even one causes silent empty results that are hard to debug.
+Apply `bareID` to **every** query parameter that feeds into `type::record()`.
 
 ### `INSIDE` Requires Typed Record IDs, Not Strings
 
-When using `id INSIDE $ids` to batch-fetch records, the Go SDK's CBOR layer distinguishes record IDs from strings. Passing `[]string{"document:abc123"}` will **silently match nothing** — SurrealDB compares a `record<document>` field against plain strings and they never equal.
+When using `id INSIDE $ids` to batch-fetch records, the Go SDK's CBOR layer distinguishes record IDs from strings. Passing `[]string{"document:abc123"}` will **silently match nothing**.
 
 **Fix**: Pass `[]surrealmodels.RecordID` so the SDK serializes proper CBOR record IDs:
 
 ```go
-// BAD: strings look like record IDs but aren't — silent empty results
-recordIDs := make([]string, len(ids))
-for i, id := range ids {
-    recordIDs[i] = "document:" + id
-}
-
-// GOOD: typed record IDs via SDK
 recordIDs := make([]surrealmodels.RecordID, len(ids))
 for i, id := range ids {
     recordIDs[i] = newRecordID("document", bareID("document", id))
 }
 ```
-
-This applies to any query that passes an array of IDs for `INSIDE`, `CONTAINSANY`, or similar set operations.
 
 ## Hybrid Search Pattern
 
@@ -139,34 +229,22 @@ Combine vector and fulltext search with RRF:
 
 ```sql
 LET $vec_results = (
-    SELECT id, name, content, labels,
-           embedding <|20,COSINE|> $embedding AS vec_score
-    FROM entity
-    WHERE embedding <|20,COSINE|> $embedding
+    SELECT id, content, embedding <|20|> $embedding AS vec_score
+    FROM chunk
+    WHERE embedding <|20|> $embedding
 );
 
 LET $ft_results = (
-    SELECT id, name, content, labels,
-           search::score(0) AS ft_score
-    FROM entity
+    SELECT id, content, search::score(0) AS ft_score
+    FROM chunk
     WHERE content @0@ $query
     LIMIT 20
 );
-
--- RRF fusion
-SELECT id, name, content, labels,
-       math::sum(1.0 / (60 + vec_rank), 1.0 / (60 + ft_rank)) AS rrf_score
-FROM (
-    SELECT *, array::find_index($vec_results.id, id) AS vec_rank
-    FROM $vec_results
-) UNION ALL (
-    SELECT *, array::find_index($ft_results.id, id) AS ft_rank
-    FROM $ft_results
-)
-GROUP BY id
-ORDER BY rrf_score DESC
-LIMIT $limit;
 ```
+
+RRF fusion is performed in Go code (`search.rrfFusion()`), not in SurrealQL.
+
+**Important**: Must be on v3.0.2+ for correct RRF scoring and parameterized BM25.
 
 ## Query Gotchas
 
@@ -175,55 +253,25 @@ LIMIT $limit;
 As of v3.0.2, parenthesized OR conditions in WHERE clauses can cause parse errors:
 
 ```sql
--- FAILS: parse error "Unexpected token `an identifier` expected delimiter `)`"
-DELETE FROM folder WHERE vault = type::record("vault", $id)
-  AND (path = $path OR string::starts_with(path, $prefix))
-```
+-- FAILS: parse error
+DELETE FROM folder WHERE vault = $v AND (path = $p OR string::starts_with(path, $prefix))
 
-**Workaround**: Split into two separate queries:
-
-```sql
-DELETE FROM folder WHERE vault = type::record("vault", $id) AND path = $path;
-DELETE FROM folder WHERE vault = type::record("vault", $id) AND string::starts_with(path, $prefix);
+-- WORKAROUND: split into separate queries (use a transaction if atomicity needed)
 ```
 
 ### Negative Array Indexing
 
-Bracket-based negative indexing (`[-1]`) is unreliable in SurrealQL — it returns NONE instead of the last element. Use `array::last()` or `array::at()` instead:
+Bracket-based negative indexing (`[-1]`) is unreliable — returns NONE. Use `array::last()` or `array::at()` instead.
 
-```sql
--- BAD: returns NONE
-string::split("/a/b/c", "/")[-1]
+### `STARTS WITH` vs `string::starts_with()`
 
--- GOOD: returns "c"
-array::last(string::split("/a/b/c", "/"))
-```
-
-### `STARTS WITH` Operator vs `string::starts_with()`
-
-The `STARTS WITH` operator can fail in compound WHERE clauses. Use the `string::starts_with()` function instead:
-
-```sql
--- May fail in compound WHERE
-SELECT * FROM folder WHERE vault = $v AND path STARTS WITH $prefix
-
--- Reliable
-SELECT * FROM folder WHERE vault = $v AND string::starts_with(path, $prefix)
-```
+The `STARTS WITH` operator can fail in compound WHERE clauses. Use `string::starts_with()` function instead.
 
 ## Performance Patterns
 
 ### Batch INSERT to Avoid N+1
 
-Instead of looping over rows in Go and sending one INSERT per iteration, use `INSERT INTO table $rows` with an array parameter. This sends a single query regardless of how many rows are being inserted:
-
 ```go
-// BAD: N round-trips for N folders
-for _, f := range folders {
-    surrealdb.Query(ctx, db, `INSERT INTO folder { vault: $v, path: $p, name: $n }`, ...)
-}
-
-// GOOD: 1 round-trip for N folders
 rows := make([]map[string]any, len(folders))
 for i, f := range folders {
     rows[i] = map[string]any{"vault": vaultRecord, "path": f.Path, "name": f.Name}
@@ -231,45 +279,11 @@ for i, f := range folders {
 surrealdb.Query(ctx, db, `INSERT INTO folder $rows ON DUPLICATE KEY UPDATE id = id`, map[string]any{"rows": rows})
 ```
 
-**Important**: For `record<T>` fields in batch inserts, pass typed `surrealmodels.RecordID` values (not strings). The `type::record()` function doesn't work inside `INSERT ... $rows` — the rows are treated as literal objects.
-
-This also works with `ON DUPLICATE KEY UPDATE id = id` for idempotent upserts.
-
-### Multi-Statement Queries to Reduce Round-Trips
-
-Send multiple statements separated by `;` in a single `surrealdb.Query` call. Each statement returns its own result set in the response array. All statements share the same parameter map:
-
-```go
-// BAD: 4 round-trips
-surrealdb.Query(ctx, db, `DELETE FROM document WHERE vault = $v`, vars)
-surrealdb.Query(ctx, db, `DELETE FROM folder WHERE vault = $v`, vars)
-surrealdb.Query(ctx, db, `DELETE FROM template WHERE vault = $v`, vars)
-surrealdb.Query(ctx, db, `DELETE type::record("vault", $id)`, vars)
-
-// GOOD: 1 round-trip, 4 result sets
-sql := `DELETE FROM document WHERE vault = $v;` +
-    `DELETE FROM folder WHERE vault = $v;` +
-    `DELETE FROM template WHERE vault = $v;` +
-    `DELETE type::record("vault", $id)`
-surrealdb.Query(ctx, db, sql, vars)
-```
-
-**Counting results across statements**: Use `RETURN BEFORE` and iterate all result sets:
-
-```go
-results, err := surrealdb.Query[[]MyType](ctx, db, sql, vars)
-count := 0
-if results != nil {
-    for _, r := range *results {
-        count += len(r.Result)
-    }
-}
-```
-
-**Note**: Multi-statement queries are NOT transactions — each statement commits independently. Use `BEGIN TRANSACTION; ...; COMMIT TRANSACTION;` if atomicity is needed. However, multi-statement is still useful for reducing network latency when atomicity isn't critical.
+**Important**: For `record<T>` fields in batch inserts, pass typed `surrealmodels.RecordID` values (not strings). The `type::record()` function doesn't work inside `INSERT ... $rows`.
 
 ## Connection Best Practices
 
 - Use `rews` (reconnecting websocket) for production
 - Force HTTP/1.1 for WSS to prevent ALPN issues
 - Use CBOR codec (`surrealcbor`) for proper type handling
+- `surrealdb.New()` and `surrealdb.Connect()` are deprecated — use `surrealdb.FromEndpointURLString()` or `surrealdb.FromConnection()` for custom connections (like rews)

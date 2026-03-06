@@ -255,8 +255,14 @@ func (c *Client) DB() *surrealdb.DB {
 // InitSchema initializes the database schema with the given embedding dimension.
 func (c *Client) InitSchema(ctx context.Context, embedDimension int) error {
 	c.logger.Info("initializing database schema", "embed_dimension", embedDimension)
-	_, err := surrealdb.Query[any](ctx, c.db, SchemaSQL(embedDimension), nil)
-	if err != nil {
+
+	// Enable strict mode on the database (v3.0+: per-database, replaces --strict flag)
+	strictSQL := fmt.Sprintf("DEFINE DATABASE IF NOT EXISTS %s STRICT", c.cfg.Database)
+	if _, err := surrealdb.Query[any](ctx, c.db, strictSQL, nil); err != nil {
+		return fmt.Errorf("define database strict: %w", err)
+	}
+
+	if _, err := surrealdb.Query[any](ctx, c.db, SchemaSQL(embedDimension), nil); err != nil {
 		return fmt.Errorf("init schema: %w", err)
 	}
 	c.logger.Info("schema initialization complete")

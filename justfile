@@ -163,9 +163,15 @@ web-lint:
 dev-all: db-up
     #!/usr/bin/env bash
     set -e
-    trap 'kill 0' EXIT
+    cleanup() {
+        kill %1 %2 2>/dev/null
+        wait %1 %2 2>/dev/null
+        printf '\e[?1l\e[>0q' 2>/dev/null
+        stty sane 2>/dev/null
+    }
+    trap cleanup EXIT INT TERM
     air &
-    cd web && bun run dev --port 4000 &
+    (cd web && bun run dev --port 4000) &
     wait
 
 # --- Prod-local Docker stack (Bedrock via Teleport proxy) ---

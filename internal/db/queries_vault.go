@@ -95,14 +95,31 @@ func (c *Client) ListVaults(ctx context.Context) ([]models.Vault, error) {
 }
 
 func (c *Client) DeleteVault(ctx context.Context, id string) error {
-	// Single multi-statement query: delete all vault data + the vault itself.
-	// Document cascade events handle chunks, wiki_links, and relations.
-	sql := `DELETE FROM document WHERE vault = type::record("vault", $id);` +
-		`DELETE FROM folder WHERE vault = type::record("vault", $id);` +
-		`DELETE FROM template WHERE vault = type::record("vault", $id);` +
-		`DELETE type::record("vault", $id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
-		return fmt.Errorf("delete vault (documents+folders+templates+vault): %w", err)
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("delete vault begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit; rollback failure is unrecoverable
+
+	// Delete all vault data, then the vault itself.
+	// Document cascade events (ASYNC) handle chunks, wiki_links, and relations after commit.
+	vars := map[string]any{"id": id}
+	for _, t := range []struct {
+		name string
+		sql  string
+	}{
+		{"document", `DELETE FROM document WHERE vault = type::record("vault", $id)`},
+		{"folder", `DELETE FROM folder WHERE vault = type::record("vault", $id)`},
+		{"template", `DELETE FROM template WHERE vault = type::record("vault", $id)`},
+		{"vault", `DELETE type::record("vault", $id)`},
+	} {
+		if _, err := surrealdb.Query[any](ctx, tx, t.sql, vars); err != nil {
+			return fmt.Errorf("delete vault %s: %w", t.name, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("delete vault commit: %w", err)
 	}
 	return nil
 }

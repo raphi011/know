@@ -2,7 +2,7 @@ package db
 
 import "fmt"
 
-// SchemaSQL returns the v2 database schema initialization SQL.
+// SchemaSQL returns the database schema initialization SQL.
 // The dimension parameter configures HNSW vector index dimensions.
 func SchemaSQL(dimension int) string {
 	return fmt.Sprintf(`
@@ -60,24 +60,26 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_document_labels        ON document FIELDS labels;
     DEFINE INDEX IF NOT EXISTS idx_document_vault_doctype ON document FIELDS vault, doc_type;
 
-    -- Cascade delete chunks, wiki_links, and versions when document deleted
+    -- Cascade delete chunks, wiki_links, and versions when document deleted.
+    -- ASYNC: runs after commit, eventually consistent. If all retries fail,
+    -- orphaned records may remain — acceptable trade-off for write performance.
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_chunks ON document
-    WHEN $event = "DELETE" THEN {
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM chunk WHERE document = $before.id
     };
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_versions ON document
-    WHEN $event = "DELETE" THEN {
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM document_version WHERE document = $before.id
     };
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_wiki_links ON document
-    WHEN $event = "DELETE" THEN {
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM wiki_link WHERE from_doc = $before.id OR to_doc = $before.id
     };
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_doc_relations ON document
-    WHEN $event = "DELETE" THEN {
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM doc_relation WHERE in = $before.id OR out = $before.id
     };
 
@@ -129,7 +131,7 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_chunk_embed_at   ON chunk FIELDS embed_at;
     DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER knowhow_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding  ON chunk FIELDS embedding
-        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12;
+        HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12 HASHED_VECTOR;
 
     -- ==========================================================================
     -- WIKI_LINK TABLE
@@ -193,7 +195,7 @@ func SchemaSQL(dimension int) string {
 
     -- Cascade: delete proposals when document is deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_proposals ON document
-    WHEN $event = "DELETE" THEN {
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM document_proposal WHERE document = $before.id
     };
 
@@ -244,7 +246,7 @@ func SchemaSQL(dimension int) string {
 
     -- Cascade: delete messages when conversation deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_conversation_messages ON conversation
-    WHEN $event = "DELETE" THEN {
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM message WHERE conversation = $before.id
     };
 `, dimension)

@@ -48,8 +48,14 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 		}
 	}
 
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("create chunks begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit; rollback failure is unrecoverable
+
 	if len(withoutEmbed) > 0 {
-		if _, err := surrealdb.Query[any](ctx, c.DB(),
+		if _, err := surrealdb.Query[any](ctx, tx,
 			"INSERT INTO chunk $chunks RETURN NONE", map[string]any{"chunks": withoutEmbed},
 		); err != nil {
 			return fmt.Errorf("create chunks (no embedding): %w", err)
@@ -57,13 +63,16 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 	}
 
 	if len(withEmbed) > 0 {
-		if _, err := surrealdb.Query[any](ctx, c.DB(),
+		if _, err := surrealdb.Query[any](ctx, tx,
 			"INSERT INTO chunk $chunks RETURN NONE", map[string]any{"chunks": withEmbed},
 		); err != nil {
 			return fmt.Errorf("create chunks (with embedding): %w", err)
 		}
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("create chunks commit: %w", err)
+	}
 	return nil
 }
 

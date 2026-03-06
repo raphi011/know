@@ -128,26 +128,39 @@ func (c *Client) DeleteFoldersByPrefix(ctx context.Context, vaultID, prefix stri
 	return c.deleteFolderTree(ctx, vaultID, folderPath)
 }
 
-// deleteFolderTree deletes a folder and all its children in a single multi-statement query.
+// deleteFolderTree deletes a folder and all its children in a transaction.
 // Two statements are needed because SurrealDB v3 doesn't support parenthesized OR in WHERE.
 // Returns the total number of deleted folders.
 func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath string) (int, error) {
 	prefix := folderPath + "/"
-
-	// Multi-statement: delete parent + children in one round-trip.
-	// Each statement returns its own result set.
-	sql := `DELETE FROM folder WHERE vault = type::record("vault", $vault_id) AND path = $path RETURN BEFORE;` +
-		`DELETE FROM folder WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) RETURN BEFORE`
-	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+	vars := map[string]any{
 		"vault_id": bareID("vault", vaultID),
 		"path":     folderPath,
 		"prefix":   prefix,
-	})
+	}
+
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("delete folder tree begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit; rollback failure is unrecoverable
+
+	r1, err := surrealdb.Query[[]models.Folder](ctx, tx,
+		`DELETE FROM folder WHERE vault = type::record("vault", $vault_id) AND path = $path RETURN BEFORE`, vars)
 	if err != nil {
 		return 0, fmt.Errorf("delete folder tree %q: %w", folderPath, err)
 	}
+	r2, err := surrealdb.Query[[]models.Folder](ctx, tx,
+		`DELETE FROM folder WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("delete folder tree children %q: %w", folderPath, err)
+	}
 
-	return countMultiResults(results), nil
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("delete folder tree commit: %w", err)
+	}
+
+	return countResults(r1) + countResults(r2), nil
 }
 
 // MoveFoldersByPrefix renames all folders whose path starts with oldPrefix,
@@ -160,39 +173,48 @@ func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newP
 	oldPrefix := oldFolderPath + "/"
 	newPrefix := newFolderPath + "/"
 
-	// Multi-statement: update root folder + children in one round-trip.
-	// Statement 1: rename the root folder itself (RETURN BEFORE for counting).
-	// Statement 2: rewrite child paths by replacing the old prefix with the new one.
-	sql := `UPDATE folder SET path = $new_path, name = $new_name WHERE vault = type::record("vault", $vault_id) AND path = $old_path RETURN BEFORE;` +
-		`UPDATE folder SET
-			path = string::concat($new_prefix, string::slice(path, string::len($old_prefix))),
-			name = array::last(string::split(string::concat($new_prefix, string::slice(path, string::len($old_prefix))), "/"))
-		WHERE vault = type::record("vault", $vault_id)
-		AND string::starts_with(path, $old_prefix)
-		RETURN BEFORE`
-	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+	vars := map[string]any{
 		"vault_id":   bareID("vault", vaultID),
 		"old_path":   oldFolderPath,
 		"new_path":   newFolderPath,
 		"new_name":   path.Base(newFolderPath),
 		"old_prefix": oldPrefix,
 		"new_prefix": newPrefix,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("move folders by prefix: %w", err)
 	}
 
-	return countMultiResults(results), nil
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("move folders begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit; rollback failure is unrecoverable
+
+	r1, err := surrealdb.Query[[]models.Folder](ctx, tx,
+		`UPDATE folder SET path = $new_path, name = $new_name WHERE vault = type::record("vault", $vault_id) AND path = $old_path RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("move folder root: %w", err)
+	}
+	r2, err := surrealdb.Query[[]models.Folder](ctx, tx,
+		`UPDATE folder SET
+			path = string::concat($new_prefix, string::slice(path, string::len($old_prefix))),
+			name = array::last(string::split(string::concat($new_prefix, string::slice(path, string::len($old_prefix))), "/"))
+		WHERE vault = type::record("vault", $vault_id)
+		AND string::starts_with(path, $old_prefix)
+		RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("move folder children: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("move folders commit: %w", err)
+	}
+
+	return countResults(r1) + countResults(r2), nil
 }
 
-// countMultiResults sums Result lengths across multi-statement query results.
-func countMultiResults[T any](results *[]surrealdb.QueryResult[[]T]) int {
-	if results == nil {
+// countResults returns the number of results from the first statement in a query response.
+func countResults[T any](results *[]surrealdb.QueryResult[[]T]) int {
+	if results == nil || len(*results) == 0 {
 		return 0
 	}
-	count := 0
-	for _, r := range *results {
-		count += len(r.Result)
-	}
-	return count
+	return len((*results)[0].Result)
 }
