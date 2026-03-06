@@ -62,6 +62,7 @@ services:
       AUTH_DISABLED: "true"
       BACKEND_URL: http://knowhow-server:8484
       SESSION_SECRET: prod-local-no-auth-not-used
+      APP_URL: http://localhost:5000
       NEXT_PHASE: ""
     depends_on:
       knowhow-server:
