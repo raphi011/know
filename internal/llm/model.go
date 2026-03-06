@@ -2,10 +2,14 @@ package llm
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +23,72 @@ import (
 	"github.com/raphi011/knowhow/internal/metrics"
 	"google.golang.org/genai"
 )
+
+// newBedrockChatModel creates a Bedrock-backed Claude chat model.
+//
+// HACK: works around two eino-ext bugs:
+//
+//  1. Config.HTTPClient (*http.Client) is passed to awsConfig.WithHTTPClient,
+//     but the AWS SDK's resolveCustomCABundle type-asserts it to
+//     *awshttp.BuildableClient and panics when AWS_CA_BUNDLE is set.
+//
+//  2. For the Bedrock path, eino-ext only passes the HTTP client to
+//     awsConfig.WithHTTPClient (for signing), NOT to option.WithHTTPClient
+//     (for actual API calls). So the Anthropic SDK always uses
+//     http.DefaultClient for Bedrock requests, ignoring Config.HTTPClient.
+//
+// Workaround: temporarily unset AWS_CA_BUNDLE to prevent the panic (bug 1),
+// and inject the CA into http.DefaultTransport so the Anthropic SDK's
+// http.DefaultClient trusts the proxy certificate (bug 2).
+//
+// TODO: remove this once eino-ext fixes both bugs.
+// See: docs/teleport-proxy.md (Issues 1 & 2)
+func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, error) {
+	caBundle := os.Getenv("AWS_CA_BUNDLE")
+	if caBundle != "" {
+		// Bug 1: unset to prevent AWS SDK panic
+		os.Unsetenv("AWS_CA_BUNDLE")
+		defer os.Setenv("AWS_CA_BUNDLE", caBundle)
+
+		// Bug 2: patch http.DefaultTransport with the CA so the Anthropic
+		// SDK's http.DefaultClient trusts the proxy certificate.
+		if err := addCAToDefaultTransport(caBundle); err != nil {
+			return nil, err
+		}
+	}
+
+	return claude.NewChatModel(ctx, &claude.Config{
+		ByBedrock: true,
+		Model:     model,
+	})
+}
+
+// addCAToDefaultTransport appends a PEM CA certificate to http.DefaultTransport's
+// TLS root CAs. This is process-global but necessary because the Anthropic SDK
+// uses http.DefaultClient for Bedrock API calls.
+func addCAToDefaultTransport(caPath string) error {
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return fmt.Errorf("read CA bundle %s: %w", caPath, err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	pool.AppendCertsFromPEM(caPEM)
+
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return fmt.Errorf("http.DefaultTransport is not *http.Transport")
+	}
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.RootCAs = pool
+
+	return nil
+}
 
 // ErrFatalAPI indicates a non-recoverable API error (billing, auth, etc.)
 // that should stop all further LLM operations.
@@ -129,11 +199,7 @@ func NewModel(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*M
 		}
 
 	case config.ProviderBedrock:
-		// AWS SDK auto-detects region from AWS_REGION env var
-		chatModel, err = claude.NewChatModel(ctx, &claude.Config{
-			ByBedrock: true,
-			Model:     cfg.LLMModel,
-		})
+		chatModel, err = newBedrockChatModel(ctx, cfg.LLMModel)
 		if err != nil {
 			return nil, fmt.Errorf("create bedrock model: %w", err)
 		}

@@ -30,7 +30,7 @@
   "login": {
     "title": "Connect to Knowhow",
     "subtitle": "Enter your server URL and API token.",
-    "serverUrl": "Server URL (e.g. http://localhost:8484/query)",
+    "serverUrl": "Server URL (e.g. http://localhost:4001/query)",
     "apiToken": "API token (kh_...)",
     "serverName": "Name (optional, e.g. Work)",
     "connect": "Connect",

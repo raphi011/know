@@ -5,7 +5,7 @@ set dotenv-load := true
 set positional-arguments := true
 
 # SurrealDB defaults (matching docker-compose)
-export SURREALDB_URL := env_var_or_default("SURREALDB_URL", "ws://localhost:8000/rpc")
+export SURREALDB_URL := env_var_or_default("SURREALDB_URL", "ws://localhost:4002/rpc")
 export SURREALDB_NAMESPACE := env_var_or_default("SURREALDB_NAMESPACE", "knowledge")
 export SURREALDB_DATABASE := env_var_or_default("SURREALDB_DATABASE", "graph")
 export SURREALDB_USER := env_var_or_default("SURREALDB_USER", "root")
@@ -26,8 +26,8 @@ export KNOWHOW_CHUNK_MIN_SIZE := env_var_or_default("KNOWHOW_CHUNK_MIN_SIZE", "2
 export KNOWHOW_CHUNK_MAX_SIZE := env_var_or_default("KNOWHOW_CHUNK_MAX_SIZE", "1500")
 
 # Server defaults
-export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "8484")
-export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:8484/query")
+export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "4001")
+export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:4001/query")
 
 # Web defaults
 export SESSION_SECRET := env_var_or_default("SESSION_SECRET", "dev-secret-not-for-production-use-only")
@@ -97,7 +97,7 @@ run *args: build
 
 # Start development environment without running the server
 dev-setup: db-up
-    @echo "SurrealDB running at localhost:8000"
+    @echo "SurrealDB running at localhost:4002"
     @echo "Run 'just dev' to start the server, or '{{build_dir}}/knowhow <command>' for CLI"
 
 # Regenerate GraphQL code
@@ -120,17 +120,17 @@ ollama-pull-llm model="qwen2.5:1.5b":
 
 # Start SurrealDB
 db-up:
-    docker-compose up -d surrealdb
+    docker compose up -d surrealdb
 
 # Stop SurrealDB
 db-down:
-    docker-compose down
+    docker compose down
 
 # Remove binaries and stop containers
 clean:
     rm -rf {{build_dir}}
     rm -rf tmp
-    docker-compose down -v
+    docker compose down -v
 
 # --- Web frontend ---
 
@@ -140,7 +140,7 @@ web-install:
 
 # Start web dev server
 web-dev:
-    cd web && bun run dev
+    cd web && bun run dev --port 4000
 
 # Build web for production
 web-build:
@@ -166,23 +166,36 @@ dev-all: db-up
     set -e
     trap 'kill 0' EXIT
     air &
-    cd web && bun run dev &
+    cd web && bun run dev --port 4000 &
     wait
 
-# --- Local no-auth Docker stack ---
+# --- Prod-local Docker stack (Bedrock via Teleport proxy) ---
 
-# Start local no-auth stack (SurrealDB + bootstrap + server + web)
-local-up:
-    docker compose -f docker-compose.local.yml up --build
+# Start prod stack (persistent DB + Bedrock server + web, no auth)
+prod:
+    docker compose -f docker-compose.prod.yml up --build -d
 
-# Stop and remove local no-auth stack
-local-down:
-    docker compose -f docker-compose.local.yml down
+# Stop prod stack
+prod-down:
+    docker compose -f docker-compose.prod.yml down
 
-# Reset local data (removes persisted SurrealDB data)
-local-reset:
-    docker compose -f docker-compose.local.yml down -v
+# Reset prod stack (wipe DB + data)
+prod-reset:
+    docker compose -f docker-compose.prod.yml down -v
     rm -rf data/surreal
+
+# Bootstrap prod DB (start only surrealdb, run bootstrap, stop)
+prod-bootstrap: build-bootstrap
+    #!/usr/bin/env bash
+    set -e
+    docker compose -f docker-compose.prod.yml up -d surrealdb
+    echo "Waiting for SurrealDB to be healthy..."
+    until docker inspect --format='{{"{{.State.Health.Status}}"}}' knowhow-surrealdb-prod 2>/dev/null | grep -q healthy; do
+        sleep 1
+    done
+    echo "Running bootstrap..."
+    SURREALDB_URL="ws://localhost:5002/rpc" {{build_dir}}/bootstrap
+    echo "Bootstrap complete. Run 'just prod' to start the full stack."
 
 # Run all tests (Go + Web)
 test-all: test web-test

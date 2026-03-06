@@ -86,7 +86,7 @@ func (c Config) ChunkConfig() parser.ChunkConfig {
 func Load() Config {
 	return Config{
 		// SurrealDB
-		SurrealDBURL:       getEnv("SURREALDB_URL", "ws://localhost:8000/rpc"),
+		SurrealDBURL:       getEnv("SURREALDB_URL", "ws://localhost:4002/rpc"),
 		SurrealDBNamespace: getEnv("SURREALDB_NAMESPACE", "knowledge"),
 		SurrealDBDatabase:  getEnv("SURREALDB_DATABASE", "graph"),
 		SurrealDBUser:      getEnv("SURREALDB_USER", "root"),

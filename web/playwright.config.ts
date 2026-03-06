@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "html",
 
   use: {
-    baseURL: process.env.BASE_URL ?? "http://localhost:3000",
+    baseURL: process.env.BASE_URL ?? "http://localhost:4000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -31,8 +31,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "bun run dev",
-    url: "http://localhost:3000",
+    command: "bun run dev --port 4000",
+    url: "http://localhost:4000",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },
