@@ -46,9 +46,10 @@ import (
 func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, error) {
 	caBundle := os.Getenv("AWS_CA_BUNDLE")
 	if caBundle != "" {
-		// Bug 1: unset to prevent AWS SDK panic
-		os.Unsetenv("AWS_CA_BUNDLE")
-		defer os.Setenv("AWS_CA_BUNDLE", caBundle)
+		// Bug 1: unset to prevent AWS SDK panic.
+		// Errors from Unsetenv/Setenv are impossible here (key is a valid, non-empty string).
+		_ = os.Unsetenv("AWS_CA_BUNDLE")          //nolint:errcheck
+		defer func() { _ = os.Setenv("AWS_CA_BUNDLE", caBundle) }() //nolint:errcheck
 
 		// Bug 2: patch http.DefaultTransport with the CA so the Anthropic
 		// SDK's http.DefaultClient trusts the proxy certificate.
@@ -76,7 +77,9 @@ func addCAToDefaultTransport(caPath string) error {
 	if err != nil {
 		pool = x509.NewCertPool()
 	}
-	pool.AppendCertsFromPEM(caPEM)
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return fmt.Errorf("no valid certificates found in CA bundle %s", caPath)
+	}
 
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
