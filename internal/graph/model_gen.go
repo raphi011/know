@@ -28,6 +28,11 @@ type Conversation struct {
 	Messages  []*ChatMessage `json:"messages"`
 }
 
+type DiffResult struct {
+	Hunks []*DiffHunk `json:"hunks"`
+	Stats *DiffStats  `json:"stats"`
+}
+
 type Mutation struct {
 }
 

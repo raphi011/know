@@ -13,7 +13,6 @@ import (
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/llm"
-	"github.com/raphi011/knowhow/internal/review"
 	"github.com/raphi011/knowhow/internal/search"
 	"github.com/raphi011/knowhow/internal/template"
 	"github.com/raphi011/knowhow/internal/vault"
@@ -26,7 +25,6 @@ type Resolver struct {
 	documentService *document.Service
 	searchService   *search.Service
 	templateService *template.Service
-	reviewService   *review.Service
 	model           *llm.Model
 	agentService    *agent.Service
 	workerCancel    context.CancelFunc
@@ -116,7 +114,6 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		documentService: docService,
 		searchService:   searchSvc,
 		templateService: template.NewService(dbClient),
-		reviewService:   review.NewService(dbClient, docService),
 		model:           model,
 		agentService:    agentSvc,
 		workerDone:      workerDone,

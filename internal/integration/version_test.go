@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/vault"
 )
+
+func itoa(i int) string { return strconv.Itoa(i) }
 
 // TestVersionLifecycle exercises: version creation on update, coalescing,
 // retention cap, rollback, and cascade delete.

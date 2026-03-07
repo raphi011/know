@@ -38,7 +38,6 @@ type Document {
   backlinks: [WikiLink!]!
   relations: [DocRelation!]!
   queryBlocks: [QueryBlock!]!
-  proposals(status: ProposalStatus): [DocumentProposal!]!
   versions(limit: Int, offset: Int): DocumentVersionConnection!
 }
 
@@ -185,23 +184,8 @@ type ToolWebRef {
 }
 
 # =============================================================================
-# PROPOSAL TYPES
+# DIFF TYPES (used by version diff)
 # =============================================================================
-
-enum ProposalStatus {
-  PENDING
-  APPROVED
-  PARTIALLY_APPROVED
-  REJECTED
-  CONFLICT
-  EXPIRED
-}
-
-enum ProposalSource {
-  AI_SUGGESTED
-  AI_GENERATED
-  IMPORT
-}
 
 enum DiffLineType {
   CONTEXT
@@ -209,25 +193,8 @@ enum DiffLineType {
   DELETE
 }
 
-type DocumentProposal {
-  id: ID!
-  vaultId: ID!
-  document: Document!
-  proposedContent: String!
-  description: String
-  source: ProposalSource!
-  status: ProposalStatus!
-  originalHash: String!
-  hasConflict: Boolean!
-  reviewedAt: DateTime
-  reviewerNotes: String
-  createdAt: DateTime!
-  diff: ProposalDiff!
-}
-
-type ProposalDiff {
+type DiffResult {
   hunks: [DiffHunk!]!
-  hasConflict: Boolean!
   stats: DiffStats!
 }
 
@@ -327,20 +294,6 @@ input TemplateInput {
   isAITemplate: Boolean
 }
 
-input ProposeDocumentUpdateInput {
-  vaultId: ID!
-  path: String!
-  proposedContent: String!
-  description: String
-  source: ProposalSource
-}
-
-input ApproveHunksInput {
-  proposalId: ID!
-  hunkIndexes: [Int!]!
-  notes: String
-}
-
 # =============================================================================
 # QUERIES
 # =============================================================================
@@ -364,10 +317,6 @@ type Query {
   template(id: ID!): Template
   templates(vaultId: ID): [Template!]!
 
-  # Proposals
-  proposal(id: ID!): DocumentProposal
-  proposals(vaultId: ID!, status: ProposalStatus): [DocumentProposal!]!
-
   # Conversations
   conversations(vaultId: ID!): [Conversation!]!
   conversation(id: ID!): Conversation
@@ -378,7 +327,7 @@ type Query {
   # Versions
   documentVersion(id: ID!): DocumentVersion
   documentVersions(documentId: ID!, limit: Int, offset: Int): DocumentVersionConnection!
-  versionDiff(documentId: ID!, fromVersionId: ID, toVersionId: ID): ProposalDiff!
+  versionDiff(documentId: ID!, fromVersionId: ID, toVersionId: ID): DiffResult!
 }
 
 # =============================================================================
@@ -405,12 +354,6 @@ type Mutation {
   # Templates
   createTemplate(input: TemplateInput!): Template!
   deleteTemplate(id: ID!): Boolean!
-
-  # Proposals
-  proposeDocumentUpdate(input: ProposeDocumentUpdateInput!): DocumentProposal!
-  approveProposal(id: ID!, notes: String): Document!
-  approveProposalHunks(input: ApproveHunksInput!): Document!
-  rejectProposal(id: ID!, notes: String): Boolean!
 
   # Folders
   createFolder(vaultId: ID!, path: String!): Folder!
