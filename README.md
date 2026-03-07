@@ -310,65 +310,41 @@ The Vite dev server proxies `/query` requests to the Go server on port 8484.
 # - Conversations persist across page reloads
 ```
 
-## Document Proposals (Agent Approval System)
+## Agent Tool Approval (Human-in-the-Loop)
 
-AI agents can propose updates to existing documents, with a human-in-the-loop review system for approving or rejecting individual diff hunks.
+When AI agents create or edit documents, changes are shown inline in the chat UI as a diff for review before being applied. This works like `git add -p` — you can approve all changes, select specific hunks, or reject entirely.
+
+### How It Works
+
+1. Agent calls `create_document` or `edit_document` during a conversation
+2. Execution pauses and a diff card appears in the chat
+3. You review the changes and choose:
+   - **Approve All** — apply all changes
+   - **Approve Selected** — pick individual hunks to apply (like `git add -p`)
+   - **Reject** — discard changes, agent receives feedback
+4. Agent continues with the result
+
+### Auto-Approve Mode
+
+Each conversation defaults to **review mode** (approval required). Toggle auto-approve via the shield icon in the chat header to let the agent write freely without pausing. The toggle is per-conversation.
 
 ### Example Prompts
 
-```graphql
-# Agent proposes an update to a document
-mutation {
-  proposeDocumentUpdate(input: {
-    vaultId: "vault-id"
-    path: "docs/architecture.md"
-    proposedContent: "# Architecture\n\nUpdated content..."
-    description: "Added caching layer section"
-    source: AI_SUGGESTED
-  }) {
-    id
-    status
-    diff {
-      stats { additions deletions hunksCount }
-      hunks { index header lines { type content } }
-    }
-  }
-}
-
-# List pending proposals
-query {
-  proposals(vaultId: "vault-id", status: PENDING) {
-    id
-    document { path title }
-    description
-    hasConflict
-    diff { stats { additions deletions } }
-  }
-}
-
-# Approve entire proposal
-mutation {
-  approveProposal(id: "proposal-id", notes: "Looks good") {
-    id path content
-  }
-}
-
-# Approve specific hunks (like git add -p)
-mutation {
-  approveProposalHunks(input: {
-    proposalId: "proposal-id"
-    hunkIndexes: [0, 2]
-    notes: "Accepted intro changes, skipped conclusion"
-  }) {
-    id path content
-  }
-}
-
-# Reject a proposal
-mutation {
-  rejectProposal(id: "proposal-id", notes: "Needs more detail")
-}
 ```
+# Agent creates a new document (triggers approval)
+"Create a document at /docs/api-guide.md summarizing our API endpoints"
+
+# Agent edits an existing document (triggers approval with diff)
+"Update /docs/architecture.md to include the new caching layer"
+
+# Multi-step workflow with selective approval
+"Reorganize the docs folder — split the README into separate guides"
+# → Each document write pauses for your review
+```
+
+### MCP Tool Approval
+
+MCP clients (like Claude Code) use their native tool approval mechanism. When the MCP server's `create_document` or `edit_document` tools are called, the MCP client prompts for approval before execution.
 
 ## Folders
 
@@ -438,9 +414,13 @@ EOF
 |------|-------------|
 | `search_documents` | Hybrid full-text + semantic search across instances |
 | `get_document` | Retrieve a document by path with full content |
+| `create_document` | Create a new document at a given path |
+| `edit_document` | Edit an existing document by replacing its content |
 | `list_labels` | List all labels used across documents |
 | `create_memory` | Create a quick memory note under `/memories/` |
 | `list_folders` | Browse the folder structure of a vault |
+| `list_folder_contents` | List documents and subfolders in a specific folder |
+| `get_document_versions` | List version history of a document |
 
 ### Example Prompts
 
@@ -459,6 +439,18 @@ EOF
 
 # Browse vault structure
 "Show me the folder structure of my knowledge base"
+
+# List folder contents
+"What documents are in the /docs/guides folder?"
+
+# Create a new document
+"Create a document at /docs/runbook.md with our deployment steps"
+
+# Edit an existing document
+"Update /docs/architecture.md to add the new caching section"
+
+# View document history
+"Show me the version history of /docs/api-guide.md"
 
 # Save a quick note
 "Remember that the deploy pipeline requires manual approval for production"
