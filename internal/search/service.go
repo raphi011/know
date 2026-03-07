@@ -102,11 +102,36 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		return chunksToResults(ctx, s.db, bm25Chunks, limit)
 	}
 
-	// Embed query for chunk vector search
-	queryEmbedding, err := s.embedder.Embed(ctx, input.Query)
+	// Try embedding cache first
+	normalized := NormalizeQuery(input.Query)
+	var queryEmbedding []float32
+
+	cached, err := s.db.LookupQueryEmbedding(ctx, normalized)
 	if err != nil {
-		slog.Warn("failed to embed query, falling back to BM25", "error", err)
-		return chunksToResults(ctx, s.db, bm25Chunks, limit)
+		slog.Warn("embedding cache lookup failed", "error", err)
+	}
+
+	if cached != nil {
+		// Cache hit — use stored embedding
+		queryEmbedding = cached.Embedding
+		go func() {
+			if err := s.db.UpsertQueryEmbedding(context.Background(), normalized, queryEmbedding); err != nil {
+				slog.Warn("failed to update embedding cache hit count", "error", err)
+			}
+		}()
+	} else {
+		// Cache miss — call embedder
+		queryEmbedding, err = s.embedder.Embed(ctx, input.Query)
+		if err != nil {
+			slog.Warn("failed to embed query, falling back to BM25", "error", err)
+			return chunksToResults(ctx, s.db, bm25Chunks, limit)
+		}
+		// Store in cache (fire-and-forget)
+		go func() {
+			if err := s.db.UpsertQueryEmbedding(context.Background(), normalized, queryEmbedding); err != nil {
+				slog.Warn("failed to cache query embedding", "error", err)
+			}
+		}()
 	}
 
 	// Search chunks for semantic matches
