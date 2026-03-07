@@ -137,3 +137,26 @@ Track retrieval quality:
 - **Recall@K**: % of relevant docs in top K
 - **MRR**: Mean Reciprocal Rank of first relevant doc
 - **Latency**: Time from query to context assembly
+
+## Anthropic Contextual Retrieval Research
+
+Source: https://www.anthropic.com/news/contextual-retrieval
+
+### Key Findings
+
+- **Hybrid BM25 + embeddings + reranking** reduces retrieval failures by 67% vs. embeddings alone
+- **Full chunks (~800 tokens / 3-4K chars)** should be returned to the LLM, not truncated snippets — agents need enough context to reason about the content
+- **Top-20 results** is the recommended retrieval depth (not top-5)
+- Contextual retrieval (prepending document context to chunks before embedding) reduces top-20 retrieval failure by 35%
+
+### Chunk Size
+
+- 3-4K character chunks are a good default (this project uses heading-based chunking with similar bounds: threshold 6K, target 3K, max 4K)
+- Smaller chunks benefit from contextual retrieval prefixes (already implemented in `internal/document/service.go`)
+
+### Recommendations Applied
+
+- MCP agent gets full chunk content via `FullContent` flag on `SearchInput` (no 200-char truncation)
+- Agent retrieves top-20 results (was top-5)
+- Web UI uses BM25-only search (`BM25Only` flag) — fast, no embedding API cost, sufficient for interactive keyword search
+- Hybrid search reserved for agent use where semantic matching matters
