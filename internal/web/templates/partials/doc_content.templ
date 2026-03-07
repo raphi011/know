@@ -1,11 +1,13 @@
 package partials
 
+import "net/url"
+
 // DocContent renders the markdown HTML with SSE live update support.
 // When connected, the HTMX SSE extension auto-swaps new content on doc-updated events.
 templ DocContent(vaultID, path, renderedHTML string) {
 	<div
 		hx-ext="sse"
-		sse-connect={ "/hx/doc/events?vault=" + vaultID + "&path=" + path }
+		sse-connect={ "/hx/doc/events?vault=" + url.QueryEscape(vaultID) + "&path=" + url.QueryEscape(path) }
 	>
 		<article
 			id="doc-content"

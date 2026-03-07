@@ -8,8 +8,9 @@ import (
 	"time"
 )
 
-// Session holds per-user state.
+// Session holds per-user state. Fields are protected by mu for concurrent access.
 type Session struct {
+	mu            sync.Mutex
 	ID            string
 	UserID        string
 	VaultAccess   []string
@@ -20,17 +21,51 @@ type Session struct {
 	LastAccess    time.Time
 }
 
+// SetLocale updates the locale with proper synchronization.
+func (s *Session) SetLocale(locale string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Locale = locale
+}
+
+// SetTheme updates the theme with proper synchronization.
+func (s *Session) SetTheme(theme string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Theme = theme
+}
+
+// SetSelectedVault updates the selected vault with proper synchronization.
+func (s *Session) SetSelectedVault(vaultID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SelectedVault = vaultID
+}
+
+// Snapshot returns a copy of the mutable session fields for safe concurrent reads.
+func (s *Session) Snapshot() (locale, theme, selectedVault string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Locale, s.Theme, s.SelectedVault
+}
+
 // SessionStore is an in-memory session store backed by sync.Map.
 type SessionStore struct {
 	sessions sync.Map
 	ttl      time.Duration
+	done     chan struct{}
 }
 
 // NewSessionStore creates a session store with the given TTL.
 func NewSessionStore(ttl time.Duration) *SessionStore {
-	s := &SessionStore{ttl: ttl}
+	s := &SessionStore{ttl: ttl, done: make(chan struct{})}
 	go s.reapLoop()
 	return s
+}
+
+// Close stops the session reaper goroutine.
+func (s *SessionStore) Close() {
+	close(s.done)
 }
 
 const sessionCookieName = "kh_sid"
@@ -109,14 +144,19 @@ func (s *SessionStore) FromRequest(r *http.Request) *Session {
 func (s *SessionStore) reapLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.sessions.Range(func(key, value any) bool {
-			sess := value.(*Session)
-			if time.Since(sess.LastAccess) > s.ttl {
-				s.sessions.Delete(key)
-			}
-			return true
-		})
+	for {
+		select {
+		case <-ticker.C:
+			s.sessions.Range(func(key, value any) bool {
+				sess := value.(*Session)
+				if time.Since(sess.LastAccess) > s.ttl {
+					s.sessions.Delete(key)
+				}
+				return true
+			})
+		case <-s.done:
+			return
+		}
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/renderer/html"
 )
 
 var md goldmark.Markdown
@@ -15,9 +14,6 @@ func init() {
 		goldmark.WithExtensions(
 			extension.GFM,
 			extension.Typographer,
-		),
-		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
 		),
 	)
 }

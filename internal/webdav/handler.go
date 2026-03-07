@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/webdav"
 
@@ -24,7 +25,16 @@ func NewHandler(
 	vaultSvc *vault.Service,
 	noAuth bool,
 ) http.Handler {
-	lockSystem := webdav.NewMemLS()
+	// Per-vault lock systems to isolate WebDAV locks across vaults.
+	var lockSystems sync.Map // vaultID → webdav.LockSystem
+
+	getLockSystem := func(vaultID string) webdav.LockSystem {
+		if ls, ok := lockSystems.Load(vaultID); ok {
+			return ls.(webdav.LockSystem)
+		}
+		ls, _ := lockSystems.LoadOrStore(vaultID, webdav.NewMemLS())
+		return ls.(webdav.LockSystem)
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract vault name from URL: /dav/{vaultName}/...
@@ -51,31 +61,16 @@ func NewHandler(
 				return
 			}
 
-			hash := auth.HashToken(password)
-			token, err := dbClient.GetTokenByHash(r.Context(), hash)
+			info, err := auth.ValidateToken(r.Context(), dbClient, password)
 			if err != nil {
-				slog.Warn("webdav: token lookup failed", "error", err)
+				slog.Warn("webdav: token validation failed", "error", err)
 				http.Error(w, "invalid credentials", http.StatusUnauthorized)
 				return
-			}
-			if token == nil {
-				http.Error(w, "invalid credentials", http.StatusUnauthorized)
-				return
-			}
-
-			vaultAccess := make([]string, 0, len(token.VaultAccess))
-			for _, v := range token.VaultAccess {
-				id, err := models.RecordIDString(v)
-				if err != nil {
-					slog.Warn("webdav: failed to extract vault access ID", "error", err)
-					continue
-				}
-				vaultAccess = append(vaultAccess, id)
 			}
 
 			ac = auth.AuthContext{
-				UserID:      "webdav",
-				VaultAccess: vaultAccess,
+				UserID:      info.UserID,
+				VaultAccess: info.VaultAccess,
 			}
 		}
 
@@ -109,7 +104,7 @@ func NewHandler(
 		davFS := NewFS(vaultID, dbClient, docService, vaultSvc)
 		davHandler := &webdav.Handler{
 			FileSystem: davFS,
-			LockSystem: lockSystem,
+			LockSystem: getLockSystem(vaultID),
 			Prefix:     pathPrefix + vaultName,
 			Logger: func(r *http.Request, err error) {
 				if err != nil {

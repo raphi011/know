@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/models"
 )
 
 // NoAuthMiddleware injects an admin AuthContext with access to all vaults,
@@ -33,62 +32,28 @@ func Middleware(dbClient *db.Client) func(http.Handler) http.Handler {
 				return
 			}
 			rawToken := strings.TrimPrefix(header, "Bearer ")
-			hash := HashToken(rawToken)
 
-			token, err := dbClient.GetTokenByHash(r.Context(), hash)
+			info, err := ValidateToken(r.Context(), dbClient, rawToken)
 			if err != nil {
-				slog.Warn("token lookup failed", "error", err)
+				slog.Warn("token validation failed", "error", err)
 				http.Error(w, "invalid token", http.StatusUnauthorized)
-				return
-			}
-			if token == nil {
-				http.Error(w, "invalid token", http.StatusUnauthorized)
-				return
-			}
-
-			// Check expiry
-			if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
-				http.Error(w, "token expired", http.StatusUnauthorized)
 				return
 			}
 
 			// Update last used (fire and forget)
-			tokenID, err := models.RecordIDString(token.ID)
-			if err != nil {
-				slog.Warn("failed to extract token ID for last_used update", "error", err)
-			} else {
+			if info.TokenID != "" {
 				go func() {
-					// Use background context since this outlives the request
 					bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
-					if err := dbClient.UpdateTokenLastUsed(bgCtx, tokenID); err != nil {
-						slog.Warn("failed to update token last_used", "token_id", tokenID, "error", err)
+					if err := dbClient.UpdateTokenLastUsed(bgCtx, info.TokenID); err != nil {
+						slog.Warn("failed to update token last_used", "token_id", info.TokenID, "error", err)
 					}
 				}()
 			}
 
-			// Extract vault access IDs
-			vaultAccess := make([]string, 0, len(token.VaultAccess))
-			for _, v := range token.VaultAccess {
-				id, err := models.RecordIDString(v)
-				if err != nil {
-					slog.Warn("failed to extract vault access ID from token, skipping",
-						"token_name", token.Name, "error", err)
-					continue
-				}
-				vaultAccess = append(vaultAccess, id)
-			}
-
-			// Extract user ID
-			userID, err := models.RecordIDString(token.User)
-			if err != nil {
-				http.Error(w, "invalid token user", http.StatusInternalServerError)
-				return
-			}
-
 			ac := AuthContext{
-				UserID:      userID,
-				VaultAccess: vaultAccess,
+				UserID:      info.UserID,
+				VaultAccess: info.VaultAccess,
 			}
 			ctx := WithAuth(r.Context(), ac)
 			next.ServeHTTP(w, r.WithContext(ctx))

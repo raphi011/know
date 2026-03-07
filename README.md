@@ -233,9 +233,6 @@ KNOWHOW_LLM_MODEL=claude-sonnet-4-20250514
 GOOGLE_AI_API_KEY=...           # For Google AI / Gemini
 ANTHROPIC_API_KEY=sk-ant-...    # For Anthropic LLM + Voyage embeddings
 OPENAI_API_KEY=sk-...           # For OpenAI
-
-# Web frontend (stateless — server connections configured at login)
-SESSION_SECRET=your-secret-here   # Encrypts session cookies
 ```
 
 ## Entity Types
@@ -283,18 +280,12 @@ just build-server
 
 ### Development
 
-Run the Go server and Vite dev server side by side:
+Run the server:
 
 ```bash
-# Terminal 1: Go API server
 just dev
-
-# Terminal 2: Vite dev server with hot reload
-just web-dev
-# Open http://localhost:5173
+# Open http://localhost:8484/login
 ```
-
-The Vite dev server proxies `/query` requests to the Go server on port 8484.
 
 ### Example Prompts
 

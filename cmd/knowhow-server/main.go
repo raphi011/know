@@ -140,7 +140,6 @@ func main() {
 		resolver.VaultService(),
 		resolver.SearchService(),
 		resolver.EventBus(),
-		cfg.NoAuth,
 	)
 	webHandler.Register(mux)
 	slog.Info("Web UI enabled", "login", fmt.Sprintf("http://localhost:%s/login", port))

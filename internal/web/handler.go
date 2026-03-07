@@ -2,13 +2,16 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"path"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +38,6 @@ type Handler struct {
 	searchSvc  *search.Service
 	bus        *event.Bus
 	sessions   *SessionStore
-	noAuth     bool
 }
 
 // NewHandler creates a new web UI handler.
@@ -45,7 +47,6 @@ func NewHandler(
 	vaultSvc *vault.Service,
 	searchSvc *search.Service,
 	bus *event.Bus,
-	noAuth bool,
 ) *Handler {
 	return &Handler{
 		db:         dbClient,
@@ -54,7 +55,6 @@ func NewHandler(
 		searchSvc:  searchSvc,
 		bus:        bus,
 		sessions:   NewSessionStore(24 * time.Hour),
-		noAuth:     noAuth,
 	}
 }
 
@@ -63,17 +63,17 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// Static assets (no auth)
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		slog.Error("failed to create static sub-filesystem", "error", err)
-		return
+		// Embedded FS should never fail — indicates a build problem
+		panic(fmt.Sprintf("failed to create static sub-filesystem: %v", err))
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	mux.Handle("/static/", cacheStatic(http.StripPrefix("/static/", http.FileServer(http.FS(staticSub)))))
 
-	// Login (no auth)
+	// Login (no auth, but CSRF-protected for POST)
 	mux.HandleFunc("GET /login", h.handleLoginPage)
-	mux.HandleFunc("POST /login", h.handleLoginSubmit)
+	mux.Handle("POST /login", CSRFMiddleware(http.HandlerFunc(h.handleLoginSubmit)))
 
-	// Logout (no auth check needed, just clear cookie)
-	mux.HandleFunc("POST /logout", h.handleLogout)
+	// Logout (no auth check needed, just clear cookie, CSRF-protected)
+	mux.Handle("POST /logout", CSRFMiddleware(http.HandlerFunc(h.handleLogout)))
 
 	// Session-protected routes
 	sessionMw := SessionMiddleware(h.sessions)
@@ -92,9 +92,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /hx/doc/events", sessionMw(http.HandlerFunc(h.handleDocEvents)))
 	mux.Handle("GET /hx/versions", sessionMw(http.HandlerFunc(h.handleVersionList)))
 	mux.Handle("GET /hx/version/diff", sessionMw(http.HandlerFunc(h.handleVersionDiff)))
-	mux.Handle("POST /hx/vault/switch", sessionMw(http.HandlerFunc(h.handleVaultSwitch)))
-	mux.Handle("POST /hx/settings/locale", sessionMw(http.HandlerFunc(h.handleLocaleChange)))
-	mux.Handle("POST /hx/settings/theme", sessionMw(http.HandlerFunc(h.handleThemeChange)))
+	mux.Handle("POST /hx/vault/switch", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleVaultSwitch))))
+	mux.Handle("POST /hx/settings/locale", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleLocaleChange))))
+	mux.Handle("POST /hx/settings/theme", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleThemeChange))))
 }
 
 func (h *Handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -118,24 +118,13 @@ func (h *Handler) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash := auth.HashToken(token)
-	dbToken, err := h.db.GetTokenByHash(r.Context(), hash)
-	if err != nil || dbToken == nil {
+	info, err := auth.ValidateToken(r.Context(), h.db, token)
+	if err != nil {
 		slog.Warn("web: login failed", "error", err)
 		h.renderLogin(w, r, locale, t("login.error.invalid"))
 		return
 	}
-
-	// Extract vault access
-	vaultAccess := make([]string, 0, len(dbToken.VaultAccess))
-	for _, v := range dbToken.VaultAccess {
-		id, err := models.RecordIDString(v)
-		if err != nil {
-			slog.Warn("web: failed to extract vault access ID", "error", err)
-			continue
-		}
-		vaultAccess = append(vaultAccess, id)
-	}
+	vaultAccess := info.VaultAccess
 
 	// Pick default vault
 	selectedVault := ""
@@ -174,6 +163,8 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Error("web: failed to list documents", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
 	var items []partials.DocListItem
@@ -230,7 +221,7 @@ func (h *Handler) handleDocView(w http.ResponseWriter, r *http.Request) {
 	renderedHTML, err := RenderMarkdown(doc.ContentBody)
 	if err != nil {
 		slog.Error("web: failed to render markdown", "path", docPath, "error", err)
-		renderedHTML = "<p>Failed to render markdown.</p>"
+		renderedHTML = "<p>" + t("error.markdown_render_failed") + "</p>"
 	}
 
 	sidebar, err := h.buildSidebar(r.Context(), sess.SelectedVault)
@@ -238,7 +229,12 @@ func (h *Handler) handleDocView(w http.ResponseWriter, r *http.Request) {
 		slog.Error("web: failed to build sidebar", "error", err)
 	}
 
-	docID, _ := models.RecordIDString(doc.ID)
+	docID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		slog.Error("web: failed to extract document ID", "path", docPath, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	component := pages.DocViewPage(pages.DocViewData{
 		Locale:       sess.Locale,
@@ -267,6 +263,11 @@ func (h *Handler) handleSidebar(w http.ResponseWriter, r *http.Request) {
 		vaultID = sess.SelectedVault
 	}
 
+	if !hasVaultAccess(sess, vaultID) {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
+
 	sidebar, err := h.buildSidebar(r.Context(), vaultID)
 	if err != nil {
 		slog.Error("web: failed to build sidebar", "error", err)
@@ -274,11 +275,7 @@ func (h *Handler) handleSidebar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	component := components.FolderTree(vaultID, sidebar.Folders)
-	if err := component.Render(r.Context(), w); err != nil {
-		slog.Error("web: failed to render sidebar", "error", err)
-	}
+	renderBuffered(w, r, components.FolderTree(vaultID, sidebar.Folders))
 }
 
 // handleDocEvents streams SSE events for a specific document path.
@@ -289,6 +286,12 @@ func (h *Handler) handleDocEvents(w http.ResponseWriter, r *http.Request) {
 
 	if vaultID == "" || docPath == "" {
 		http.Error(w, "vault and path required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify user has access to the requested vault
+	if !hasVaultAccess(sess, vaultID) {
+		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	}
 
@@ -314,8 +317,6 @@ func (h *Handler) handleDocEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	_ = sess // used for auth context validation
-
 	for {
 		select {
 		case evt, ok := <-ch:
@@ -334,11 +335,15 @@ func (h *Handler) handleDocEvents(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("web: doc events - failed to render markdown", "error", err)
 				continue
 			}
-			writeSSE(w, "doc-updated", html)
+			if err := writeSSE(w, "doc-updated", html); err != nil {
+				return // client disconnected
+			}
 			flusher.Flush()
 
 		case <-ticker.C:
-			fmt.Fprintf(w, ": ping\n\n")
+			if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
+				return // client disconnected
+			}
 			flusher.Flush()
 
 		case <-r.Context().Done():
@@ -362,73 +367,61 @@ func (h *Handler) renderLogin(w http.ResponseWriter, r *http.Request, locale, er
 	}
 }
 
-// buildSidebar constructs the sidebar data by listing all folders in a vault
-// and building them into a tree structure.
-func (h *Handler) buildSidebar(ctx context.Context, vaultID string) (components.SidebarData, error) {
-	v, err := h.vaultSvc.Get(ctx, vaultID)
-	if err != nil {
-		return components.SidebarData{VaultID: vaultID}, fmt.Errorf("get vault: %w", err)
-	}
-	vaultName := vaultID
-	if v != nil {
-		vaultName = v.Name
-	}
-
-	folders, err := h.vaultSvc.ListFolders(ctx, vaultID, nil)
-	if err != nil {
-		return components.SidebarData{VaultID: vaultID, VaultName: vaultName}, fmt.Errorf("list folders: %w", err)
-	}
-
-	tree := buildFolderTree(folders)
-
-	return components.SidebarData{
-		VaultID:   vaultID,
-		VaultName: vaultName,
-		Folders:   tree,
-	}, nil
-}
-
-// buildFolderTree constructs a nested tree from a flat list of folders.
-func buildFolderTree(folders []models.Folder) []components.FolderNode {
-	// Group by parent path
-	childrenOf := make(map[string][]components.FolderNode)
-	for _, f := range folders {
-		parent := path.Dir(f.Path)
-		if parent == "." {
-			parent = "/"
-		}
-		childrenOf[parent] = append(childrenOf[parent], components.FolderNode{
-			Name: f.Name,
-			Path: f.Path,
-		})
-	}
-
-	// Recursively build tree from root
-	var build func(parentPath string) []components.FolderNode
-	build = func(parentPath string) []components.FolderNode {
-		children := childrenOf[parentPath]
-		for i := range children {
-			children[i].Children = build(children[i].Path)
-		}
-		return children
-	}
-
-	return build("/")
-}
-
 // decodePathSegment URL-decodes a path segment.
 func decodePathSegment(s string) (string, error) {
-	return strings.ReplaceAll(s, "%20", " "), nil
+	return url.PathUnescape(s)
+}
+
+// renderComponent is a minimal interface matching templ's Component.Render method.
+type renderComponent interface {
+	Render(ctx context.Context, w io.Writer) error
+}
+
+// renderBuffered renders a templ component to a buffer first, then writes to the response.
+// This prevents partial HTML writes on render errors (which would corrupt HTMX responses).
+func renderBuffered(w http.ResponseWriter, r *http.Request, component renderComponent) {
+	var buf bytes.Buffer
+	if err := component.Render(r.Context(), &buf); err != nil {
+		slog.Error("web: failed to render component", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	buf.WriteTo(w)
+}
+
+// cacheStatic wraps a handler with Cache-Control headers for static assets.
+func cacheStatic(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// hasVaultAccess checks whether the session includes the given vault ID.
+func hasVaultAccess(sess *Session, vaultID string) bool {
+	for _, v := range sess.VaultAccess {
+		if v == vaultID {
+			return true
+		}
+	}
+	return false
 }
 
 // writeSSE writes a properly formatted SSE event. Multi-line data gets each
-// line prefixed with "data: " per the SSE spec.
-func writeSSE(w http.ResponseWriter, eventName, data string) {
-	fmt.Fprintf(w, "event: %s\n", eventName)
-	for _, line := range strings.Split(data, "\n") {
-		fmt.Fprintf(w, "data: %s\n", line)
+// line prefixed with "data: " per the SSE spec. Returns an error if writing fails
+// (e.g., client disconnected).
+func writeSSE(w http.ResponseWriter, eventName, data string) error {
+	if _, err := fmt.Fprintf(w, "event: %s\n", eventName); err != nil {
+		return err
 	}
-	fmt.Fprint(w, "\n")
+	for _, line := range strings.Split(data, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprint(w, "\n")
+	return err
 }
 
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -436,11 +429,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 
 	if q == "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		component := partials.SearchResults(nil)
-		if err := component.Render(r.Context(), w); err != nil {
-			slog.Error("web: failed to render empty search", "error", err)
-		}
+		renderBuffered(w, r, partials.SearchResults(nil))
 		return
 	}
 
@@ -469,11 +458,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	component := partials.SearchResults(items)
-	if err := component.Render(r.Context(), w); err != nil {
-		slog.Error("web: failed to render search results", "error", err)
-	}
+	renderBuffered(w, r, partials.SearchResults(items))
 }
 
 func (h *Handler) handleAgentPage(w http.ResponseWriter, r *http.Request) {
@@ -484,12 +469,15 @@ func (h *Handler) handleAgentPage(w http.ResponseWriter, r *http.Request) {
 	convs, err := h.db.ListConversations(r.Context(), sess.SelectedVault, sess.UserID)
 	if err != nil {
 		slog.Error("web: failed to list conversations", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
 	var agentConvs []pages.AgentConversation
 	for _, c := range convs {
 		id, err := models.RecordIDString(c.ID)
 		if err != nil {
+			slog.Warn("web: failed to extract conversation ID", "error", err)
 			continue
 		}
 		agentConvs = append(agentConvs, pages.AgentConversation{
@@ -549,8 +537,11 @@ func (h *Handler) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	var vaultOpts []pages.VaultOption
 	for _, vid := range sess.VaultAccess {
 		v, err := h.vaultSvc.Get(r.Context(), vid)
+		if err != nil {
+			slog.Warn("web: failed to fetch vault name", "vault", vid, "error", err)
+		}
 		name := vid
-		if err == nil && v != nil {
+		if v != nil {
 			name = v.Name
 		}
 		vaultOpts = append(vaultOpts, pages.VaultOption{
@@ -603,11 +594,7 @@ func (h *Handler) handleVersionList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	component := partials.VersionList(docID, items, currentVersion)
-	if err := component.Render(r.Context(), w); err != nil {
-		slog.Error("web: failed to render version list", "error", err)
-	}
+	renderBuffered(w, r, partials.VersionList(docID, items, currentVersion))
 }
 
 func (h *Handler) handleVersionDiff(w http.ResponseWriter, r *http.Request) {
@@ -620,12 +607,13 @@ func (h *Handler) handleVersionDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var oldVersion, newVersion int
-	if _, err := fmt.Sscanf(versionStr, "%d", &oldVersion); err != nil {
+	oldVersion, err := strconv.Atoi(versionStr)
+	if err != nil {
 		http.Error(w, "invalid version number", http.StatusBadRequest)
 		return
 	}
-	if _, err := fmt.Sscanf(currentStr, "%d", &newVersion); err != nil {
+	newVersion, err := strconv.Atoi(currentStr)
+	if err != nil {
 		http.Error(w, "invalid current version number", http.StatusBadRequest)
 		return
 	}
@@ -646,11 +634,7 @@ func (h *Handler) handleVersionDiff(w http.ResponseWriter, r *http.Request) {
 
 	lines := computeDiff(oldVer.Content, newVer.Content)
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	component := partials.DiffView(oldVersion, newVersion, lines)
-	if err := component.Render(r.Context(), w); err != nil {
-		slog.Error("web: failed to render diff view", "error", err)
-	}
+	renderBuffered(w, r, partials.DiffView(oldVersion, newVersion, lines))
 }
 
 func (h *Handler) handleVaultSwitch(w http.ResponseWriter, r *http.Request) {
@@ -662,20 +646,12 @@ func (h *Handler) handleVaultSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify user has access
-	hasAccess := false
-	for _, v := range sess.VaultAccess {
-		if v == vaultID {
-			hasAccess = true
-			break
-		}
-	}
-	if !hasAccess {
+	if !hasVaultAccess(sess, vaultID) {
 		http.Error(w, "unauthorized vault", http.StatusForbidden)
 		return
 	}
 
-	sess.SelectedVault = vaultID
+	sess.SetSelectedVault(vaultID)
 	w.Header().Set("HX-Redirect", "/")
 	w.WriteHeader(http.StatusOK)
 }
@@ -689,7 +665,7 @@ func (h *Handler) handleLocaleChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess.Locale = locale
+	sess.SetLocale(locale)
 
 	// Also set cookie for pre-login fallback
 	http.SetCookie(w, &http.Cookie{
@@ -714,7 +690,7 @@ func (h *Handler) handleThemeChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess.Theme = theme
+	sess.SetTheme(theme)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "kh_theme",
@@ -740,7 +716,9 @@ func localeFromRequest(r *http.Request) string {
 // themeFromRequest reads theme from cookie, defaults to "system".
 func themeFromRequest(r *http.Request) string {
 	if c, err := r.Cookie("kh_theme"); err == nil {
-		return c.Value
+		if c.Value == "light" || c.Value == "dark" || c.Value == "system" {
+			return c.Value
+		}
 	}
 	return "system"
 }

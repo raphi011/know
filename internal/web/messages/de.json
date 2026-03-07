@@ -25,5 +25,6 @@
   "settings.theme.system": "System",
   "settings.save": "Speichern",
   "versions.title": "Versionshistorie",
-  "versions.empty": "Keine Versionen gefunden."
+  "versions.empty": "Keine Versionen gefunden.",
+  "error.markdown_render_failed": "Markdown-Rendering fehlgeschlagen."
 }

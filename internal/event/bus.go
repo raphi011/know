@@ -96,7 +96,8 @@ func (b *Bus) SubscribeByPath(vaultID, docPath string) (ch <-chan ChangeEvent, u
 						select {
 						case filtered <- evt:
 						default:
-							// slow consumer, drop event
+							slog.Debug("dropping filtered event for slow consumer",
+							"vault", vaultID, "path", docPath, "type", evt.Type)
 						}
 					}
 				}

@@ -70,11 +70,11 @@ func (t *mcpTools) register(server *mcp.Server) {
 // ---------- Read tool handlers (iterate all vaults) ----------
 
 type searchInput struct {
-	Query   string   `json:"query" jsonschema:"description=Search query text"`
-	Labels  []string `json:"labels,omitempty" jsonschema:"description=Filter by labels"`
-	DocType *string  `json:"doc_type,omitempty" jsonschema:"description=Filter by document type"`
-	Folder  *string  `json:"folder,omitempty" jsonschema:"description=Filter by folder path prefix"`
-	Limit   *int     `json:"limit,omitempty" jsonschema:"description=Max results (default 20)"`
+	Query   string   `json:"query" jsonschema:"Search query text"`
+	Labels  []string `json:"labels,omitempty" jsonschema:"Filter by labels"`
+	DocType *string  `json:"doc_type,omitempty" jsonschema:"Filter by document type"`
+	Folder  *string  `json:"folder,omitempty" jsonschema:"Filter by folder path prefix"`
+	Limit   *int     `json:"limit,omitempty" jsonschema:"Max results (default 20)"`
 }
 
 func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, any, error) {
@@ -114,7 +114,7 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 }
 
 type getDocumentInput struct {
-	Path string `json:"path" jsonschema:"description=Document path"`
+	Path string `json:"path" jsonschema:"Document path"`
 }
 
 func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, input getDocumentInput) (*mcp.CallToolResult, any, error) {
@@ -207,7 +207,7 @@ func (t *mcpTools) listFolders(ctx context.Context, req *mcp.CallToolRequest, in
 }
 
 type listFolderContentsInput struct {
-	Folder string `json:"folder" jsonschema:"description=Folder path (e.g. /guides/)"`
+	Folder string `json:"folder" jsonschema:"Folder path (e.g. /guides/)"`
 }
 
 func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequest, input listFolderContentsInput) (*mcp.CallToolResult, any, error) {
@@ -244,8 +244,8 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 }
 
 type getDocumentVersionsInput struct {
-	Path  string `json:"path" jsonschema:"description=Document path"`
-	Limit *int   `json:"limit,omitempty" jsonschema:"description=Max versions to return (default 20)"`
+	Path  string `json:"path" jsonschema:"Document path"`
+	Limit *int   `json:"limit,omitempty" jsonschema:"Max versions to return (default 20)"`
 }
 
 func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolRequest, input getDocumentVersionsInput) (*mcp.CallToolResult, any, error) {
@@ -306,9 +306,9 @@ func (t *mcpTools) executeWriteTool(ctx context.Context, toolName string, input 
 }
 
 type createMemoryInput struct {
-	Title   string   `json:"title" jsonschema:"description=Memory title"`
-	Content string   `json:"content" jsonschema:"description=Memory content (markdown)"`
-	Labels  []string `json:"labels,omitempty" jsonschema:"description=Additional labels (memory label is always added)"`
+	Title   string   `json:"title" jsonschema:"Memory title"`
+	Content string   `json:"content" jsonschema:"Memory content (markdown)"`
+	Labels  []string `json:"labels,omitempty" jsonschema:"Additional labels (memory label is always added)"`
 }
 
 func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, input createMemoryInput) (*mcp.CallToolResult, any, error) {
@@ -322,8 +322,8 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 }
 
 type createDocumentInput struct {
-	Path    string `json:"path" jsonschema:"description=Document path (e.g. /guides/new-guide.md)"`
-	Content string `json:"content" jsonschema:"description=Full markdown content"`
+	Path    string `json:"path" jsonschema:"Document path (e.g. /guides/new-guide.md)"`
+	Content string `json:"content" jsonschema:"Full markdown content"`
 }
 
 func (t *mcpTools) createDocument(ctx context.Context, req *mcp.CallToolRequest, input createDocumentInput) (*mcp.CallToolResult, any, error) {
@@ -337,8 +337,8 @@ func (t *mcpTools) createDocument(ctx context.Context, req *mcp.CallToolRequest,
 }
 
 type editDocumentInput struct {
-	Path    string `json:"path" jsonschema:"description=Document path of the existing document"`
-	Content string `json:"content" jsonschema:"description=Complete new markdown content (replaces existing)"`
+	Path    string `json:"path" jsonschema:"Document path of the existing document"`
+	Content string `json:"content" jsonschema:"Complete new markdown content (replaces existing)"`
 }
 
 func (t *mcpTools) editDocument(ctx context.Context, req *mcp.CallToolRequest, input editDocumentInput) (*mcp.CallToolResult, any, error) {

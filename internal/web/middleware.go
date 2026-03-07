@@ -23,8 +23,12 @@ func SessionMiddleware(store *SessionStore) func(http.Handler) http.Handler {
 	}
 }
 
-// SessionFromContext retrieves the session from context.
+// SessionFromContext retrieves the session from context. Panics if called
+// without SessionMiddleware — this is a programming error, not a runtime condition.
 func SessionFromContext(ctx context.Context) *Session {
-	sess, _ := ctx.Value(sessionContextKey{}).(*Session)
+	sess, ok := ctx.Value(sessionContextKey{}).(*Session)
+	if !ok || sess == nil {
+		panic("web: SessionFromContext called without SessionMiddleware")
+	}
 	return sess
 }

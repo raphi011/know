@@ -220,11 +220,10 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 		})
 	}
 
-	// List immediate child documents
+	// List immediate child documents — append "/" for non-root paths so the
+	// DB filter matches documents under this folder (root already ends with "/").
 	folderFilter := dirPath
-	if folderFilter == "/" {
-		folderFilter = "/"
-	} else {
+	if folderFilter != "/" {
 		folderFilter += "/"
 	}
 	docs, err := f.db.ListDocuments(ctx, db.ListDocumentsFilter{
