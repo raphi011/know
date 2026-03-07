@@ -251,5 +251,18 @@ func SchemaSQL(dimension int) string {
     WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM message WHERE conversation = $before.id
     };
+
+    -- ==========================================================================
+    -- SEARCH_QUERY TABLE (embedding cache)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS search_query SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS query             ON search_query TYPE string;
+    DEFINE FIELD IF NOT EXISTS embedding         ON search_query TYPE array<float>;
+    DEFINE FIELD IF NOT EXISTS hit_count         ON search_query TYPE int DEFAULT 1;
+    DEFINE FIELD IF NOT EXISTS first_searched_at ON search_query TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS last_searched_at  ON search_query TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_search_query_query ON search_query FIELDS query UNIQUE;
 `, dimension)
 }
