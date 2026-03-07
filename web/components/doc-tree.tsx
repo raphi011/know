@@ -424,6 +424,7 @@ function DocTree({ tree, activePath, vaultId, documents }: DocTreeProps) {
       >
         <ScrollArea className="flex flex-1 min-h-0 flex-col">
           <DndContext
+            id="doc-tree"
             sensors={sensors}
             accessibility={{ announcements }}
             onDragStart={handleDragStart}
