@@ -42,6 +42,7 @@ import (
 // http.DefaultClient trusts the proxy certificate (bug 2).
 //
 // TODO: remove this once eino-ext fixes both bugs.
+// See: https://github.com/cloudwego/eino-ext/issues/712
 // See: docs/teleport-proxy.md (Issues 1 & 2)
 func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, error) {
 	caBundle := os.Getenv("AWS_CA_BUNDLE")
