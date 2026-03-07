@@ -26,12 +26,14 @@ func NewService(db *db.Client, embedder *llm.Embedder) *Service {
 }
 
 type SearchInput struct {
-	VaultID string
-	Query   string
-	Labels  []string
-	DocType *string
-	Folder  *string
-	Limit   int
+	VaultID     string
+	Query       string
+	Labels      []string
+	DocType     *string
+	Folder      *string
+	Limit       int
+	FullContent bool // When true, chunks carry full content instead of truncated snippets
+	BM25Only    bool // When true, skip vector search even if embedder is configured
 }
 
 type SearchResult struct {
@@ -99,7 +101,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 
 	// If no embedder, aggregate BM25 chunks into results
 	if s.embedder == nil {
-		return chunksToResults(ctx, s.db, bm25Chunks, limit)
+		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
 	}
 
 	// Try embedding cache first
@@ -124,7 +126,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		queryEmbedding, err = s.embedder.Embed(ctx, input.Query)
 		if err != nil {
 			slog.Warn("failed to embed query, falling back to BM25", "error", err)
-			return chunksToResults(ctx, s.db, bm25Chunks, limit)
+			return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
 		}
 		// Store in cache (fire-and-forget)
 		go func() {
@@ -138,7 +140,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 	vectorChunks, err := s.db.ChunkVectorSearch(ctx, queryEmbedding, filter)
 	if err != nil {
 		slog.Warn("chunk vector search failed, falling back to BM25", "error", err)
-		return chunksToResults(ctx, s.db, bm25Chunks, limit)
+		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
 	}
 
 	// Collect unique doc IDs from both chunk lists
@@ -150,7 +152,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		return nil, fmt.Errorf("fetch parent documents: %w", err)
 	}
 
-	return rrfFusion(bm25Chunks, vectorChunks, docMap, limit), nil
+	return rrfFusion(bm25Chunks, vectorChunks, docMap, limit, input.FullContent), nil
 }
 
 // HasSemanticSearch returns true if vector search is available.
@@ -206,9 +208,13 @@ func fetchDocMap(ctx context.Context, dbClient *db.Client, docIDs []string) (map
 }
 
 // chunkToMatch converts a ChunkWithScore to a ChunkMatch for search results.
-func chunkToMatch(ch db.ChunkWithScore) ChunkMatch {
+func chunkToMatch(ch db.ChunkWithScore, fullContent bool) ChunkMatch {
+	snippet := ch.Content
+	if !fullContent {
+		snippet = truncateSnippet(ch.Content, maxSnippetLen)
+	}
 	return ChunkMatch{
-		Snippet:     truncateSnippet(ch.Content, maxSnippetLen),
+		Snippet:     snippet,
 		HeadingPath: ch.HeadingPath,
 		Position:    ch.Position,
 		Score:       ch.Score,
@@ -217,7 +223,7 @@ func chunkToMatch(ch db.ChunkWithScore) ChunkMatch {
 
 // chunksToResults aggregates chunks by parent document and returns search results.
 // Used when only one search path is available (BM25-only fallback).
-func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.ChunkWithScore, limit int) ([]SearchResult, error) {
+func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.ChunkWithScore, limit int, fullContent bool) ([]SearchResult, error) {
 	if len(chunks) == 0 {
 		return []SearchResult{}, nil
 	}
@@ -228,12 +234,12 @@ func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.Chunk
 		return nil, fmt.Errorf("fetch parent documents: %w", err)
 	}
 
-	return aggregateChunks(chunks, docMap, limit), nil
+	return aggregateChunks(chunks, docMap, limit, fullContent), nil
 }
 
 // aggregateChunks groups chunks by parent document, ranks by best chunk score,
 // and returns up to limit results. Each document's score is the max of its chunk scores.
-func aggregateChunks(chunks []db.ChunkWithScore, docMap map[string]models.Document, limit int) []SearchResult {
+func aggregateChunks(chunks []db.ChunkWithScore, docMap map[string]models.Document, limit int, fullContent bool) []SearchResult {
 	type docAgg struct {
 		info   docInfo
 		score  float64
@@ -261,7 +267,7 @@ func aggregateChunks(chunks []db.ChunkWithScore, docMap map[string]models.Docume
 		if ch.Score > a.score {
 			a.score = ch.Score
 		}
-		a.chunks = append(a.chunks, chunkToMatch(ch))
+		a.chunks = append(a.chunks, chunkToMatch(ch, fullContent))
 	}
 
 	// Sort by best chunk score, stable by encounter order
@@ -330,7 +336,7 @@ func chunkKey(ch db.ChunkWithScore) string {
 
 // rrfFusion combines BM25 chunk and vector chunk results using Reciprocal Rank Fusion.
 // docMap provides full document data for all chunk parents.
-func rrfFusion(bm25Chunks []db.ChunkWithScore, vectorChunks []db.ChunkWithScore, docMap map[string]models.Document, limit int) []SearchResult {
+func rrfFusion(bm25Chunks []db.ChunkWithScore, vectorChunks []db.ChunkWithScore, docMap map[string]models.Document, limit int, fullContent bool) []SearchResult {
 	const k = 60.0 // RRF constant
 
 	type docScore struct {
@@ -365,7 +371,7 @@ func rrfFusion(bm25Chunks []db.ChunkWithScore, vectorChunks []db.ChunkWithScore,
 			ck := chunkKey(ch)
 			if !seenChunks[docID][ck] {
 				seenChunks[docID][ck] = true
-				scores[docID].chunks = append(scores[docID].chunks, chunkToMatch(ch))
+				scores[docID].chunks = append(scores[docID].chunks, chunkToMatch(ch, fullContent))
 			}
 		}
 	}

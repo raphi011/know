@@ -77,7 +77,7 @@ func TestRRFFusion_BM25Only(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"))
 
-	results := rrfFusion(bm25, nil, dm, 10)
+	results := rrfFusion(bm25, nil, dm, 10, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -102,7 +102,7 @@ func TestRRFFusion_ChunkPromotion(t *testing.T) {
 	}
 	dm := docMap(doc("x", "Doc X"), doc("y", "Doc Y"))
 
-	results := rrfFusion(nil, chunks, dm, 10)
+	results := rrfFusion(nil, chunks, dm, 10, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -127,7 +127,7 @@ func TestRRFFusion_HybridBoost(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"), doc("c", "Doc C"))
 
-	results := rrfFusion(bm25, vector, dm, 10)
+	results := rrfFusion(bm25, vector, dm, 10, false)
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
@@ -155,7 +155,7 @@ func TestRRFFusion_ChunkAttachment(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"))
 
-	results := rrfFusion(bm25, vector, dm, 10)
+	results := rrfFusion(bm25, vector, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -173,7 +173,7 @@ func TestRRFFusion_ChunkDedup(t *testing.T) {
 	results := rrfFusion(
 		[]db.ChunkWithScore{sameChunk},
 		[]db.ChunkWithScore{sameChunk},
-		dm, 10,
+		dm, 10, false,
 	)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
@@ -183,7 +183,7 @@ func TestRRFFusion_ChunkDedup(t *testing.T) {
 		t.Errorf("expected 1 matched chunk (deduped), got %d", len(results[0].MatchedChunks))
 	}
 	// But score should reflect both contributions (higher than single path)
-	singleResults := rrfFusion([]db.ChunkWithScore{sameChunk}, nil, dm, 10)
+	singleResults := rrfFusion([]db.ChunkWithScore{sameChunk}, nil, dm, 10, false)
 	if results[0].Score <= singleResults[0].Score {
 		t.Error("deduped chunk should still boost document RRF score from both paths")
 	}
@@ -199,7 +199,7 @@ func TestRRFFusion_ChunkOrphan(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"))
 
-	results := rrfFusion(bm25, vector, dm, 10)
+	results := rrfFusion(bm25, vector, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -215,14 +215,14 @@ func TestRRFFusion_Limit(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"), doc("c", "Doc C"), doc("d", "Doc D"), doc("e", "Doc E"))
 
-	results := rrfFusion(bm25, nil, dm, 3)
+	results := rrfFusion(bm25, nil, dm, 3, false)
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results (limit), got %d", len(results))
 	}
 }
 
 func TestRRFFusion_Empty(t *testing.T) {
-	results := rrfFusion(nil, nil, nil, 10)
+	results := rrfFusion(nil, nil, nil, 10, false)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for empty inputs, got %d", len(results))
 	}
@@ -247,7 +247,7 @@ func TestRRFFusion_LightweightFields(t *testing.T) {
 		Labels: []string{"go", "test"},
 	})
 
-	results := rrfFusion(bm25, nil, dm, 10)
+	results := rrfFusion(bm25, nil, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -327,7 +327,7 @@ func TestRRFFusion_SnippetTruncation(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"))
 
-	results := rrfFusion(bm25, nil, dm, 10)
+	results := rrfFusion(bm25, nil, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -344,7 +344,7 @@ func TestRRFFusion_HeadingPathPreserved(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"))
 
-	results := rrfFusion(bm25, nil, dm, 10)
+	results := rrfFusion(bm25, nil, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -371,7 +371,7 @@ func TestAggregateChunks_MultiDocRanking(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"))
 
-	results := aggregateChunks(chunks, dm, 10)
+	results := aggregateChunks(chunks, dm, 10, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -395,7 +395,7 @@ func TestAggregateChunks_MultiChunkPerDoc(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"))
 
-	results := aggregateChunks(chunks, dm, 10)
+	results := aggregateChunks(chunks, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -415,7 +415,7 @@ func TestAggregateChunks_Limit(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"), doc("c", "Doc C"))
 
-	results := aggregateChunks(chunks, dm, 2)
+	results := aggregateChunks(chunks, dm, 2, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results (limit), got %d", len(results))
 	}
@@ -435,7 +435,7 @@ func TestAggregateChunks_OrphanChunk(t *testing.T) {
 	}
 	dm := docMap(doc("a", "Doc A"))
 
-	results := aggregateChunks(chunks, dm, 10)
+	results := aggregateChunks(chunks, dm, 10, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result (orphan skipped), got %d", len(results))
 	}
@@ -445,7 +445,7 @@ func TestAggregateChunks_OrphanChunk(t *testing.T) {
 }
 
 func TestAggregateChunks_Empty(t *testing.T) {
-	results := aggregateChunks(nil, nil, 10)
+	results := aggregateChunks(nil, nil, 10, false)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for nil chunks, got %d", len(results))
 	}
@@ -462,11 +462,58 @@ func TestAggregateChunks_StableOrder(t *testing.T) {
 		models.Document{ID: rid("document", "second"), Title: "Second", Path: "second.md"},
 	)
 
-	results := aggregateChunks(chunks, dm, 10)
+	results := aggregateChunks(chunks, dm, 10, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 	if results[0].DocumentID != "first" {
 		t.Errorf("expected 'first' to maintain encounter order, got %q", results[0].DocumentID)
+	}
+}
+
+// =============================================================================
+// FULL CONTENT TESTS
+// =============================================================================
+
+func TestChunkToMatch_FullContent(t *testing.T) {
+	longContent := strings.Repeat("word ", 100) // 500 chars
+	ch := chunkWithScore("a", longContent, 5.0)
+
+	truncated := chunkToMatch(ch, false)
+	if len([]rune(truncated.Snippet)) > maxSnippetLen+5 {
+		t.Errorf("expected truncated snippet, got rune length %d", len([]rune(truncated.Snippet)))
+	}
+
+	full := chunkToMatch(ch, true)
+	if full.Snippet != longContent {
+		t.Errorf("expected full content, got truncated snippet")
+	}
+}
+
+func TestAggregateChunks_FullContent(t *testing.T) {
+	longContent := strings.Repeat("word ", 100)
+	chunks := []db.ChunkWithScore{chunkWithScore("a", longContent, 5.0)}
+	dm := docMap(doc("a", "Doc A"))
+
+	results := aggregateChunks(chunks, dm, 10, true)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].MatchedChunks[0].Snippet != longContent {
+		t.Error("expected full content in snippet when fullContent=true")
+	}
+}
+
+func TestRRFFusion_FullContent(t *testing.T) {
+	longContent := strings.Repeat("word ", 100)
+	bm25 := []db.ChunkWithScore{chunkWithScore("a", longContent, 5.0)}
+	dm := docMap(doc("a", "Doc A"))
+
+	results := rrfFusion(bm25, nil, dm, 10, true)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].MatchedChunks[0].Snippet != longContent {
+		t.Error("expected full content in snippet when fullContent=true")
 	}
 }
