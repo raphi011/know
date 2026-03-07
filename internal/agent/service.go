@@ -15,47 +15,21 @@ import (
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/pathutil"
 	"github.com/raphi011/knowhow/internal/search"
+	"github.com/raphi011/knowhow/internal/tools"
 )
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type     string           `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
-	Content  string           `json:"content,omitempty"`
-	ConvID   string           `json:"convId,omitempty"`
-	MsgID    string           `json:"msgId,omitempty"`
-	CallID   string           `json:"callId,omitempty"`
-	Tool     string           `json:"tool,omitempty"`
-	Input    map[string]any   `json:"input,omitempty"`
-	Meta     *ToolResultMeta  `json:"meta,omitempty"`
-	Approval *ApprovalRequest `json:"approval,omitempty"`
-}
-
-// ToolResultMeta contains structured metadata about a tool execution result.
-type ToolResultMeta struct {
-	DurationMs     int64        `json:"durationMs"`
-	ResultCount    *int         `json:"resultCount,omitempty"`
-	ChunkCount     *int         `json:"chunkCount,omitempty"`
-	MatchedDocs    []ToolDocRef `json:"matchedDocs,omitempty"`
-	DocumentPath   *string      `json:"documentPath,omitempty"`
-	DocumentTitle  *string      `json:"documentTitle,omitempty"`
-	ContentLength  *int         `json:"contentLength,omitempty"`
-	WebResultCount *int         `json:"webResultCount,omitempty"`
-	WebSources     []ToolWebRef `json:"webSources,omitempty"`
-}
-
-// ToolDocRef references a matched KB document.
-type ToolDocRef struct {
-	Title string  `json:"title"`
-	Path  string  `json:"path"`
-	Score float64 `json:"score"`
-}
-
-// ToolWebRef references a web search result.
-type ToolWebRef struct {
-	Title string `json:"title"`
-	URL   string `json:"url"`
+	Type     string              `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Content  string              `json:"content,omitempty"`
+	ConvID   string              `json:"convId,omitempty"`
+	MsgID    string              `json:"msgId,omitempty"`
+	CallID   string              `json:"callId,omitempty"`
+	Tool     string              `json:"tool,omitempty"`
+	Input    map[string]any      `json:"input,omitempty"`
+	Meta     *tools.ToolResultMeta `json:"meta,omitempty"`
+	Approval *ApprovalRequest    `json:"approval,omitempty"`
 }
 
 // Service orchestrates the agent loop: native tool calling → streaming answer.
@@ -64,6 +38,7 @@ type Service struct {
 	model           *llm.Model
 	search          *search.Service
 	docService      *document.Service
+	executor        *tools.Executor
 	tavily          *tavilyClient
 	activeApprovals sync.Map // map[conversationID]*approvalSession
 }
@@ -76,7 +51,17 @@ type approvalSession struct {
 
 // NewService creates a new agent service.
 func NewService(db *db.Client, model *llm.Model, search *search.Service, docService *document.Service, tavilyAPIKey string) *Service {
-	s := &Service{db: db, model: model, search: search, docService: docService}
+	s := &Service{
+		db:         db,
+		model:      model,
+		search:     search,
+		docService: docService,
+		executor: &tools.Executor{
+			DB:         db,
+			Search:     search,
+			DocService: docService,
+		},
+	}
 	if tavilyAPIKey != "" {
 		s.tavily = newTavilyClient(tavilyAPIKey)
 	}
@@ -359,7 +344,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	type toolCallRecord struct {
 		call   schema.ToolCall
 		result string
-		meta   *ToolResultMeta
+		meta   *tools.ToolResultMeta
 	}
 	var toolCallRecords []toolCallRecord
 	var answer strings.Builder
@@ -532,7 +517,16 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	return nil
 }
 
-func intPtr(v int) *int { return &v }
+// agentToolToCanonical maps agent-specific tool names to canonical executor names.
+var agentToolToCanonical = map[string]string{
+	"kb_search":            "search",
+	"read_document":        "read_document",
+	"list_labels":          "list_labels",
+	"list_folders":         "list_folders",
+	"list_folder_contents": "list_folder_contents",
+	"create_document":      "create_document",
+	"edit_document":        "edit_document",
+}
 
 // isWriteTool returns true for tools that modify documents.
 func isWriteTool(name string) bool {
@@ -578,321 +572,50 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 }
 
 // executeTool executes a named tool with the given JSON arguments string.
-func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments string) (string, *ToolResultMeta, error) {
-	switch toolName {
-	case "kb_search":
-		var input struct {
-			Query string `json:"query"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-			return "", nil, fmt.Errorf("parse kb_search input: %w", err)
-		}
+// It maps agent-specific tool names to canonical names and delegates to the
+// shared executor, except for web_search which is agent-specific.
+func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments string) (string, *tools.ToolResultMeta, error) {
+	if toolName == "web_search" {
+		return s.execWebSearch(ctx, arguments)
+	}
 
-		start := time.Now()
-		results, err := s.search.Search(ctx, search.SearchInput{
-			VaultID:     vaultID,
-			Query:       input.Query,
-			Limit:       20,
-			FullContent: true,
-		})
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("search: %w", err)
-		}
-
-		var sb strings.Builder
-		var matchedDocs []ToolDocRef
-		totalChunks := 0
-		for _, r := range results {
-			fmt.Fprintf(&sb, "## %s (%s)\n", r.Title, r.Path)
-			matchedDocs = append(matchedDocs, ToolDocRef{Title: r.Title, Path: r.Path, Score: r.Score})
-			totalChunks += len(r.MatchedChunks)
-			for _, ch := range r.MatchedChunks {
-				sb.WriteString(ch.Snippet)
-				sb.WriteString("\n\n")
-			}
-		}
-
-		result := sb.String()
-		if result == "" {
-			result = "No results found."
-		}
-
-		meta := &ToolResultMeta{
-			DurationMs:  durationMs,
-			ResultCount: intPtr(len(results)),
-			ChunkCount:  intPtr(totalChunks),
-			MatchedDocs: matchedDocs,
-		}
-		return result, meta, nil
-
-	case "read_document":
-		var input struct {
-			Path string `json:"path"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-			return "", nil, fmt.Errorf("parse read_document input: %w", err)
-		}
-
-		start := time.Now()
-		doc, err := s.db.GetDocumentByPath(ctx, vaultID, input.Path)
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("read document: %w", err)
-		}
-		if doc == nil {
-			meta := &ToolResultMeta{DurationMs: durationMs}
-			return fmt.Sprintf("Document not found: %s", input.Path), meta, nil
-		}
-
-		contentLen := len(doc.ContentBody)
-		meta := &ToolResultMeta{
-			DurationMs:    durationMs,
-			DocumentPath:  &doc.Path,
-			DocumentTitle: &doc.Title,
-			ContentLength: &contentLen,
-		}
-		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), meta, nil
-
-	case "list_labels":
-		start := time.Now()
-		labels, err := s.db.ListLabels(ctx, vaultID)
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("list labels: %w", err)
-		}
-
-		result := "No labels found."
-		if len(labels) > 0 {
-			result = strings.Join(labels, ", ")
-		}
-		meta := &ToolResultMeta{
-			DurationMs:  durationMs,
-			ResultCount: intPtr(len(labels)),
-		}
-		return result, meta, nil
-
-	case "list_folders":
-		var input struct {
-			Parent *string `json:"parent"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-			return "", nil, fmt.Errorf("parse list_folders input: %w", err)
-		}
-
-		start := time.Now()
-		folders, err := s.db.ListFolders(ctx, vaultID)
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("list folders: %w", err)
-		}
-
-		if input.Parent != nil {
-			parent := pathutil.NormalizeFolderPath(*input.Parent)
-			var filtered []models.Folder
-			for _, f := range folders {
-				if pathutil.IsImmediateChildFolder(parent, f.Path) {
-					filtered = append(filtered, f)
-				}
-			}
-			folders = filtered
-		}
-
-		var sb strings.Builder
-		for _, f := range folders {
-			fmt.Fprintf(&sb, "%s (%s)\n", f.Path, f.Name)
-		}
-		result := sb.String()
-		if result == "" {
-			result = "No folders found."
-		}
-		meta := &ToolResultMeta{
-			DurationMs:  durationMs,
-			ResultCount: intPtr(len(folders)),
-		}
-		return result, meta, nil
-
-	case "list_folder_contents":
-		var input struct {
-			Folder string `json:"folder"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-			return "", nil, fmt.Errorf("parse list_folder_contents input: %w", err)
-		}
-		if input.Folder == "" {
-			return "", nil, fmt.Errorf("folder is required")
-		}
-		folder := pathutil.NormalizeFolderPath(input.Folder)
-
-		start := time.Now()
-
-		// Fetch both documents and subfolders
-		docs, err := s.db.ListDocuments(ctx, db.ListDocumentsFilter{
-			VaultID: vaultID,
-			Folder:  &folder,
-		})
-		if err != nil {
-			return "", nil, fmt.Errorf("list folder contents: %w", err)
-		}
-		allFolders, err := s.db.ListFolders(ctx, vaultID)
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("list folder subfolders: %w", err)
-		}
-
-		var sb strings.Builder
-		count := 0
-
-		// List immediate child folders
-		for _, f := range allFolders {
-			if pathutil.IsImmediateChildFolder(folder, f.Path) {
-				fmt.Fprintf(&sb, "📁 %s/\n", f.Name)
-				count++
-			}
-		}
-
-		// List immediate child documents
-		for _, d := range docs {
-			if !pathutil.IsImmediateChild(folder, d.Path) {
-				continue
-			}
-			labels := ""
-			if len(d.Labels) > 0 {
-				labels = " [" + strings.Join(d.Labels, ", ") + "]"
-			}
-			fmt.Fprintf(&sb, "📄 %s — %s%s\n", d.Path, d.Title, labels)
-			count++
-		}
-
-		result := sb.String()
-		if result == "" {
-			result = fmt.Sprintf("No contents found in folder %s", folder)
-		}
-		meta := &ToolResultMeta{
-			DurationMs:  durationMs,
-			ResultCount: intPtr(count),
-		}
-		return result, meta, nil
-
-	case "create_document":
-		var args struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-			return "", nil, fmt.Errorf("parse create_document input: %w", err)
-		}
-		if args.Path == "" {
-			return "", nil, fmt.Errorf("path is required")
-		}
-		if args.Content == "" {
-			return "", nil, fmt.Errorf("content is required")
-		}
-
-		// Check if document already exists
-		existing, err := s.db.GetDocumentByPath(ctx, vaultID, args.Path)
-		if err != nil {
-			return "", nil, fmt.Errorf("check existing document: %w", err)
-		}
-		if existing != nil {
-			return "", nil, fmt.Errorf("document already exists at path: %s", args.Path)
-		}
-
-		start := time.Now()
-		doc, err := s.docService.Create(ctx, models.DocumentInput{
-			VaultID: vaultID,
-			Path:    args.Path,
-			Content: args.Content,
-			Source:  models.SourceAIGenerated,
-		})
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("create document: %w", err)
-		}
-
-		meta := &ToolResultMeta{
-			DurationMs:    durationMs,
-			DocumentPath:  &doc.Path,
-			DocumentTitle: &doc.Title,
-		}
-		return fmt.Sprintf("Document created: %s (%s)", doc.Title, doc.Path), meta, nil
-
-	case "edit_document":
-		var args struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-			return "", nil, fmt.Errorf("parse edit_document input: %w", err)
-		}
-		if args.Path == "" {
-			return "", nil, fmt.Errorf("path is required")
-		}
-		if args.Content == "" {
-			return "", nil, fmt.Errorf("content is required")
-		}
-
-		// Check document exists
-		existing, err := s.db.GetDocumentByPath(ctx, vaultID, args.Path)
-		if err != nil {
-			return "", nil, fmt.Errorf("check document: %w", err)
-		}
-		if existing == nil {
-			return "", nil, fmt.Errorf("document not found: %s", args.Path)
-		}
-
-		start := time.Now()
-		doc, err := s.docService.Create(ctx, models.DocumentInput{
-			VaultID: vaultID,
-			Path:    args.Path,
-			Content: args.Content,
-			Source:  models.SourceAIGenerated,
-		})
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("edit document: %w", err)
-		}
-
-		meta := &ToolResultMeta{
-			DurationMs:    durationMs,
-			DocumentPath:  &doc.Path,
-			DocumentTitle: &doc.Title,
-		}
-		return fmt.Sprintf("Document updated: %s (%s)", doc.Title, doc.Path), meta, nil
-
-	case "web_search":
-		var input struct {
-			Query string `json:"query"`
-		}
-		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-			return "", nil, fmt.Errorf("parse web_search input: %w", err)
-		}
-		if s.tavily == nil {
-			return "", nil, fmt.Errorf("web search not configured")
-		}
-
-		start := time.Now()
-		result, webResults, err := s.tavily.Search(ctx, input.Query)
-		durationMs := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", nil, fmt.Errorf("web search: %w", err)
-		}
-
-		var webSources []ToolWebRef
-		for _, r := range webResults {
-			webSources = append(webSources, ToolWebRef{Title: r.Title, URL: r.URL})
-		}
-
-		meta := &ToolResultMeta{
-			DurationMs:     durationMs,
-			WebResultCount: intPtr(len(webResults)),
-			WebSources:     webSources,
-		}
-		return result, meta, nil
-
-	default:
+	canonical, ok := agentToolToCanonical[toolName]
+	if !ok {
 		return "", nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
+
+	return s.executor.ExecuteTool(ctx, vaultID, canonical, arguments)
+}
+
+func (s *Service) execWebSearch(ctx context.Context, arguments string) (string, *tools.ToolResultMeta, error) {
+	var input struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
+		return "", nil, fmt.Errorf("parse web_search input: %w", err)
+	}
+	if s.tavily == nil {
+		return "", nil, fmt.Errorf("web search not configured")
+	}
+
+	start := time.Now()
+	result, webResults, err := s.tavily.Search(ctx, input.Query)
+	durationMs := time.Since(start).Milliseconds()
+	if err != nil {
+		return "", nil, fmt.Errorf("web search: %w", err)
+	}
+
+	var webSources []tools.ToolWebRef
+	for _, r := range webResults {
+		webSources = append(webSources, tools.ToolWebRef{Title: r.Title, URL: r.URL})
+	}
+
+	meta := &tools.ToolResultMeta{
+		DurationMs:     durationMs,
+		WebResultCount: tools.IntPtr(len(webResults)),
+		WebSources:     webSources,
+	}
+	return result, meta, nil
 }
 
 func (s *Service) autoTitle(ctx context.Context, conversationID, firstMessage string) {

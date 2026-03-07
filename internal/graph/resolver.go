@@ -169,6 +169,21 @@ func (r *Resolver) EventBus() *event.Bus {
 	return r.bus
 }
 
+// SearchService returns the search service.
+func (r *Resolver) SearchService() *search.Service {
+	return r.searchService
+}
+
+// DocumentService returns the document service.
+func (r *Resolver) DocumentService() *document.Service {
+	return r.documentService
+}
+
+// VaultService returns the vault service.
+func (r *Resolver) VaultService() *vault.Service {
+	return r.vaultService
+}
+
 // Close stops background workers and closes all connections.
 func (r *Resolver) Close(ctx context.Context) error {
 	if r.workerCancel != nil {

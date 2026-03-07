@@ -21,6 +21,8 @@ import (
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/graph"
+	"github.com/raphi011/knowhow/internal/mcptools"
+	"github.com/raphi011/knowhow/internal/tools"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -102,6 +104,21 @@ func main() {
 
 	// SSE endpoint for streaming document change events
 	mux.Handle("/events", authMw(event.HandleEvents(resolver.EventBus())))
+
+	// MCP endpoint for Model Context Protocol
+	if cfg.MCPEnabled {
+		mcpHandler := mcptools.NewHandler(
+			&tools.Executor{
+				DB:         resolver.DBClient(),
+				Search:     resolver.SearchService(),
+				DocService: resolver.DocumentService(),
+			},
+			resolver.DBClient(),
+			resolver.VaultService(),
+		)
+		mux.Handle("/mcp", authMw(mcpHandler))
+		slog.Info("MCP endpoint enabled", "path", "/mcp")
+	}
 
 	// Playground is unauthenticated (for dev)
 	mux.Handle("/playground", playground.Handler("Knowhow v2", "/query"))

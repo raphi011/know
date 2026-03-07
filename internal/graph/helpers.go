@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/agent"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/search"
+	"github.com/raphi011/knowhow/internal/tools"
 )
 
 func vaultToGraphQL(v *models.Vault) *Vault {
@@ -412,7 +412,7 @@ func toolResultMetaFromJSON(s *string) *ToolResultMeta {
 	if s == nil || *s == "" {
 		return nil
 	}
-	var src agent.ToolResultMeta
+	var src tools.ToolResultMeta
 	if err := json.Unmarshal([]byte(*s), &src); err != nil {
 		slog.Warn("failed to unmarshal tool_meta JSON", "error", err, "raw", *s)
 		return nil

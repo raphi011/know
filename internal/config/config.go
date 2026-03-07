@@ -56,6 +56,7 @@ type Config struct {
 	// Server settings
 	IngestConcurrency int
 	NoAuth            bool // bypass token auth (for local/Docker use)
+	MCPEnabled        bool // serve MCP endpoint at /mcp (default: true)
 
 	// Embedding worker settings
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
@@ -115,6 +116,7 @@ func Load() Config {
 		// Server settings
 		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
 		NoAuth:            getEnvBool("KNOWHOW_NO_AUTH", false),
+		MCPEnabled:        getEnvBool("KNOWHOW_MCP_ENABLED", true),
 
 		// Embedding worker
 		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),

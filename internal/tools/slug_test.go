@@ -1,4 +1,4 @@
-package main
+package tools
 
 import "testing"
 
@@ -21,9 +21,9 @@ func TestSlugify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := slugify(tt.input)
+			got := Slugify(tt.input)
 			if got != tt.want {
-				t.Errorf("slugify(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("Slugify(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
