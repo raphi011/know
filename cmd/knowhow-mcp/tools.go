@@ -149,6 +149,18 @@ type CreateMemoryInput struct {
 	Instance string   `json:"instance" jsonschema:"description=Target instance name"`
 }
 
+type CreateDocumentInput struct {
+	Path     string `json:"path" jsonschema:"description=Document path (e.g. /guides/new-guide.md)"`
+	Content  string `json:"content" jsonschema:"description=Full markdown content"`
+	Instance string `json:"instance" jsonschema:"description=Target instance name"`
+}
+
+type EditDocumentInput struct {
+	Path     string `json:"path" jsonschema:"description=Document path of the existing document"`
+	Content  string `json:"content" jsonschema:"description=Complete new markdown content (replaces existing)"`
+	Instance string `json:"instance" jsonschema:"description=Target instance name"`
+}
+
 // ---------- connectedInstance ----------
 
 type connectedInstance struct {
@@ -245,6 +257,16 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Name:        "create_memory",
 		Description: "Create a new memory document. Memories are short notes stored under /memories/ with a date-prefixed path. Always adds the 'memory' label.",
 	}, t.createMemory)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "create_document",
+		Description: "Create a new document in the knowledge base. Content should be markdown. Fails if a document already exists at the path.",
+	}, t.createDocument)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "edit_document",
+		Description: "Edit an existing document by replacing its full content. Read the document first with get_document, then pass the complete new content.",
+	}, t.editDocument)
 }
 
 // ---------- Tool handlers ----------
@@ -602,6 +624,79 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 
 	return textResult(fmt.Sprintf("Memory created at %s (instance: %s, vault: %s)", resp.CreateDocument.Path, inst.name, vaultID)), nil, nil
+}
+
+func (t *mcpTools) createDocument(ctx context.Context, req *mcp.CallToolRequest, input CreateDocumentInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Path) == "" {
+		return nil, nil, fmt.Errorf("path is required")
+	}
+	if strings.TrimSpace(input.Content) == "" {
+		return nil, nil, fmt.Errorf("content is required")
+	}
+
+	instances := t.filterInstances(&input.Instance)
+	if len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", input.Instance)
+	}
+	inst := instances[0]
+
+	if err := inst.resolveVaults(ctx); err != nil {
+		return nil, nil, fmt.Errorf("resolve vaults: %w", err)
+	}
+
+	vaultID := inst.vaultIDs[0]
+	vars := map[string]any{
+		"vaultId": vaultID,
+		"file": map[string]any{
+			"path":    input.Path,
+			"content": input.Content,
+		},
+		"source": "mcp",
+	}
+
+	var resp createDocumentResponse
+	if err := inst.client.Do(ctx, `mutation CreateDoc($vaultId: ID!, $file: FileInput!, $source: String) { createDocument(vaultId: $vaultId, file: $file, source: $source) { path } }`, vars, &resp); err != nil {
+		return nil, nil, fmt.Errorf("create document: %w", err)
+	}
+
+	return textResult(fmt.Sprintf("Document created at %s (instance: %s)", resp.CreateDocument.Path, inst.name)), nil, nil
+}
+
+func (t *mcpTools) editDocument(ctx context.Context, req *mcp.CallToolRequest, input EditDocumentInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Path) == "" {
+		return nil, nil, fmt.Errorf("path is required")
+	}
+	if strings.TrimSpace(input.Content) == "" {
+		return nil, nil, fmt.Errorf("content is required")
+	}
+
+	instances := t.filterInstances(&input.Instance)
+	if len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", input.Instance)
+	}
+	inst := instances[0]
+
+	if err := inst.resolveVaults(ctx); err != nil {
+		return nil, nil, fmt.Errorf("resolve vaults: %w", err)
+	}
+
+	vaultID := inst.vaultIDs[0]
+	vars := map[string]any{
+		"vaultId": vaultID,
+		"path":    input.Path,
+		"content": input.Content,
+	}
+
+	var resp struct {
+		UpdateDocument struct {
+			Path string `json:"path"`
+		} `json:"updateDocument"`
+	}
+	if err := inst.client.Do(ctx, `mutation UpdateDoc($vaultId: ID!, $path: String!, $content: String!) { updateDocument(vaultId: $vaultId, path: $path, content: $content) { path } }`, vars, &resp); err != nil {
+		return nil, nil, fmt.Errorf("edit document: %w", err)
+	}
+
+	return textResult(fmt.Sprintf("Document updated at %s (instance: %s)", resp.UpdateDocument.Path, inst.name)), nil, nil
 }
 
 func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolRequest, input GetDocumentVersionsInput) (*mcp.CallToolResult, any, error) {
