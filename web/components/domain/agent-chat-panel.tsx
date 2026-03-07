@@ -339,8 +339,8 @@ function StreamSegmentView({ segment }: { segment: StreamSegment }) {
   if (segment.type === "text") {
     return (
       <div className="mb-2">
-        <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs dark:bg-slate-800">
-          <MarkdownRenderer content={segment.content} className="prose-xs" />
+        <div className="py-1 px-1 text-slate-800 dark:text-slate-200">
+          <MarkdownRenderer content={segment.content} className={AGENT_PROSE} />
         </div>
       </div>
     );
@@ -369,24 +369,40 @@ function ChatBubble({
 }) {
   const isUser = message.role === "user";
 
-  return (
-    <div className={cn("mb-2 flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[90%] rounded-lg px-2.5 py-2 text-xs",
-          isUser
-            ? "bg-primary-600 text-white"
-            : "bg-slate-50 text-slate-900 dark:bg-slate-800 dark:text-slate-100",
-        )}
-      >
-        {isUser ? (
+  if (isUser) {
+    return (
+      <div className="mb-2 flex justify-end">
+        <div className="max-w-[90%] rounded-lg bg-primary-600 px-2.5 py-2 text-xs text-white">
           <p className="whitespace-pre-wrap">{message.content}</p>
-        ) : (
-          <MarkdownRenderer content={message.content} className="prose-xs" />
-        )}
+        </div>
+      </div>
+    );
+  }
+
+  // Assistant bubble — left accent border, compact prose, visually distinct from document
+  return (
+    <div className="mb-2">
+      <div
+        className="py-1 px-1 text-slate-800 dark:text-slate-200"
+      >
+        <MarkdownRenderer content={message.content} className={AGENT_PROSE} />
       </div>
     </div>
   );
 }
+
+/** Prose overrides for agent chat — compact, no max-width, tighter spacing than document view. */
+const AGENT_PROSE = cn(
+  "!prose-sm !max-w-none",
+  "!prose-h1:text-sm !prose-h1:font-semibold !prose-h1:mb-2",
+  "!prose-h2:text-[13px] !prose-h2:font-semibold !prose-h2:mb-1.5 !prose-h2:border-0 !prose-h2:pb-0",
+  "!prose-h3:text-xs !prose-h3:font-medium",
+  "!prose-p:text-xs !prose-p:leading-relaxed !prose-p:my-1",
+  "!prose-li:text-xs !prose-li:my-0",
+  "!prose-ul:my-1 !prose-ol:my-1",
+  "!prose-pre:text-[11px] !prose-pre:my-1.5",
+  "!prose-code:text-[11px]",
+  "!prose-blockquote:text-xs !prose-blockquote:my-1.5",
+);
 
 export { AgentChatPanel };
