@@ -117,15 +117,26 @@ if errors.As(err, &se) {
 -- v2.x (deprecated)
 vector::distance::knn(embedding, $query_vec)
 
--- v3.0 (new)
-embedding <|10|> $query_vec
+-- v3.0 HNSW (requires HNSW index)
+embedding <|10,40|> $query_vec
+
+-- v3.0 Brute force (no index, explicit distance metric)
+embedding <|10,COSINE|> $query_vec
 ```
 
-The `<|K,DIST|>` operator:
+The operator has **two different forms** depending on whether an HNSW index exists:
+
+**HNSW form `<|K,EF|>`** (when an HNSW index is defined on the field):
 - K = number of nearest neighbors
-- DIST = distance metric (COSINE, EUCLIDEAN, etc.) — optional, defaults to the index's configured metric
-- Returns pre-filtered results from HNSW index
-- In this codebase we omit DIST since the index already specifies `DIST COSINE`
+- EF = effort / dynamic candidate list size (higher = more accurate, slower). 40 is a good default
+- **The EF param is required** — `<|K|>` without EF causes: `KNN operators nested in OR/NOT expressions or mixed with unsupported KNN variants are not supported` (misleading error — the real issue is the missing EF param, not the WHERE conditions)
+- Can be combined with AND conditions, including record traversals: `WHERE doc.vault = $v AND embedding <|10,40|> $vec`
+
+**Brute force form `<|K,DIST|>`** (no index):
+- K = number of nearest neighbors
+- DIST = distance metric (COSINE, EUCLIDEAN, etc.)
+
+In this codebase we use the HNSW form with `EF=40`.
 
 ### Fulltext Search
 
@@ -229,9 +240,9 @@ Combine vector and fulltext search with RRF:
 
 ```sql
 LET $vec_results = (
-    SELECT id, content, embedding <|20|> $embedding AS vec_score
+    SELECT id, content, vector::similarity::cosine(embedding, $embedding) AS vec_score
     FROM chunk
-    WHERE embedding <|20|> $embedding
+    WHERE embedding <|20,40|> $embedding
 );
 
 LET $ft_results = (
@@ -257,6 +268,34 @@ As of v3.0.2, parenthesized OR conditions in WHERE clauses can cause parse error
 DELETE FROM folder WHERE vault = $v AND (path = $p OR string::starts_with(path, $prefix))
 
 -- WORKAROUND: split into separate queries (use a transaction if atomicity needed)
+```
+
+### `type::record()` in RELATE Statements
+
+`type::record()` cannot be used inline in RELATE endpoints — it causes a parse error:
+
+```sql
+-- FAILS: Parse error: Unexpected token `::`
+RELATE type::record("document", $from)->doc_relation->type::record("document", $to) SET ...
+
+-- WORKS: assign to LET variables first
+LET $from = type::record("document", $from_id);
+LET $to = type::record("document", $to_id);
+RELATE $from->doc_relation->$to SET ...
+```
+
+Note: multi-statement queries return one result set per statement. With 2 LETs + RELATE, the RELATE result is at index `[2]`.
+
+### `RETURN` vs `SELECT` for Computed Expressions
+
+Standalone computed expressions (without a table) need `RETURN`, not `SELECT`:
+
+```sql
+-- FAILS: Unexpected end of file, expected FROM
+SELECT array::distinct(array::flatten(...)) AS labels
+
+-- WORKS: RETURN gives the value directly (no row wrapper)
+RETURN array::distinct(array::flatten(...))
 ```
 
 ### Negative Array Indexing

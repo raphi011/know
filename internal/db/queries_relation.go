@@ -10,24 +10,27 @@ import (
 
 func (c *Client) CreateRelation(ctx context.Context, input models.DocRelationInput) (*models.DocRelation, error) {
 	sql := `
-		RELATE type::record("document", $from_id)->doc_relation->type::record("document", $to_id) SET
+		LET $from = type::record("document", $from_id);
+		LET $to = type::record("document", $to_id);
+		RELATE $from->doc_relation->$to SET
 			rel_type = $rel_type,
 			source = $source
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.DocRelation](ctx, c.DB(), sql, map[string]any{
-		"from_id":  input.FromDocID,
-		"to_id":    input.ToDocID,
+		"from_id":  bareID("document", input.FromDocID),
+		"to_id":    bareID("document", input.ToDocID),
 		"rel_type": input.RelType,
 		"source":   input.Source,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create relation: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+	// Multi-statement query: LET, LET, RELATE — result is at index 2
+	if results == nil || len(*results) < 3 || len((*results)[2].Result) == 0 {
 		return nil, fmt.Errorf("create relation: no result returned")
 	}
-	return &(*results)[0].Result[0], nil
+	return &(*results)[2].Result[0], nil
 }
 
 func (c *Client) GetRelations(ctx context.Context, documentID string) ([]models.DocRelation, error) {

@@ -234,22 +234,19 @@ func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.
 
 // ListLabels returns all distinct labels used by documents in the given vault.
 func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
-	sql := `SELECT array::distinct(array::flatten(
+	sql := `RETURN array::distinct(array::flatten(
 		(SELECT labels FROM document WHERE vault = type::record("vault", $vault_id)).labels
-	)) AS labels`
-	type labelsResult struct {
-		Labels []string `json:"labels"`
-	}
-	results, err := surrealdb.Query[[]labelsResult](ctx, c.DB(), sql, map[string]any{
+	))`
+	results, err := surrealdb.Query[[]string](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list labels: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+	if results == nil || len(*results) == 0 {
 		return []string{}, nil
 	}
-	labels := (*results)[0].Result[0].Labels
+	labels := (*results)[0].Result
 	if labels == nil {
 		return []string{}, nil
 	}

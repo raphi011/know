@@ -94,7 +94,7 @@ func (c *Client) ChunkVectorSearch(ctx context.Context, embedding []float32, fil
 		SELECT *, vector::similarity::cosine(embedding, $embedding) AS score
 		FROM chunk
 		WHERE %s
-			AND embedding <|%d|> $embedding
+			AND embedding <|%d,40|> $embedding
 		ORDER BY score DESC
 		LIMIT %d
 	`, strings.Join(conditions, " AND "), limit, limit)
