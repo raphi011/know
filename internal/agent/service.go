@@ -12,6 +12,7 @@ import (
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/pathutil"
 	"github.com/raphi011/knowhow/internal/search"
 )
 
@@ -81,6 +82,9 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 
 - Use kb_search to find relevant documents in the knowledge base
 - Use read_document to read the full content of a specific document by path
+- Use list_labels to discover available labels/categories
+- Use list_folders to browse the folder structure
+- Use list_folder_contents to see documents in a specific folder
 - If the knowledge base has no results, tell the user and offer to search the web
 - NEVER call web_search without the user's explicit permission
 - Always cite document paths when referencing information from the knowledge base
@@ -131,6 +135,32 @@ func (s *Service) buildTools() []*schema.ToolInfo {
 				"path": {
 					Type:     schema.String,
 					Desc:     "The document path (e.g. /folder/document-name)",
+					Required: true,
+				},
+			}),
+		},
+		{
+			Name:        "list_labels",
+			Desc:        "List all labels/categories used across documents in the knowledge base",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
+		},
+		{
+			Name: "list_folders",
+			Desc: "List the folder structure of the knowledge base. Optionally filter to immediate children of a parent folder.",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+				"parent": {
+					Type: schema.String,
+					Desc: "Parent folder path to list children of (e.g. /guides/). Lists all folders if omitted.",
+				},
+			}),
+		},
+		{
+			Name: "list_folder_contents",
+			Desc: "List documents and subfolders in a specific folder. Returns immediate children only.",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+				"folder": {
+					Type:     schema.String,
+					Desc:     "Folder path (e.g. /guides/)",
 					Required: true,
 				},
 			}),
@@ -453,6 +483,126 @@ func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments 
 			ContentLength: &contentLen,
 		}
 		return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), meta, nil
+
+	case "list_labels":
+		start := time.Now()
+		labels, err := s.db.ListLabels(ctx, vaultID)
+		durationMs := time.Since(start).Milliseconds()
+		if err != nil {
+			return "", nil, fmt.Errorf("list labels: %w", err)
+		}
+
+		result := "No labels found."
+		if len(labels) > 0 {
+			result = strings.Join(labels, ", ")
+		}
+		meta := &ToolResultMeta{
+			DurationMs:  durationMs,
+			ResultCount: intPtr(len(labels)),
+		}
+		return result, meta, nil
+
+	case "list_folders":
+		var input struct {
+			Parent *string `json:"parent"`
+		}
+		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
+			return "", nil, fmt.Errorf("parse list_folders input: %w", err)
+		}
+
+		start := time.Now()
+		folders, err := s.db.ListFolders(ctx, vaultID)
+		durationMs := time.Since(start).Milliseconds()
+		if err != nil {
+			return "", nil, fmt.Errorf("list folders: %w", err)
+		}
+
+		if input.Parent != nil {
+			parent := pathutil.NormalizeFolderPath(*input.Parent)
+			var filtered []models.Folder
+			for _, f := range folders {
+				if pathutil.IsImmediateChildFolder(parent, f.Path) {
+					filtered = append(filtered, f)
+				}
+			}
+			folders = filtered
+		}
+
+		var sb strings.Builder
+		for _, f := range folders {
+			fmt.Fprintf(&sb, "%s (%s)\n", f.Path, f.Name)
+		}
+		result := sb.String()
+		if result == "" {
+			result = "No folders found."
+		}
+		meta := &ToolResultMeta{
+			DurationMs:  durationMs,
+			ResultCount: intPtr(len(folders)),
+		}
+		return result, meta, nil
+
+	case "list_folder_contents":
+		var input struct {
+			Folder string `json:"folder"`
+		}
+		if err := json.Unmarshal([]byte(arguments), &input); err != nil {
+			return "", nil, fmt.Errorf("parse list_folder_contents input: %w", err)
+		}
+		if input.Folder == "" {
+			return "", nil, fmt.Errorf("folder is required")
+		}
+		folder := pathutil.NormalizeFolderPath(input.Folder)
+
+		start := time.Now()
+
+		// Fetch both documents and subfolders
+		docs, err := s.db.ListDocuments(ctx, db.ListDocumentsFilter{
+			VaultID: vaultID,
+			Folder:  &folder,
+		})
+		if err != nil {
+			return "", nil, fmt.Errorf("list folder contents: %w", err)
+		}
+		allFolders, err := s.db.ListFolders(ctx, vaultID)
+		durationMs := time.Since(start).Milliseconds()
+		if err != nil {
+			return "", nil, fmt.Errorf("list folder subfolders: %w", err)
+		}
+
+		var sb strings.Builder
+		count := 0
+
+		// List immediate child folders
+		for _, f := range allFolders {
+			if pathutil.IsImmediateChildFolder(folder, f.Path) {
+				fmt.Fprintf(&sb, "📁 %s/\n", f.Name)
+				count++
+			}
+		}
+
+		// List immediate child documents
+		for _, d := range docs {
+			if !pathutil.IsImmediateChild(folder, d.Path) {
+				continue
+			}
+			labels := ""
+			if len(d.Labels) > 0 {
+				labels = " [" + strings.Join(d.Labels, ", ") + "]"
+			}
+			fmt.Fprintf(&sb, "📄 %s — %s%s\n", d.Path, d.Title, labels)
+			count++
+		}
+
+		result := sb.String()
+		if result == "" {
+			result = fmt.Sprintf("No contents found in folder %s", folder)
+		}
+		meta := &ToolResultMeta{
+			DurationMs:  durationMs,
+			ResultCount: intPtr(count),
+		}
+		return result, meta, nil
 
 	case "web_search":
 		var input struct {

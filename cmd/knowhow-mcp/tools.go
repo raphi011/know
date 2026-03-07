@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/knowhow/internal/graphqlclient"
+	"github.com/raphi011/knowhow/internal/pathutil"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -68,6 +69,23 @@ type foldersResponse struct {
 	} `json:"vaults"`
 }
 
+type folderContentsResponse struct {
+	Vaults []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Documents []struct {
+			Path    string   `json:"path"`
+			Title   string   `json:"title"`
+			Labels  []string `json:"labels"`
+			DocType *string  `json:"docType"`
+		} `json:"documents"`
+		Folders []struct {
+			Path string `json:"path"`
+			Name string `json:"name"`
+		} `json:"folders"`
+	} `json:"vaults"`
+}
+
 type documentVersionsResponse struct {
 	DocumentVersions struct {
 		Versions []struct {
@@ -110,6 +128,11 @@ type ListLabelsInput struct {
 }
 
 type ListFoldersInput struct {
+	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (lists all if omitted)"`
+}
+
+type ListFolderContentsInput struct {
+	Folder   string  `json:"folder" jsonschema:"description=Folder path (e.g. /guides/)"`
 	Instance *string `json:"instance,omitempty" jsonschema:"description=Instance name (lists all if omitted)"`
 }
 
@@ -207,6 +230,11 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Name:        "list_folders",
 		Description: "List the folder structure of a knowhow vault. Use to browse and understand vault organization before searching.",
 	}, t.listFolders)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_folder_contents",
+		Description: "List documents and subfolders in a specific folder. Returns immediate children only.",
+	}, t.listFolderContents)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_document_versions",
@@ -452,6 +480,70 @@ func buildFolderTree(folders []struct {
 	return sb.String()
 }
 
+func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequest, input ListFolderContentsInput) (*mcp.CallToolResult, any, error) {
+	if input.Folder == "" {
+		return nil, nil, fmt.Errorf("folder is required")
+	}
+	folder := pathutil.NormalizeFolderPath(input.Folder)
+
+	instances := t.filterInstances(input.Instance)
+	if input.Instance != nil && len(instances) == 0 {
+		return nil, nil, fmt.Errorf("unknown instance %q", *input.Instance)
+	}
+
+	var sb strings.Builder
+	for _, inst := range instances {
+		vars := map[string]any{
+			"folder": folder,
+		}
+		var resp folderContentsResponse
+		if err := inst.client.Do(ctx, `query ListFolderContents($folder: String!) { vaults { id name documents(folder: $folder) { path title labels docType } folders(parent: $folder) { path name } } }`, vars, &resp); err != nil {
+			slog.Warn("list folder contents failed", "instance", inst.name, "error", err)
+			fmt.Fprintf(&sb, "## %s\nError: %v\n\n", inst.name, err)
+			continue
+		}
+
+		for _, v := range resp.Vaults {
+			// Folders are already filtered to immediate children by the GraphQL resolver.
+			// Documents use prefix matching, so filter to immediate children here.
+			var folderLines []string
+			var docLines []string
+
+			for _, f := range v.Folders {
+				folderLines = append(folderLines, fmt.Sprintf("📁 %s/", f.Name))
+			}
+			for _, d := range v.Documents {
+				if !pathutil.IsImmediateChild(folder, d.Path) {
+					continue
+				}
+				labels := ""
+				if len(d.Labels) > 0 {
+					labels = " [" + strings.Join(d.Labels, ", ") + "]"
+				}
+				docLines = append(docLines, fmt.Sprintf("📄 %s — %s%s", d.Path, d.Title, labels))
+			}
+
+			if len(folderLines) > 0 || len(docLines) > 0 {
+				fmt.Fprintf(&sb, "## %s / %s — %s\n", inst.name, v.Name, folder)
+				for _, line := range folderLines {
+					sb.WriteString(line)
+					sb.WriteByte('\n')
+				}
+				for _, line := range docLines {
+					sb.WriteString(line)
+					sb.WriteByte('\n')
+				}
+				sb.WriteByte('\n')
+			}
+		}
+	}
+
+	if sb.Len() == 0 {
+		return textResult(fmt.Sprintf("No contents found in folder %s", folder)), nil, nil
+	}
+	return textResult(sb.String()), nil, nil
+}
+
 func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, input CreateMemoryInput) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(input.Title) == "" {
 		return nil, nil, fmt.Errorf("title is required")
@@ -603,3 +695,4 @@ func textResult(text string) *mcp.CallToolResult {
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 	}
 }
+
