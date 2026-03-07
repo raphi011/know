@@ -14,6 +14,7 @@ type chatRequestBody struct {
 	VaultID        string   `json:"vaultId"`
 	Content        string   `json:"content"`
 	DocRefs        []string `json:"docRefs"`
+	AutoApprove    bool     `json:"autoApprove"`
 }
 
 // HandleChat returns an HTTP handler for POST /agent/chat that streams SSE events back to the client.
@@ -79,11 +80,64 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			UserID:         ac.UserID,
 			Content:        body.Content,
 			DocRefs:        body.DocRefs,
+			AutoApprove:    body.AutoApprove,
 		}
 
 		if err := s.Chat(r.Context(), req, emit); err != nil {
 			slog.Error("agent chat error", "error", err, "vault_id", req.VaultID, "user_id", req.UserID)
 			emit(StreamEvent{Type: "error", Content: "Failed to process chat request. Please try again."})
 		}
+	}
+}
+
+type approvalRequestBody struct {
+	ConversationID string         `json:"conversationId"`
+	CallID         string         `json:"callId"`
+	Action         ApprovalAction `json:"action"`
+	HunkIndexes    []int          `json:"hunkIndexes,omitempty"`
+}
+
+// HandleApproval returns an HTTP handler for POST /agent/approval that resolves pending tool approvals.
+func (s *Service) HandleApproval() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if _, err := auth.FromContext(r.Context()); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+		var body approvalRequestBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if body.ConversationID == "" || body.CallID == "" {
+			http.Error(w, "conversationId and callId are required", http.StatusBadRequest)
+			return
+		}
+
+		val, ok := s.activeApprovals.Load(body.ConversationID)
+		if !ok {
+			http.Error(w, "no active approval session for this conversation", http.StatusNotFound)
+			return
+		}
+		registry := val.(*approvalRegistry)
+
+		if err := registry.resolve(ApprovalResponse{
+			CallID:      body.CallID,
+			Action:      body.Action,
+			HunkIndexes: body.HunkIndexes,
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }

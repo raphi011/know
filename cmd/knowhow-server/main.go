@@ -95,8 +95,9 @@ func main() {
 	}
 	mux.Handle("/query", authMw(srv))
 
-	// Agent chat SSE endpoint
+	// Agent endpoints
 	mux.Handle("/agent/chat", authMw(resolver.AgentService().HandleChat()))
+	mux.Handle("/agent/approval", authMw(resolver.AgentService().HandleApproval()))
 
 	// Playground is unauthenticated (for dev)
 	mux.Handle("/playground", playground.Handler("Knowhow v2", "/query"))

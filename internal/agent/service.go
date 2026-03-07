@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/models"
@@ -19,14 +21,15 @@ import (
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type    string          `json:"type"`              // "text" | "tool_start" | "tool_end" | "msg_start" | "msg_end" | "conv_id" | "error"
-	Content string          `json:"content,omitempty"`
-	ConvID  string          `json:"convId,omitempty"`
-	MsgID   string          `json:"msgId,omitempty"`
-	CallID  string          `json:"callId,omitempty"`
-	Tool    string          `json:"tool,omitempty"`
-	Input   map[string]any  `json:"input,omitempty"`
-	Meta    *ToolResultMeta `json:"meta,omitempty"`
+	Type     string           `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Content  string           `json:"content,omitempty"`
+	ConvID   string           `json:"convId,omitempty"`
+	MsgID    string           `json:"msgId,omitempty"`
+	CallID   string           `json:"callId,omitempty"`
+	Tool     string           `json:"tool,omitempty"`
+	Input    map[string]any   `json:"input,omitempty"`
+	Meta     *ToolResultMeta  `json:"meta,omitempty"`
+	Approval *ApprovalRequest `json:"approval,omitempty"`
 }
 
 // ToolResultMeta contains structured metadata about a tool execution result.
@@ -57,11 +60,12 @@ type ToolWebRef struct {
 
 // Service orchestrates the agent loop: native tool calling → streaming answer.
 type Service struct {
-	db         *db.Client
-	model      *llm.Model
-	search     *search.Service
-	docService *document.Service
-	tavily     *tavilyClient
+	db              *db.Client
+	model           *llm.Model
+	search          *search.Service
+	docService      *document.Service
+	tavily          *tavilyClient
+	activeApprovals sync.Map // map[conversationID]*approvalRegistry
 }
 
 // NewService creates a new agent service.
@@ -259,6 +263,8 @@ type ChatRequest struct {
 	UserID         string
 	Content        string
 	DocRefs        []string
+	AutoApprove    bool              // true = skip approval for write tools
+	Approvals      *approvalRegistry // nil if auto-approve
 }
 
 // Chat runs the agent loop using native tool calling and emits SSE events via the callback.
@@ -280,6 +286,17 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		}
 		req.ConversationID = convID
 		emit(StreamEvent{Type: "conv_id", ConvID: convID})
+	}
+
+	// Set up approval registry for write tool gating
+	if !req.AutoApprove {
+		approvals := newApprovalRegistry()
+		s.activeApprovals.Store(req.ConversationID, approvals)
+		defer func() {
+			approvals.cancel()
+			s.activeApprovals.Delete(req.ConversationID)
+		}()
+		req.Approvals = approvals
 	}
 
 	// 2. Store user message
@@ -351,22 +368,80 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			return nil
 		},
 		func(call schema.ToolCall) (string, error) {
-			// Parse input for emit
 			var inputMap map[string]any
 			if jsonErr := json.Unmarshal([]byte(call.Function.Arguments), &inputMap); jsonErr != nil {
 				inputMap = map[string]any{"raw": call.Function.Arguments}
 			}
-			emit(StreamEvent{Type: "tool_start", CallID: call.ID, Tool: call.Function.Name, Input: inputMap})
+			toolName := call.Function.Name
+			emit(StreamEvent{Type: "tool_start", CallID: call.ID, Tool: toolName, Input: inputMap})
 
-			result, meta, execErr := s.executeTool(ctx, req.VaultID, call.Function.Name, call.Function.Arguments)
+			// Gate write tools on user approval
+			if isWriteTool(toolName) && !req.AutoApprove && req.Approvals != nil {
+				approvalReq, buildErr := s.buildApprovalRequest(ctx, req.VaultID, call)
+				if buildErr != nil {
+					errMsg := fmt.Sprintf("error: %v", buildErr)
+					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
+					toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
+					return errMsg, nil
+				}
+
+				emit(StreamEvent{Type: "tool_approval_required", CallID: call.ID, Tool: toolName, Approval: approvalReq})
+				ch := req.Approvals.register(call.ID)
+
+				var resp ApprovalResponse
+				select {
+				case resp = <-ch:
+				case <-ctx.Done():
+					result := "error: request cancelled"
+					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})
+					toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result})
+					return result, nil
+				}
+
+				if resp.Action == ApprovalReject {
+					result := "User rejected the proposed changes."
+					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})
+					toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result})
+					return result, nil
+				}
+
+				if resp.Action == ApprovalApproveHunks && approvalReq.Diff != nil {
+					doc, docErr := s.db.GetDocumentByPath(ctx, req.VaultID, approvalReq.Path)
+					if docErr != nil || doc == nil {
+						errMsg := "error: could not retrieve document for partial approval"
+						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
+						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
+						return errMsg, nil
+					}
+					merged, mergeErr := diff.ApplyHunks(doc.Content, approvalReq.Diff.Hunks, resp.HunkIndexes)
+					if mergeErr != nil {
+						errMsg := fmt.Sprintf("error applying hunks: %v", mergeErr)
+						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
+						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
+						return errMsg, nil
+					}
+					inputMap["content"] = merged
+					newArgs, marshalErr := json.Marshal(inputMap)
+					if marshalErr != nil {
+						errMsg := fmt.Sprintf("error: marshal args: %v", marshalErr)
+						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
+						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
+						return errMsg, nil
+					}
+					call.Function.Arguments = string(newArgs)
+				}
+				// ApprovalApproveAll falls through to normal execution
+			}
+
+			result, meta, execErr := s.executeTool(ctx, req.VaultID, toolName, call.Function.Arguments)
 			if execErr != nil {
-				slog.Warn("tool execution failed", "tool", call.Function.Name, "error", execErr)
-				emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: call.Function.Name, Content: fmt.Sprintf("error: %v", execErr)})
+				slog.Warn("tool execution failed", "tool", toolName, "error", execErr)
+				emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: fmt.Sprintf("error: %v", execErr)})
 				toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: fmt.Sprintf("error: %v", execErr), meta: nil})
 				return fmt.Sprintf("error: %v", execErr), nil
 			}
 
-			emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: call.Function.Name, Meta: meta})
+			emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Meta: meta})
 			toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result, meta: meta})
 			return result, nil
 		},
@@ -445,6 +520,49 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 }
 
 func intPtr(v int) *int { return &v }
+
+// isWriteTool returns true for tools that modify documents.
+func isWriteTool(name string) bool {
+	return name == "create_document" || name == "edit_document"
+}
+
+// buildApprovalRequest computes the diff for a write tool call.
+func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call schema.ToolCall) (*ApprovalRequest, error) {
+	var args struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+		return nil, fmt.Errorf("parse args: %w", err)
+	}
+
+	req := &ApprovalRequest{
+		CallID: call.ID,
+		Tool:   call.Function.Name,
+		Path:   args.Path,
+	}
+
+	doc, err := s.db.GetDocumentByPath(ctx, vaultID, args.Path)
+	if err != nil {
+		return nil, fmt.Errorf("check document: %w", err)
+	}
+
+	if doc == nil {
+		req.IsNew = true
+		req.Content = args.Content
+		return req, nil
+	}
+
+	hunks, err := diff.ComputeHunks(doc.Content, args.Content, 3)
+	if err != nil {
+		return nil, fmt.Errorf("compute diff: %w", err)
+	}
+	req.Diff = &DiffPayload{
+		Hunks: hunks,
+		Stats: diff.ComputeStats(hunks),
+	}
+	return req, nil
+}
 
 // executeTool executes a named tool with the given JSON arguments string.
 func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments string) (string, *ToolResultMeta, error) {
