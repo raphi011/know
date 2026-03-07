@@ -10,12 +10,40 @@ export type StreamSegment =
       result?: { meta?: ToolResultMeta };
     };
 
+export type ApprovalDiff = {
+  hunks: Array<{
+    index: number;
+    old_start: number;
+    old_lines: number;
+    new_start: number;
+    new_lines: number;
+    lines: Array<{
+      type: "context" | "add" | "delete";
+      content: string;
+      old_line_no?: number;
+      new_line_no?: number;
+    }>;
+  }>;
+  stats: { additions: number; deletions: number; hunks_count: number };
+};
+
+export type PendingApproval = {
+  callId: string;
+  tool: string;
+  path: string;
+  isNew: boolean;
+  diff?: ApprovalDiff;
+  content?: string;
+};
+
 export type State = {
   conversations: Conversation[];
   activeConversationId: string | null;
   isStreaming: boolean;
   streamSegments: StreamSegment[];
   error: string | null;
+  pendingApproval: PendingApproval | null;
+  autoApprove: boolean;
 };
 
 export type Action =
@@ -31,7 +59,10 @@ export type Action =
   | { type: "TOOL_START"; callId: string; tool: string; input: Record<string, unknown> }
   | { type: "TOOL_END"; callId: string; meta?: ToolResultMeta }
   | { type: "MSG_END" }
-  | { type: "SET_ERROR"; error: string | null };
+  | { type: "SET_ERROR"; error: string | null }
+  | { type: "TOOL_APPROVAL_REQUIRED"; approval: PendingApproval }
+  | { type: "TOOL_APPROVAL_RESOLVED" }
+  | { type: "SET_AUTO_APPROVE"; value: boolean };
 
 export const initialState: State = {
   conversations: [],
@@ -39,6 +70,8 @@ export const initialState: State = {
   isStreaming: false,
   streamSegments: [],
   error: null,
+  pendingApproval: null,
+  autoApprove: false,
 };
 
 export function reducer(state: State, action: Action): State {
@@ -131,5 +164,11 @@ export function reducer(state: State, action: Action): State {
       return { ...state, isStreaming: false, streamSegments: [] };
     case "SET_ERROR":
       return { ...state, error: action.error, isStreaming: false };
+    case "TOOL_APPROVAL_REQUIRED":
+      return { ...state, pendingApproval: action.approval };
+    case "TOOL_APPROVAL_RESOLVED":
+      return { ...state, pendingApproval: null };
+    case "SET_AUTO_APPROVE":
+      return { ...state, autoApprove: action.value };
   }
 }

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useReducer, useRef } from "react";
 import { reducer, initialState } from "./agent-chat-reducer";
-import type { State } from "./agent-chat-reducer";
+import type { State, ApprovalDiff, PendingApproval } from "./agent-chat-reducer";
 
 // --- Types ---
 
@@ -19,7 +19,7 @@ export type ToolResultMeta = {
 };
 
 export type StreamEvent = {
-  type: "text" | "tool_start" | "tool_end" | "msg_start" | "msg_end" | "conv_id" | "error";
+  type: "text" | "tool_start" | "tool_end" | "msg_start" | "msg_end" | "conv_id" | "error" | "tool_approval_required";
   content?: string;
   convId?: string;
   msgId?: string;
@@ -27,6 +27,14 @@ export type StreamEvent = {
   tool?: string;
   input?: Record<string, unknown>;
   meta?: ToolResultMeta;
+  approval?: {
+    callId: string;
+    tool: string;
+    path: string;
+    isNew: boolean;
+    diff?: ApprovalDiff;
+    content?: string;
+  };
 };
 
 export type ChatMessage = {
@@ -51,7 +59,7 @@ export type Conversation = {
   messages: ChatMessage[];
 };
 
-export type { StreamSegment } from "./agent-chat-reducer";
+export type { StreamSegment, PendingApproval } from "./agent-chat-reducer";
 
 // --- GraphQL helpers ---
 
@@ -104,6 +112,8 @@ type AgentChatContextValue = State & {
   switchConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   loadConversations: (vaultId: string) => Promise<void>;
+  respondToApproval: (action: "approve_all" | "approve_hunks" | "reject", hunkIndexes?: number[]) => Promise<void>;
+  setAutoApprove: (value: boolean) => void;
 };
 
 const AgentChatContext = createContext<AgentChatContextValue | null>(null);
@@ -284,6 +294,7 @@ export function AgentChatProvider({
             vaultId,
             content,
             docRefs,
+            autoApprove: stateRef.current.autoApprove,
           }),
         });
 
@@ -351,6 +362,14 @@ export function AgentChatProvider({
                 }
                 dispatch({ type: "SET_ACTIVE", id: newConvId });
                 break;
+              case "tool_approval_required":
+                if (event.approval) {
+                  dispatch({
+                    type: "TOOL_APPROVAL_REQUIRED",
+                    approval: event.approval,
+                  });
+                }
+                break;
               case "error":
                 dispatch({ type: "SET_ERROR", error: event.content ?? "Unknown error" });
                 break;
@@ -411,6 +430,40 @@ export function AgentChatProvider({
     doStream();
   };
 
+  const respondToApproval = async (
+    action: "approve_all" | "approve_hunks" | "reject",
+    hunkIndexes?: number[],
+  ) => {
+    const approval = stateRef.current.pendingApproval;
+    if (!approval) return;
+    const convId = stateRef.current.activeConversationId;
+    if (!convId) return;
+
+    try {
+      await fetch("/api/agent/approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: convId,
+          callId: approval.callId,
+          action,
+          hunkIndexes: hunkIndexes ?? [],
+        }),
+      });
+      dispatch({ type: "TOOL_APPROVAL_RESOLVED" });
+    } catch (err) {
+      console.error("Failed to send approval:", err);
+      dispatch({
+        type: "SET_ERROR",
+        error: err instanceof Error ? err.message : "Failed to send approval",
+      });
+    }
+  };
+
+  const setAutoApprove = (value: boolean) => {
+    dispatch({ type: "SET_AUTO_APPROVE", value });
+  };
+
   const value: AgentChatContextValue = {
     ...state,
     sendMessage,
@@ -418,6 +471,8 @@ export function AgentChatProvider({
     switchConversation,
     deleteConversation,
     loadConversations,
+    respondToApproval,
+    setAutoApprove,
   };
 
   return <AgentChatContext value={value}>{children}</AgentChatContext>;

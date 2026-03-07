@@ -152,7 +152,15 @@
     "noChanges": "Keine Änderungen",
     "additions": "{count} hinzugefügt",
     "deletions": "{count} entfernt",
-    "currentVersion": "Aktuell"
+    "currentVersion": "Aktuell",
+    "approvalNewDoc": "Neues Dokument",
+    "approvalEditDoc": "Dokument bearbeiten",
+    "approvalApproveAll": "Genehmigen",
+    "approvalApproveSelected": "Auswahl genehmigen",
+    "approvalReject": "Ablehnen",
+    "autoApproveOn": "Auto",
+    "autoApproveOff": "Review",
+    "autoApproveTooltip": "Automatische Genehmigung fuer Schreiboperationen umschalten"
   },
   "dnd": {
     "dropFilesHere": ".md-Dateien hier ablegen",

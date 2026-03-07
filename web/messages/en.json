@@ -152,7 +152,15 @@
     "noChanges": "No changes",
     "additions": "{count} added",
     "deletions": "{count} removed",
-    "currentVersion": "Current"
+    "currentVersion": "Current",
+    "approvalNewDoc": "New Document",
+    "approvalEditDoc": "Edit Document",
+    "approvalApproveAll": "Approve",
+    "approvalApproveSelected": "Approve Selected",
+    "approvalReject": "Reject",
+    "autoApproveOn": "Auto",
+    "autoApproveOff": "Review",
+    "autoApproveTooltip": "Toggle auto-approve for write operations"
   },
   "dnd": {
     "dropFilesHere": "Drop .md files here",

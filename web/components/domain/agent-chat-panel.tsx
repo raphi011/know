@@ -17,6 +17,7 @@ import {
 import { MarkdownRenderer } from "@/components/domain/markdown-renderer";
 import { DocRefAutocomplete } from "@/components/domain/doc-ref-autocomplete";
 import { ToolCard } from "@/components/domain/tool-card";
+import { ToolApprovalCard } from "@/components/domain/tool-approval-card";
 
 type AgentChatPanelProps = {
   vaultId: string | null;
@@ -197,6 +198,19 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
             ))}
           </select>
         )}
+        <button
+          type="button"
+          onClick={() => chat.setAutoApprove(!chat.autoApprove)}
+          className={cn(
+            "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+            chat.autoApprove
+              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
+              : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800",
+          )}
+          title={t("autoApproveTooltip")}
+        >
+          {chat.autoApprove ? t("autoApproveOn") : t("autoApproveOff")}
+        </button>
         {activeConv && (
           <button
             type="button"
@@ -235,6 +249,11 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
         {chat.streamSegments.map((seg, i) => (
           <StreamSegmentView key={`stream-${i}`} segment={seg} />
         ))}
+
+        {/* Pending approval */}
+        {chat.pendingApproval && (
+          <ToolApprovalCard approval={chat.pendingApproval} />
+        )}
 
         {/* Typing indicator */}
         {chat.isStreaming && chat.streamSegments.length === 0 && (
