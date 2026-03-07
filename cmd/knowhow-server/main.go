@@ -19,6 +19,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/graph"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -98,6 +99,9 @@ func main() {
 	// Agent endpoints
 	mux.Handle("/agent/chat", authMw(resolver.AgentService().HandleChat()))
 	mux.Handle("/agent/approval", authMw(resolver.AgentService().HandleApproval()))
+
+	// SSE endpoint for streaming document change events
+	mux.Handle("/events", authMw(event.HandleEvents(resolver.EventBus())))
 
 	// Playground is unauthenticated (for dev)
 	mux.Handle("/playground", playground.Handler("Knowhow v2", "/query"))

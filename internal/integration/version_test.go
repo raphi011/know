@@ -44,7 +44,7 @@ func TestVersionLifecycle(t *testing.T) {
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
 		CoalesceMinutes: 0,
 		RetentionCount:  50,
-	})
+	}, nil)
 
 	// --- Test: first create does NOT create a version ---
 
@@ -218,7 +218,7 @@ func TestVersionCoalescing(t *testing.T) {
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
 		CoalesceMinutes: 60,
 		RetentionCount:  50,
-	})
+	}, nil)
 
 	// Create initial document
 	_, err = docSvc.Create(ctx, models.DocumentInput{
@@ -315,7 +315,7 @@ func TestVersionRetention(t *testing.T) {
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
 		CoalesceMinutes: 0,
 		RetentionCount:  3,
-	})
+	}, nil)
 
 	// Create document
 	_, err = docSvc.Create(ctx, models.DocumentInput{
