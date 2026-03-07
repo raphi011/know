@@ -71,7 +71,9 @@ function buildEntries(messages: ChatMessage[]): DisplayEntry[] {
       let calls: ToolCallInfo[] = [];
       try {
         calls = JSON.parse(msg.toolCalls) as ToolCallInfo[];
-      } catch { /* skip if unparseable */ }
+      } catch (err) {
+        console.error("Failed to parse toolCalls for message", msg.id, err);
+      }
 
       for (const call of calls) {
         const resultMsg = resultsByCallId.get(call.id);
@@ -216,7 +218,6 @@ function AgentChatPanel({ vaultId }: AgentChatPanelProps) {
             <ToolCard
               key={`tool-${entry.callId}-${i}`}
               tool={entry.tool}
-              callId={entry.callId}
               callContent={entry.callContent}
               result={entry.result}
             />
@@ -350,7 +351,6 @@ function StreamSegmentView({ segment }: { segment: StreamSegment }) {
   return (
     <ToolCard
       tool={segment.tool}
-      callId={segment.callId}
       callContent={callContent}
       result={segment.result}
     />

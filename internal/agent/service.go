@@ -166,7 +166,7 @@ func buildMessages(dbMsgs []models.Message) []*schema.Message {
 			if msg.ToolCalls != nil && *msg.ToolCalls != "" {
 				var toolCalls []schema.ToolCall
 				if err := json.Unmarshal([]byte(*msg.ToolCalls), &toolCalls); err != nil {
-					slog.Warn("failed to deserialize tool calls from history", "error", err)
+					slog.Warn("failed to deserialize tool calls from history", "message_id", msg.ID, "error", err)
 				} else {
 					m.ToolCalls = toolCalls
 				}
@@ -218,11 +218,10 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	if err != nil {
 		return fmt.Errorf("create user message: %w", err)
 	}
-	userMsgID, err := models.RecordIDString(userMsg.ID)
+	_, err = models.RecordIDString(userMsg.ID)
 	if err != nil {
 		return fmt.Errorf("extract user message ID: %w", err)
 	}
-	_ = userMsgID // emitted via msg_start below
 
 	// 3. Load history (all messages); the last one is the user message we just stored — exclude it
 	allMessages, err := s.db.ListMessages(ctx, req.ConversationID)
@@ -263,9 +262,6 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	messages = append(messages, &schema.Message{Role: schema.User, Content: req.Content})
-
-	// 5. Emit msg_start
-	emit(StreamEvent{Type: "msg_start", MsgID: userMsgID})
 
 	// Track tool calls and results for storage
 	type toolCallRecord struct {
@@ -309,7 +305,8 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	if err != nil {
 		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
-		return nil
+		emit(StreamEvent{Type: "msg_end"})
+		return fmt.Errorf("generate stream: %w", err)
 	}
 
 	// 7. Store assistant message with tool calls JSON if applicable

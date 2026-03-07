@@ -15,7 +15,6 @@ import type { ToolResultMeta } from "@/components/domain/agent-chat-context";
 type ToolCardProps = {
   tool: string;
   callContent: string;
-  callId?: string;
   result?: { content?: string; meta?: ToolResultMeta };
 };
 

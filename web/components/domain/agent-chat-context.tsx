@@ -120,10 +120,10 @@ export function AgentChatProvider({
   const loadedVaultRef = useRef<string | null>(null);
   const stateRef = useRef(state);
 
-  // Keep stateRef in sync for use in async callbacks
-  useEffect(() => {
-    stateRef.current = state;
-  });
+  // Keep stateRef in sync for use in async callbacks.
+  // Direct assignment in render is the standard pattern for ref syncing.
+  // eslint-disable-next-line react-hooks/refs
+  stateRef.current = state;
 
   // Abort any in-flight stream on unmount
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -397,7 +397,10 @@ export function AgentChatProvider({
           }
         }
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") {
+          dispatch({ type: "MSG_END" });
+          return;
+        }
         dispatch({
           type: "SET_ERROR",
           error: err instanceof Error ? err.message : "Stream failed",
