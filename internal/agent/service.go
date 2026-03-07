@@ -65,7 +65,13 @@ type Service struct {
 	search          *search.Service
 	docService      *document.Service
 	tavily          *tavilyClient
-	activeApprovals sync.Map // map[conversationID]*approvalRegistry
+	activeApprovals sync.Map // map[conversationID]*approvalSession
+}
+
+// approvalSession pairs an approval registry with vault context for access checks.
+type approvalSession struct {
+	registry *approvalRegistry
+	vaultID  string
 }
 
 // NewService creates a new agent service.
@@ -291,7 +297,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	// Set up approval registry for write tool gating
 	if !req.AutoApprove {
 		approvals := newApprovalRegistry()
-		s.activeApprovals.Store(req.ConversationID, approvals)
+		s.activeApprovals.Store(req.ConversationID, &approvalSession{registry: approvals, vaultID: req.VaultID})
 		defer func() {
 			approvals.cancel()
 			s.activeApprovals.Delete(req.ConversationID)
@@ -389,8 +395,15 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 				ch := req.Approvals.register(call.ID)
 
 				var resp ApprovalResponse
+				var ok bool
 				select {
-				case resp = <-ch:
+				case resp, ok = <-ch:
+					if !ok {
+						result := "error: approval cancelled"
+						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})
+						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result})
+						return result, nil
+					}
 				case <-ctx.Done():
 					result := "error: request cancelled"
 					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})

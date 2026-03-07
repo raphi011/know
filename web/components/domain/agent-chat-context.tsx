@@ -440,7 +440,7 @@ export function AgentChatProvider({
     if (!convId) return;
 
     try {
-      await fetch("/api/agent/approval", {
+      const res = await fetch("/api/agent/approval", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -450,6 +450,10 @@ export function AgentChatProvider({
           hunkIndexes: hunkIndexes ?? [],
         }),
       });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "Unknown error");
+        throw new Error(`Approval failed: ${text}`);
+      }
       dispatch({ type: "TOOL_APPROVAL_RESOLVED" });
     } catch (err) {
       console.error("Failed to send approval:", err);

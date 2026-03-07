@@ -122,14 +122,27 @@ func (s *Service) HandleApproval() http.HandlerFunc {
 			return
 		}
 
+		switch body.Action {
+		case ApprovalApproveAll, ApprovalApproveHunks, ApprovalReject:
+			// valid
+		default:
+			http.Error(w, "invalid action", http.StatusBadRequest)
+			return
+		}
+
 		val, ok := s.activeApprovals.Load(body.ConversationID)
 		if !ok {
 			http.Error(w, "no active approval session for this conversation", http.StatusNotFound)
 			return
 		}
-		registry := val.(*approvalRegistry)
+		session := val.(*approvalSession)
 
-		if err := registry.resolve(ApprovalResponse{
+		if err := auth.RequireVaultAccess(r.Context(), session.vaultID); err != nil {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		if err := session.registry.resolve(ApprovalResponse{
 			CallID:      body.CallID,
 			Action:      body.Action,
 			HunkIndexes: body.HunkIndexes,
