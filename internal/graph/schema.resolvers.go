@@ -702,12 +702,13 @@ func (r *queryResolver) Search(ctx context.Context, input SearchInput) ([]*Searc
 		limit = *input.Limit
 	}
 	results, err := r.searchService.Search(ctx, search.SearchInput{
-		VaultID: input.VaultID,
-		Query:   input.Query,
-		Labels:  input.Labels,
-		DocType: input.DocType,
-		Folder:  input.Folder,
-		Limit:   limit,
+		VaultID:  input.VaultID,
+		Query:    input.Query,
+		Labels:   input.Labels,
+		DocType:  input.DocType,
+		Folder:   input.Folder,
+		Limit:    limit,
+		BM25Only: true,
 	})
 	if err != nil {
 		return nil, err

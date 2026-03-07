@@ -390,9 +390,10 @@ func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments 
 
 		start := time.Now()
 		results, err := s.search.Search(ctx, search.SearchInput{
-			VaultID: vaultID,
-			Query:   input.Query,
-			Limit:   5,
+			VaultID:     vaultID,
+			Query:       input.Query,
+			Limit:       20,
+			FullContent: true,
 		})
 		durationMs := time.Since(start).Milliseconds()
 		if err != nil {

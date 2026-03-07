@@ -100,7 +100,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 	}
 
 	// If no embedder, aggregate BM25 chunks into results
-	if s.embedder == nil {
+	if s.embedder == nil || input.BM25Only {
 		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
 	}
 
