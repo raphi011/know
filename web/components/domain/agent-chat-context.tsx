@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useReducer, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { reducer, initialState } from "./agent-chat-reducer";
 import type { State, ApprovalDiff, PendingApproval } from "./agent-chat-reducer";
 
@@ -125,10 +126,12 @@ export function AgentChatProvider({
   vaultId: string | null;
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initialState);
   const abortRef = useRef<AbortController | null>(null);
   const loadedVaultRef = useRef<string | null>(null);
   const stateRef = useRef(state);
+  const hadWriteToolRef = useRef(false);
 
   // Keep stateRef in sync for use in async callbacks.
   // Direct assignment in render is the standard pattern for ref syncing.
@@ -284,6 +287,7 @@ export function AgentChatProvider({
     }
 
     const doStream = async () => {
+      hadWriteToolRef.current = false;
       try {
         const response = await fetch("/api/agent/chat", {
           method: "POST",
@@ -339,6 +343,9 @@ export function AgentChatProvider({
                 dispatch({ type: "STREAM_TEXT", content: event.content ?? "" });
                 break;
               case "tool_start":
+                if (event.tool === "create_document" || event.tool === "edit_document") {
+                  hadWriteToolRef.current = true;
+                }
                 dispatch({
                   type: "TOOL_START",
                   callId: event.callId ?? "",
@@ -410,6 +417,10 @@ export function AgentChatProvider({
                   }
                 }
                 dispatch({ type: "MSG_END" });
+                if (hadWriteToolRef.current) {
+                  hadWriteToolRef.current = false;
+                  router.refresh();
+                }
                 break;
               }
             }
