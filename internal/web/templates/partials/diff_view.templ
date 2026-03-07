@@ -1,0 +1,33 @@
+package partials
+
+import "fmt"
+
+// DiffLine represents a single line in a diff view.
+type DiffLine struct {
+	Type    string // "add", "remove", "context"
+	Content string
+}
+
+// DiffView renders a unified diff between two versions.
+templ DiffView(oldVersion, newVersion int, lines []DiffLine) {
+	<div class="rounded-lg border border-border dark:border-border-dark overflow-hidden">
+		<div class="bg-gray-50 dark:bg-gray-800 px-4 py-2 text-xs font-medium text-muted">
+			Comparing v{ intStr(oldVersion) } → v{ intStr(newVersion) }
+		</div>
+		<pre class="overflow-x-auto p-0 text-xs leading-relaxed">
+			for _, line := range lines {
+				if line.Type == "add" {
+					<div class="bg-green-50 dark:bg-green-900/20 px-4 text-green-700 dark:text-green-400">{ "+" + line.Content }</div>
+				} else if line.Type == "remove" {
+					<div class="bg-red-50 dark:bg-red-900/20 px-4 text-red-700 dark:text-red-400">{ "-" + line.Content }</div>
+				} else {
+					<div class="px-4 text-gray-600 dark:text-gray-400">{ " " + line.Content }</div>
+				}
+			}
+		</pre>
+	</div>
+}
+
+func intStr(n int) string {
+	return fmt.Sprint(n)
+}

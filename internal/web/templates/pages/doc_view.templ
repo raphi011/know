@@ -1,0 +1,69 @@
+package pages
+
+import "github.com/raphi011/knowhow/internal/web/templates"
+import "github.com/raphi011/knowhow/internal/web/templates/components"
+import "github.com/raphi011/knowhow/internal/web/templates/partials"
+import "fmt"
+
+// DocViewData holds data for viewing a single document.
+type DocViewData struct {
+	Locale       string
+	Theme        string
+	Title        string
+	Path         string
+	DocID        string
+	RenderedHTML string
+	Labels       []string
+	VaultID      string
+	Sidebar      components.SidebarData
+	T            func(string) string
+}
+
+// DocViewPage renders a document with its content and metadata.
+templ DocViewPage(data DocViewData) {
+	@templates.Layout(templates.LayoutData{
+		Title:    data.Title,
+		Locale:   data.Locale,
+		Theme:    data.Theme,
+		LoggedIn: true,
+		T:        data.T,
+	}) {
+		<div class="flex gap-6">
+			<aside class="w-64 shrink-0">
+				@components.Sidebar(data.Sidebar)
+			</aside>
+			<div class="min-w-0 flex-1">
+				<div class="mb-4">
+					<h1 class="text-2xl font-bold">{ data.Title }</h1>
+					<p class="text-sm text-muted">{ data.Path }</p>
+					if len(data.Labels) > 0 {
+						<div class="mt-2 flex flex-wrap gap-1">
+							for _, label := range data.Labels {
+								<span class="rounded-full bg-primary-100 dark:bg-primary-900 px-2 py-0.5 text-xs text-primary-700 dark:text-primary-300">
+									{ label }
+								</span>
+							}
+						</div>
+					}
+				</div>
+				@partials.DocContent(data.VaultID, data.Path, data.RenderedHTML)
+
+				<!-- Version History -->
+				if data.DocID != "" {
+					<details class="mt-8 rounded-lg border border-border dark:border-border-dark">
+						<summary
+							class="cursor-pointer px-4 py-3 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800"
+							hx-get={ fmt.Sprintf("/hx/versions?doc=%s", data.DocID) }
+							hx-target="#version-list"
+							hx-trigger="click once"
+						>
+							{ data.T("versions.title") }
+						</summary>
+						<div id="version-list" class="border-t border-border dark:border-border-dark"></div>
+						<div id="diff-view" class="border-t border-border dark:border-border-dark p-4 empty:hidden"></div>
+					</details>
+				}
+			</div>
+		</div>
+	}
+}

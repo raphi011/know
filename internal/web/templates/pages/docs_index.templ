@@ -1,0 +1,36 @@
+package pages
+
+import "github.com/raphi011/knowhow/internal/web/templates"
+import "github.com/raphi011/knowhow/internal/web/templates/components"
+import "github.com/raphi011/knowhow/internal/web/templates/partials"
+
+// DocsIndexData holds data for the docs index page.
+type DocsIndexData struct {
+	Locale        string
+	Theme         string
+	SelectedVault string
+	Sidebar       components.SidebarData
+	Documents     []partials.DocListItem
+	T             func(string) string
+}
+
+// DocsIndexPage renders the document listing with sidebar.
+templ DocsIndexPage(data DocsIndexData) {
+	@templates.Layout(templates.LayoutData{
+		Title:    data.T("nav.docs"),
+		Locale:   data.Locale,
+		Theme:    data.Theme,
+		LoggedIn: true,
+		T:        data.T,
+	}) {
+		<div class="flex gap-6">
+			<aside class="w-64 shrink-0">
+				@components.Sidebar(data.Sidebar)
+			</aside>
+			<div class="min-w-0 flex-1">
+				<h1 class="mb-4 text-xl font-semibold">{ data.T("nav.docs") }</h1>
+				@partials.DocList(data.Documents)
+			</div>
+		</div>
+	}
+}

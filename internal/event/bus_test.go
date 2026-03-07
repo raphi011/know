@@ -168,6 +168,70 @@ func TestBus_SlowConsumer(t *testing.T) {
 	}
 }
 
+func TestBus_SubscribeByPath(t *testing.T) {
+	bus := New()
+
+	ch, unsub := bus.SubscribeByPath("vault:default", "/docs/readme.md")
+	defer unsub()
+
+	// Publish event for matching path
+	bus.Publish(ChangeEvent{
+		Type:    "document.updated",
+		VaultID: "vault:default",
+		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/readme.md", ContentHash: "abc"},
+	})
+
+	// Publish event for non-matching path
+	bus.Publish(ChangeEvent{
+		Type:    "document.updated",
+		VaultID: "vault:default",
+		Payload: DocumentPayload{DocID: "doc:2", Path: "/docs/other.md", ContentHash: "def"},
+	})
+
+	// Should receive only the matching event
+	select {
+	case got := <-ch:
+		p := got.Payload.(DocumentPayload)
+		if p.Path != "/docs/readme.md" {
+			t.Errorf("Path = %q, want %q", p.Path, "/docs/readme.md")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for matching event")
+	}
+
+	// Should not receive the non-matching event
+	select {
+	case got := <-ch:
+		t.Fatalf("received unexpected event: %+v", got)
+	case <-time.After(50 * time.Millisecond):
+		// Expected: no more events
+	}
+}
+
+func TestBus_SubscribeByPath_OldPath(t *testing.T) {
+	bus := New()
+
+	ch, unsub := bus.SubscribeByPath("vault:default", "/docs/old.md")
+	defer unsub()
+
+	// Publish move event where OldPath matches
+	bus.Publish(ChangeEvent{
+		Type:    "document.moved",
+		VaultID: "vault:default",
+		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/new.md", OldPath: "/docs/old.md", ContentHash: "abc"},
+	})
+
+	select {
+	case got := <-ch:
+		p := got.Payload.(DocumentPayload)
+		if p.OldPath != "/docs/old.md" {
+			t.Errorf("OldPath = %q, want %q", p.OldPath, "/docs/old.md")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for move event")
+	}
+}
+
 func TestBus_ConcurrentPublish(t *testing.T) {
 	bus := New()
 

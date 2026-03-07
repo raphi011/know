@@ -28,9 +28,6 @@ export KNOWHOW_CHUNK_MAX_SIZE := env_var_or_default("KNOWHOW_CHUNK_MAX_SIZE", "1
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "4001")
 export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:4001/query")
 
-# Web defaults
-export SESSION_SECRET := env_var_or_default("SESSION_SECRET", "dev-secret-not-for-production-use-only")
-
 # Bootstrap / CLI defaults (stable dev token + vault)
 export KNOWHOW_BOOTSTRAP_TOKEN := env_var_or_default("KNOWHOW_BOOTSTRAP_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
 export KNOWHOW_BOOTSTRAP_VAULT_ID := env_var_or_default("KNOWHOW_BOOTSTRAP_VAULT_ID", "default")
@@ -99,6 +96,21 @@ dev-setup: db-up
 generate:
     go run github.com/99designs/gqlgen generate --config gqlgen.yml
 
+# Generate Go code from templ files
+templ-generate:
+    go tool templ generate ./internal/web/templates/...
+
+# Build Tailwind CSS (requires tailwindcss CLI from brew)
+css:
+    /opt/homebrew/bin/tailwindcss --input internal/web/static/css/input.css --output internal/web/static/css/app.css
+
+# Watch Tailwind CSS for changes
+css-watch:
+    /opt/homebrew/bin/tailwindcss --input internal/web/static/css/input.css --output internal/web/static/css/app.css --watch
+
+# Generate all (GraphQL + templ + CSS)
+generate-all: generate templ-generate css
+
 # Pull Ollama models (embedding + LLM)
 ollama-pull:
     ollama pull {{KNOWHOW_EMBED_MODEL}}
@@ -127,35 +139,7 @@ clean:
     rm -rf tmp
     docker compose down -v
 
-# --- Web frontend ---
-
-# Install web dependencies
-web-install:
-    cd web && bun install
-
-# Start web dev server
-web-dev:
-    cd web && bun run dev --port 4000
-
-# Build web for production
-web-build:
-    cd web && bun run build
-
-# Run web tests (unit + storybook)
-web-test:
-    cd web && bun run test:ci
-
-# Run web E2E tests
-web-test-e2e:
-    cd web && bun run test:e2e
-
-# Lint + typecheck web
-web-lint:
-    cd web && bun run lint && bun run typecheck
-
-# --- Unified dev ---
-
-# Start all services (SurrealDB + Go server + Web dev)
+# Start all services (SurrealDB + Go server with live-reload + CSS watcher)
 dev-all: db-up
     #!/usr/bin/env bash
     set -e
@@ -167,7 +151,7 @@ dev-all: db-up
     }
     trap cleanup EXIT INT TERM
     air &
-    (cd web && bun run dev --port 4000) &
+    just css-watch &
     wait
 
 # --- Prod-local Docker stack (Bedrock via Teleport proxy) ---
@@ -198,5 +182,5 @@ prod-bootstrap: build-bootstrap
     SURREALDB_URL="ws://localhost:5002/rpc" {{build_dir}}/bootstrap
     echo "Bootstrap complete. Run 'just prod' to start the full stack."
 
-# Run all tests (Go + Web)
-test-all: test web-test
+# Run all tests
+test-all: test

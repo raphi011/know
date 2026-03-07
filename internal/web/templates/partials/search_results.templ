@@ -1,0 +1,36 @@
+package partials
+
+// SearchResultItem represents a search result.
+type SearchResultItem struct {
+	Title   string
+	Path    string
+	Snippet string
+	Labels  []string
+}
+
+// SearchResults renders search results as a list.
+templ SearchResults(results []SearchResultItem) {
+	if len(results) == 0 {
+		<div class="px-4 py-8 text-center text-sm text-muted">
+			No results found.
+		</div>
+	} else {
+		<ul class="divide-y divide-border dark:divide-border-dark">
+			for _, r := range results {
+				<li>
+					<a
+						href={ templ.SafeURL("/docs" + r.Path) }
+						class="block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800"
+						onclick="document.getElementById('search-dialog')?.close()"
+					>
+						<div class="font-medium text-sm">{ r.Title }</div>
+						<div class="text-xs text-muted mt-0.5">{ r.Path }</div>
+						if r.Snippet != "" {
+							<p class="mt-1 text-xs text-muted line-clamp-2">{ r.Snippet }</p>
+						}
+					</a>
+				</li>
+			}
+		</ul>
+	}
+}

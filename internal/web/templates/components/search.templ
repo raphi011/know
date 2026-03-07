@@ -1,0 +1,27 @@
+package components
+
+// SearchDialog renders the Cmd+K search modal.
+templ SearchDialog(t func(string) string) {
+	<dialog
+		id="search-dialog"
+		class="fixed inset-0 z-50 m-0 h-full w-full bg-transparent p-0 backdrop:bg-black/50"
+		onclick="if(event.target===this)this.close()"
+	>
+		<div class="mx-auto mt-[15vh] w-full max-w-lg rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-surface-dark shadow-2xl">
+			<div class="p-4">
+				<input
+					type="search"
+					name="q"
+					placeholder={ t("search.placeholder") }
+					autofocus
+					class="w-full rounded-md border border-border dark:border-border-dark bg-transparent px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+					hx-get="/hx/search"
+					hx-trigger="input changed delay:300ms, search"
+					hx-target="#search-results"
+				/>
+			</div>
+			<div id="search-results" class="max-h-[50vh] overflow-y-auto border-t border-border dark:border-border-dark">
+			</div>
+		</div>
+	</dialog>
+}

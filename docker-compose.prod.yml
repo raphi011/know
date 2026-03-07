@@ -53,18 +53,3 @@ services:
       retries: 3
       start_period: 15s
 
-  web:
-    build: ./web
-    container_name: knowhow-web-prod
-    ports:
-      - "5000:3000"
-    environment:
-      AUTH_DISABLED: "true"
-      BACKEND_URL: http://knowhow-server:8484
-      SESSION_SECRET: prod-local-no-auth-not-used
-      APP_URL: http://localhost:5000
-      NEXT_PHASE: ""
-    depends_on:
-      knowhow-server:
-        condition: service_healthy
-    restart: unless-stopped

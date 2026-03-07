@@ -23,6 +23,8 @@ import (
 	"github.com/raphi011/knowhow/internal/graph"
 	"github.com/raphi011/knowhow/internal/mcptools"
 	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/knowhow/internal/web"
+	knowhowdav "github.com/raphi011/knowhow/internal/webdav"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -119,6 +121,29 @@ func main() {
 		mux.Handle("/mcp", authMw(mcpHandler))
 		slog.Info("MCP endpoint enabled", "path", "/mcp")
 	}
+
+	// WebDAV endpoint for document editing with any editor
+	davHandler := knowhowdav.NewHandler(
+		"/dav/",
+		resolver.DBClient(),
+		resolver.DocumentService(),
+		resolver.VaultService(),
+		cfg.NoAuth,
+	)
+	mux.Handle("/dav/", davHandler)
+	slog.Info("WebDAV endpoint enabled", "path", "/dav/{vaultName}/")
+
+	// Web UI (Templ + HTMX)
+	webHandler := web.NewHandler(
+		resolver.DBClient(),
+		resolver.DocumentService(),
+		resolver.VaultService(),
+		resolver.SearchService(),
+		resolver.EventBus(),
+		cfg.NoAuth,
+	)
+	webHandler.Register(mux)
+	slog.Info("Web UI enabled", "login", fmt.Sprintf("http://localhost:%s/login", port))
 
 	// Playground is unauthenticated (for dev)
 	mux.Handle("/playground", playground.Handler("Knowhow v2", "/query"))

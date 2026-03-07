@@ -73,6 +73,50 @@ func (b *Bus) Subscribe(vaultID string) (ch <-chan ChangeEvent, unsubscribe func
 	return c, unsubscribe
 }
 
+// SubscribeByPath registers a subscriber that only receives events matching a
+// specific document path within a vault. It wraps Subscribe with client-side
+// filtering. The returned channel receives only events where the DocumentPayload
+// path matches the given path.
+func (b *Bus) SubscribeByPath(vaultID, docPath string) (ch <-chan ChangeEvent, unsubscribe func()) {
+	vaultCh, vaultUnsub := b.Subscribe(vaultID)
+
+	filtered := make(chan ChangeEvent, 16)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(filtered)
+		for {
+			select {
+			case evt, ok := <-vaultCh:
+				if !ok {
+					return
+				}
+				if p, ok := evt.Payload.(DocumentPayload); ok {
+					if p.Path == docPath || p.OldPath == docPath {
+						select {
+						case filtered <- evt:
+						default:
+							// slow consumer, drop event
+						}
+					}
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	var once sync.Once
+	unsubscribe = func() {
+		once.Do(func() {
+			close(done)
+			vaultUnsub()
+		})
+	}
+
+	return filtered, unsubscribe
+}
+
 // Publish fans out the event to all subscribers registered for the event's VaultID.
 // If a subscriber's channel buffer is full, the channel is closed and the subscriber
 // is evicted (slow consumer eviction).

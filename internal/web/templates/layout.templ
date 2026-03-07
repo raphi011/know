@@ -1,0 +1,80 @@
+package templates
+
+import "github.com/raphi011/knowhow/internal/web/templates/components"
+
+// LayoutData holds data for the base layout.
+type LayoutData struct {
+	Title     string
+	Locale    string
+	Theme     string
+	LoggedIn  bool
+	T         func(string) string
+}
+
+// Layout renders the base HTML shell.
+templ Layout(data LayoutData) {
+	<!DOCTYPE html>
+	<html lang={ data.Locale } class={ templ.KV("dark", data.Theme == "dark") }>
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ data.Title } — { data.T("app.title") }</title>
+		<link rel="stylesheet" href="/static/css/app.css"/>
+		<script src="/static/js/app.js"></script>
+		<script src="/static/js/htmx.min.js"></script>
+		<script src="/static/js/sse.js"></script>
+	</head>
+	<body class="min-h-screen" hx-boost="true">
+		if data.LoggedIn {
+			@navbar(data)
+			@components.SearchDialog(data.T)
+		}
+		<main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+			{ children... }
+		</main>
+	</body>
+	</html>
+}
+
+templ navbar(data LayoutData) {
+	<nav class="border-b border-border dark:border-border-dark bg-surface dark:bg-surface-dark">
+		<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+			<div class="flex h-14 items-center justify-between">
+				<div class="flex items-center gap-6">
+					<a href="/" class="text-lg font-semibold text-primary-600 dark:text-primary-400">
+						{ data.T("app.title") }
+					</a>
+					<a href="/" class="text-sm text-muted hover:text-gray-900 dark:hover:text-gray-100">
+						{ data.T("nav.docs") }
+					</a>
+					<a href="/agent" class="text-sm text-muted hover:text-gray-900 dark:hover:text-gray-100">
+						{ data.T("nav.agent") }
+					</a>
+					<a href="/settings" class="text-sm text-muted hover:text-gray-900 dark:hover:text-gray-100">
+						{ data.T("nav.settings") }
+					</a>
+				</div>
+				<div class="flex items-center gap-4">
+					<button
+						type="button"
+						class="rounded-md border border-border dark:border-border-dark px-3 py-1.5 text-xs text-muted hover:bg-gray-50 dark:hover:bg-gray-800"
+						onclick="document.getElementById('search-dialog')?.showModal()"
+					>
+						{ data.T("search.placeholder") }
+						<kbd class="ml-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-[10px]">
+							{ data.T("search.shortcut") }
+						</kbd>
+					</button>
+					<form method="POST" action="/logout">
+						<button
+							type="submit"
+							class="text-sm text-muted hover:text-gray-900 dark:hover:text-gray-100"
+						>
+							{ data.T("nav.logout") }
+						</button>
+					</form>
+				</div>
+			</div>
+		</div>
+	</nav>
+}
