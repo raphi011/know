@@ -12,6 +12,7 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/models"
 
 	"github.com/raphi011/knowhow/internal/llm"
@@ -31,10 +32,11 @@ type Service struct {
 	resolver      *LinkResolver
 	chunkConfig   parser.ChunkConfig
 	versionConfig VersionConfig
+	bus           *event.Bus // optional — nil disables change events
 }
 
 // NewService creates a new document service.
-func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig) *Service {
+func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus) *Service {
 	if versionConfig.RetentionCount < 1 {
 		slog.Warn("version retention count too low, clamping to 1", "configured", versionConfig.RetentionCount)
 		versionConfig.RetentionCount = 1
@@ -49,7 +51,72 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 		resolver:      NewLinkResolver(db),
 		chunkConfig:   chunkConfig,
 		versionConfig: versionConfig,
+		bus:           bus,
 	}
+}
+
+func (s *Service) publishDocEvent(eventType string, vaultID string, doc *models.Document) {
+	if s.bus == nil {
+		return
+	}
+	docID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		slog.Warn("failed to extract doc ID for event", "error", err)
+		return
+	}
+	var contentHash string
+	if doc.ContentHash != nil {
+		contentHash = *doc.ContentHash
+	}
+	s.bus.Publish(event.ChangeEvent{
+		Type:    eventType,
+		VaultID: vaultID,
+		Payload: event.DocumentPayload{
+			DocID:       docID,
+			Path:        doc.Path,
+			ContentHash: contentHash,
+		},
+	})
+}
+
+func (s *Service) publishDocDeleteEvent(vaultID, docID, path, contentHash string) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.Publish(event.ChangeEvent{
+		Type:    "document.deleted",
+		VaultID: vaultID,
+		Payload: event.DocumentPayload{
+			DocID:       docID,
+			Path:        path,
+			ContentHash: contentHash,
+		},
+	})
+}
+
+func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldPath string) {
+	if s.bus == nil {
+		return
+	}
+	docID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		slog.Warn("failed to extract doc ID for move event", "error", err)
+		return
+	}
+	var contentHash string
+	if doc.ContentHash != nil {
+		contentHash = *doc.ContentHash
+	}
+	s.bus.Publish(event.ChangeEvent{
+		Type:    "document.moved",
+		VaultID: vaultID,
+		Payload: event.DocumentPayload{
+			DocID:       docID,
+			Path:        doc.Path,
+			OldPath:     oldPath,
+			ContentHash: contentHash,
+		},
+	})
 }
 
 // Create runs the full document lifecycle pipeline.
@@ -145,6 +212,13 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	// 12. Process explicit relates_to from frontmatter
 	if created {
 		s.processRelatesTo(ctx, docID, input.VaultID, parsed.Frontmatter)
+	}
+
+	// 13. Publish change event
+	if created {
+		s.publishDocEvent("document.created", input.VaultID, doc)
+	} else {
+		s.publishDocEvent("document.updated", input.VaultID, doc)
 	}
 
 	return doc, nil
@@ -310,7 +384,18 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 		return fmt.Errorf("extract doc id: %w", err)
 	}
 
-	return s.db.DeleteDocument(ctx, docID)
+	var contentHash string
+	if doc.ContentHash != nil {
+		contentHash = *doc.ContentHash
+	}
+
+	if err := s.db.DeleteDocument(ctx, docID); err != nil {
+		return err
+	}
+
+	s.publishDocDeleteEvent(vaultID, docID, path, contentHash)
+
+	return nil
 }
 
 // DeleteByPrefix removes all documents whose path starts with the given prefix.
@@ -403,6 +488,8 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 	if err := s.db.EnsureFolders(ctx, vaultID, normalizedNew); err != nil {
 		return nil, fmt.Errorf("ensure destination folders: %w", err)
 	}
+
+	s.publishDocMoveEvent(vaultID, doc, oldPath)
 
 	return doc, nil
 }

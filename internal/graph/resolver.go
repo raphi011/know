@@ -12,6 +12,7 @@ import (
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/search"
 	"github.com/raphi011/knowhow/internal/template"
@@ -27,6 +28,7 @@ type Resolver struct {
 	templateService *template.Service
 	model           *llm.Model
 	agentService    *agent.Service
+	bus             *event.Bus
 	workerCancel    context.CancelFunc
 	workerDone      chan struct{}
 	serverConfig    ServerConfig
@@ -100,7 +102,8 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		CoalesceMinutes: cfg.VersionCoalesceMinutes,
 		RetentionCount:  cfg.VersionRetentionCount,
 	}
-	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig)
+	bus := event.New()
+	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig, bus)
 
 	workerDone := make(chan struct{})
 	close(workerDone) // safe default: <-workerDone returns immediately if no worker
@@ -116,6 +119,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		templateService: template.NewService(dbClient),
 		model:           model,
 		agentService:    agentSvc,
+		bus:             bus,
 		workerDone:      workerDone,
 		serverConfig: ServerConfig{
 			LLMProvider:            string(cfg.LLMProvider),
@@ -158,6 +162,11 @@ func (r *Resolver) DBClient() *db.Client {
 // AgentService returns the agent service for use by the SSE handler.
 func (r *Resolver) AgentService() *agent.Service {
 	return r.agentService
+}
+
+// EventBus returns the event bus for use by the SSE handler.
+func (r *Resolver) EventBus() *event.Bus {
+	return r.bus
 }
 
 // Close stops background workers and closes all connections.
