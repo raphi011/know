@@ -9,6 +9,7 @@ import (
 
 	"github.com/raphi011/knowhow/internal/agent"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/review"
@@ -452,7 +453,7 @@ func diffResultToGraphQL(dr *review.DiffResult) *ProposalDiff {
 	}
 }
 
-func hunkToGraphQL(h review.Hunk) *DiffHunk {
+func hunkToGraphQL(h diff.Hunk) *DiffHunk {
 	lines := make([]*DiffLine, len(h.Lines))
 	for i, l := range h.Lines {
 		lines[i] = diffLineToGraphQL(l)
@@ -468,12 +469,12 @@ func hunkToGraphQL(h review.Hunk) *DiffHunk {
 	}
 }
 
-func diffLineToGraphQL(l review.DiffLine) *DiffLine {
+func diffLineToGraphQL(l diff.DiffLine) *DiffLine {
 	var t DiffLineTypeEnum
 	switch l.Type {
-	case review.DiffAdd:
+	case diff.DiffAdd:
 		t = DiffLineTypeAdd
-	case review.DiffDelete:
+	case diff.DiffDelete:
 		t = DiffLineTypeDelete
 	default:
 		t = DiffLineTypeContext

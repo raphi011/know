@@ -13,9 +13,9 @@ import (
 
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
-	"github.com/raphi011/knowhow/internal/review"
 	"github.com/raphi011/knowhow/internal/search"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -924,11 +924,11 @@ func (r *queryResolver) VersionDiff(ctx context.Context, documentID string, from
 	if err != nil {
 		return nil, fmt.Errorf("resolve to content: %w", err)
 	}
-	hunks, err := review.ComputeHunks(fromContent, toContent, 3)
+	hunks, err := diff.ComputeHunks(fromContent, toContent, 3)
 	if err != nil {
 		return nil, fmt.Errorf("compute diff: %w", err)
 	}
-	stats := review.ComputeStats(hunks)
+	stats := diff.ComputeStats(hunks)
 	gqlHunks := make([]*DiffHunk, len(hunks))
 	for i, h := range hunks {
 		gqlHunks[i] = hunkToGraphQL(h)

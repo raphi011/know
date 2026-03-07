@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/models"
 )
@@ -14,9 +15,9 @@ const defaultContextLines = 3
 
 // DiffResult contains the computed diff for a proposal.
 type DiffResult struct {
-	Hunks       []Hunk
+	Hunks       []diff.Hunk
 	HasConflict bool
-	Stats       DiffStats
+	Stats       diff.DiffStats
 }
 
 // Service manages document proposal lifecycle.
@@ -129,7 +130,7 @@ func (s *Service) Diff(ctx context.Context, proposal *models.DocumentProposal) (
 	}
 	hasConflict := proposal.OriginalHash != "" && currentHash != "" && proposal.OriginalHash != currentHash
 
-	hunks, err := ComputeHunks(doc.Content, proposal.ProposedContent, defaultContextLines)
+	hunks, err := diff.ComputeHunks(doc.Content, proposal.ProposedContent, defaultContextLines)
 	if err != nil {
 		return nil, fmt.Errorf("compute hunks: %w", err)
 	}
@@ -137,7 +138,7 @@ func (s *Service) Diff(ctx context.Context, proposal *models.DocumentProposal) (
 	return &DiffResult{
 		Hunks:       hunks,
 		HasConflict: hasConflict,
-		Stats:       ComputeStats(hunks),
+		Stats:       diff.ComputeStats(hunks),
 	}, nil
 }
 
@@ -252,13 +253,13 @@ func (s *Service) ApproveHunks(ctx context.Context, proposalID string, hunkIndex
 	}
 
 	// Compute hunks against current document content
-	hunks, err := ComputeHunks(doc.Content, proposal.ProposedContent, defaultContextLines)
+	hunks, err := diff.ComputeHunks(doc.Content, proposal.ProposedContent, defaultContextLines)
 	if err != nil {
 		return nil, fmt.Errorf("compute hunks: %w", err)
 	}
 
 	// Apply selected hunks
-	merged, err := ApplyHunks(doc.Content, hunks, hunkIndexes)
+	merged, err := diff.ApplyHunks(doc.Content, hunks, hunkIndexes)
 	if err != nil {
 		return nil, fmt.Errorf("apply hunks: %w", err)
 	}
