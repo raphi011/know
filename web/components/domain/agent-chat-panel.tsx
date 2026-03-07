@@ -47,7 +47,10 @@ function extractCallContent(toolInput: string | undefined, tool: string): string
   return toolInput;
 }
 
-type ToolCallInfo = { id: string; name: string; arguments: string };
+type ToolCallInfo = {
+  id: string;
+  function: { name: string; arguments: string };
+};
 
 function buildEntries(messages: ChatMessage[]): DisplayEntry[] {
   // Index tool_result messages by toolCallId
@@ -76,12 +79,14 @@ function buildEntries(messages: ChatMessage[]): DisplayEntry[] {
       }
 
       for (const call of calls) {
+        const toolName = call.function.name;
+        const toolArgs = call.function.arguments;
         const resultMsg = resultsByCallId.get(call.id);
         entries.push({
           type: "tool_card",
           callId: call.id,
-          tool: call.name,
-          callContent: extractCallContent(call.arguments, call.name),
+          tool: toolName,
+          callContent: extractCallContent(toolArgs, toolName),
           result: resultMsg
             ? { content: resultMsg.content, meta: resultMsg.toolMeta }
             : undefined,
