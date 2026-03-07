@@ -480,6 +480,9 @@ func TestChunkToMatch_FullContent(t *testing.T) {
 	ch := chunkWithScore("a", longContent, 5.0)
 
 	truncated := chunkToMatch(ch, false)
+	if truncated.Snippet == longContent {
+		t.Error("expected snippet to be truncated when fullContent=false")
+	}
 	if len([]rune(truncated.Snippet)) > maxSnippetLen+5 {
 		t.Errorf("expected truncated snippet, got rune length %d", len([]rune(truncated.Snippet)))
 	}

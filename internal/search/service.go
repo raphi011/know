@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"time"
 	"unicode/utf8"
 
 	"github.com/raphi011/knowhow/internal/db"
@@ -44,6 +45,7 @@ type SearchResult struct {
 	DocType       *string
 	Score         float64
 	MatchedChunks []ChunkMatch
+	Degraded      bool // True when hybrid search fell back to BM25-only due to embed/vector failure
 }
 
 type ChunkMatch struct {
@@ -101,7 +103,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 
 	// If no embedder, aggregate BM25 chunks into results
 	if s.embedder == nil || input.BM25Only {
-		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
+		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, false)
 	}
 
 	// Try embedding cache first
@@ -113,11 +115,15 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		slog.Warn("embedding cache lookup failed", "error", err)
 	}
 
+	const cacheTimeout = 5 * time.Second
+
 	if cached != nil {
 		// Cache hit — use stored embedding
 		queryEmbedding = cached.Embedding
 		go func() {
-			if err := s.db.UpsertQueryEmbedding(context.Background(), normalized, queryEmbedding); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
+			defer cancel()
+			if err := s.db.UpsertQueryEmbedding(ctx, normalized, queryEmbedding); err != nil {
 				slog.Warn("failed to update embedding cache hit count", "error", err)
 			}
 		}()
@@ -126,11 +132,13 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		queryEmbedding, err = s.embedder.Embed(ctx, input.Query)
 		if err != nil {
 			slog.Warn("failed to embed query, falling back to BM25", "error", err)
-			return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
+			return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, true)
 		}
 		// Store in cache (fire-and-forget)
 		go func() {
-			if err := s.db.UpsertQueryEmbedding(context.Background(), normalized, queryEmbedding); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
+			defer cancel()
+			if err := s.db.UpsertQueryEmbedding(ctx, normalized, queryEmbedding); err != nil {
 				slog.Warn("failed to cache query embedding", "error", err)
 			}
 		}()
@@ -140,7 +148,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 	vectorChunks, err := s.db.ChunkVectorSearch(ctx, queryEmbedding, filter)
 	if err != nil {
 		slog.Warn("chunk vector search failed, falling back to BM25", "error", err)
-		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent)
+		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, true)
 	}
 
 	// Collect unique doc IDs from both chunk lists
@@ -223,7 +231,8 @@ func chunkToMatch(ch db.ChunkWithScore, fullContent bool) ChunkMatch {
 
 // chunksToResults aggregates chunks by parent document and returns search results.
 // Used when only one search path is available (BM25-only fallback).
-func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.ChunkWithScore, limit int, fullContent bool) ([]SearchResult, error) {
+// When degraded is true, all results are marked as degraded (hybrid search fell back to BM25).
+func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.ChunkWithScore, limit int, fullContent bool, degraded bool) ([]SearchResult, error) {
 	if len(chunks) == 0 {
 		return []SearchResult{}, nil
 	}
@@ -234,7 +243,13 @@ func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.Chunk
 		return nil, fmt.Errorf("fetch parent documents: %w", err)
 	}
 
-	return aggregateChunks(chunks, docMap, limit, fullContent), nil
+	results := aggregateChunks(chunks, docMap, limit, fullContent)
+	if degraded {
+		for i := range results {
+			results[i].Degraded = true
+		}
+	}
+	return results, nil
 }
 
 // aggregateChunks groups chunks by parent document, ranks by best chunk score,
@@ -328,7 +343,11 @@ func chunkKey(ch db.ChunkWithScore) string {
 	id, err := models.RecordIDString(ch.ID)
 	if err != nil {
 		// Fall back to position-based key for dedup
-		docID, _ := models.RecordIDString(ch.Document)
+		docID, docErr := models.RecordIDString(ch.Document)
+		if docErr != nil {
+			slog.Warn("failed to extract both chunk and document IDs for dedup key",
+				"chunk_id_error", err, "doc_id_error", docErr)
+		}
 		return fmt.Sprintf("%s-%d", docID, ch.Position)
 	}
 	return id
