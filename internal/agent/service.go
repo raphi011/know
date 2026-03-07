@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/pathutil"
@@ -56,15 +57,16 @@ type ToolWebRef struct {
 
 // Service orchestrates the agent loop: native tool calling → streaming answer.
 type Service struct {
-	db     *db.Client
-	model  *llm.Model
-	search *search.Service
-	tavily *tavilyClient
+	db         *db.Client
+	model      *llm.Model
+	search     *search.Service
+	docService *document.Service
+	tavily     *tavilyClient
 }
 
 // NewService creates a new agent service.
-func NewService(db *db.Client, model *llm.Model, search *search.Service, tavilyAPIKey string) *Service {
-	s := &Service{db: db, model: model, search: search}
+func NewService(db *db.Client, model *llm.Model, search *search.Service, docService *document.Service, tavilyAPIKey string) *Service {
+	s := &Service{db: db, model: model, search: search, docService: docService}
 	if tavilyAPIKey != "" {
 		s.tavily = newTavilyClient(tavilyAPIKey)
 	}
@@ -165,6 +167,43 @@ func (s *Service) buildTools() []*schema.ToolInfo {
 				},
 			}),
 		},
+	}
+
+	if s.docService != nil {
+		tools = append(tools,
+			&schema.ToolInfo{
+				Name: "create_document",
+				Desc: "Create a new document in the knowledge base. The content should be markdown. Fails if a document already exists at the given path.",
+				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+					"path": {
+						Type:     schema.String,
+						Desc:     "Document path (e.g. /guides/new-guide.md)",
+						Required: true,
+					},
+					"content": {
+						Type:     schema.String,
+						Desc:     "Full markdown content for the document",
+						Required: true,
+					},
+				}),
+			},
+			&schema.ToolInfo{
+				Name: "edit_document",
+				Desc: "Edit an existing document by replacing its full content. Read the document first to get the current content, then modify and pass the complete new content.",
+				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+					"path": {
+						Type:     schema.String,
+						Desc:     "Document path of the existing document",
+						Required: true,
+					},
+					"content": {
+						Type:     schema.String,
+						Desc:     "Complete new markdown content (replaces existing content entirely)",
+						Required: true,
+					},
+				}),
+			},
+		)
 	}
 
 	if s.tavily != nil {
@@ -603,6 +642,92 @@ func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments 
 			ResultCount: intPtr(count),
 		}
 		return result, meta, nil
+
+	case "create_document":
+		var args struct {
+			Path    string `json:"path"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+			return "", nil, fmt.Errorf("parse create_document input: %w", err)
+		}
+		if args.Path == "" {
+			return "", nil, fmt.Errorf("path is required")
+		}
+		if args.Content == "" {
+			return "", nil, fmt.Errorf("content is required")
+		}
+
+		// Check if document already exists
+		existing, err := s.db.GetDocumentByPath(ctx, vaultID, args.Path)
+		if err != nil {
+			return "", nil, fmt.Errorf("check existing document: %w", err)
+		}
+		if existing != nil {
+			return "", nil, fmt.Errorf("document already exists at path: %s", args.Path)
+		}
+
+		start := time.Now()
+		doc, err := s.docService.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    args.Path,
+			Content: args.Content,
+			Source:  models.SourceAIGenerated,
+		})
+		durationMs := time.Since(start).Milliseconds()
+		if err != nil {
+			return "", nil, fmt.Errorf("create document: %w", err)
+		}
+
+		meta := &ToolResultMeta{
+			DurationMs:    durationMs,
+			DocumentPath:  &doc.Path,
+			DocumentTitle: &doc.Title,
+		}
+		return fmt.Sprintf("Document created: %s (%s)", doc.Title, doc.Path), meta, nil
+
+	case "edit_document":
+		var args struct {
+			Path    string `json:"path"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+			return "", nil, fmt.Errorf("parse edit_document input: %w", err)
+		}
+		if args.Path == "" {
+			return "", nil, fmt.Errorf("path is required")
+		}
+		if args.Content == "" {
+			return "", nil, fmt.Errorf("content is required")
+		}
+
+		// Check document exists
+		existing, err := s.db.GetDocumentByPath(ctx, vaultID, args.Path)
+		if err != nil {
+			return "", nil, fmt.Errorf("check document: %w", err)
+		}
+		if existing == nil {
+			return "", nil, fmt.Errorf("document not found: %s", args.Path)
+		}
+
+		start := time.Now()
+		doc, err := s.docService.Create(ctx, models.DocumentInput{
+			VaultID: vaultID,
+			Path:    args.Path,
+			Content: args.Content,
+			Source:  models.SourceAIGenerated,
+		})
+		durationMs := time.Since(start).Milliseconds()
+		if err != nil {
+			return "", nil, fmt.Errorf("edit document: %w", err)
+		}
+
+		meta := &ToolResultMeta{
+			DurationMs:    durationMs,
+			DocumentPath:  &doc.Path,
+			DocumentTitle: &doc.Title,
+		}
+		return fmt.Sprintf("Document updated: %s (%s)", doc.Title, doc.Path), meta, nil
 
 	case "web_search":
 		var input struct {

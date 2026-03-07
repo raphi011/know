@@ -108,7 +108,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	close(workerDone) // safe default: <-workerDone returns immediately if no worker
 
 	searchSvc := search.NewService(dbClient, embedder)
-	agentSvc := agent.NewService(dbClient, model, searchSvc, cfg.TavilyAPIKey)
+	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
 
 	r := &Resolver{
 		db:              dbClient,
