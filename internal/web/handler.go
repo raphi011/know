@@ -67,6 +67,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /settings", sessionMw(http.HandlerFunc(h.handleSettingsPage)))
 
 	// HTMX partials (session-protected)
+	mux.Handle("POST /hx/agent/new", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleAgentNew))))
 	mux.Handle("POST /hx/vault/switch", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleVaultSwitch))))
 	mux.Handle("POST /hx/settings/locale", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleLocaleChange))))
 	mux.Handle("POST /hx/settings/theme", CSRFMiddleware(sessionMw(http.HandlerFunc(h.handleThemeChange))))
@@ -199,6 +200,11 @@ func (h *Handler) handleAgentPage(w http.ResponseWriter, r *http.Request) {
 	})
 
 	renderPage(w, r, component)
+}
+
+func (h *Handler) handleAgentNew(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("HX-Redirect", "/agent")
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
