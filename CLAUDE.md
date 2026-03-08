@@ -100,6 +100,10 @@ Available docs:
 - `docs/langchaingo.md` - Go LLM library usage
 - `docs/docker.md` - Docker Compose, Colima, SurrealDB v3 image gotchas
 - `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
+- `docs/sse.md` - Server-Sent Events, event bus, live updates
+- `docs/templ.md` - Go Templ patterns, component composition, rendering
+- `docs/htmx.md` - HTMX attributes, partials, SSE extension
+- `docs/tailwind-css.md` - Tailwind v4, semantic tokens, dark mode, build
 
 ## Web Frontend (Templ + HTMX)
 
