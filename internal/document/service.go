@@ -390,7 +390,7 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	}
 
 	if err := s.db.DeleteDocument(ctx, docID); err != nil {
-		return err
+		return fmt.Errorf("delete: %w", err)
 	}
 
 	s.publishDocDeleteEvent(vaultID, docID, path, contentHash)
@@ -414,7 +414,7 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 	}
 	count, err := s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("delete by prefix: %w", err)
 	}
 
 	// Clean up folder records under the same prefix
@@ -447,7 +447,7 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	}
 	count, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("move by prefix: %w", err)
 	}
 
 	// Move folder records to match

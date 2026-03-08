@@ -26,13 +26,9 @@ struct DocumentView: View {
                 }
             } else if let document {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(document.title)
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-
-                            HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if document.docType != nil || !document.labels.isEmpty {
+                            HStack(spacing: 6) {
                                 if let docType = document.docType {
                                     Text(docType)
                                         .font(.caption)
@@ -42,27 +38,17 @@ struct DocumentView: View {
                                         .clipShape(Capsule())
                                 }
 
-                                Text(document.path)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if !document.labels.isEmpty {
-                                FlowLayout(spacing: 6) {
-                                    ForEach(document.labels, id: \.self) { label in
-                                        Text(label)
-                                            .font(.caption)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
-                                            .background(.blue.opacity(0.1))
-                                            .foregroundStyle(.blue)
-                                            .clipShape(Capsule())
-                                    }
+                                ForEach(document.labels, id: \.self) { label in
+                                    Text(label)
+                                        .font(.caption)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(.blue.opacity(0.1))
+                                        .foregroundStyle(.blue)
+                                        .clipShape(Capsule())
                                 }
                             }
                         }
-
-                        Divider()
 
                         Markdown(document.contentBody)
                             .textSelection(.enabled)

@@ -11,7 +11,10 @@ enum Queries {
                 email
                 createdAt
             }
-            vaultAccess
+            vaultRoles {
+                vaultId
+                role
+            }
         }
     }
     """

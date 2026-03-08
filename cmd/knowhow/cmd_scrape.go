@@ -51,7 +51,7 @@ func init() {
 
 func runScrape(cmd *cobra.Command, args []string) error {
 	if err := requireToken(); err != nil {
-		return err
+		return fmt.Errorf("scrape: %w", err)
 	}
 
 	dirPath := args[0]
@@ -68,7 +68,7 @@ func runScrape(cmd *cobra.Command, args []string) error {
 	// 1. Collect local markdown files
 	files, err := collectMarkdownFiles(dirPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("scrape: %w", err)
 	}
 	if len(files) == 0 {
 		fmt.Println("No Markdown files found")
@@ -173,7 +173,7 @@ func getDocumentHash(client *graphqlclient.Client, vaultID, path string) (string
 		"vaultId": vaultID,
 		"path":    path,
 	}, &resp); err != nil {
-		return "", err
+		return "", fmt.Errorf("get hash: %w", err)
 	}
 
 	if resp.Document == nil || resp.Document.ContentHash == nil {
@@ -208,7 +208,7 @@ func upsertDocument(client *graphqlclient.Client, vaultID, path, content, source
 		},
 		"source": source,
 	}, &resp); err != nil {
-		return false, err
+		return false, fmt.Errorf("upsert: %w", err)
 	}
 
 	// If createdAt == updatedAt, it's a new document

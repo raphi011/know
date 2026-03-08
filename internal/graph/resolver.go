@@ -57,6 +57,14 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		return nil, err
 	}
 
+	slog.Info("LLM config",
+		"embed_provider", cfg.EmbedProvider,
+		"embed_model", cfg.EmbedModel,
+		"embed_dimension", cfg.EmbedDimension,
+		"llm_provider", cfg.LLMProvider,
+		"llm_model", cfg.LLMModel,
+	)
+
 	// Embedder is optional — nil disables AI features
 	var embedder *llm.Embedder
 	if cfg.EmbedProvider != config.ProviderNone && cfg.EmbedProvider != "" {

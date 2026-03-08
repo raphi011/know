@@ -57,6 +57,20 @@ This applies to:
 
 Silent failures make debugging impossible and degrade features without any indication.
 
+**Error wrapping context**: The `fmt.Errorf` context string describes the **caller's** operation, not the called function's. The called function already provides its own error message — wrapping adds the caller's context to build a chain:
+```go
+// GOOD — caller describes its own operation
+func (s *Service) Create(...) error {
+    _, err := s.db.CreateDocument(ctx, input)
+    return fmt.Errorf("create: %w", err)
+    // produces: "create: create document: connection refused"
+}
+
+// BAD — duplicates what CreateDocument already says
+return fmt.Errorf("create document: %w", err)
+// produces: "create document: create document: connection refused"
+```
+
 **Error strings must start with a lowercase letter** (per Go convention / `staticcheck ST1005`):
 - `fmt.Errorf("create vault: %w", err)` — correct
 - `fmt.Errorf("Create vault: %w", err)` — wrong

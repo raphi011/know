@@ -15,7 +15,7 @@ import (
 func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string, error) {
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve vault IDs: %w", err)
 	}
 
 	// Check for wildcard access

@@ -36,7 +36,7 @@ func (s *Service) GetByName(ctx context.Context, name string) (*models.Vault, er
 func (s *Service) ResolveByName(ctx context.Context, name string) (*auth.VaultInfo, error) {
 	v, err := s.GetByName(ctx, name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve vault %q: %w", name, err)
 	}
 	if v == nil {
 		return nil, fmt.Errorf("vault not found: %w", os.ErrNotExist)

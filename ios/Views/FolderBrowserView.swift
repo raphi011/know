@@ -64,20 +64,27 @@ struct FolderBrowserView: View {
             }
         }
         .navigationTitle(folder?.components(separatedBy: "/").last ?? vaultName)
+        .refreshable {
+            await loadContents()
+        }
         .task {
             await loadContents()
         }
     }
 
     private func loadContents() async {
-        isLoading = true
+        // Only show full-screen spinner on initial load, not on pull-to-refresh
+        let showSpinner = folders.isEmpty && documents.isEmpty
+        if showSpinner { isLoading = true }
         errorMessage = nil
-        defer { isLoading = false }
+        defer { if showSpinner { isLoading = false } }
 
         do {
             let vault = try await service.fetchVault(id: vaultId, folder: folder)
             folders = vault.folders ?? []
             documents = vault.documents ?? []
+        } catch is CancellationError {
+            // Task cancelled (e.g. view disappeared) — ignore silently
         } catch {
             errorMessage = error.localizedDescription
         }
