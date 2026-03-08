@@ -5,12 +5,16 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 func TestSessionStore_CreateAndGet(t *testing.T) {
 	store := NewSessionStore(time.Hour)
 
-	sess := store.Create("user1", []string{"vault:default"}, "default")
+	sess := store.Create("user1", []models.VaultPermission{
+		{VaultID: "vault:default", Role: models.RoleWrite},
+	}, "default")
 	if sess.ID == "" {
 		t.Fatal("session ID should not be empty")
 	}
@@ -30,7 +34,9 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 func TestSessionStore_GetExpired(t *testing.T) {
 	store := NewSessionStore(1 * time.Millisecond)
 
-	sess := store.Create("user1", []string{"vault:default"}, "default")
+	sess := store.Create("user1", []models.VaultPermission{
+		{VaultID: "vault:default", Role: models.RoleWrite},
+	}, "default")
 	time.Sleep(5 * time.Millisecond)
 
 	got := store.Get(sess.ID)
@@ -42,7 +48,9 @@ func TestSessionStore_GetExpired(t *testing.T) {
 func TestSessionStore_Delete(t *testing.T) {
 	store := NewSessionStore(time.Hour)
 
-	sess := store.Create("user1", []string{"vault:default"}, "default")
+	sess := store.Create("user1", []models.VaultPermission{
+		{VaultID: "vault:default", Role: models.RoleWrite},
+	}, "default")
 	store.Delete(sess.ID)
 
 	got := store.Get(sess.ID)
@@ -62,7 +70,9 @@ func TestSessionStore_GetNotFound(t *testing.T) {
 
 func TestSessionStore_Cookie(t *testing.T) {
 	store := NewSessionStore(time.Hour)
-	sess := store.Create("user1", []string{"vault:default"}, "default")
+	sess := store.Create("user1", []models.VaultPermission{
+		{VaultID: "vault:default", Role: models.RoleWrite},
+	}, "default")
 
 	// Set cookie
 	rec := httptest.NewRecorder()
@@ -132,7 +142,9 @@ func TestSessionMiddleware_NoSession(t *testing.T) {
 
 func TestSessionMiddleware_ValidSession(t *testing.T) {
 	store := NewSessionStore(time.Hour)
-	sess := store.Create("user1", []string{"vault:default"}, "default")
+	sess := store.Create("user1", []models.VaultPermission{
+		{VaultID: "vault:default", Role: models.RoleWrite},
+	}, "default")
 
 	var called bool
 	mw := SessionMiddleware(store)

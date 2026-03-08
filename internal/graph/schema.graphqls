@@ -117,13 +117,37 @@ type User {
   id: ID!
   name: String!
   email: String
+  isSystemAdmin: Boolean!
   createdAt: DateTime!
 }
 
 """Current authenticated user info"""
 type Me {
   user: User!
-  vaultAccess: [ID!]!
+  vaultRoles: [VaultRole!]!
+}
+
+type VaultRole {
+  vaultId: ID!
+  role: String!
+}
+
+type VaultMember {
+  userId: ID!
+  userName: String!
+  vaultId: ID!
+  role: String!
+  createdAt: DateTime!
+}
+
+type ShareLink {
+  id: ID!
+  vaultId: ID!
+  path: String!
+  isFolder: Boolean!
+  token: String
+  expiresAt: DateTime
+  createdAt: DateTime!
 }
 
 type ScrapeResult {
@@ -321,6 +345,12 @@ type Query {
   conversations(vaultId: ID!): [Conversation!]!
   conversation(id: ID!): Conversation
 
+  # Vault members
+  vaultMembers(vaultId: ID!): [VaultMember!]!
+
+  # Share links
+  shareLinks(vaultId: ID!): [ShareLink!]!
+
   # Server
   serverConfig: ServerConfig!
 
@@ -367,4 +397,16 @@ type Mutation {
 
   # Versions
   rollbackDocument(vaultId: ID!, documentId: ID!, versionId: ID!): Document!
+
+  # Vault members
+  addVaultMember(vaultId: ID!, userId: ID!, role: String!): VaultMember!
+  updateVaultMemberRole(vaultId: ID!, userId: ID!, role: String!): Boolean!
+  removeVaultMember(vaultId: ID!, userId: ID!): Boolean!
+
+  # Share links
+  createShareLink(vaultId: ID!, path: String!, isFolder: Boolean!, expiresAt: DateTime): ShareLink!
+  deleteShareLink(id: ID!): Boolean!
+
+  # Users
+  createUser(name: String!, email: String): User!
 }

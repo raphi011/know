@@ -124,15 +124,15 @@ func (h *Handler) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderLogin(w, r, locale, t("login.error.invalid"))
 		return
 	}
-	vaultAccess := info.VaultAccess
+	vaultPerms := info.Vaults
 
 	// Pick default vault
 	selectedVault := ""
-	if len(vaultAccess) > 0 {
-		selectedVault = vaultAccess[0]
+	if len(vaultPerms) > 0 {
+		selectedVault = vaultPerms[0].VaultID
 	}
 
-	sess := h.sessions.Create("web-user", vaultAccess, selectedVault)
+	sess := h.sessions.Create(info.UserID, vaultPerms, selectedVault)
 	sess.Locale = locale
 	h.sessions.SetCookie(w, sess)
 
@@ -400,8 +400,8 @@ func cacheStatic(h http.Handler) http.Handler {
 
 // hasVaultAccess checks whether the session includes the given vault ID.
 func hasVaultAccess(sess *Session, vaultID string) bool {
-	for _, v := range sess.VaultAccess {
-		if v == vaultID {
+	for _, vp := range sess.VaultPermissions {
+		if vp.VaultID == vaultID || vp.VaultID == "*" {
 			return true
 		}
 	}
@@ -535,19 +535,19 @@ func (h *Handler) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 	// List all vaults the user has access to
 	var vaultOpts []pages.VaultOption
-	for _, vid := range sess.VaultAccess {
-		v, err := h.vaultSvc.Get(r.Context(), vid)
+	for _, vp := range sess.VaultPermissions {
+		v, err := h.vaultSvc.Get(r.Context(), vp.VaultID)
 		if err != nil {
-			slog.Warn("web: failed to fetch vault name", "vault", vid, "error", err)
+			slog.Warn("web: failed to fetch vault name", "vault", vp.VaultID, "error", err)
 		}
-		name := vid
+		name := vp.VaultID
 		if v != nil {
 			name = v.Name
 		}
 		vaultOpts = append(vaultOpts, pages.VaultOption{
-			ID:       vid,
+			ID:       vp.VaultID,
 			Name:     name,
-			Selected: vid == sess.SelectedVault,
+			Selected: vp.VaultID == sess.SelectedVault,
 		})
 	}
 

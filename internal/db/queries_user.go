@@ -76,3 +76,15 @@ func (c *Client) GetUserByName(ctx context.Context, name string) (*models.User, 
 	}
 	return &(*results)[0].Result[0], nil
 }
+
+// UpdateUserSystemAdmin sets the is_system_admin flag on a user.
+func (c *Client) UpdateUserSystemAdmin(ctx context.Context, userID string, isAdmin bool) error {
+	sql := `UPDATE type::record("user", $id) SET is_system_admin = $is_admin`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id":       bareID("user", userID),
+		"is_admin": isAdmin,
+	}); err != nil {
+		return fmt.Errorf("update user system admin: %w", err)
+	}
+	return nil
+}

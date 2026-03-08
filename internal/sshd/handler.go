@@ -323,7 +323,7 @@ func (h *handler) listVaults(ctx context.Context) (sftp.ListerAt, error) {
 			slog.Warn("sftp: skipping vault with invalid ID", "vault", v.Name, "error", err)
 			continue
 		}
-		if err := auth.CheckVaultAccess(h.ac, id); err != nil {
+		if err := auth.CheckVaultRole(h.ac, id, models.RoleRead); err != nil {
 			continue
 		}
 		entries = append(entries, &fileInfo{

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 type chatRequestBody struct {
@@ -47,7 +48,7 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			return
 		}
 
-		if err := auth.RequireVaultAccess(r.Context(), body.VaultID); err != nil {
+		if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -137,7 +138,7 @@ func (s *Service) HandleApproval() http.HandlerFunc {
 		}
 		session := val.(*approvalSession)
 
-		if err := auth.RequireVaultAccess(r.Context(), session.vaultID); err != nil {
+		if err := auth.RequireVaultRole(r.Context(), session.vaultID, models.RoleWrite); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

@@ -14,7 +14,7 @@ func TestCreateAndLookupToken(t *testing.T) {
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 
-	token, err := testDB.CreateToken(ctx, userID, "hash123unique"+fmt.Sprint(time.Now().UnixNano()), "test-token", nil)
+	token, err := testDB.CreateToken(ctx, userID, "hash123unique"+fmt.Sprint(time.Now().UnixNano()), "test-token")
 	if err != nil {
 		t.Fatalf("CreateToken failed: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestTokenLastUsed(t *testing.T) {
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 
-	token, err := testDB.CreateToken(ctx, userID, "lastusedhash"+fmt.Sprint(time.Now().UnixNano()), "last-used-token", nil)
+	token, err := testDB.CreateToken(ctx, userID, "lastusedhash"+fmt.Sprint(time.Now().UnixNano()), "last-used-token")
 	if err != nil {
 		t.Fatalf("CreateToken failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestListTokens(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		hash := fmt.Sprintf("list-token-hash-%d-%d", i, time.Now().UnixNano())
 		name := fmt.Sprintf("list-token-%d", i)
-		_, err := testDB.CreateToken(ctx, userID, hash, name, nil)
+		_, err := testDB.CreateToken(ctx, userID, hash, name)
 		if err != nil {
 			t.Fatalf("CreateToken %d failed: %v", i, err)
 		}
@@ -97,7 +97,7 @@ func TestDeleteToken(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 
 	hash := fmt.Sprintf("delete-token-hash-%d", time.Now().UnixNano())
-	token, err := testDB.CreateToken(ctx, userID, hash, "delete-me-token", nil)
+	token, err := testDB.CreateToken(ctx, userID, hash, "delete-me-token")
 	if err != nil {
 		t.Fatalf("CreateToken failed: %v", err)
 	}

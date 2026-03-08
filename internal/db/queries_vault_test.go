@@ -207,38 +207,3 @@ func TestListDocumentPaths(t *testing.T) {
 		}
 	}
 }
-
-func TestUpdateVaultTokenAccess(t *testing.T) {
-	ctx := context.Background()
-	user := createTestUser(t, ctx)
-	userID := models.MustRecordIDString(user.ID)
-	vault := createTestVault(t, ctx, userID)
-	vaultID := models.MustRecordIDString(vault.ID)
-
-	tokenHash := fmt.Sprintf("vaultaccess-hash-%d", time.Now().UnixNano())
-	token, err := testDB.CreateToken(ctx, userID, tokenHash, "access-test-token", nil)
-	if err != nil {
-		t.Fatalf("CreateToken failed: %v", err)
-	}
-	tokenID := models.MustRecordIDString(token.ID)
-
-	if len(token.VaultAccess) != 0 {
-		t.Errorf("Expected empty vault_access initially, got %d entries", len(token.VaultAccess))
-	}
-
-	err = testDB.UpdateVaultTokenAccess(ctx, tokenID, vaultID)
-	if err != nil {
-		t.Fatalf("UpdateVaultTokenAccess failed: %v", err)
-	}
-
-	updated, err := testDB.GetTokenByHash(ctx, tokenHash)
-	if err != nil {
-		t.Fatalf("GetTokenByHash after update failed: %v", err)
-	}
-	if updated == nil {
-		t.Fatal("GetTokenByHash returned nil after update")
-	}
-	if len(updated.VaultAccess) == 0 {
-		t.Error("Expected vault_access to contain at least one entry after update")
-	}
-}

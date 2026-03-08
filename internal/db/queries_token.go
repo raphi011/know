@@ -6,28 +6,20 @@ import (
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
-	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-func (c *Client) CreateToken(ctx context.Context, userID, tokenHash, name string, vaultAccess []string) (*models.APIToken, error) {
-	vaultRefs := make([]surrealmodels.RecordID, len(vaultAccess))
-	for i, v := range vaultAccess {
-		vaultRefs[i] = newRecordID("vault", v)
-	}
-
+func (c *Client) CreateToken(ctx context.Context, userID, tokenHash, name string) (*models.APIToken, error) {
 	sql := `
 		CREATE api_token SET
 			user = type::record("user", $user_id),
 			token_hash = $token_hash,
-			name = $name,
-			vault_access = $vault_access
+			name = $name
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.APIToken](ctx, c.DB(), sql, map[string]any{
-		"user_id":      userID,
-		"token_hash":   tokenHash,
-		"name":         name,
-		"vault_access": vaultRefs,
+		"user_id":    bareID("user", userID),
+		"token_hash": tokenHash,
+		"name":       name,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create token: %w", err)

@@ -145,18 +145,6 @@ func (c *Client) ListDocumentPaths(ctx context.Context, vaultID string) ([]strin
 	return paths, nil
 }
 
-// UpdateVaultTokenAccess adds a vault to a token's vault_access list.
-func (c *Client) UpdateVaultTokenAccess(ctx context.Context, tokenID string, vaultID string) error {
-	sql := `UPDATE type::record("api_token", $token_id) SET vault_access += [type::record("vault", $vault_id)]`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"token_id": tokenID,
-		"vault_id": bareID("vault", vaultID),
-	}); err != nil {
-		return fmt.Errorf("update vault token access: %w", err)
-	}
-	return nil
-}
-
 func newRecordID(table, id string) surrealmodels.RecordID {
 	return surrealmodels.RecordID{Table: table, ID: id}
 }

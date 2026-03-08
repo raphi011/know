@@ -94,7 +94,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: extract user ID: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "Created user: %s (id: %s)\n", user.Name, userID)
+
+	// Set user as system admin
+	if err := dbClient.UpdateUserSystemAdmin(ctx, userID, true); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: set system admin: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Created user: %s (id: %s, system_admin: true)\n", user.Name, userID)
 
 	// 2. Create vault with stable ID
 	desc := "Default vault"
@@ -114,6 +120,13 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Created vault: %s (id: %s)\n", vault.Name, vaultID)
 
+	// 3. Create vault_member with admin role
+	if _, err := dbClient.CreateVaultMember(ctx, userID, vaultID, models.RoleAdmin); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: create vault member: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Created vault membership: user=%s, vault=%s, role=admin\n", userID, vaultID)
+
 	// In no-auth mode, skip token creation — user + vault are enough.
 	if cfg.NoAuth {
 		fmt.Fprintf(os.Stderr, "No-auth mode: skipping token creation\n")
@@ -121,7 +134,7 @@ func main() {
 		return
 	}
 
-	// 3. Create API token with access to the new vault
+	// 4. Create API token (inherits user permissions via vault_member)
 	var rawToken, tokenHash string
 	if *token != "" {
 		tokenHash, err = auth.UseToken(*token)
@@ -138,7 +151,7 @@ func main() {
 		}
 	}
 
-	if _, err := dbClient.CreateToken(ctx, userID, tokenHash, "bootstrap", []string{vaultID}); err != nil {
+	if _, err := dbClient.CreateToken(ctx, userID, tokenHash, "bootstrap"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: create token: %v\n", err)
 		os.Exit(1)
 	}

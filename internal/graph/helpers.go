@@ -442,6 +442,57 @@ func toolResultMetaFromJSON(s *string) *ToolResultMeta {
 	return meta
 }
 
+func vaultMemberToGraphQL(dbClient *db.Client, ctx context.Context, m *models.VaultMember) (*VaultMember, error) {
+	userID, err := models.RecordIDString(m.User)
+	if err != nil {
+		return nil, fmt.Errorf("extract user ID: %w", err)
+	}
+	vaultID, err := models.RecordIDString(m.Vault)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	// Fetch user name
+	user, err := dbClient.GetUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	userName := userID
+	if user != nil {
+		userName = user.Name
+	}
+	return &VaultMember{
+		UserID:    userID,
+		UserName:  userName,
+		VaultID:   vaultID,
+		Role:      m.Role,
+		CreatedAt: m.CreatedAt,
+	}, nil
+}
+
+func shareLinkToGraphQL(l *models.ShareLink) *ShareLink {
+	if l == nil {
+		return nil
+	}
+	id, err := models.RecordIDString(l.ID)
+	if err != nil {
+		slog.Warn("unexpected share link ID format", "error", err)
+		id = fmt.Sprintf("%v", l.ID.ID)
+	}
+	vaultID, err := models.RecordIDString(l.Vault)
+	if err != nil {
+		slog.Warn("unexpected share link vault ID format", "error", err)
+		vaultID = fmt.Sprintf("%v", l.Vault.ID)
+	}
+	return &ShareLink{
+		ID:        id,
+		VaultID:   vaultID,
+		Path:      l.Path,
+		IsFolder:  l.IsFolder,
+		ExpiresAt: l.ExpiresAt,
+		CreatedAt: l.CreatedAt,
+	}
+}
+
 func searchResultToGraphQL(r search.SearchResult) SearchResult {
 	chunks := make([]ChunkMatch, len(r.MatchedChunks))
 	for i, ch := range r.MatchedChunks {

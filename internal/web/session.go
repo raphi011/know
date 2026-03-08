@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Session holds per-user state. Fields are protected by mu for concurrent access.
@@ -13,7 +15,7 @@ type Session struct {
 	mu            sync.Mutex
 	ID            string
 	UserID        string
-	VaultAccess   []string
+	VaultPermissions []models.VaultPermission
 	SelectedVault string
 	Locale        string
 	Theme         string
@@ -71,12 +73,12 @@ func (s *SessionStore) Close() {
 const sessionCookieName = "kh_sid"
 
 // Create generates a new session and returns it.
-func (s *SessionStore) Create(userID string, vaultAccess []string, selectedVault string) *Session {
+func (s *SessionStore) Create(userID string, vaultPerms []models.VaultPermission, selectedVault string) *Session {
 	id := generateSessionID()
 	sess := &Session{
-		ID:            id,
-		UserID:        userID,
-		VaultAccess:   vaultAccess,
+		ID:               id,
+		UserID:           userID,
+		VaultPermissions: vaultPerms,
 		SelectedVault: selectedVault,
 		Locale:        "en",
 		Theme:         "system",

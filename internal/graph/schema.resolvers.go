@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
@@ -100,6 +100,22 @@ func (r *documentResolver) Versions(ctx context.Context, obj *Document, limit *i
 	}, nil
 }
 
+// VaultRoles is the resolver for the vaultRoles field.
+func (r *meResolver) VaultRoles(ctx context.Context, obj *Me) ([]*VaultRole, error) {
+	ac, err := auth.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*VaultRole, len(ac.Vaults))
+	for i, vp := range ac.Vaults {
+		result[i] = &VaultRole{
+			VaultID: vp.VaultID,
+			Role:    string(vp.Role),
+		}
+	}
+	return result, nil
+}
+
 // CreateVault is the resolver for the createVault field.
 func (r *mutationResolver) CreateVault(ctx context.Context, input VaultInput) (*Vault, error) {
 	ac, err := auth.FromContext(ctx)
@@ -118,7 +134,7 @@ func (r *mutationResolver) CreateVault(ctx context.Context, input VaultInput) (*
 
 // DeleteVault is the resolver for the deleteVault field.
 func (r *mutationResolver) DeleteVault(ctx context.Context, id string) (bool, error) {
-	if err := auth.RequireVaultAccess(ctx, id); err != nil {
+	if err := auth.RequireVaultRole(ctx, id, models.RoleAdmin); err != nil {
 		return false, err
 	}
 	if err := r.vaultService.Delete(ctx, id); err != nil {
@@ -129,7 +145,7 @@ func (r *mutationResolver) DeleteVault(ctx context.Context, id string) (bool, er
 
 // CreateDocument is the resolver for the createDocument field.
 func (r *mutationResolver) CreateDocument(ctx context.Context, vaultID string, file FileInput, source *string) (*Document, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	src := models.SourceManual
@@ -153,7 +169,7 @@ func (r *mutationResolver) CreateDocument(ctx context.Context, vaultID string, f
 
 // UpdateDocument is the resolver for the updateDocument field.
 func (r *mutationResolver) UpdateDocument(ctx context.Context, vaultID string, path string, content string) (*Document, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	doc, err := r.documentService.Update(ctx, vaultID, path, content)
@@ -165,7 +181,7 @@ func (r *mutationResolver) UpdateDocument(ctx context.Context, vaultID string, p
 
 // MoveDocument is the resolver for the moveDocument field.
 func (r *mutationResolver) MoveDocument(ctx context.Context, vaultID string, oldPath string, newPath string) (*Document, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	doc, err := r.documentService.Move(ctx, vaultID, oldPath, newPath)
@@ -177,7 +193,7 @@ func (r *mutationResolver) MoveDocument(ctx context.Context, vaultID string, old
 
 // DeleteDocument is the resolver for the deleteDocument field.
 func (r *mutationResolver) DeleteDocument(ctx context.Context, vaultID string, path string) (bool, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return false, err
 	}
 	if err := r.documentService.Delete(ctx, vaultID, path); err != nil {
@@ -188,7 +204,7 @@ func (r *mutationResolver) DeleteDocument(ctx context.Context, vaultID string, p
 
 // DeleteDocumentsByPrefix is the resolver for the deleteDocumentsByPrefix field.
 func (r *mutationResolver) DeleteDocumentsByPrefix(ctx context.Context, vaultID string, pathPrefix string) (int, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return 0, err
 	}
 	return r.documentService.DeleteByPrefix(ctx, vaultID, pathPrefix)
@@ -196,7 +212,7 @@ func (r *mutationResolver) DeleteDocumentsByPrefix(ctx context.Context, vaultID 
 
 // MoveDocumentsByPrefix is the resolver for the moveDocumentsByPrefix field.
 func (r *mutationResolver) MoveDocumentsByPrefix(ctx context.Context, vaultID string, oldPrefix string, newPrefix string) (int, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return 0, err
 	}
 	return r.documentService.MoveByPrefix(ctx, vaultID, oldPrefix, newPrefix)
@@ -216,7 +232,7 @@ func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInp
 	if err != nil {
 		return nil, fmt.Errorf("extract from document vault ID: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, fromVaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, fromVaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 
@@ -231,7 +247,7 @@ func (r *mutationResolver) CreateRelation(ctx context.Context, input RelationInp
 	if err != nil {
 		return nil, fmt.Errorf("extract to document vault ID: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, toVaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, toVaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +286,7 @@ func (r *mutationResolver) DeleteRelation(ctx context.Context, id string) (bool,
 		if err != nil {
 			return false, fmt.Errorf("extract vault ID: %w", err)
 		}
-		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 			return false, err
 		}
 	}
@@ -284,7 +300,7 @@ func (r *mutationResolver) DeleteRelation(ctx context.Context, id string) (bool,
 // CreateTemplate is the resolver for the createTemplate field.
 func (r *mutationResolver) CreateTemplate(ctx context.Context, input TemplateInput) (*Template, error) {
 	if input.VaultID != nil {
-		if err := auth.RequireVaultAccess(ctx, *input.VaultID); err != nil {
+		if err := auth.RequireVaultRole(ctx, *input.VaultID, models.RoleWrite); err != nil {
 			return nil, err
 		}
 	}
@@ -320,7 +336,7 @@ func (r *mutationResolver) DeleteTemplate(ctx context.Context, id string) (bool,
 		if err != nil {
 			return false, fmt.Errorf("extract template vault ID: %w", err)
 		}
-		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+		if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 			return false, err
 		}
 	}
@@ -333,7 +349,7 @@ func (r *mutationResolver) DeleteTemplate(ctx context.Context, id string) (bool,
 
 // CreateFolder is the resolver for the createFolder field.
 func (r *mutationResolver) CreateFolder(ctx context.Context, vaultID string, path string) (*Folder, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	folder, err := r.vaultService.CreateFolder(ctx, vaultID, path)
@@ -346,7 +362,7 @@ func (r *mutationResolver) CreateFolder(ctx context.Context, vaultID string, pat
 
 // DeleteFolder is the resolver for the deleteFolder field.
 func (r *mutationResolver) DeleteFolder(ctx context.Context, vaultID string, path string) (bool, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return false, err
 	}
 	if err := r.vaultService.DeleteFolder(ctx, vaultID, path); err != nil {
@@ -357,7 +373,7 @@ func (r *mutationResolver) DeleteFolder(ctx context.Context, vaultID string, pat
 
 // MoveFolder is the resolver for the moveFolder field.
 func (r *mutationResolver) MoveFolder(ctx context.Context, vaultID string, oldPath string, newPath string) (bool, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return false, err
 	}
 	if err := r.vaultService.MoveFolder(ctx, vaultID, oldPath, newPath); err != nil {
@@ -368,7 +384,7 @@ func (r *mutationResolver) MoveFolder(ctx context.Context, vaultID string, oldPa
 
 // CreateConversation is the resolver for the createConversation field.
 func (r *mutationResolver) CreateConversation(ctx context.Context, vaultID string) (*Conversation, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	ac, err := auth.FromContext(ctx)
@@ -397,7 +413,7 @@ func (r *mutationResolver) DeleteConversation(ctx context.Context, id string) (b
 	if err != nil {
 		return false, fmt.Errorf("extract vault ID: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return false, err
 	}
 	if err := r.db.DeleteConversation(ctx, id); err != nil {
@@ -419,7 +435,7 @@ func (r *mutationResolver) RenameConversation(ctx context.Context, id string, ti
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	if err := r.db.UpdateConversationTitle(ctx, id, title); err != nil {
@@ -436,7 +452,7 @@ func (r *mutationResolver) RenameConversation(ctx context.Context, id string, ti
 
 // RollbackDocument is the resolver for the rollbackDocument field.
 func (r *mutationResolver) RollbackDocument(ctx context.Context, vaultID string, documentID string, versionID string) (*Document, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		return nil, err
 	}
 	doc, err := r.documentService.Rollback(ctx, vaultID, documentID, versionID)
@@ -444,6 +460,117 @@ func (r *mutationResolver) RollbackDocument(ctx context.Context, vaultID string,
 		return nil, fmt.Errorf("rollback document: %w", err)
 	}
 	return documentToGraphQL(doc), nil
+}
+
+// AddVaultMember is the resolver for the addVaultMember field.
+func (r *mutationResolver) AddVaultMember(ctx context.Context, vaultID string, userID string, role string) (*VaultMember, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return nil, err
+	}
+	vaultRole := models.VaultRole(role)
+	if !vaultRole.Valid() {
+		return nil, fmt.Errorf("invalid role: %q", role)
+	}
+	member, err := r.db.CreateVaultMember(ctx, userID, vaultID, vaultRole)
+	if err != nil {
+		return nil, err
+	}
+	return vaultMemberToGraphQL(r.db, ctx, member)
+}
+
+// UpdateVaultMemberRole is the resolver for the updateVaultMemberRole field.
+func (r *mutationResolver) UpdateVaultMemberRole(ctx context.Context, vaultID string, userID string, role string) (bool, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return false, err
+	}
+	vaultRole := models.VaultRole(role)
+	if !vaultRole.Valid() {
+		return false, fmt.Errorf("invalid role: %q", role)
+	}
+	if err := r.db.UpdateVaultMemberRole(ctx, userID, vaultID, vaultRole); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RemoveVaultMember is the resolver for the removeVaultMember field.
+func (r *mutationResolver) RemoveVaultMember(ctx context.Context, vaultID string, userID string) (bool, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return false, err
+	}
+	if err := r.db.DeleteVaultMember(ctx, userID, vaultID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// CreateShareLink is the resolver for the createShareLink field.
+func (r *mutationResolver) CreateShareLink(ctx context.Context, vaultID string, path string, isFolder bool, expiresAt *time.Time) (*ShareLink, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return nil, err
+	}
+	ac, err := auth.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rawToken, tokenHash, err := auth.GenerateToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate share token: %w", err)
+	}
+
+	var expiresAtStr *string
+	if expiresAt != nil {
+		s := expiresAt.Format(time.RFC3339)
+		expiresAtStr = &s
+	}
+
+	link, err := r.db.CreateShareLink(ctx, vaultID, tokenHash, path, isFolder, ac.UserID, expiresAtStr)
+	if err != nil {
+		return nil, err
+	}
+
+	gql := shareLinkToGraphQL(link)
+	gql.Token = &rawToken // return raw token only on creation
+	return gql, nil
+}
+
+// DeleteShareLink is the resolver for the deleteShareLink field.
+func (r *mutationResolver) DeleteShareLink(ctx context.Context, id string) (bool, error) {
+	// Look up the share link to find its vault, then require admin on that vault.
+	link, err := r.db.GetShareLink(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("get share link: %w", err)
+	}
+	if link == nil {
+		return false, fmt.Errorf("share link not found: %s", id)
+	}
+	vaultID, err := models.RecordIDString(link.Vault)
+	if err != nil {
+		return false, fmt.Errorf("extract vault ID from share link: %w", err)
+	}
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return false, err
+	}
+	if err := r.db.DeleteShareLink(ctx, id); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// CreateUser is the resolver for the createUser field.
+func (r *mutationResolver) CreateUser(ctx context.Context, name string, email *string) (*User, error) {
+	if err := auth.RequireSystemAdmin(ctx); err != nil {
+		return nil, err
+	}
+	user, err := r.db.CreateUser(ctx, models.UserInput{
+		Name:  name,
+		Email: email,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return userToGraphQL(user), nil
 }
 
 // Me is the resolver for the me field.
@@ -460,14 +587,13 @@ func (r *queryResolver) Me(ctx context.Context) (*Me, error) {
 		return nil, fmt.Errorf("user not found")
 	}
 	return &Me{
-		User:        *userToGraphQL(user),
-		VaultAccess: ac.VaultAccess,
+		User: *userToGraphQL(user),
 	}, nil
 }
 
 // Vault is the resolver for the vault field.
 func (r *queryResolver) Vault(ctx context.Context, id string) (*Vault, error) {
-	if err := auth.RequireVaultAccess(ctx, id); err != nil {
+	if err := auth.RequireVaultRole(ctx, id, models.RoleRead); err != nil {
 		return nil, err
 	}
 	v, err := r.vaultService.Get(ctx, id)
@@ -487,20 +613,31 @@ func (r *queryResolver) Vaults(ctx context.Context) ([]*Vault, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Wildcard grants access to all vaults (no-auth mode)
-	hasWildcard := slices.Contains(ac.VaultAccess, auth.WildcardVaultAccess)
+
+	// System admin or wildcard → return all vaults
+	if ac.IsSystemAdmin {
+		result := make([]*Vault, len(all))
+		for i := range all {
+			result[i] = vaultToGraphQL(&all[i])
+		}
+		return result, nil
+	}
 
 	// Filter to vaults the user has access to
-	accessSet := make(map[string]bool, len(ac.VaultAccess))
-	for _, id := range ac.VaultAccess {
-		accessSet[id] = true
+	accessSet := make(map[string]bool, len(ac.Vaults))
+	for _, vp := range ac.Vaults {
+		if vp.VaultID == auth.WildcardVaultAccess {
+			// Wildcard → return all
+			result := make([]*Vault, len(all))
+			for i := range all {
+				result[i] = vaultToGraphQL(&all[i])
+			}
+			return result, nil
+		}
+		accessSet[vp.VaultID] = true
 	}
 	var result []*Vault
 	for i := range all {
-		if hasWildcard {
-			result = append(result, vaultToGraphQL(&all[i]))
-			continue
-		}
 		id, err := models.RecordIDString(all[i].ID)
 		if err != nil {
 			slog.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
@@ -515,7 +652,7 @@ func (r *queryResolver) Vaults(ctx context.Context) ([]*Vault, error) {
 
 // Document is the resolver for the document field.
 func (r *queryResolver) Document(ctx context.Context, vaultID string, path string) (*Document, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 	doc, err := r.db.GetDocumentByPath(ctx, vaultID, path)
@@ -538,7 +675,7 @@ func (r *queryResolver) DocumentByID(ctx context.Context, id string) (*Document,
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID from document: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 	return documentToGraphQL(doc), nil
@@ -546,7 +683,7 @@ func (r *queryResolver) DocumentByID(ctx context.Context, id string) (*Document,
 
 // Search is the resolver for the search field.
 func (r *queryResolver) Search(ctx context.Context, input SearchInput) ([]*SearchResult, error) {
-	if err := auth.RequireVaultAccess(ctx, input.VaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, input.VaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 	limit := 20
@@ -585,7 +722,7 @@ func (r *queryResolver) Template(ctx context.Context, id string) (*Template, err
 // Templates is the resolver for the templates field.
 func (r *queryResolver) Templates(ctx context.Context, vaultID *string) ([]*Template, error) {
 	if vaultID != nil {
-		if err := auth.RequireVaultAccess(ctx, *vaultID); err != nil {
+		if err := auth.RequireVaultRole(ctx, *vaultID, models.RoleRead); err != nil {
 			return nil, err
 		}
 	}
@@ -602,7 +739,7 @@ func (r *queryResolver) Templates(ctx context.Context, vaultID *string) ([]*Temp
 
 // Conversations is the resolver for the conversations field.
 func (r *queryResolver) Conversations(ctx context.Context, vaultID string) ([]*Conversation, error) {
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 	ac, err := auth.FromContext(ctx)
@@ -634,7 +771,7 @@ func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversat
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 	result := conversationToGraphQL(conv)
@@ -645,6 +782,42 @@ func (r *queryResolver) Conversation(ctx context.Context, id string) (*Conversat
 	result.Messages = make([]*ChatMessage, len(msgs))
 	for i := range msgs {
 		result.Messages[i] = messageToGraphQL(&msgs[i])
+	}
+	return result, nil
+}
+
+// VaultMembers is the resolver for the vaultMembers field.
+func (r *queryResolver) VaultMembers(ctx context.Context, vaultID string) ([]*VaultMember, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return nil, err
+	}
+	members, err := r.db.GetVaultMembers(ctx, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*VaultMember, 0, len(members))
+	for i := range members {
+		gql, err := vaultMemberToGraphQL(r.db, ctx, &members[i])
+		if err != nil {
+			return nil, fmt.Errorf("convert vault member: %w", err)
+		}
+		result = append(result, gql)
+	}
+	return result, nil
+}
+
+// ShareLinks is the resolver for the shareLinks field.
+func (r *queryResolver) ShareLinks(ctx context.Context, vaultID string) ([]*ShareLink, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		return nil, err
+	}
+	links, err := r.db.ListShareLinks(ctx, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*ShareLink, len(links))
+	for i := range links {
+		result[i] = shareLinkToGraphQL(&links[i])
 	}
 	return result, nil
 }
@@ -667,7 +840,7 @@ func (r *queryResolver) DocumentVersion(ctx context.Context, id string) (*Docume
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID from version: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 	return versionToGraphQL(v), nil
@@ -686,7 +859,7 @@ func (r *queryResolver) DocumentVersions(ctx context.Context, documentID string,
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID from document: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 
@@ -728,7 +901,7 @@ func (r *queryResolver) VersionDiff(ctx context.Context, documentID string, from
 	if err != nil {
 		return nil, fmt.Errorf("extract vault ID from document: %w", err)
 	}
-	if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
 		return nil, err
 	}
 
@@ -757,6 +930,18 @@ func (r *queryResolver) VersionDiff(ctx context.Context, documentID string, from
 			HunksCount: stats.HunksCount,
 		},
 	}, nil
+}
+
+// IsSystemAdmin is the resolver for the isSystemAdmin field.
+func (r *userResolver) IsSystemAdmin(ctx context.Context, obj *User) (bool, error) {
+	user, err := r.db.GetUser(ctx, obj.ID)
+	if err != nil {
+		return false, fmt.Errorf("get user: %w", err)
+	}
+	if user == nil {
+		return false, nil
+	}
+	return user.IsSystemAdmin, nil
 }
 
 // Labels is the resolver for the labels field.
@@ -799,16 +984,24 @@ func (r *vaultResolver) Folders(ctx context.Context, obj *Vault, parent *string)
 // Document returns DocumentResolver implementation.
 func (r *Resolver) Document() DocumentResolver { return &documentResolver{r} }
 
+// Me returns MeResolver implementation.
+func (r *Resolver) Me() MeResolver { return &meResolver{r} }
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
+// User returns UserResolver implementation.
+func (r *Resolver) User() UserResolver { return &userResolver{r} }
+
 // Vault returns VaultResolver implementation.
 func (r *Resolver) Vault() VaultResolver { return &vaultResolver{r} }
 
 type documentResolver struct{ *Resolver }
+type meResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
+type userResolver struct{ *Resolver }
 type vaultResolver struct{ *Resolver }

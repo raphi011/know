@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // HandleEvents returns an HTTP handler for GET /events that streams change events via SSE.
@@ -28,7 +29,7 @@ func HandleEvents(bus *Bus) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if err := auth.RequireVaultAccess(r.Context(), vaultID); err != nil {
+		if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

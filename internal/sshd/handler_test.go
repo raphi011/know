@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/models"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -246,8 +247,8 @@ func TestAuthContextFromPermissions(t *testing.T) {
 		if ac.UserID != "" {
 			t.Errorf("UserID = %q, want empty", ac.UserID)
 		}
-		if len(ac.VaultAccess) != 0 {
-			t.Errorf("VaultAccess = %v, want empty", ac.VaultAccess)
+		if len(ac.Vaults) != 0 {
+			t.Errorf("Vaults = %v, want empty", ac.Vaults)
 		}
 	})
 
@@ -258,8 +259,8 @@ func TestAuthContextFromPermissions(t *testing.T) {
 		if ac.UserID != "" {
 			t.Errorf("UserID = %q, want empty", ac.UserID)
 		}
-		if len(ac.VaultAccess) != 0 {
-			t.Errorf("VaultAccess = %v, want empty", ac.VaultAccess)
+		if len(ac.Vaults) != 0 {
+			t.Errorf("Vaults = %v, want empty", ac.Vaults)
 		}
 	})
 
@@ -267,14 +268,14 @@ func TestAuthContextFromPermissions(t *testing.T) {
 		ac := authContextFromPermissions(&ssh.Permissions{
 			Extensions: map[string]string{
 				"user_id":      "user1",
-				"vault_access": "default",
+				"vault_access": "default:write",
 			},
 		})
 		if ac.UserID != "user1" {
 			t.Errorf("UserID = %q, want user1", ac.UserID)
 		}
-		if len(ac.VaultAccess) != 1 || ac.VaultAccess[0] != "default" {
-			t.Errorf("VaultAccess = %v, want [default]", ac.VaultAccess)
+		if len(ac.Vaults) != 1 || ac.Vaults[0].VaultID != "default" || ac.Vaults[0].Role != models.RoleWrite {
+			t.Errorf("Vaults = %v, want [{default write}]", ac.Vaults)
 		}
 	})
 
@@ -282,14 +283,20 @@ func TestAuthContextFromPermissions(t *testing.T) {
 		ac := authContextFromPermissions(&ssh.Permissions{
 			Extensions: map[string]string{
 				"user_id":      "user2",
-				"vault_access": "vault-a,vault-b,vault-c",
+				"vault_access": "vault-a:read,vault-b:write,vault-c:admin",
 			},
 		})
-		if len(ac.VaultAccess) != 3 {
-			t.Fatalf("VaultAccess len = %d, want 3", len(ac.VaultAccess))
+		if len(ac.Vaults) != 3 {
+			t.Fatalf("Vaults len = %d, want 3", len(ac.Vaults))
 		}
-		if ac.VaultAccess[0] != "vault-a" || ac.VaultAccess[1] != "vault-b" || ac.VaultAccess[2] != "vault-c" {
-			t.Errorf("VaultAccess = %v, want [vault-a vault-b vault-c]", ac.VaultAccess)
+		if ac.Vaults[0].VaultID != "vault-a" || ac.Vaults[0].Role != models.RoleRead {
+			t.Errorf("Vaults[0] = %v, want {vault-a read}", ac.Vaults[0])
+		}
+		if ac.Vaults[1].VaultID != "vault-b" || ac.Vaults[1].Role != models.RoleWrite {
+			t.Errorf("Vaults[1] = %v, want {vault-b write}", ac.Vaults[1])
+		}
+		if ac.Vaults[2].VaultID != "vault-c" || ac.Vaults[2].Role != models.RoleAdmin {
+			t.Errorf("Vaults[2] = %v, want {vault-c admin}", ac.Vaults[2])
 		}
 	})
 
@@ -297,11 +304,66 @@ func TestAuthContextFromPermissions(t *testing.T) {
 		ac := authContextFromPermissions(&ssh.Permissions{
 			Extensions: map[string]string{
 				"user_id":      "admin",
-				"vault_access": auth.WildcardVaultAccess,
+				"vault_access": auth.WildcardVaultAccess + ":admin",
 			},
 		})
-		if len(ac.VaultAccess) != 1 || ac.VaultAccess[0] != "*" {
-			t.Errorf("VaultAccess = %v, want [*]", ac.VaultAccess)
+		if len(ac.Vaults) != 1 || ac.Vaults[0].VaultID != "*" || ac.Vaults[0].Role != models.RoleAdmin {
+			t.Errorf("Vaults = %v, want [{* admin}]", ac.Vaults)
+		}
+	})
+}
+
+func TestAuthContextFromPermissions_SystemAdmin(t *testing.T) {
+	t.Run("admin is serialized", func(t *testing.T) {
+		ac := authContextFromPermissions(&ssh.Permissions{
+			Extensions: map[string]string{
+				"user_id":         "admin-user",
+				"vault_access":    "*:admin",
+				"is_system_admin": "true",
+			},
+		})
+		if !ac.IsSystemAdmin {
+			t.Error("IsSystemAdmin should be true")
+		}
+		if ac.UserID != "admin-user" {
+			t.Errorf("UserID = %q, want admin-user", ac.UserID)
+		}
+	})
+
+	t.Run("non-admin", func(t *testing.T) {
+		ac := authContextFromPermissions(&ssh.Permissions{
+			Extensions: map[string]string{
+				"user_id":         "regular-user",
+				"vault_access":    "v1:read",
+				"is_system_admin": "false",
+			},
+		})
+		if ac.IsSystemAdmin {
+			t.Error("IsSystemAdmin should be false")
+		}
+	})
+
+	t.Run("missing is_system_admin defaults to false", func(t *testing.T) {
+		ac := authContextFromPermissions(&ssh.Permissions{
+			Extensions: map[string]string{
+				"user_id":      "user1",
+				"vault_access": "v1:read",
+			},
+		})
+		if ac.IsSystemAdmin {
+			t.Error("IsSystemAdmin should default to false when missing")
+		}
+	})
+
+	t.Run("invalid role is skipped", func(t *testing.T) {
+		ac := authContextFromPermissions(&ssh.Permissions{
+			Extensions: map[string]string{
+				"user_id":      "user1",
+				"vault_access": "v1:read,v2:badrole,v3:write",
+			},
+		})
+		if len(ac.Vaults) != 2 {
+			t.Errorf("Vaults len = %d, want 2 (badrole skipped)", len(ac.Vaults))
 		}
 	})
 }

@@ -5,11 +5,15 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 func TestSessionMiddleware_ExpiredSession(t *testing.T) {
 	store := NewSessionStore(1 * time.Millisecond)
-	sess := store.Create("user1", []string{"vault:default"}, "vault:default")
+	sess := store.Create("user1", []models.VaultPermission{
+		{VaultID: "vault:default", Role: models.RoleWrite},
+	}, "vault:default")
 
 	time.Sleep(5 * time.Millisecond)
 
@@ -55,7 +59,10 @@ func TestSessionFromContext_NoSession_Panics(t *testing.T) {
 }
 
 func TestHasVaultAccess(t *testing.T) {
-	sess := &Session{VaultAccess: []string{"vault:a", "vault:b"}}
+	sess := &Session{VaultPermissions: []models.VaultPermission{
+		{VaultID: "vault:a", Role: models.RoleWrite},
+		{VaultID: "vault:b", Role: models.RoleRead},
+	}}
 
 	if !hasVaultAccess(sess, "vault:a") {
 		t.Error("expected access to vault:a")

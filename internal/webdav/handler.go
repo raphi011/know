@@ -13,6 +13,7 @@ import (
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
@@ -74,6 +75,14 @@ func NewHandler(
 			return
 		}
 
+		// Reject write operations for read-only users
+		if isWriteMethod(r.Method) {
+			if err := auth.CheckVaultRole(ac, vaultID, models.RoleWrite); err != nil {
+				http.Error(w, "read-only access", http.StatusForbidden)
+				return
+			}
+		}
+
 		// Create per-request WebDAV handler with the resolved vault
 		davFS := NewFS(vaultID, dbClient, docService, vaultSvc)
 		davHandler := &webdav.Handler{
@@ -100,4 +109,13 @@ func NewHandler(
 
 		davHandler.ServeHTTP(w, r)
 	})
+}
+
+// isWriteMethod returns true for HTTP methods that modify resources.
+func isWriteMethod(method string) bool {
+	switch method {
+	case http.MethodPut, http.MethodDelete, "MKCOL", "COPY", "MOVE", "PROPPATCH", "LOCK", "UNLOCK":
+		return true
+	}
+	return false
 }

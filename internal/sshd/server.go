@@ -24,6 +24,7 @@ import (
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
@@ -134,10 +135,22 @@ func (s *Server) passwordCallback(conn ssh.ConnMetadata, password []byte) (*ssh.
 		return nil, fmt.Errorf("authentication failed")
 	}
 
+	// Serialize vault permissions as "vaultID:role,vaultID:role,..."
+	var parts []string
+	for _, vp := range ac.Vaults {
+		parts = append(parts, vp.VaultID+":"+string(vp.Role))
+	}
+
+	isAdmin := "false"
+	if ac.IsSystemAdmin {
+		isAdmin = "true"
+	}
+
 	return &ssh.Permissions{
 		Extensions: map[string]string{
-			"user_id":      ac.UserID,
-			"vault_access": strings.Join(ac.VaultAccess, ","),
+			"user_id":         ac.UserID,
+			"vault_access":    strings.Join(parts, ","),
+			"is_system_admin": isAdmin,
 		},
 	}, nil
 }
@@ -228,14 +241,29 @@ func authContextFromPermissions(perms *ssh.Permissions) auth.AuthContext {
 		return auth.AuthContext{}
 	}
 
-	var vaultAccess []string
+	var vaults []models.VaultPermission
 	if va := perms.Extensions["vault_access"]; va != "" {
-		vaultAccess = strings.Split(va, ",")
+		for _, entry := range strings.Split(va, ",") {
+			parts := strings.SplitN(entry, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			role, err := models.ParseVaultRole(parts[1])
+			if err != nil {
+				slog.Warn("ssh: invalid vault role in permissions", "entry", entry, "error", err)
+				continue
+			}
+			vaults = append(vaults, models.VaultPermission{
+				VaultID: parts[0],
+				Role:    role,
+			})
+		}
 	}
 
 	return auth.AuthContext{
-		UserID:      perms.Extensions["user_id"],
-		VaultAccess: vaultAccess,
+		UserID:        perms.Extensions["user_id"],
+		IsSystemAdmin: perms.Extensions["is_system_admin"] == "true",
+		Vaults:        vaults,
 	}
 }
 

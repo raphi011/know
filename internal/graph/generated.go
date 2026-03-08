@@ -29,8 +29,10 @@ type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
 	Document() DocumentResolver
+	Me() MeResolver
 	Mutation() MutationResolver
 	Query() QueryResolver
+	User() UserResolver
 	Vault() VaultResolver
 }
 
@@ -150,30 +152,36 @@ type ComplexityRoot struct {
 	}
 
 	Me struct {
-		User        func(childComplexity int) int
-		VaultAccess func(childComplexity int) int
+		User       func(childComplexity int) int
+		VaultRoles func(childComplexity int) int
 	}
 
 	Mutation struct {
+		AddVaultMember          func(childComplexity int, vaultID string, userID string, role string) int
 		CreateConversation      func(childComplexity int, vaultID string) int
 		CreateDocument          func(childComplexity int, vaultID string, file FileInput, source *string) int
 		CreateFolder            func(childComplexity int, vaultID string, path string) int
 		CreateRelation          func(childComplexity int, input RelationInput) int
+		CreateShareLink         func(childComplexity int, vaultID string, path string, isFolder bool, expiresAt *time.Time) int
 		CreateTemplate          func(childComplexity int, input TemplateInput) int
+		CreateUser              func(childComplexity int, name string, email *string) int
 		CreateVault             func(childComplexity int, input VaultInput) int
 		DeleteConversation      func(childComplexity int, id string) int
 		DeleteDocument          func(childComplexity int, vaultID string, path string) int
 		DeleteDocumentsByPrefix func(childComplexity int, vaultID string, pathPrefix string) int
 		DeleteFolder            func(childComplexity int, vaultID string, path string) int
 		DeleteRelation          func(childComplexity int, id string) int
+		DeleteShareLink         func(childComplexity int, id string) int
 		DeleteTemplate          func(childComplexity int, id string) int
 		DeleteVault             func(childComplexity int, id string) int
 		MoveDocument            func(childComplexity int, vaultID string, oldPath string, newPath string) int
 		MoveDocumentsByPrefix   func(childComplexity int, vaultID string, oldPrefix string, newPrefix string) int
 		MoveFolder              func(childComplexity int, vaultID string, oldPath string, newPath string) int
+		RemoveVaultMember       func(childComplexity int, vaultID string, userID string) int
 		RenameConversation      func(childComplexity int, id string, title string) int
 		RollbackDocument        func(childComplexity int, vaultID string, documentID string, versionID string) int
 		UpdateDocument          func(childComplexity int, vaultID string, path string, content string) int
+		UpdateVaultMemberRole   func(childComplexity int, vaultID string, userID string, role string) int
 	}
 
 	Query struct {
@@ -186,9 +194,11 @@ type ComplexityRoot struct {
 		Me               func(childComplexity int) int
 		Search           func(childComplexity int, input SearchInput) int
 		ServerConfig     func(childComplexity int) int
+		ShareLinks       func(childComplexity int, vaultID string) int
 		Template         func(childComplexity int, id string) int
 		Templates        func(childComplexity int, vaultID *string) int
 		Vault            func(childComplexity int, id string) int
+		VaultMembers     func(childComplexity int, vaultID string) int
 		Vaults           func(childComplexity int) int
 		VersionDiff      func(childComplexity int, documentID string, fromVersionID *string, toVersionID *string) int
 	}
@@ -242,6 +252,16 @@ type ComplexityRoot struct {
 		WebSearchEnabled       func(childComplexity int) int
 	}
 
+	ShareLink struct {
+		CreatedAt func(childComplexity int) int
+		ExpiresAt func(childComplexity int) int
+		ID        func(childComplexity int) int
+		IsFolder  func(childComplexity int) int
+		Path      func(childComplexity int) int
+		Token     func(childComplexity int) int
+		VaultID   func(childComplexity int) int
+	}
+
 	Template struct {
 		Content      func(childComplexity int) int
 		CreatedAt    func(childComplexity int) int
@@ -277,10 +297,11 @@ type ComplexityRoot struct {
 	}
 
 	User struct {
-		CreatedAt func(childComplexity int) int
-		Email     func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Name      func(childComplexity int) int
+		CreatedAt     func(childComplexity int) int
+		Email         func(childComplexity int) int
+		ID            func(childComplexity int) int
+		IsSystemAdmin func(childComplexity int) int
+		Name          func(childComplexity int) int
 	}
 
 	Vault struct {
@@ -293,6 +314,19 @@ type ComplexityRoot struct {
 		Labels      func(childComplexity int) int
 		Name        func(childComplexity int) int
 		UpdatedAt   func(childComplexity int) int
+	}
+
+	VaultMember struct {
+		CreatedAt func(childComplexity int) int
+		Role      func(childComplexity int) int
+		UserID    func(childComplexity int) int
+		UserName  func(childComplexity int) int
+		VaultID   func(childComplexity int) int
+	}
+
+	VaultRole struct {
+		Role    func(childComplexity int) int
+		VaultID func(childComplexity int) int
 	}
 
 	WikiLink struct {
@@ -310,6 +344,9 @@ type DocumentResolver interface {
 	Relations(ctx context.Context, obj *Document) ([]*DocRelation, error)
 	QueryBlocks(ctx context.Context, obj *Document) ([]*QueryBlock, error)
 	Versions(ctx context.Context, obj *Document, limit *int, offset *int) (*DocumentVersionConnection, error)
+}
+type MeResolver interface {
+	VaultRoles(ctx context.Context, obj *Me) ([]*VaultRole, error)
 }
 type MutationResolver interface {
 	CreateVault(ctx context.Context, input VaultInput) (*Vault, error)
@@ -331,6 +368,12 @@ type MutationResolver interface {
 	DeleteConversation(ctx context.Context, id string) (bool, error)
 	RenameConversation(ctx context.Context, id string, title string) (*Conversation, error)
 	RollbackDocument(ctx context.Context, vaultID string, documentID string, versionID string) (*Document, error)
+	AddVaultMember(ctx context.Context, vaultID string, userID string, role string) (*VaultMember, error)
+	UpdateVaultMemberRole(ctx context.Context, vaultID string, userID string, role string) (bool, error)
+	RemoveVaultMember(ctx context.Context, vaultID string, userID string) (bool, error)
+	CreateShareLink(ctx context.Context, vaultID string, path string, isFolder bool, expiresAt *time.Time) (*ShareLink, error)
+	DeleteShareLink(ctx context.Context, id string) (bool, error)
+	CreateUser(ctx context.Context, name string, email *string) (*User, error)
 }
 type QueryResolver interface {
 	Me(ctx context.Context) (*Me, error)
@@ -343,10 +386,15 @@ type QueryResolver interface {
 	Templates(ctx context.Context, vaultID *string) ([]*Template, error)
 	Conversations(ctx context.Context, vaultID string) ([]*Conversation, error)
 	Conversation(ctx context.Context, id string) (*Conversation, error)
+	VaultMembers(ctx context.Context, vaultID string) ([]*VaultMember, error)
+	ShareLinks(ctx context.Context, vaultID string) ([]*ShareLink, error)
 	ServerConfig(ctx context.Context) (*ServerConfig, error)
 	DocumentVersion(ctx context.Context, id string) (*DocumentVersion, error)
 	DocumentVersions(ctx context.Context, documentID string, limit *int, offset *int) (*DocumentVersionConnection, error)
 	VersionDiff(ctx context.Context, documentID string, fromVersionID *string, toVersionID *string) (*DiffResult, error)
+}
+type UserResolver interface {
+	IsSystemAdmin(ctx context.Context, obj *User) (bool, error)
 }
 type VaultResolver interface {
 	Labels(ctx context.Context, obj *Vault) ([]string, error)
@@ -841,13 +889,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Me.User(childComplexity), true
-	case "Me.vaultAccess":
-		if e.ComplexityRoot.Me.VaultAccess == nil {
+	case "Me.vaultRoles":
+		if e.ComplexityRoot.Me.VaultRoles == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Me.VaultAccess(childComplexity), true
+		return e.ComplexityRoot.Me.VaultRoles(childComplexity), true
 
+	case "Mutation.addVaultMember":
+		if e.ComplexityRoot.Mutation.AddVaultMember == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_addVaultMember_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.AddVaultMember(childComplexity, args["vaultId"].(string), args["userId"].(string), args["role"].(string)), true
 	case "Mutation.createConversation":
 		if e.ComplexityRoot.Mutation.CreateConversation == nil {
 			break
@@ -892,6 +951,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateRelation(childComplexity, args["input"].(RelationInput)), true
+	case "Mutation.createShareLink":
+		if e.ComplexityRoot.Mutation.CreateShareLink == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createShareLink_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateShareLink(childComplexity, args["vaultId"].(string), args["path"].(string), args["isFolder"].(bool), args["expiresAt"].(*time.Time)), true
 	case "Mutation.createTemplate":
 		if e.ComplexityRoot.Mutation.CreateTemplate == nil {
 			break
@@ -903,6 +973,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateTemplate(childComplexity, args["input"].(TemplateInput)), true
+	case "Mutation.createUser":
+		if e.ComplexityRoot.Mutation.CreateUser == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createUser_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateUser(childComplexity, args["name"].(string), args["email"].(*string)), true
 	case "Mutation.createVault":
 		if e.ComplexityRoot.Mutation.CreateVault == nil {
 			break
@@ -969,6 +1050,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteRelation(childComplexity, args["id"].(string)), true
+	case "Mutation.deleteShareLink":
+		if e.ComplexityRoot.Mutation.DeleteShareLink == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteShareLink_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteShareLink(childComplexity, args["id"].(string)), true
 	case "Mutation.deleteTemplate":
 		if e.ComplexityRoot.Mutation.DeleteTemplate == nil {
 			break
@@ -1024,6 +1116,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.MoveFolder(childComplexity, args["vaultId"].(string), args["oldPath"].(string), args["newPath"].(string)), true
+	case "Mutation.removeVaultMember":
+		if e.ComplexityRoot.Mutation.RemoveVaultMember == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_removeVaultMember_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RemoveVaultMember(childComplexity, args["vaultId"].(string), args["userId"].(string)), true
 	case "Mutation.renameConversation":
 		if e.ComplexityRoot.Mutation.RenameConversation == nil {
 			break
@@ -1057,6 +1160,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UpdateDocument(childComplexity, args["vaultId"].(string), args["path"].(string), args["content"].(string)), true
+	case "Mutation.updateVaultMemberRole":
+		if e.ComplexityRoot.Mutation.UpdateVaultMemberRole == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateVaultMemberRole_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UpdateVaultMemberRole(childComplexity, args["vaultId"].(string), args["userId"].(string), args["role"].(string)), true
 
 	case "Query.conversation":
 		if e.ComplexityRoot.Query.Conversation == nil {
@@ -1148,6 +1262,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ServerConfig(childComplexity), true
+	case "Query.shareLinks":
+		if e.ComplexityRoot.Query.ShareLinks == nil {
+			break
+		}
+
+		args, err := ec.field_Query_shareLinks_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ShareLinks(childComplexity, args["vaultId"].(string)), true
 	case "Query.template":
 		if e.ComplexityRoot.Query.Template == nil {
 			break
@@ -1181,6 +1306,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Vault(childComplexity, args["id"].(string)), true
+	case "Query.vaultMembers":
+		if e.ComplexityRoot.Query.VaultMembers == nil {
+			break
+		}
+
+		args, err := ec.field_Query_vaultMembers_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.VaultMembers(childComplexity, args["vaultId"].(string)), true
 	case "Query.vaults":
 		if e.ComplexityRoot.Query.Vaults == nil {
 			break
@@ -1408,6 +1544,49 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ServerConfig.WebSearchEnabled(childComplexity), true
 
+	case "ShareLink.createdAt":
+		if e.ComplexityRoot.ShareLink.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.CreatedAt(childComplexity), true
+	case "ShareLink.expiresAt":
+		if e.ComplexityRoot.ShareLink.ExpiresAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.ExpiresAt(childComplexity), true
+	case "ShareLink.id":
+		if e.ComplexityRoot.ShareLink.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.ID(childComplexity), true
+	case "ShareLink.isFolder":
+		if e.ComplexityRoot.ShareLink.IsFolder == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.IsFolder(childComplexity), true
+	case "ShareLink.path":
+		if e.ComplexityRoot.ShareLink.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.Path(childComplexity), true
+	case "ShareLink.token":
+		if e.ComplexityRoot.ShareLink.Token == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.Token(childComplexity), true
+	case "ShareLink.vaultId":
+		if e.ComplexityRoot.ShareLink.VaultID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ShareLink.VaultID(childComplexity), true
+
 	case "Template.content":
 		if e.ComplexityRoot.Template.Content == nil {
 			break
@@ -1562,6 +1741,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.User.ID(childComplexity), true
+	case "User.isSystemAdmin":
+		if e.ComplexityRoot.User.IsSystemAdmin == nil {
+			break
+		}
+
+		return e.ComplexityRoot.User.IsSystemAdmin(childComplexity), true
 	case "User.name":
 		if e.ComplexityRoot.User.Name == nil {
 			break
@@ -1633,6 +1818,50 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Vault.UpdatedAt(childComplexity), true
+
+	case "VaultMember.createdAt":
+		if e.ComplexityRoot.VaultMember.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultMember.CreatedAt(childComplexity), true
+	case "VaultMember.role":
+		if e.ComplexityRoot.VaultMember.Role == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultMember.Role(childComplexity), true
+	case "VaultMember.userId":
+		if e.ComplexityRoot.VaultMember.UserID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultMember.UserID(childComplexity), true
+	case "VaultMember.userName":
+		if e.ComplexityRoot.VaultMember.UserName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultMember.UserName(childComplexity), true
+	case "VaultMember.vaultId":
+		if e.ComplexityRoot.VaultMember.VaultID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultMember.VaultID(childComplexity), true
+
+	case "VaultRole.role":
+		if e.ComplexityRoot.VaultRole.Role == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultRole.Role(childComplexity), true
+	case "VaultRole.vaultId":
+		if e.ComplexityRoot.VaultRole.VaultID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.VaultRole.VaultID(childComplexity), true
 
 	case "WikiLink.fromDocId":
 		if e.ComplexityRoot.WikiLink.FromDocID == nil {
@@ -1788,6 +2017,27 @@ func (ec *executionContext) field_Document_versions_args(ctx context.Context, ra
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_addVaultMember_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "userId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "role", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["role"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createConversation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1847,6 +2097,32 @@ func (ec *executionContext) field_Mutation_createRelation_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createShareLink_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "path", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["path"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "isFolder", ec.unmarshalNBoolean2bool)
+	if err != nil {
+		return nil, err
+	}
+	args["isFolder"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "expiresAt", ec.unmarshalODateTime2ᚖtimeᚐTime)
+	if err != nil {
+		return nil, err
+	}
+	args["expiresAt"] = arg3
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createTemplate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1855,6 +2131,22 @@ func (ec *executionContext) field_Mutation_createTemplate_args(ctx context.Conte
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_createUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "email", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["email"] = arg1
 	return args, nil
 }
 
@@ -1929,6 +2221,17 @@ func (ec *executionContext) field_Mutation_deleteFolder_args(ctx context.Context
 }
 
 func (ec *executionContext) field_Mutation_deleteRelation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteShareLink_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2string)
@@ -2024,6 +2327,22 @@ func (ec *executionContext) field_Mutation_moveFolder_args(ctx context.Context, 
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_removeVaultMember_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "userId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_renameConversation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2079,6 +2398,27 @@ func (ec *executionContext) field_Mutation_updateDocument_args(ctx context.Conte
 		return nil, err
 	}
 	args["content"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_updateVaultMemberRole_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "userId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "role", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["role"] = arg2
 	return args, nil
 }
 
@@ -2185,6 +2525,17 @@ func (ec *executionContext) field_Query_search_args(ctx context.Context, rawArgs
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_shareLinks_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_template_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2200,6 +2551,17 @@ func (ec *executionContext) field_Query_templates_args(ctx context.Context, rawA
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalOID2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_vaultMembers_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
 	if err != nil {
 		return nil, err
 	}
@@ -4690,6 +5052,8 @@ func (ec *executionContext) fieldContext_Me_user(_ context.Context, field graphq
 				return ec.fieldContext_User_name(ctx, field)
 			case "email":
 				return ec.fieldContext_User_email(ctx, field)
+			case "isSystemAdmin":
+				return ec.fieldContext_User_isSystemAdmin(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_User_createdAt(ctx, field)
 			}
@@ -4699,30 +5063,36 @@ func (ec *executionContext) fieldContext_Me_user(_ context.Context, field graphq
 	return fc, nil
 }
 
-func (ec *executionContext) _Me_vaultAccess(ctx context.Context, field graphql.CollectedField, obj *Me) (ret graphql.Marshaler) {
+func (ec *executionContext) _Me_vaultRoles(ctx context.Context, field graphql.CollectedField, obj *Me) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_Me_vaultAccess,
+		ec.fieldContext_Me_vaultRoles,
 		func(ctx context.Context) (any, error) {
-			return obj.VaultAccess, nil
+			return ec.Resolvers.Me().VaultRoles(ctx, obj)
 		},
 		nil,
-		ec.marshalNID2ᚕstringᚄ,
+		ec.marshalNVaultRole2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultRoleᚄ,
 		true,
 		true,
 	)
 }
 
-func (ec *executionContext) fieldContext_Me_vaultAccess(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Me_vaultRoles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Me",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type ID does not have child fields")
+			switch field.Name {
+			case "vaultId":
+				return ec.fieldContext_VaultRole_vaultId(ctx, field)
+			case "role":
+				return ec.fieldContext_VaultRole_role(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type VaultRole", field.Name)
 		},
 	}
 	return fc, nil
@@ -5757,6 +6127,292 @@ func (ec *executionContext) fieldContext_Mutation_rollbackDocument(ctx context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_addVaultMember(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_addVaultMember,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().AddVaultMember(ctx, fc.Args["vaultId"].(string), fc.Args["userId"].(string), fc.Args["role"].(string))
+		},
+		nil,
+		ec.marshalNVaultMember2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultMember,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_addVaultMember(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "userId":
+				return ec.fieldContext_VaultMember_userId(ctx, field)
+			case "userName":
+				return ec.fieldContext_VaultMember_userName(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_VaultMember_vaultId(ctx, field)
+			case "role":
+				return ec.fieldContext_VaultMember_role(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_VaultMember_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type VaultMember", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_addVaultMember_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateVaultMemberRole(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_updateVaultMemberRole,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UpdateVaultMemberRole(ctx, fc.Args["vaultId"].(string), fc.Args["userId"].(string), fc.Args["role"].(string))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateVaultMemberRole(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateVaultMemberRole_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_removeVaultMember(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_removeVaultMember,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RemoveVaultMember(ctx, fc.Args["vaultId"].(string), fc.Args["userId"].(string))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_removeVaultMember(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_removeVaultMember_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createShareLink(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_createShareLink,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateShareLink(ctx, fc.Args["vaultId"].(string), fc.Args["path"].(string), fc.Args["isFolder"].(bool), fc.Args["expiresAt"].(*time.Time))
+		},
+		nil,
+		ec.marshalNShareLink2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐShareLink,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createShareLink(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ShareLink_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_ShareLink_vaultId(ctx, field)
+			case "path":
+				return ec.fieldContext_ShareLink_path(ctx, field)
+			case "isFolder":
+				return ec.fieldContext_ShareLink_isFolder(ctx, field)
+			case "token":
+				return ec.fieldContext_ShareLink_token(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_ShareLink_expiresAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_ShareLink_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ShareLink", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createShareLink_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteShareLink(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_deleteShareLink,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteShareLink(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_deleteShareLink(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteShareLink_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createUser(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_createUser,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateUser(ctx, fc.Args["name"].(string), fc.Args["email"].(*string))
+		},
+		nil,
+		ec.marshalNUser2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐUser,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createUser(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_User_id(ctx, field)
+			case "name":
+				return ec.fieldContext_User_name(ctx, field)
+			case "email":
+				return ec.fieldContext_User_email(ctx, field)
+			case "isSystemAdmin":
+				return ec.fieldContext_User_isSystemAdmin(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_User_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createUser_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_me(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -5783,8 +6439,8 @@ func (ec *executionContext) fieldContext_Query_me(_ context.Context, field graph
 			switch field.Name {
 			case "user":
 				return ec.fieldContext_Me_user(ctx, field)
-			case "vaultAccess":
-				return ec.fieldContext_Me_vaultAccess(ctx, field)
+			case "vaultRoles":
+				return ec.fieldContext_Me_vaultRoles(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Me", field.Name)
 		},
@@ -6343,6 +6999,116 @@ func (ec *executionContext) fieldContext_Query_conversation(ctx context.Context,
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_conversation_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_vaultMembers(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_vaultMembers,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().VaultMembers(ctx, fc.Args["vaultId"].(string))
+		},
+		nil,
+		ec.marshalNVaultMember2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultMemberᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_vaultMembers(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "userId":
+				return ec.fieldContext_VaultMember_userId(ctx, field)
+			case "userName":
+				return ec.fieldContext_VaultMember_userName(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_VaultMember_vaultId(ctx, field)
+			case "role":
+				return ec.fieldContext_VaultMember_role(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_VaultMember_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type VaultMember", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_vaultMembers_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_shareLinks(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_shareLinks,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ShareLinks(ctx, fc.Args["vaultId"].(string))
+		},
+		nil,
+		ec.marshalNShareLink2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐShareLinkᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_shareLinks(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ShareLink_id(ctx, field)
+			case "vaultId":
+				return ec.fieldContext_ShareLink_vaultId(ctx, field)
+			case "path":
+				return ec.fieldContext_ShareLink_path(ctx, field)
+			case "isFolder":
+				return ec.fieldContext_ShareLink_isFolder(ctx, field)
+			case "token":
+				return ec.fieldContext_ShareLink_token(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_ShareLink_expiresAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_ShareLink_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ShareLink", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_shareLinks_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -7673,6 +8439,209 @@ func (ec *executionContext) fieldContext_ServerConfig_versionRetentionCount(_ co
 	return fc, nil
 }
 
+func (ec *executionContext) _ShareLink_id(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShareLink_vaultId(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_vaultId,
+		func(ctx context.Context) (any, error) {
+			return obj.VaultID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_vaultId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShareLink_path(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_path,
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShareLink_isFolder(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_isFolder,
+		func(ctx context.Context) (any, error) {
+			return obj.IsFolder, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_isFolder(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShareLink_token(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_token,
+		func(ctx context.Context) (any, error) {
+			return obj.Token, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_token(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShareLink_expiresAt(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_expiresAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresAt, nil
+		},
+		nil,
+		ec.marshalODateTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_expiresAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShareLink_createdAt(ctx context.Context, field graphql.CollectedField, obj *ShareLink) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ShareLink_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ShareLink_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Template_id(ctx context.Context, field graphql.CollectedField, obj *Template) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8412,6 +9381,35 @@ func (ec *executionContext) fieldContext_User_email(_ context.Context, field gra
 	return fc, nil
 }
 
+func (ec *executionContext) _User_isSystemAdmin(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_User_isSystemAdmin,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.User().IsSystemAdmin(ctx, obj)
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_User_isSystemAdmin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_createdAt(ctx context.Context, field graphql.CollectedField, obj *User) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8772,6 +9770,209 @@ func (ec *executionContext) fieldContext_Vault_folders(ctx context.Context, fiel
 	if fc.Args, err = ec.field_Vault_folders_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultMember_userId(ctx context.Context, field graphql.CollectedField, obj *VaultMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultMember_userId,
+		func(ctx context.Context) (any, error) {
+			return obj.UserID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultMember_userId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultMember",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultMember_userName(ctx context.Context, field graphql.CollectedField, obj *VaultMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultMember_userName,
+		func(ctx context.Context) (any, error) {
+			return obj.UserName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultMember_userName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultMember",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultMember_vaultId(ctx context.Context, field graphql.CollectedField, obj *VaultMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultMember_vaultId,
+		func(ctx context.Context) (any, error) {
+			return obj.VaultID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultMember_vaultId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultMember",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultMember_role(ctx context.Context, field graphql.CollectedField, obj *VaultMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultMember_role,
+		func(ctx context.Context) (any, error) {
+			return obj.Role, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultMember_role(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultMember",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultMember_createdAt(ctx context.Context, field graphql.CollectedField, obj *VaultMember) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultMember_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultMember_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultMember",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultRole_vaultId(ctx context.Context, field graphql.CollectedField, obj *VaultRole) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultRole_vaultId,
+		func(ctx context.Context) (any, error) {
+			return obj.VaultID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultRole_vaultId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultRole",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _VaultRole_role(ctx context.Context, field graphql.CollectedField, obj *VaultRole) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_VaultRole_role,
+		func(ctx context.Context) (any, error) {
+			return obj.Role, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_VaultRole_role(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "VaultRole",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
 	}
 	return fc, nil
 }
@@ -11512,13 +12713,44 @@ func (ec *executionContext) _Me(ctx context.Context, sel ast.SelectionSet, obj *
 		case "user":
 			out.Values[i] = ec._Me_user(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
-		case "vaultAccess":
-			out.Values[i] = ec._Me_vaultAccess(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
+		case "vaultRoles":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Me_vaultRoles(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11690,6 +12922,48 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "rollbackDocument":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_rollbackDocument(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "addVaultMember":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_addVaultMember(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateVaultMemberRole":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateVaultMemberRole(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "removeVaultMember":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_removeVaultMember(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createShareLink":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createShareLink(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteShareLink":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteShareLink(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createUser":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createUser(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -11932,6 +13206,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_conversation(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "vaultMembers":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_vaultMembers(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "shareLinks":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_shareLinks(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -12388,6 +13706,69 @@ func (ec *executionContext) _ServerConfig(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var shareLinkImplementors = []string{"ShareLink"}
+
+func (ec *executionContext) _ShareLink(ctx context.Context, sel ast.SelectionSet, obj *ShareLink) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, shareLinkImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ShareLink")
+		case "id":
+			out.Values[i] = ec._ShareLink_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "vaultId":
+			out.Values[i] = ec._ShareLink_vaultId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._ShareLink_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "isFolder":
+			out.Values[i] = ec._ShareLink_isFolder(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "token":
+			out.Values[i] = ec._ShareLink_token(ctx, field, obj)
+		case "expiresAt":
+			out.Values[i] = ec._ShareLink_expiresAt(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._ShareLink_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var templateImplementors = []string{"Template"}
 
 func (ec *executionContext) _Template(ctx context.Context, sel ast.SelectionSet, obj *Template) graphql.Marshaler {
@@ -12618,19 +13999,55 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 		case "id":
 			out.Values[i] = ec._User_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "name":
 			out.Values[i] = ec._User_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "email":
 			out.Values[i] = ec._User_email(ctx, field, obj)
+		case "isSystemAdmin":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._User_isSystemAdmin(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "createdAt":
 			out.Values[i] = ec._User_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -12801,6 +14218,109 @@ func (ec *executionContext) _Vault(ctx context.Context, sel ast.SelectionSet, ob
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var vaultMemberImplementors = []string{"VaultMember"}
+
+func (ec *executionContext) _VaultMember(ctx context.Context, sel ast.SelectionSet, obj *VaultMember) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, vaultMemberImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("VaultMember")
+		case "userId":
+			out.Values[i] = ec._VaultMember_userId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "userName":
+			out.Values[i] = ec._VaultMember_userName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "vaultId":
+			out.Values[i] = ec._VaultMember_vaultId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "role":
+			out.Values[i] = ec._VaultMember_role(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createdAt":
+			out.Values[i] = ec._VaultMember_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var vaultRoleImplementors = []string{"VaultRole"}
+
+func (ec *executionContext) _VaultRole(ctx context.Context, sel ast.SelectionSet, obj *VaultRole) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, vaultRoleImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("VaultRole")
+		case "vaultId":
+			out.Values[i] = ec._VaultRole_vaultId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "role":
+			out.Values[i] = ec._VaultRole_role(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -13583,36 +15103,6 @@ func (ec *executionContext) marshalNID2string(ctx context.Context, sel ast.Selec
 	return res
 }
 
-func (ec *executionContext) unmarshalNID2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {
-	var vSlice []any
-	vSlice = graphql.CoerceList(v)
-	var err error
-	res := make([]string, len(vSlice))
-	for i := range vSlice {
-		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNID2string(ctx, vSlice[i])
-		if err != nil {
-			return nil, err
-		}
-	}
-	return res, nil
-}
-
-func (ec *executionContext) marshalNID2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	for i := range v {
-		ret[i] = ec.marshalNID2string(ctx, sel, v[i])
-	}
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
 func (ec *executionContext) unmarshalNInt2int(ctx context.Context, v any) (int, error) {
 	res, err := graphql.UnmarshalInt(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -13756,6 +15246,36 @@ func (ec *executionContext) marshalNServerConfig2ᚖgithubᚗcomᚋraphi011ᚋkn
 	return ec._ServerConfig(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNShareLink2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐShareLink(ctx context.Context, sel ast.SelectionSet, v ShareLink) graphql.Marshaler {
+	return ec._ShareLink(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNShareLink2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐShareLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*ShareLink) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNShareLink2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐShareLink(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNShareLink2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐShareLink(ctx context.Context, sel ast.SelectionSet, v *ShareLink) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ShareLink(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {
 	res, err := graphql.UnmarshalString(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -13861,6 +15381,16 @@ func (ec *executionContext) marshalNUser2githubᚗcomᚋraphi011ᚋknowhowᚋint
 	return ec._User(ctx, sel, &v)
 }
 
+func (ec *executionContext) marshalNUser2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐUser(ctx context.Context, sel ast.SelectionSet, v *User) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._User(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNVault2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVault(ctx context.Context, sel ast.SelectionSet, v Vault) graphql.Marshaler {
 	return ec._Vault(ctx, sel, &v)
 }
@@ -13894,6 +15424,62 @@ func (ec *executionContext) marshalNVault2ᚖgithubᚗcomᚋraphi011ᚋknowhow�
 func (ec *executionContext) unmarshalNVaultInput2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultInput(ctx context.Context, v any) (VaultInput, error) {
 	res, err := ec.unmarshalInputVaultInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNVaultMember2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultMember(ctx context.Context, sel ast.SelectionSet, v VaultMember) graphql.Marshaler {
+	return ec._VaultMember(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNVaultMember2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultMemberᚄ(ctx context.Context, sel ast.SelectionSet, v []*VaultMember) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNVaultMember2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultMember(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNVaultMember2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultMember(ctx context.Context, sel ast.SelectionSet, v *VaultMember) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._VaultMember(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNVaultRole2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultRoleᚄ(ctx context.Context, sel ast.SelectionSet, v []*VaultRole) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNVaultRole2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultRole(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNVaultRole2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐVaultRole(ctx context.Context, sel ast.SelectionSet, v *VaultRole) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._VaultRole(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNWikiLink2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐWikiLinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*WikiLink) graphql.Marshaler {
@@ -14098,6 +15684,24 @@ func (ec *executionContext) marshalOConversation2ᚖgithubᚗcomᚋraphi011ᚋkn
 		return graphql.Null
 	}
 	return ec._Conversation(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalODateTime2ᚖtimeᚐTime(ctx context.Context, v any) (*time.Time, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalTime(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalODateTime2ᚖtimeᚐTime(ctx context.Context, sel ast.SelectionSet, v *time.Time) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalTime(*v)
+	return res
 }
 
 func (ec *executionContext) marshalODocument2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐDocument(ctx context.Context, sel ast.SelectionSet, v *Document) graphql.Marshaler {

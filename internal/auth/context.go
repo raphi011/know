@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"slices"
+	"path"
+	"strings"
 
 	"github.com/raphi011/knowhow/internal/models"
 )
@@ -22,13 +23,22 @@ type VaultResolver interface {
 
 type contextKey struct{}
 
-// WildcardVaultAccess grants access to all vaults (used in no-auth mode).
+// WildcardVaultAccess grants admin access to all vaults (used in no-auth mode).
 const WildcardVaultAccess = "*"
+
+// ShareContext holds info when authenticated via a share link.
+type ShareContext struct {
+	VaultID  string
+	Path     string
+	IsFolder bool
+}
 
 // AuthContext carries authenticated user information through request context.
 type AuthContext struct {
-	UserID      string
-	VaultAccess []string // vault IDs the user can access ("*" = all)
+	UserID        string
+	IsSystemAdmin bool
+	Vaults        []models.VaultPermission // vault permissions ("*" with RoleAdmin = all)
+	Share         *ShareContext            // non-nil when authenticated via share link
 }
 
 // WithAuth stores auth context in the request context.
@@ -45,28 +55,99 @@ func FromContext(ctx context.Context) (AuthContext, error) {
 	return ac, nil
 }
 
-// RequireVaultAccess checks if the authenticated user (from context) has access to a vault.
+// RequireVaultRole checks if the authenticated user has at least the given role on a vault.
 // Accepts both bare IDs ("default") and record IDs ("vault:default").
-// Wildcard access ("*") grants access to all vaults (no-auth mode).
-func RequireVaultAccess(ctx context.Context, vaultID string) error {
+func RequireVaultRole(ctx context.Context, vaultID string, minRole models.VaultRole) error {
 	ac, err := FromContext(ctx)
 	if err != nil {
 		return err
 	}
-	return CheckVaultAccess(ac, vaultID)
+	return CheckVaultRole(ac, vaultID, minRole)
 }
 
-// CheckVaultAccess checks if an AuthContext has access to the given vault ID.
-// Accepts both bare IDs ("default") and record IDs ("vault:default").
-func CheckVaultAccess(ac AuthContext, vaultID string) error {
-	if slices.Contains(ac.VaultAccess, WildcardVaultAccess) {
+// CheckVaultRole checks if an AuthContext has at least the given role on a vault.
+func CheckVaultRole(ac AuthContext, vaultID string, minRole models.VaultRole) error {
+	// System admin has full access
+	if ac.IsSystemAdmin {
 		return nil
 	}
+
+	// Share links grant read-only access to specific paths
+	if ac.Share != nil {
+		if minRole != models.RoleRead {
+			return fmt.Errorf("forbidden: share links are read-only")
+		}
+		return checkShareAccess(ac.Share, vaultID)
+	}
+
 	bare := models.BareID("vault", vaultID)
-	if slices.Contains(ac.VaultAccess, bare) {
+	for _, vp := range ac.Vaults {
+		if vp.VaultID == WildcardVaultAccess && vp.Role.AtLeast(minRole) {
+			return nil
+		}
+		if vp.VaultID == bare && vp.Role.AtLeast(minRole) {
+			return nil
+		}
+	}
+	return fmt.Errorf("forbidden: insufficient role on vault %s", vaultID)
+}
+
+// RequireSystemAdmin checks that the authenticated user is a system admin.
+func RequireSystemAdmin(ctx context.Context) error {
+	ac, err := FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !ac.IsSystemAdmin {
+		return fmt.Errorf("forbidden: system admin required")
+	}
+	return nil
+}
+
+// RequireDocAccess checks if the authenticated user can access a specific document path.
+// For share links, verifies the path is within the share's scope.
+// For regular users, checks vault role (read level).
+func RequireDocAccess(ctx context.Context, vaultID, docPath string) error {
+	ac, err := FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if ac.Share != nil {
+		if err := checkShareAccess(ac.Share, vaultID); err != nil {
+			return err
+		}
+		return checkSharePath(ac.Share, docPath)
+	}
+	return CheckVaultRole(ac, vaultID, models.RoleRead)
+}
+
+// checkShareAccess verifies the share link targets the correct vault.
+func checkShareAccess(share *ShareContext, vaultID string) error {
+	bare := models.BareID("vault", vaultID)
+	if share.VaultID != bare {
+		return fmt.Errorf("forbidden: share link does not grant access to vault %s", vaultID)
+	}
+	return nil
+}
+
+// checkSharePath verifies the document path is within the share link's scope.
+// Paths are cleaned to prevent traversal attacks (e.g. "docs/secret/../other").
+func checkSharePath(share *ShareContext, docPath string) error {
+	docPath = path.Clean(docPath)
+	if share.IsFolder {
+		prefix := share.Path
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		if !strings.HasPrefix(docPath, prefix) && docPath != share.Path {
+			return fmt.Errorf("forbidden: share link does not grant access to %s", docPath)
+		}
 		return nil
 	}
-	return fmt.Errorf("forbidden: no access to vault %s", vaultID)
+	if docPath != share.Path {
+		return fmt.Errorf("forbidden: share link does not grant access to %s", docPath)
+	}
+	return nil
 }
 
 // ResolveVault looks up a vault by name and checks if the given AuthContext has access.
@@ -80,9 +161,25 @@ func ResolveVault(ctx context.Context, ac AuthContext, vaultSvc VaultResolver, v
 		return "", fmt.Errorf("vault %q not found: %w", vaultName, os.ErrNotExist)
 	}
 
-	if err := CheckVaultAccess(ac, v.ID); err != nil {
+	if err := CheckVaultRole(ac, v.ID, models.RoleRead); err != nil {
 		return "", err
 	}
 
 	return v.ID, nil
+}
+
+// VaultRole returns the role the user has on the given vault.
+// Returns empty string ("") if the user has no access, which has Level() == 0
+// and will fail any AtLeast() check.
+func (ac AuthContext) VaultRole(vaultID string) models.VaultRole {
+	if ac.IsSystemAdmin {
+		return models.RoleAdmin
+	}
+	bare := models.BareID("vault", vaultID)
+	for _, vp := range ac.Vaults {
+		if vp.VaultID == WildcardVaultAccess || vp.VaultID == bare {
+			return vp.Role
+		}
+	}
+	return ""
 }

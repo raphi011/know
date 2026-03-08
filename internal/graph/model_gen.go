@@ -39,6 +39,16 @@ type Mutation struct {
 type Query struct {
 }
 
+type ShareLink struct {
+	ID        string     `json:"id"`
+	VaultID   string     `json:"vaultId"`
+	Path      string     `json:"path"`
+	IsFolder  bool       `json:"isFolder"`
+	Token     *string    `json:"token,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
 type ToolDocRef struct {
 	Title string  `json:"title"`
 	Path  string  `json:"path"`
@@ -60,4 +70,17 @@ type ToolResultMeta struct {
 type ToolWebRef struct {
 	Title string `json:"title"`
 	URL   string `json:"url"`
+}
+
+type VaultMember struct {
+	UserID    string    `json:"userId"`
+	UserName  string    `json:"userName"`
+	VaultID   string    `json:"vaultId"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type VaultRole struct {
+	VaultID string `json:"vaultId"`
+	Role    string `json:"role"`
 }

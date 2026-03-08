@@ -18,9 +18,10 @@ func SchemaSQL(dimension int) string {
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS user SCHEMAFULL;
 
-    DEFINE FIELD IF NOT EXISTS name       ON user TYPE string;
-    DEFINE FIELD IF NOT EXISTS email      ON user TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS created_at ON user TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS name             ON user TYPE string;
+    DEFINE FIELD IF NOT EXISTS email            ON user TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS is_system_admin  ON user TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS created_at       ON user TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_user_name ON user FIELDS name UNIQUE;
 
@@ -182,12 +183,51 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS user         ON api_token TYPE record<user>;
     DEFINE FIELD IF NOT EXISTS token_hash   ON api_token TYPE string;
     DEFINE FIELD IF NOT EXISTS name         ON api_token TYPE string;
-    DEFINE FIELD IF NOT EXISTS vault_access ON api_token TYPE array<record<vault>> DEFAULT [];
     DEFINE FIELD IF NOT EXISTS last_used    ON api_token TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS expires_at   ON api_token TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS created_at   ON api_token TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_api_token_hash ON api_token FIELDS token_hash UNIQUE;
+
+    -- ==========================================================================
+    -- VAULT_MEMBER TABLE (user-vault membership with roles)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS vault_member SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS user       ON vault_member TYPE record<user>;
+    DEFINE FIELD IF NOT EXISTS vault      ON vault_member TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS role       ON vault_member TYPE string ASSERT $value IN ["read", "write", "admin"];
+    DEFINE FIELD IF NOT EXISTS created_at ON vault_member TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_vault_member_user_vault ON vault_member FIELDS user, vault UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_vault_member_vault      ON vault_member FIELDS vault;
+
+    -- Cascade: delete vault_member when vault deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_members ON vault
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM vault_member WHERE vault = $before.id
+    };
+
+    -- ==========================================================================
+    -- SHARE_LINK TABLE (read-only share links for docs/folders)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS share_link SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS vault      ON share_link TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS token_hash ON share_link TYPE string;
+    DEFINE FIELD IF NOT EXISTS path       ON share_link TYPE string;
+    DEFINE FIELD IF NOT EXISTS is_folder  ON share_link TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS created_by ON share_link TYPE record<user>;
+    DEFINE FIELD IF NOT EXISTS expires_at ON share_link TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS created_at ON share_link TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_share_link_hash ON share_link FIELDS token_hash UNIQUE;
+
+    -- Cascade: delete share_links when vault deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_share_links ON vault
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM share_link WHERE vault = $before.id
+    };
 
     -- ==========================================================================
     -- CONVERSATION TABLE
