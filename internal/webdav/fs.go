@@ -69,6 +69,9 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 	if doc != nil {
 		// Existing document
 		if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+			if !isMarkdownFile(name) {
+				return nil, errNotMarkdown
+			}
 			// Open for writing — start with existing content
 			return newWriteFile(name, f.vaultID, f.docService, []byte(doc.Content), doc.UpdatedAt), nil
 		}
@@ -86,6 +89,9 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 
 	// Not found — if creating, open for write
 	if flag&os.O_CREATE != 0 {
+		if !isMarkdownFile(name) {
+			return nil, errNotMarkdown
+		}
 		return newWriteFile(name, f.vaultID, f.docService, nil, time.Now()), nil
 	}
 
@@ -105,7 +111,10 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 	if doc != nil {
-		return f.docService.Delete(ctx, f.vaultID, name)
+		if err := f.docService.Delete(ctx, f.vaultID, name); err != nil {
+			return fmt.Errorf("remove document %s: %w", name, err)
+		}
+		return nil
 	}
 
 	// Try as folder
@@ -114,7 +123,10 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 	if folder != nil {
-		return f.vaultSvc.DeleteFolder(ctx, f.vaultID, name)
+		if err := f.vaultSvc.DeleteFolder(ctx, f.vaultID, name); err != nil {
+			return fmt.Errorf("remove folder %s: %w", name, err)
+		}
+		return nil
 	}
 
 	return os.ErrNotExist
@@ -131,8 +143,13 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 		return fmt.Errorf("rename %s: %w", oldName, err)
 	}
 	if doc != nil {
-		_, err := f.docService.Move(ctx, f.vaultID, oldName, newName)
-		return err
+		if !isMarkdownFile(newName) {
+			return errNotMarkdown
+		}
+		if _, err := f.docService.Move(ctx, f.vaultID, oldName, newName); err != nil {
+			return fmt.Errorf("rename %s to %s: %w", oldName, newName, err)
+		}
+		return nil
 	}
 
 	// Try as folder
@@ -141,7 +158,10 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 		return fmt.Errorf("rename %s: %w", oldName, err)
 	}
 	if folder != nil {
-		return f.vaultSvc.MoveFolder(ctx, f.vaultID, oldName, newName)
+		if err := f.vaultSvc.MoveFolder(ctx, f.vaultID, oldName, newName); err != nil {
+			return fmt.Errorf("rename folder %s to %s: %w", oldName, newName, err)
+		}
+		return nil
 	}
 
 	return os.ErrNotExist
@@ -254,6 +274,14 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 
 	return entries, nil
 }
+
+// isMarkdownFile returns true if the file has a .md extension (case-insensitive).
+func isMarkdownFile(name string) bool {
+	return strings.EqualFold(path.Ext(name), ".md")
+}
+
+// errNotMarkdown is returned when a non-markdown file is created or renamed to.
+var errNotMarkdown = fmt.Errorf("only markdown files (.md) are allowed: %w", os.ErrPermission)
 
 // normalizeName cleans up a WebDAV path to match our internal path format.
 func normalizeName(name string) string {

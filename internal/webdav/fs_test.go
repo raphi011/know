@@ -1,6 +1,7 @@
 package webdav
 
 import (
+	"errors"
 	"os"
 	"testing"
 )
@@ -51,5 +52,35 @@ func TestFileInfo(t *testing.T) {
 	}
 	if dirFi.Mode()&os.ModeDir == 0 {
 		t.Error("Mode() should include ModeDir")
+	}
+}
+
+func TestIsMarkdownFile(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"/notes/readme.md", true},
+		{"/notes/README.MD", true},
+		{"/notes/doc.Md", true},
+		{"/notes/file.txt", false},
+		{"/notes/binary.exe", false},
+		{"/notes/noext", false},
+		{"/notes/.md", true}, // hidden file with .md extension
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMarkdownFile(tt.name)
+			if got != tt.want {
+				t.Errorf("isMarkdownFile(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestErrNotMarkdownWrapsErrPermission(t *testing.T) {
+	if !errors.Is(errNotMarkdown, os.ErrPermission) {
+		t.Error("errNotMarkdown should wrap os.ErrPermission")
 	}
 }

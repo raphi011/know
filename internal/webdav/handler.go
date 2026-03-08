@@ -1,8 +1,10 @@
 package webdav
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
@@ -107,8 +109,16 @@ func NewHandler(
 			LockSystem: getLockSystem(vaultID),
 			Prefix:     pathPrefix + vaultName,
 			Logger: func(r *http.Request, err error) {
-				if err != nil {
+				if err == nil {
+					return
+				}
+				if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
 					slog.Debug("webdav request",
+						"method", r.Method,
+						"path", r.URL.Path,
+						"error", err)
+				} else {
+					slog.Warn("webdav request failed",
 						"method", r.Method,
 						"path", r.URL.Path,
 						"error", err)
