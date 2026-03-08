@@ -7,9 +7,14 @@ struct User: Codable, Identifiable {
     let createdAt: String
 }
 
+struct VaultRole: Codable {
+    let vaultId: String
+    let role: String
+}
+
 struct Me: Codable {
     let user: User
-    let vaultAccess: [String]
+    let vaultRoles: [VaultRole]
 }
 
 // MARK: - GraphQL Types

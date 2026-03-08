@@ -184,3 +184,31 @@ prod-bootstrap: build-bootstrap
 
 # Run all tests
 test-all: test
+
+# --- iOS ---
+
+ios_project := "ios/Knowhow.xcodeproj"
+ios_scheme := "Knowhow"
+ios_simulator_id := env_var_or_default("IOS_SIMULATOR_ID", "3172C353-0D1C-42FF-BE32-1F123B8D4954")
+ios_build_dir := "ios/build"
+
+# Boot iOS simulator
+ios-sim:
+    xcrun simctl boot {{ios_simulator_id}} 2>/dev/null || true
+    open -a Simulator
+
+# Generate Xcode project from project.yml
+ios-generate:
+    cd ios && xcodegen generate
+
+# Build iOS app for simulator
+ios-build: ios-generate
+    xcodebuild -project {{ios_project}} -scheme {{ios_scheme}} \
+        -destination 'platform=iOS Simulator,id={{ios_simulator_id}}' \
+        -derivedDataPath {{ios_build_dir}} build
+
+# Build and run iOS app on simulator
+ios-run: ios-build
+    xcrun simctl boot {{ios_simulator_id}} 2>/dev/null || true
+    xcrun simctl install {{ios_simulator_id}} {{ios_build_dir}}/Build/Products/Debug-iphonesimulator/Knowhow.app
+    xcrun simctl launch {{ios_simulator_id}} com.knowhow.ios

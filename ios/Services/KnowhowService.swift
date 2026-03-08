@@ -3,9 +3,13 @@ import Foundation
 /// High-level API methods wrapping GraphQLClient for typed access to Knowhow data.
 final class KnowhowService: Sendable {
     private let client: GraphQLClient
+    let baseURL: URL
+    let token: String
 
     init(client: GraphQLClient) {
         self.client = client
+        self.baseURL = client.baseURL
+        self.token = client.token
     }
 
     func fetchVaults() async throws -> [Vault] {
@@ -52,6 +56,23 @@ final class KnowhowService: Sendable {
             throw APIError.noData
         }
         return document
+    }
+
+    func fetchSyncMetadata(vaultId: String, since: Date? = nil, limit: Int? = nil, offset: Int? = nil) async throws -> SyncMetadataResult {
+        var variables: [String: Any] = ["vaultId": vaultId]
+        if let since {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            variables["since"] = formatter.string(from: since)
+        }
+        if let limit { variables["limit"] = limit }
+        if let offset { variables["offset"] = offset }
+
+        let response: SyncMetadataResponse = try await client.execute(
+            query: Queries.syncMetadata,
+            variables: variables
+        )
+        return response.syncMetadata
     }
 
     func search(vaultId: String, query: String, labels: [String]? = nil, folder: String? = nil, limit: Int? = nil) async throws -> [SearchResult] {

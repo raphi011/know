@@ -822,6 +822,61 @@ func (r *queryResolver) ShareLinks(ctx context.Context, vaultID string) ([]*Shar
 	return result, nil
 }
 
+// SyncMetadata is the resolver for the syncMetadata field.
+func (r *queryResolver) SyncMetadata(ctx context.Context, vaultID string, since *time.Time, limit *int, offset *int) (*SyncMetadataResult, error) {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
+		return nil, err
+	}
+
+	l := 500
+	if limit != nil {
+		l = *limit
+	}
+	o := 0
+	if offset != nil {
+		o = *offset
+	}
+
+	var sinceStr *string
+	if since != nil {
+		s := since.Format(time.RFC3339Nano)
+		sinceStr = &s
+	}
+
+	metas, err := r.db.ListSyncMetadata(ctx, vaultID, sinceStr, l, o)
+	if err != nil {
+		return nil, fmt.Errorf("list sync metadata: %w", err)
+	}
+
+	docs := make([]*SyncMeta, len(metas))
+	for i, m := range metas {
+		docs[i] = syncMetaToGraphQL(m)
+	}
+
+	var tombstones []*SyncTombstone
+	if since != nil {
+		ts, err := r.db.ListTombstones(ctx, vaultID, *sinceStr, l, o)
+		if err != nil {
+			return nil, fmt.Errorf("list tombstones: %w", err)
+		}
+		tombstones = make([]*SyncTombstone, len(ts))
+		for i, t := range ts {
+			tombstones[i] = tombstoneToGraphQL(t)
+		}
+	}
+	if tombstones == nil {
+		tombstones = []*SyncTombstone{}
+	}
+
+	hasMore := len(metas) >= l
+
+	return &SyncMetadataResult{
+		Documents:  docs,
+		Tombstones: tombstones,
+		HasMore:    hasMore,
+	}, nil
+}
+
 // ServerConfig is the resolver for the serverConfig field.
 func (r *queryResolver) ServerConfig(ctx context.Context) (*ServerConfig, error) {
 	return &r.serverConfig, nil

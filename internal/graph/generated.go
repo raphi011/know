@@ -195,6 +195,7 @@ type ComplexityRoot struct {
 		Search           func(childComplexity int, input SearchInput) int
 		ServerConfig     func(childComplexity int) int
 		ShareLinks       func(childComplexity int, vaultID string) int
+		SyncMetadata     func(childComplexity int, vaultID string, since *time.Time, limit *int, offset *int) int
 		Template         func(childComplexity int, id string) int
 		Templates        func(childComplexity int, vaultID *string) int
 		Vault            func(childComplexity int, id string) int
@@ -260,6 +261,25 @@ type ComplexityRoot struct {
 		Path      func(childComplexity int) int
 		Token     func(childComplexity int) int
 		VaultID   func(childComplexity int) int
+	}
+
+	SyncMeta struct {
+		ContentHash func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Path        func(childComplexity int) int
+		UpdatedAt   func(childComplexity int) int
+	}
+
+	SyncMetadataResult struct {
+		Documents  func(childComplexity int) int
+		HasMore    func(childComplexity int) int
+		Tombstones func(childComplexity int) int
+	}
+
+	SyncTombstone struct {
+		DeletedAt func(childComplexity int) int
+		DocID     func(childComplexity int) int
+		Path      func(childComplexity int) int
 	}
 
 	Template struct {
@@ -388,6 +408,7 @@ type QueryResolver interface {
 	Conversation(ctx context.Context, id string) (*Conversation, error)
 	VaultMembers(ctx context.Context, vaultID string) ([]*VaultMember, error)
 	ShareLinks(ctx context.Context, vaultID string) ([]*ShareLink, error)
+	SyncMetadata(ctx context.Context, vaultID string, since *time.Time, limit *int, offset *int) (*SyncMetadataResult, error)
 	ServerConfig(ctx context.Context) (*ServerConfig, error)
 	DocumentVersion(ctx context.Context, id string) (*DocumentVersion, error)
 	DocumentVersions(ctx context.Context, documentID string, limit *int, offset *int) (*DocumentVersionConnection, error)
@@ -1273,6 +1294,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ShareLinks(childComplexity, args["vaultId"].(string)), true
+	case "Query.syncMetadata":
+		if e.ComplexityRoot.Query.SyncMetadata == nil {
+			break
+		}
+
+		args, err := ec.field_Query_syncMetadata_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SyncMetadata(childComplexity, args["vaultId"].(string), args["since"].(*time.Time), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.template":
 		if e.ComplexityRoot.Query.Template == nil {
 			break
@@ -1586,6 +1618,69 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ShareLink.VaultID(childComplexity), true
+
+	case "SyncMeta.contentHash":
+		if e.ComplexityRoot.SyncMeta.ContentHash == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMeta.ContentHash(childComplexity), true
+	case "SyncMeta.id":
+		if e.ComplexityRoot.SyncMeta.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMeta.ID(childComplexity), true
+	case "SyncMeta.path":
+		if e.ComplexityRoot.SyncMeta.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMeta.Path(childComplexity), true
+	case "SyncMeta.updatedAt":
+		if e.ComplexityRoot.SyncMeta.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMeta.UpdatedAt(childComplexity), true
+
+	case "SyncMetadataResult.documents":
+		if e.ComplexityRoot.SyncMetadataResult.Documents == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMetadataResult.Documents(childComplexity), true
+	case "SyncMetadataResult.hasMore":
+		if e.ComplexityRoot.SyncMetadataResult.HasMore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMetadataResult.HasMore(childComplexity), true
+	case "SyncMetadataResult.tombstones":
+		if e.ComplexityRoot.SyncMetadataResult.Tombstones == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncMetadataResult.Tombstones(childComplexity), true
+
+	case "SyncTombstone.deletedAt":
+		if e.ComplexityRoot.SyncTombstone.DeletedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncTombstone.DeletedAt(childComplexity), true
+	case "SyncTombstone.docId":
+		if e.ComplexityRoot.SyncTombstone.DocID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncTombstone.DocID(childComplexity), true
+	case "SyncTombstone.path":
+		if e.ComplexityRoot.SyncTombstone.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SyncTombstone.Path(childComplexity), true
 
 	case "Template.content":
 		if e.ComplexityRoot.Template.Content == nil {
@@ -2533,6 +2628,32 @@ func (ec *executionContext) field_Query_shareLinks_args(ctx context.Context, raw
 		return nil, err
 	}
 	args["vaultId"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_syncMetadata_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "vaultId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["vaultId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "since", ec.unmarshalODateTime2ᚖtimeᚐTime)
+	if err != nil {
+		return nil, err
+	}
+	args["since"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg3
 	return args, nil
 }
 
@@ -7115,6 +7236,55 @@ func (ec *executionContext) fieldContext_Query_shareLinks(ctx context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_syncMetadata(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_syncMetadata,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SyncMetadata(ctx, fc.Args["vaultId"].(string), fc.Args["since"].(*time.Time), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNSyncMetadataResult2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMetadataResult,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_syncMetadata(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "documents":
+				return ec.fieldContext_SyncMetadataResult_documents(ctx, field)
+			case "tombstones":
+				return ec.fieldContext_SyncMetadataResult_tombstones(ctx, field)
+			case "hasMore":
+				return ec.fieldContext_SyncMetadataResult_hasMore(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SyncMetadataResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_syncMetadata_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_serverConfig(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8632,6 +8802,314 @@ func (ec *executionContext) _ShareLink_createdAt(ctx context.Context, field grap
 func (ec *executionContext) fieldContext_ShareLink_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ShareLink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMeta_id(ctx context.Context, field graphql.CollectedField, obj *SyncMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMeta_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMeta_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMeta_path(ctx context.Context, field graphql.CollectedField, obj *SyncMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMeta_path,
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMeta_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMeta_contentHash(ctx context.Context, field graphql.CollectedField, obj *SyncMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMeta_contentHash,
+		func(ctx context.Context) (any, error) {
+			return obj.ContentHash, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMeta_contentHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMeta_updatedAt(ctx context.Context, field graphql.CollectedField, obj *SyncMeta) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMeta_updatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMeta_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMeta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type DateTime does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMetadataResult_documents(ctx context.Context, field graphql.CollectedField, obj *SyncMetadataResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMetadataResult_documents,
+		func(ctx context.Context) (any, error) {
+			return obj.Documents, nil
+		},
+		nil,
+		ec.marshalNSyncMeta2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMetaᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMetadataResult_documents(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMetadataResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_SyncMeta_id(ctx, field)
+			case "path":
+				return ec.fieldContext_SyncMeta_path(ctx, field)
+			case "contentHash":
+				return ec.fieldContext_SyncMeta_contentHash(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_SyncMeta_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SyncMeta", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMetadataResult_tombstones(ctx context.Context, field graphql.CollectedField, obj *SyncMetadataResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMetadataResult_tombstones,
+		func(ctx context.Context) (any, error) {
+			return obj.Tombstones, nil
+		},
+		nil,
+		ec.marshalNSyncTombstone2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncTombstoneᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMetadataResult_tombstones(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMetadataResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "docId":
+				return ec.fieldContext_SyncTombstone_docId(ctx, field)
+			case "path":
+				return ec.fieldContext_SyncTombstone_path(ctx, field)
+			case "deletedAt":
+				return ec.fieldContext_SyncTombstone_deletedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SyncTombstone", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncMetadataResult_hasMore(ctx context.Context, field graphql.CollectedField, obj *SyncMetadataResult) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncMetadataResult_hasMore,
+		func(ctx context.Context) (any, error) {
+			return obj.HasMore, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncMetadataResult_hasMore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncMetadataResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncTombstone_docId(ctx context.Context, field graphql.CollectedField, obj *SyncTombstone) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncTombstone_docId,
+		func(ctx context.Context) (any, error) {
+			return obj.DocID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncTombstone_docId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncTombstone",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncTombstone_path(ctx context.Context, field graphql.CollectedField, obj *SyncTombstone) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncTombstone_path,
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncTombstone_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncTombstone",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SyncTombstone_deletedAt(ctx context.Context, field graphql.CollectedField, obj *SyncTombstone) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SyncTombstone_deletedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.DeletedAt, nil
+		},
+		nil,
+		ec.marshalNDateTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SyncTombstone_deletedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SyncTombstone",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13259,6 +13737,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "syncMetadata":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_syncMetadata(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "serverConfig":
 			field := field
 
@@ -13743,6 +14243,155 @@ func (ec *executionContext) _ShareLink(ctx context.Context, sel ast.SelectionSet
 			out.Values[i] = ec._ShareLink_expiresAt(ctx, field, obj)
 		case "createdAt":
 			out.Values[i] = ec._ShareLink_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var syncMetaImplementors = []string{"SyncMeta"}
+
+func (ec *executionContext) _SyncMeta(ctx context.Context, sel ast.SelectionSet, obj *SyncMeta) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, syncMetaImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SyncMeta")
+		case "id":
+			out.Values[i] = ec._SyncMeta_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._SyncMeta_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "contentHash":
+			out.Values[i] = ec._SyncMeta_contentHash(ctx, field, obj)
+		case "updatedAt":
+			out.Values[i] = ec._SyncMeta_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var syncMetadataResultImplementors = []string{"SyncMetadataResult"}
+
+func (ec *executionContext) _SyncMetadataResult(ctx context.Context, sel ast.SelectionSet, obj *SyncMetadataResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, syncMetadataResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SyncMetadataResult")
+		case "documents":
+			out.Values[i] = ec._SyncMetadataResult_documents(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tombstones":
+			out.Values[i] = ec._SyncMetadataResult_tombstones(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasMore":
+			out.Values[i] = ec._SyncMetadataResult_hasMore(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var syncTombstoneImplementors = []string{"SyncTombstone"}
+
+func (ec *executionContext) _SyncTombstone(ctx context.Context, sel ast.SelectionSet, obj *SyncTombstone) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, syncTombstoneImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SyncTombstone")
+		case "docId":
+			out.Values[i] = ec._SyncTombstone_docId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._SyncTombstone_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deletedAt":
+			out.Values[i] = ec._SyncTombstone_deletedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -15320,6 +15969,72 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNSyncMeta2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMetaᚄ(ctx context.Context, sel ast.SelectionSet, v []*SyncMeta) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSyncMeta2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMeta(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSyncMeta2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMeta(ctx context.Context, sel ast.SelectionSet, v *SyncMeta) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SyncMeta(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSyncMetadataResult2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMetadataResult(ctx context.Context, sel ast.SelectionSet, v SyncMetadataResult) graphql.Marshaler {
+	return ec._SyncMetadataResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSyncMetadataResult2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncMetadataResult(ctx context.Context, sel ast.SelectionSet, v *SyncMetadataResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SyncMetadataResult(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSyncTombstone2ᚕᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncTombstoneᚄ(ctx context.Context, sel ast.SelectionSet, v []*SyncTombstone) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSyncTombstone2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncTombstone(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSyncTombstone2ᚖgithubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐSyncTombstone(ctx context.Context, sel ast.SelectionSet, v *SyncTombstone) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SyncTombstone(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNTemplate2githubᚗcomᚋraphi011ᚋknowhowᚋinternalᚋgraphᚐTemplate(ctx context.Context, sel ast.SelectionSet, v Template) graphql.Marshaler {

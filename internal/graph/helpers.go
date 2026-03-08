@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/diff"
@@ -490,6 +491,36 @@ func shareLinkToGraphQL(l *models.ShareLink) *ShareLink {
 		IsFolder:  l.IsFolder,
 		ExpiresAt: l.ExpiresAt,
 		CreatedAt: l.CreatedAt,
+	}
+}
+
+func syncMetaToGraphQL(m db.SyncMeta) *SyncMeta {
+	id, err := models.RecordIDString(m.ID)
+	if err != nil {
+		slog.Warn("unexpected sync meta ID format", "path", m.Path, "error", err)
+		id = fmt.Sprintf("%v", m.ID.ID)
+	}
+	t, err := time.Parse(time.RFC3339Nano, m.UpdatedAt)
+	if err != nil {
+		slog.Warn("failed to parse sync meta updatedAt", "path", m.Path, "raw", m.UpdatedAt, "error", err)
+	}
+	return &SyncMeta{
+		ID:          id,
+		Path:        m.Path,
+		ContentHash: m.ContentHash,
+		UpdatedAt:   t,
+	}
+}
+
+func tombstoneToGraphQL(t db.SyncTombstone) *SyncTombstone {
+	parsed, err := time.Parse(time.RFC3339Nano, t.DeletedAt)
+	if err != nil {
+		slog.Warn("failed to parse tombstone deletedAt", "doc_id", t.DocID, "raw", t.DeletedAt, "error", err)
+	}
+	return &SyncTombstone{
+		DocID:     t.DocID,
+		Path:      t.Path,
+		DeletedAt: parsed,
 	}
 }
 

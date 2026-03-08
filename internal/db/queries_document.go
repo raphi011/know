@@ -7,7 +7,82 @@ import (
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
+
+// SyncMeta is lightweight document metadata used for sync.
+type SyncMeta struct {
+	ID          surrealmodels.RecordID `json:"id"`
+	Path        string                 `json:"path"`
+	ContentHash *string                `json:"content_hash"`
+	UpdatedAt   string                 `json:"updated_at"`
+}
+
+// SyncTombstone represents a deleted document for sync.
+type SyncTombstone struct {
+	DocID     string `json:"doc_id"`
+	Path      string `json:"path"`
+	DeletedAt string `json:"deleted_at"`
+}
+
+// ListSyncMetadata returns lightweight metadata for documents in a vault,
+// optionally filtered by updated_at > since. Used for incremental sync.
+func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *string, limit, offset int) ([]SyncMeta, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	vars := map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"limit":    limit,
+		"offset":   offset,
+	}
+
+	var sql string
+	if since != nil {
+		sql = `SELECT id, path, content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND updated_at > type::datetime($since) ORDER BY path ASC LIMIT $limit START $offset`
+		vars["since"] = *since
+	} else {
+		sql = `SELECT id, path, content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC LIMIT $limit START $offset`
+	}
+
+	results, err := surrealdb.Query[[]SyncMeta](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list sync metadata: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// ListTombstones returns tombstones for deleted documents in a vault since the given time.
+func (c *Client) ListTombstones(ctx context.Context, vaultID string, since string, limit, offset int) ([]SyncTombstone, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	sql := `SELECT doc_id, path, deleted_at FROM document_tombstone WHERE vault = type::record("vault", $vault_id) AND deleted_at > type::datetime($since) ORDER BY deleted_at ASC LIMIT $limit START $offset`
+	results, err := surrealdb.Query[[]SyncTombstone](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"since":    since,
+		"limit":    limit,
+		"offset":   offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list tombstones: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
 
 func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
 	labels := input.Labels

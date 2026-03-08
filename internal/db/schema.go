@@ -279,5 +279,26 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS last_searched_at  ON search_query TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_search_query_query ON search_query FIELDS query UNIQUE;
+
+    -- ==========================================================================
+    -- DOCUMENT_TOMBSTONE TABLE (tracks deleted documents for sync)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS document_tombstone SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS vault      ON document_tombstone TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS doc_id     ON document_tombstone TYPE string;
+    DEFINE FIELD IF NOT EXISTS path       ON document_tombstone TYPE string;
+    DEFINE FIELD IF NOT EXISTS deleted_at ON document_tombstone TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_tombstone_vault_since ON document_tombstone FIELDS vault, deleted_at;
+
+    -- Auto-create tombstone when a document is deleted
+    DEFINE EVENT IF NOT EXISTS create_tombstone_on_delete ON document
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        CREATE document_tombstone SET
+            vault = $before.vault,
+            doc_id = type::string($before.id),
+            path = $before.path
+    };
 `, dimension)
 }

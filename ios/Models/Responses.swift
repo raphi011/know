@@ -25,3 +25,26 @@ struct DocumentByIdResponse: Codable {
 struct SearchResponse: Codable {
     let search: [SearchResult]
 }
+
+struct SyncMetadataResponse: Codable {
+    let syncMetadata: SyncMetadataResult
+}
+
+struct SyncMetadataResult: Codable {
+    let documents: [SyncMetaItem]
+    let tombstones: [SyncTombstoneItem]
+    let hasMore: Bool
+}
+
+struct SyncMetaItem: Codable {
+    let id: String
+    let path: String
+    let contentHash: String?
+    let updatedAt: String
+}
+
+struct SyncTombstoneItem: Codable {
+    let docId: String
+    let path: String
+    let deletedAt: String
+}

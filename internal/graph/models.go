@@ -301,6 +301,27 @@ type ServerConfig struct {
 	VersionRetentionCount  int    `json:"versionRetentionCount"`
 }
 
+// Sync types
+
+type SyncMeta struct {
+	ID          string    `json:"id"`
+	Path        string    `json:"path"`
+	ContentHash *string   `json:"contentHash,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type SyncTombstone struct {
+	DocID     string    `json:"docId"`
+	Path      string    `json:"path"`
+	DeletedAt time.Time `json:"deletedAt"`
+}
+
+type SyncMetadataResult struct {
+	Documents  []*SyncMeta      `json:"documents"`
+	Tombstones []*SyncTombstone  `json:"tombstones"`
+	HasMore    bool              `json:"hasMore"`
+}
+
 // Input types
 
 type VaultInput struct {

@@ -4,15 +4,28 @@ import SwiftUI
 enum DocumentReference {
     case byPath(vaultId: String, path: String)
     case byId(String)
+    case cached(CachedDocument)
 }
 
 struct DocumentView: View {
     let service: KnowhowService
     let reference: DocumentReference
 
+    @Environment(SyncEngine.self) private var syncEngine
+    @Environment(\.modelContext) private var modelContext
+
     @State private var document: Document?
+    @State private var cachedDoc: CachedDocument?
     @State private var isLoading = true
     @State private var errorMessage: String?
+
+    private var displayTitle: String {
+        document?.title ?? cachedDoc?.title ?? "Document"
+    }
+
+    private var displayContentBody: String? {
+        document?.contentBody ?? cachedDoc?.contentBody
+    }
 
     var body: some View {
         Group {
@@ -24,16 +37,17 @@ struct DocumentView: View {
                 } description: {
                     Text(errorMessage)
                 }
-            } else if let document {
+            } else if let contentBody = displayContentBody {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(document.title)
+                            Text(displayTitle)
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
 
                             HStack(spacing: 12) {
-                                if let docType = document.docType {
+                                let docType = document?.docType ?? cachedDoc?.docType
+                                if let docType {
                                     Text(docType)
                                         .font(.caption)
                                         .padding(.horizontal, 8)
@@ -42,14 +56,16 @@ struct DocumentView: View {
                                         .clipShape(Capsule())
                                 }
 
-                                Text(document.path)
+                                let path = document?.path ?? cachedDoc?.path ?? ""
+                                Text(path)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
 
-                            if !document.labels.isEmpty {
+                            let labels = document?.labels ?? cachedDoc?.labels ?? []
+                            if !labels.isEmpty {
                                 FlowLayout(spacing: 6) {
-                                    ForEach(document.labels, id: \.self) { label in
+                                    ForEach(labels, id: \.self) { label in
                                         Text(label)
                                             .font(.caption)
                                             .padding(.horizontal, 8)
@@ -64,14 +80,16 @@ struct DocumentView: View {
 
                         Divider()
 
-                        Markdown(document.contentBody)
+                        Markdown(contentBody)
                             .textSelection(.enabled)
                     }
                     .padding()
                 }
+            } else {
+                ContentUnavailableView("No Content", systemImage: "doc")
             }
         }
-        .navigationTitle(document?.title ?? "Document")
+        .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadDocument()
@@ -83,15 +101,37 @@ struct DocumentView: View {
         errorMessage = nil
         defer { isLoading = false }
 
-        do {
-            switch reference {
-            case .byId(let id):
-                document = try await service.fetchDocumentById(id: id)
-            case .byPath(let vaultId, let path):
-                document = try await service.fetchDocument(vaultId: vaultId, path: path)
+        switch reference {
+        case .cached(let cached):
+            cachedDoc = cached
+            if cached.contentBody != nil {
+                return
             }
-        } catch {
-            errorMessage = error.localizedDescription
+            // Fetch content on demand
+            do {
+                if let updated = try await syncEngine.fetchContentIfNeeded(
+                    documentId: cached.id,
+                    modelContext: modelContext
+                ) {
+                    cachedDoc = updated
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+
+        case .byId(let id):
+            do {
+                document = try await service.fetchDocumentById(id: id)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+
+        case .byPath(let vaultId, let path):
+            do {
+                document = try await service.fetchDocument(vaultId: vaultId, path: path)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

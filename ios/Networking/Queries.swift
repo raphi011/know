@@ -11,7 +11,10 @@ enum Queries {
                 email
                 createdAt
             }
-            vaultAccess
+            vaultRoles {
+                vaultId
+                role
+            }
         }
     }
     """
@@ -88,6 +91,25 @@ enum Queries {
             source
             createdAt
             updatedAt
+        }
+    }
+    """
+
+    static let syncMetadata = """
+    query SyncMetadata($vaultId: ID!, $since: DateTime, $limit: Int, $offset: Int) {
+        syncMetadata(vaultId: $vaultId, since: $since, limit: $limit, offset: $offset) {
+            documents {
+                id
+                path
+                contentHash
+                updatedAt
+            }
+            tombstones {
+                docId
+                path
+                deletedAt
+            }
+            hasMore
         }
     }
     """

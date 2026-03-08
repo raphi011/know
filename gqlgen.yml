@@ -87,3 +87,9 @@ models:
     model: github.com/raphi011/knowhow/internal/graph.DocumentVersion
   DocumentVersionConnection:
     model: github.com/raphi011/knowhow/internal/graph.DocumentVersionConnection
+  SyncMeta:
+    model: github.com/raphi011/knowhow/internal/graph.SyncMeta
+  SyncTombstone:
+    model: github.com/raphi011/knowhow/internal/graph.SyncTombstone
+  SyncMetadataResult:
+    model: github.com/raphi011/knowhow/internal/graph.SyncMetadataResult

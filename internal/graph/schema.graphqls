@@ -265,6 +265,25 @@ type DocumentVersionConnection {
   totalCount: Int!
 }
 
+type SyncMeta {
+  id: ID!
+  path: String!
+  contentHash: String
+  updatedAt: DateTime!
+}
+
+type SyncTombstone {
+  docId: ID!
+  path: String!
+  deletedAt: DateTime!
+}
+
+type SyncMetadataResult {
+  documents: [SyncMeta!]!
+  tombstones: [SyncTombstone!]!
+  hasMore: Boolean!
+}
+
 type ServerConfig {
   llmProvider: String!
   llmModel: String!
@@ -350,6 +369,9 @@ type Query {
 
   # Share links
   shareLinks(vaultId: ID!): [ShareLink!]!
+
+  # Sync
+  syncMetadata(vaultId: ID!, since: DateTime, limit: Int, offset: Int): SyncMetadataResult!
 
   # Server
   serverConfig: ServerConfig!
