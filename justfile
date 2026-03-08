@@ -143,15 +143,16 @@ clean:
 dev-all: db-up
     #!/usr/bin/env bash
     set -e
+    set -m
     cleanup() {
-        kill %1 %2 2>/dev/null
-        wait %1 %2 2>/dev/null
+        kill 0 2>/dev/null
         printf '\e[?1l\e[>0q' 2>/dev/null
         stty sane 2>/dev/null
     }
     trap cleanup EXIT INT TERM
-    air &
-    just css-watch &
+    air 2>&1 | sed $'s/^/\e[36m[go]\e[0m /' &
+    just css-watch 2>&1 | sed $'s/^/\e[35m[css]\e[0m /' &
+    just ios-run 2>&1 | sed $'s/^/\e[33m[ios]\e[0m /' &
     wait
 
 # --- Prod-local Docker stack (Bedrock via Teleport proxy) ---
@@ -211,4 +212,4 @@ ios-build: ios-generate
 ios-run: ios-build
     xcrun simctl boot {{ios_simulator_id}} 2>/dev/null || true
     xcrun simctl install {{ios_simulator_id}} {{ios_build_dir}}/Build/Products/Debug-iphonesimulator/Knowhow.app
-    xcrun simctl launch {{ios_simulator_id}} com.knowhow.ios
+    xcrun simctl launch --console-pty {{ios_simulator_id}} com.knowhow.ios

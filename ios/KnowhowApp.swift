@@ -34,7 +34,7 @@ struct KnowhowApp: App {
                             hasAttemptedRestore = true
                         }
                 } else if let service {
-                    MainTabView(service: service)
+                    MainSplitView(service: service)
                         .environment(authService)
                         .environment(syncEngine)
                 } else {

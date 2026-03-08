@@ -208,43 +208,49 @@ final class SyncEngine {
         do {
             switch event.type {
             case "document.created", "document.updated":
-                if let docId = event.payload.docId, let path = event.payload.path {
-                    let descriptor = FetchDescriptor<CachedDocument>(
-                        predicate: #Predicate { $0.id == docId }
+                guard let docId = event.payload.docId, let path = event.payload.path else {
+                    logger.warning("SSE: \(event.type) event missing docId or path, skipping")
+                    return
+                }
+                let descriptor = FetchDescriptor<CachedDocument>(
+                    predicate: #Predicate { $0.id == docId }
+                )
+                if let existing = try modelContext.fetch(descriptor).first {
+                    existing.path = path
+                    existing.contentHash = event.payload.contentHash
+                    existing.lastSyncedAt = .now
+                    existing.invalidateContent()
+                } else {
+                    let doc = CachedDocument(
+                        id: docId,
+                        vaultId: vaultId,
+                        path: path,
+                        title: CachedDocument.titleFromPath(path),
+                        contentHash: event.payload.contentHash,
+                        serverUpdatedAt: .now,
+                        lastSyncedAt: .now
                     )
-                    if let existing = try modelContext.fetch(descriptor).first {
-                        existing.path = path
-                        existing.contentHash = event.payload.contentHash
-                        existing.lastSyncedAt = .now
-                        existing.invalidateContent()
-                    } else {
-                        let doc = CachedDocument(
-                            id: docId,
-                            vaultId: vaultId,
-                            path: path,
-                            title: CachedDocument.titleFromPath(path),
-                            contentHash: event.payload.contentHash,
-                            serverUpdatedAt: .now,
-                            lastSyncedAt: .now
-                        )
-                        modelContext.insert(doc)
-                    }
+                    modelContext.insert(doc)
                 }
 
             case "document.deleted":
-                if let docId = event.payload.docId {
-                    try deleteCachedDocument(docId: docId, modelContext: modelContext)
+                guard let docId = event.payload.docId else {
+                    logger.warning("SSE: document.deleted event missing docId, skipping")
+                    return
                 }
+                try deleteCachedDocument(docId: docId, modelContext: modelContext)
 
             case "document.moved":
-                if let docId = event.payload.docId, let path = event.payload.path {
-                    let descriptor = FetchDescriptor<CachedDocument>(
-                        predicate: #Predicate { $0.id == docId }
-                    )
-                    if let existing = try modelContext.fetch(descriptor).first {
-                        existing.path = path
-                        existing.lastSyncedAt = .now
-                    }
+                guard let docId = event.payload.docId, let path = event.payload.path else {
+                    logger.warning("SSE: document.moved event missing docId or path, skipping")
+                    return
+                }
+                let descriptor = FetchDescriptor<CachedDocument>(
+                    predicate: #Predicate { $0.id == docId }
+                )
+                if let existing = try modelContext.fetch(descriptor).first {
+                    existing.path = path
+                    existing.lastSyncedAt = .now
                 }
 
             default:

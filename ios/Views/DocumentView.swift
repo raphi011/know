@@ -69,6 +69,8 @@ struct DocumentView: View {
                         Markdown(contentBody)
                             .textSelection(.enabled)
                     }
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding()
                 }
             } else {

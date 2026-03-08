@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/diff"
@@ -500,27 +499,19 @@ func syncMetaToGraphQL(m db.SyncMeta) *SyncMeta {
 		slog.Warn("unexpected sync meta ID format", "path", m.Path, "error", err)
 		id = fmt.Sprintf("%v", m.ID.ID)
 	}
-	t, err := time.Parse(time.RFC3339Nano, m.UpdatedAt)
-	if err != nil {
-		slog.Warn("failed to parse sync meta updatedAt", "path", m.Path, "raw", m.UpdatedAt, "error", err)
-	}
 	return &SyncMeta{
 		ID:          id,
 		Path:        m.Path,
 		ContentHash: m.ContentHash,
-		UpdatedAt:   t,
+		UpdatedAt:   m.UpdatedAt,
 	}
 }
 
 func tombstoneToGraphQL(t db.SyncTombstone) *SyncTombstone {
-	parsed, err := time.Parse(time.RFC3339Nano, t.DeletedAt)
-	if err != nil {
-		slog.Warn("failed to parse tombstone deletedAt", "doc_id", t.DocID, "raw", t.DeletedAt, "error", err)
-	}
 	return &SyncTombstone{
 		DocID:     t.DocID,
 		Path:      t.Path,
-		DeletedAt: parsed,
+		DeletedAt: t.DeletedAt,
 	}
 }
 

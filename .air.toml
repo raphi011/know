@@ -15,7 +15,7 @@ include_ext = ["go", "toml", "graphqls"]
 # Don't watch .env — it changes on every bedrock-setup and causes port-bind races
 include_file = []
 # Exclude directories
-exclude_dir = ["bin", "tmp", "vendor", ".git", "web"]
+exclude_dir = ["bin", "tmp", "vendor", ".git", "web", "ios"]
 # Exclude generated files to avoid rebuild loops
 exclude_regex = ["_test\\.go$"]
 # Wait 10 seconds after last change before rebuilding

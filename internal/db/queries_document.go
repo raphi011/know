@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -15,14 +16,14 @@ type SyncMeta struct {
 	ID          surrealmodels.RecordID `json:"id"`
 	Path        string                 `json:"path"`
 	ContentHash *string                `json:"content_hash"`
-	UpdatedAt   string                 `json:"updated_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 // SyncTombstone represents a deleted document for sync.
 type SyncTombstone struct {
-	DocID     string `json:"doc_id"`
-	Path      string `json:"path"`
-	DeletedAt string `json:"deleted_at"`
+	DocID     string    `json:"doc_id"`
+	Path      string    `json:"path"`
+	DeletedAt time.Time `json:"deleted_at"`
 }
 
 // ListSyncMetadata returns lightweight metadata for documents in a vault,
@@ -43,10 +44,10 @@ func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *st
 
 	var sql string
 	if since != nil {
-		sql = `SELECT id, path, content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND updated_at > type::datetime($since) ORDER BY path ASC LIMIT $limit START $offset`
+		sql = `SELECT id, path, content_hash ?? null AS content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND updated_at > type::datetime($since) ORDER BY path ASC LIMIT $limit START $offset`
 		vars["since"] = *since
 	} else {
-		sql = `SELECT id, path, content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC LIMIT $limit START $offset`
+		sql = `SELECT id, path, content_hash ?? null AS content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC LIMIT $limit START $offset`
 	}
 
 	results, err := surrealdb.Query[[]SyncMeta](ctx, c.DB(), sql, vars)
