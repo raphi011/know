@@ -39,14 +39,6 @@ spec:
       ports:
         - protocol: TCP
           port: 8484
-    # Allow from frontend pods
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: frontend
-      ports:
-        - protocol: TCP
-          port: 8484
   egress:
     # DNS
     - to:
@@ -75,53 +67,4 @@ spec:
       ports:
         - protocol: TCP
           port: 443
----
-{{- if .Values.frontend.enabled }}
-# Frontend policy
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "knowhow.fullname" . }}-frontend
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/component: frontend
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    # Allow from Tailscale
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: tailscale
-      ports:
-        - protocol: TCP
-          port: {{ .Values.frontend.port }}
-    # Allow from Caddy Local
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: caddy-local
-      ports:
-        - protocol: TCP
-          port: {{ .Values.frontend.port }}
-  egress:
-    # DNS
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
-        - protocol: UDP
-          port: 53
-    # Backend API
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: backend
-      ports:
-        - protocol: TCP
-          port: 8484
-{{- end }}
 {{- end }}

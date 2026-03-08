@@ -33,15 +33,9 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                {{- if $.Values.frontend.enabled }}
-                name: {{ include "knowhow.fullname" $ }}-frontend
-                port:
-                  name: http
-                {{- else }}
                 name: {{ include "knowhow.fullname" $ }}
                 port:
                   name: http
-                {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}

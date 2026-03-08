@@ -135,28 +135,6 @@ tolerations: []
 
 affinity: {}
 
-# Frontend (Next.js) configuration
-frontend:
-  enabled: false
-  image:
-    repository: knowhow-web
-    pullPolicy: Always
-    tag: ""  # defaults to appVersion
-  port: 3000
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-  env:
-    # Public URL for the frontend app
-    appUrl: ""
-  # Session secret from existing secret
-  # existingSecret: "knowhow-config"
-  # existingSecretSessionKey: "session-secret"
-
 # NetworkPolicy configuration
 networkPolicy:
   enabled: true
