@@ -3,11 +3,46 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
 )
+
+// Authenticate validates a raw API token and returns an AuthContext.
+// If noAuth is true, returns an admin context with wildcard vault access.
+// Updates the token's last_used timestamp asynchronously (failures are logged
+// but not propagated).
+func Authenticate(ctx context.Context, dbClient *db.Client, rawToken string, noAuth bool) (AuthContext, error) {
+	if noAuth {
+		return AuthContext{
+			UserID:      "admin",
+			VaultAccess: []string{WildcardVaultAccess},
+		}, nil
+	}
+
+	info, err := ValidateToken(ctx, dbClient, rawToken)
+	if err != nil {
+		return AuthContext{}, err
+	}
+
+	// Update last_used (fire and forget)
+	if info.TokenID != "" {
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := dbClient.UpdateTokenLastUsed(bgCtx, info.TokenID); err != nil {
+				slog.Warn("failed to update token last_used", "token_id", info.TokenID, "error", err)
+			}
+		}()
+	}
+
+	return AuthContext{
+		UserID:      info.UserID,
+		VaultAccess: info.VaultAccess,
+	}, nil
+}
 
 // TokenInfo holds the validated result of a token lookup.
 type TokenInfo struct {
@@ -38,6 +73,7 @@ func ValidateToken(ctx context.Context, dbClient *db.Client, rawToken string) (*
 	for _, v := range token.VaultAccess {
 		id, err := models.RecordIDString(v)
 		if err != nil {
+			slog.Warn("token vault access ID extraction failed", "raw_id", v, "error", err)
 			continue
 		}
 		vaultAccess = append(vaultAccess, id)
@@ -47,7 +83,11 @@ func ValidateToken(ctx context.Context, dbClient *db.Client, rawToken string) (*
 		return nil, fmt.Errorf("all vault access IDs failed extraction")
 	}
 
-	tokenID, _ := models.RecordIDString(token.ID)
+	tokenID, err := models.RecordIDString(token.ID)
+	if err != nil {
+		slog.Warn("failed to extract token ID for last_used tracking", "error", err)
+		// Non-fatal: authentication succeeds, but last_used won't update
+	}
 
 	userID, err := models.RecordIDString(token.User)
 	if err != nil {

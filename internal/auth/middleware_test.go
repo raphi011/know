@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -87,6 +90,90 @@ func TestRequireVaultAccess_Wildcard(t *testing.T) {
 	}
 	if err := RequireVaultAccess(ctx, "vault:another"); err != nil {
 		t.Errorf("Wildcard should grant access to record-ID vaults: %v", err)
+	}
+}
+
+// mockVaultResolver implements VaultResolver for tests.
+type mockVaultResolver struct {
+	info *VaultInfo
+	err  error
+}
+
+func (m *mockVaultResolver) ResolveByName(_ context.Context, _ string) (*VaultInfo, error) {
+	return m.info, m.err
+}
+
+func TestResolveVault(t *testing.T) {
+	t.Run("vault found with access", func(t *testing.T) {
+		resolver := &mockVaultResolver{info: &VaultInfo{ID: "default", Name: "default"}}
+		ac := AuthContext{UserID: "user1", VaultAccess: []string{"default"}}
+
+		id, err := ResolveVault(t.Context(), ac, resolver, "default")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if id != "default" {
+			t.Errorf("id = %q, want default", id)
+		}
+	})
+
+	t.Run("vault found without access", func(t *testing.T) {
+		resolver := &mockVaultResolver{info: &VaultInfo{ID: "secret", Name: "secret"}}
+		ac := AuthContext{UserID: "user1", VaultAccess: []string{"default"}}
+
+		_, err := ResolveVault(t.Context(), ac, resolver, "secret")
+		if err == nil {
+			t.Fatal("expected error for no vault access")
+		}
+	})
+
+	t.Run("vault not found", func(t *testing.T) {
+		resolver := &mockVaultResolver{err: fmt.Errorf("not found: %w", os.ErrNotExist)}
+		ac := AuthContext{UserID: "user1", VaultAccess: []string{"default"}}
+
+		_, err := ResolveVault(t.Context(), ac, resolver, "missing")
+		if err == nil {
+			t.Fatal("expected error for missing vault")
+		}
+	})
+
+	t.Run("nil vault info", func(t *testing.T) {
+		resolver := &mockVaultResolver{info: nil, err: nil}
+		ac := AuthContext{UserID: "user1", VaultAccess: []string{"default"}}
+
+		_, err := ResolveVault(t.Context(), ac, resolver, "ghost")
+		if err == nil {
+			t.Fatal("expected error for nil vault info")
+		}
+	})
+
+	t.Run("wildcard access", func(t *testing.T) {
+		resolver := &mockVaultResolver{info: &VaultInfo{ID: "any-vault", Name: "any"}}
+		ac := AuthContext{UserID: "admin", VaultAccess: []string{WildcardVaultAccess}}
+
+		id, err := ResolveVault(t.Context(), ac, resolver, "any")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if id != "any-vault" {
+			t.Errorf("id = %q, want any-vault", id)
+		}
+	})
+}
+
+func TestCheckVaultAccess(t *testing.T) {
+	ac := AuthContext{UserID: "user1", VaultAccess: []string{"vault-a", "vault-b"}}
+
+	if err := CheckVaultAccess(ac, "vault-a"); err != nil {
+		t.Errorf("should have access to vault-a: %v", err)
+	}
+	if err := CheckVaultAccess(ac, "vault-c"); err == nil {
+		t.Error("should NOT have access to vault-c")
+	}
+
+	admin := AuthContext{UserID: "admin", VaultAccess: []string{WildcardVaultAccess}}
+	if err := CheckVaultAccess(admin, "anything"); err != nil {
+		t.Errorf("wildcard should grant access: %v", err)
 	}
 }
 

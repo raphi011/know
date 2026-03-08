@@ -3,7 +3,9 @@ package vault
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
 )
@@ -28,6 +30,22 @@ func (s *Service) Get(ctx context.Context, id string) (*models.Vault, error) {
 
 func (s *Service) GetByName(ctx context.Context, name string) (*models.Vault, error) {
 	return s.db.GetVaultByName(ctx, name)
+}
+
+// ResolveByName implements auth.VaultResolver.
+func (s *Service) ResolveByName(ctx context.Context, name string) (*auth.VaultInfo, error) {
+	v, err := s.GetByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, fmt.Errorf("vault not found: %w", os.ErrNotExist)
+	}
+	id, err := models.RecordIDString(v.ID)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault ID: %w", err)
+	}
+	return &auth.VaultInfo{ID: id, Name: v.Name}, nil
 }
 
 func (s *Service) List(ctx context.Context) ([]models.Vault, error) {

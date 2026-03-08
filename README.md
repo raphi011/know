@@ -233,6 +233,11 @@ KNOWHOW_LLM_MODEL=claude-sonnet-4-20250514
 GOOGLE_AI_API_KEY=...           # For Google AI / Gemini
 ANTHROPIC_API_KEY=sk-ant-...    # For Anthropic LLM + Voyage embeddings
 OPENAI_API_KEY=sk-...           # For OpenAI
+
+# SSH/SFTP Server
+KNOWHOW_SSH_ENABLED=false       # Enable SSH/SFTP server
+KNOWHOW_SSH_PORT=2222           # SSH listen port
+KNOWHOW_SSH_HOST_KEY=           # Path to host key (auto-generates if empty)
 ```
 
 ## Entity Types
@@ -299,6 +304,81 @@ just dev
 # - Open a document first, then chat — search biases toward that document's labels
 # - Multi-turn: ask follow-up questions, the conversation context carries over
 # - Conversations persist across page reloads
+```
+
+## WebDAV
+
+Edit documents with any WebDAV-compatible editor. Auth uses HTTP Basic Auth where the password is a knowhow API token.
+
+```bash
+# Mount a vault (macOS Finder: Go → Connect to Server)
+http://localhost:8484/dav/default/
+
+# Or use cadaver CLI
+cadaver http://localhost:8484/dav/default/
+# Username: anything, Password: <your API token>
+```
+
+## SSH/SFTP
+
+Access documents via SFTP over SSH — works with VS Code Remote SSH, Zed, and any SFTP client.
+
+### Configuration
+
+```bash
+KNOWHOW_SSH_ENABLED=true       # Enable SSH server (default: false)
+KNOWHOW_SSH_PORT=2222           # SSH listen port (default: 2222)
+KNOWHOW_SSH_HOST_KEY=           # Path to Ed25519 host key (default: auto-generate at ~/.knowhow/host_key)
+```
+
+### Connecting
+
+Authentication uses your knowhow API token as the SSH password:
+
+```bash
+# Connect with sftp CLI
+sftp -P 2222 user@localhost
+# Password: <your API token>
+
+# List vaults
+sftp> ls
+default
+
+# Browse documents
+sftp> cd default
+sftp> ls
+notes/  projects/  meeting-notes.md
+
+# Read/write markdown files
+sftp> get notes/todo.md
+sftp> put draft.md notes/draft.md
+```
+
+### VS Code Remote SSH
+
+Add to `~/.ssh/config`:
+
+```
+Host knowhow
+    HostName localhost
+    Port 2222
+    User knowhow
+```
+
+Then in VS Code: `Remote-SSH: Connect to Host...` → `knowhow` → enter your API token as password. The vault appears as the remote workspace root.
+
+### Zed Remote Projects
+
+In Zed settings, add a remote project pointing to `ssh://knowhow@localhost:2222/default` (where `default` is your vault name).
+
+### Example Prompts
+
+```bash
+# "Enable SSH access so I can edit documents with VS Code Remote"
+KNOWHOW_SSH_ENABLED=true just dev
+
+# "Connect via SFTP and upload my notes"
+sftp -P 2222 user@localhost <<< "put mynotes.md default/mynotes.md"
 ```
 
 ## Agent Tool Approval (Human-in-the-Loop)

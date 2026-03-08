@@ -58,6 +58,11 @@ type Config struct {
 	NoAuth            bool // bypass token auth (for local/Docker use)
 	MCPEnabled        bool // serve MCP endpoint at /mcp (default: true)
 
+	// SSH/SFTP server
+	SSHEnabled     bool   // KNOWHOW_SSH_ENABLED (default: false)
+	SSHPort        string // KNOWHOW_SSH_PORT (default: "2222")
+	SSHHostKeyPath string // KNOWHOW_SSH_HOST_KEY (default: "" = auto-generate)
+
 	// Embedding worker settings
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
 	EmbedWorkerBatch    int // max chunks per tick (default: 10)
@@ -117,6 +122,9 @@ func Load() Config {
 		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
 		NoAuth:            getEnvBool("KNOWHOW_NO_AUTH", false),
 		MCPEnabled:        getEnvBool("KNOWHOW_MCP_ENABLED", true),
+		SSHEnabled:        getEnvBool("KNOWHOW_SSH_ENABLED", false),
+		SSHPort:           getEnv("KNOWHOW_SSH_PORT", "2222"),
+		SSHHostKeyPath:    getEnv("KNOWHOW_SSH_HOST_KEY", ""),
 
 		// Embedding worker
 		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),

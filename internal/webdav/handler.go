@@ -13,7 +13,6 @@ import (
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
@@ -49,56 +48,29 @@ func NewHandler(
 		vaultName := parts[0]
 
 		// Authenticate via HTTP Basic Auth (password = API token)
-		var ac auth.AuthContext
-		if noAuth {
-			ac = auth.AuthContext{
-				UserID:      "admin",
-				VaultAccess: []string{auth.WildcardVaultAccess},
-			}
-		} else {
+		var rawToken string
+		if !noAuth {
 			_, password, ok := r.BasicAuth()
 			if !ok || password == "" {
 				w.Header().Set("WWW-Authenticate", `Basic realm="knowhow"`)
 				http.Error(w, "authentication required", http.StatusUnauthorized)
 				return
 			}
-
-			info, err := auth.ValidateToken(r.Context(), dbClient, password)
-			if err != nil {
-				slog.Warn("webdav: token validation failed", "error", err)
-				http.Error(w, "invalid credentials", http.StatusUnauthorized)
-				return
-			}
-
-			ac = auth.AuthContext{
-				UserID:      info.UserID,
-				VaultAccess: info.VaultAccess,
-			}
+			rawToken = password
 		}
 
-		// Resolve vault
-		v, err := vaultSvc.GetByName(r.Context(), vaultName)
+		ac, err := auth.Authenticate(r.Context(), dbClient, rawToken, noAuth)
 		if err != nil {
-			slog.Warn("webdav: vault lookup failed", "vault", vaultName, "error", err)
-			http.Error(w, "vault not found", http.StatusNotFound)
-			return
-		}
-		if v == nil {
-			http.Error(w, "vault not found", http.StatusNotFound)
+			slog.Warn("webdav: auth failed", "error", err)
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
 
-		vaultID, err := models.RecordIDString(v.ID)
+		// Resolve vault + check access
+		vaultID, err := auth.ResolveVault(r.Context(), ac, vaultSvc, vaultName)
 		if err != nil {
-			slog.Error("webdav: failed to extract vault ID", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		// Check vault access
-		ctx := auth.WithAuth(r.Context(), ac)
-		if err := auth.RequireVaultAccess(ctx, vaultID); err != nil {
-			http.Error(w, "access denied", http.StatusForbidden)
+			slog.Warn("webdav: vault resolution failed", "vault", vaultName, "error", err)
+			http.Error(w, "vault not found or access denied", http.StatusForbidden)
 			return
 		}
 

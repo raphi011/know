@@ -22,6 +22,7 @@ import (
 	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/graph"
 	"github.com/raphi011/knowhow/internal/mcptools"
+	"github.com/raphi011/knowhow/internal/sshd"
 	"github.com/raphi011/knowhow/internal/tools"
 	"github.com/raphi011/knowhow/internal/web"
 	knowhowdav "github.com/raphi011/knowhow/internal/webdav"
@@ -133,6 +134,30 @@ func main() {
 	mux.Handle("/dav/", davHandler)
 	slog.Info("WebDAV endpoint enabled", "path", "/dav/{vaultName}/")
 
+	// SSH/SFTP server (optional)
+	var sshSrv *sshd.Server
+	if cfg.SSHEnabled {
+		sshLn, err := net.Listen("tcp", ":"+cfg.SSHPort)
+		if err != nil {
+			slog.Error("failed to bind SSH port", "port", cfg.SSHPort, "error", err)
+			os.Exit(1)
+		}
+		sshSrv, err = sshd.NewServer(
+			sshLn,
+			resolver.DBClient(),
+			resolver.DocumentService(),
+			resolver.VaultService(),
+			cfg.SSHHostKeyPath,
+			cfg.NoAuth,
+		)
+		if err != nil {
+			slog.Error("failed to create SSH server", "error", err)
+			os.Exit(1)
+		}
+		go sshSrv.Serve()
+		slog.Info("SSH/SFTP server enabled", "port", cfg.SSHPort)
+	}
+
 	// Web UI (Templ + HTMX)
 	webHandler := web.NewHandler(
 		resolver.DBClient(),
@@ -180,6 +205,10 @@ func main() {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if sshSrv != nil {
+		sshSrv.Shutdown(ctx)
+	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
