@@ -26,20 +26,21 @@ func (s DocumentSource) Valid() bool {
 }
 
 type Document struct {
-	ID          surrealmodels.RecordID `json:"id"`
-	Vault       surrealmodels.RecordID `json:"vault"`
-	Path        string                 `json:"path"`
-	Title       string                 `json:"title"`
-	Content     string                 `json:"content"`
-	ContentBody string                 `json:"content_body"`
-	Labels      []string               `json:"labels"`
-	DocType     *string                `json:"doc_type,omitempty"`
-	Source      DocumentSource         `json:"source"`
-	SourcePath  *string                `json:"source_path,omitempty"`
-	ContentHash *string                `json:"content_hash,omitempty"`
-	Metadata    map[string]any         `json:"metadata,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	ID            surrealmodels.RecordID `json:"id"`
+	Vault         surrealmodels.RecordID `json:"vault"`
+	Path          string                 `json:"path"`
+	Title         string                 `json:"title"`
+	Content       string                 `json:"content"`
+	ContentBody   string                 `json:"content_body"`
+	ContentLength int                    `json:"content_length"`
+	Labels        []string               `json:"labels"`
+	DocType       *string                `json:"doc_type,omitempty"`
+	Source        DocumentSource         `json:"source"`
+	SourcePath    *string                `json:"source_path,omitempty"`
+	ContentHash   *string                `json:"content_hash,omitempty"`
+	Metadata      map[string]any         `json:"metadata,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
 }
 
 type DocumentInput struct {
@@ -54,6 +55,14 @@ type DocumentInput struct {
 	Labels      []string       `json:"labels,omitempty"`
 	DocType     *string        `json:"doc_type,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+// DocumentMeta is a lightweight projection of a document for metadata-only
+// operations (e.g. WebDAV Stat, directory listings) that don't need content.
+type DocumentMeta struct {
+	Path          string    `json:"path"`
+	ContentLength int       `json:"content_length"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Folder is a first-class folder record backed by the folder table.

@@ -155,16 +155,16 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 		return &fileInfo{name: "/", isDir: true, modTime: time.Now()}, nil
 	}
 
-	// Try as document
-	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, name)
+	// Try as document (lightweight meta query — no content loaded)
+	meta, err := f.db.GetDocumentMetaByPath(ctx, f.vaultID, name)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", name, err)
 	}
-	if doc != nil {
+	if meta != nil {
 		return &fileInfo{
 			name:    path.Base(name),
-			size:    int64(len(doc.Content)),
-			modTime: doc.UpdatedAt,
+			size:    int64(meta.ContentLength),
+			modTime: meta.UpdatedAt,
 			isDir:   false,
 		}, nil
 	}
@@ -220,13 +220,14 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 		})
 	}
 
-	// List immediate child documents — append "/" for non-root paths so the
-	// DB filter matches documents under this folder (root already ends with "/").
+	// Append "/" for non-root paths so the DB filter matches documents under
+	// this folder (root already ends with "/").
 	folderFilter := dirPath
 	if folderFilter != "/" {
 		folderFilter += "/"
 	}
-	docs, err := f.db.ListDocuments(ctx, db.ListDocumentsFilter{
+	// List immediate child documents (lightweight meta query — no content loaded)
+	metas, err := f.db.ListDocumentMetas(ctx, db.ListDocumentsFilter{
 		VaultID: f.vaultID,
 		Folder:  &folderFilter,
 		Limit:   10000,
@@ -234,19 +235,19 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 	if err != nil {
 		return nil, fmt.Errorf("list documents in %s: %w", dirPath, err)
 	}
-	for _, doc := range docs {
+	for _, meta := range metas {
 		// Only include immediate children, not nested docs
-		rel := strings.TrimPrefix(doc.Path, folderFilter)
+		rel := strings.TrimPrefix(meta.Path, folderFilter)
 		if dirPath == "/" {
-			rel = strings.TrimPrefix(doc.Path, "/")
+			rel = strings.TrimPrefix(meta.Path, "/")
 		}
 		if strings.Contains(rel, "/") {
 			continue // nested doc, skip
 		}
 		entries = append(entries, &fileInfo{
-			name:    path.Base(doc.Path),
-			size:    int64(len(doc.Content)),
-			modTime: doc.UpdatedAt,
+			name:    path.Base(meta.Path),
+			size:    int64(meta.ContentLength),
+			modTime: meta.UpdatedAt,
 			isDir:   false,
 		})
 	}

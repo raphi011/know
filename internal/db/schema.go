@@ -46,7 +46,8 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS path         ON document TYPE string;
     DEFINE FIELD IF NOT EXISTS title        ON document TYPE string;
     DEFINE FIELD IF NOT EXISTS content      ON document TYPE string;
-    DEFINE FIELD IF NOT EXISTS content_body ON document TYPE string;
+    DEFINE FIELD IF NOT EXISTS content_body    ON document TYPE string;
+    DEFINE FIELD IF NOT EXISTS content_length  ON document TYPE int;
     DEFINE FIELD IF NOT EXISTS labels       ON document TYPE array<string> DEFAULT [];
     DEFINE FIELD IF NOT EXISTS doc_type     ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS source       ON document TYPE string DEFAULT "manual";
