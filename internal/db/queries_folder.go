@@ -99,6 +99,38 @@ func (c *Client) ListFolders(ctx context.Context, vaultID string) ([]models.Fold
 	return (*results)[0].Result, nil
 }
 
+// ListChildFolders returns immediate child folders of parentPath in a vault.
+// Only folders whose path starts with parentPath+"/" are fetched from the DB,
+// then filtered in Go to exclude nested descendants (much faster than loading all folders).
+func (c *Client) ListChildFolders(ctx context.Context, vaultID, parentPath string) ([]models.Folder, error) {
+	prefix := parentPath
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	sql := `SELECT * FROM folder WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) ORDER BY path ASC`
+	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   prefix,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list child folders: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+
+	// Filter to immediate children only (no additional "/" after prefix)
+	var children []models.Folder
+	for _, f := range (*results)[0].Result {
+		rel := strings.TrimPrefix(f.Path, prefix)
+		if rel != "" && !strings.Contains(rel, "/") {
+			children = append(children, f)
+		}
+	}
+	return children, nil
+}
+
 // GetFolderByPath returns a single folder by vault and path, or nil if not found.
 func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
 	sql := `SELECT * FROM folder WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`

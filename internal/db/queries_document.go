@@ -22,6 +22,7 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 			title = $title,
 			content = $content,
 			content_body = $content_body,
+			content_length = $content_length,
 			labels = $labels,
 			doc_type = $doc_type,
 			source = $source,
@@ -31,17 +32,18 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
-		"vault_id":     bareID("vault", input.VaultID),
-		"path":         input.Path,
-		"title":        input.Title,
-		"content":      input.Content,
-		"content_body": input.ContentBody,
-		"labels":       labels,
-		"doc_type":     optionalString(input.DocType),
-		"source":       string(input.Source),
-		"source_path":  optionalString(input.SourcePath),
-		"content_hash": optionalString(input.ContentHash),
-		"metadata":     optionalObject(input.Metadata),
+		"vault_id":       bareID("vault", input.VaultID),
+		"path":           input.Path,
+		"title":          input.Title,
+		"content":        input.Content,
+		"content_body":   input.ContentBody,
+		"content_length": len(input.Content),
+		"labels":         labels,
+		"doc_type":       optionalString(input.DocType),
+		"source":         string(input.Source),
+		"source_path":    optionalString(input.SourcePath),
+		"content_hash":   optionalString(input.ContentHash),
+		"metadata":       optionalObject(input.Metadata),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create document: %w", err)
@@ -90,9 +92,11 @@ type ListDocumentsFilter struct {
 	Offset  int
 }
 
-func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) ([]models.Document, error) {
+// buildDocumentFilter constructs the WHERE clause, variables, and pagination
+// suffix shared by ListDocuments and ListDocumentMetas.
+func buildDocumentFilter(filter ListDocumentsFilter) (whereClause string, vars map[string]any, suffix string) {
 	var conditions []string
-	vars := map[string]any{
+	vars = map[string]any{
 		"vault_id": bareID("vault", filter.VaultID),
 	}
 
@@ -116,8 +120,14 @@ func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) 
 		limit = filter.Limit
 	}
 
-	sql := fmt.Sprintf("SELECT * FROM document WHERE %s ORDER BY path ASC LIMIT %d START %d",
-		strings.Join(conditions, " AND "), limit, filter.Offset)
+	whereClause = strings.Join(conditions, " AND ")
+	suffix = fmt.Sprintf("ORDER BY path ASC LIMIT %d START %d", limit, filter.Offset)
+	return
+}
+
+func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) ([]models.Document, error) {
+	where, vars, suffix := buildDocumentFilter(filter)
+	sql := fmt.Sprintf("SELECT * FROM document WHERE %s %s", where, suffix)
 
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, vars)
 	if err != nil {
@@ -138,6 +148,7 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 		UPDATE type::record("document", $id) SET
 			content = $content,
 			content_body = $content_body,
+			content_length = $content_length,
 			title = $title,
 			source = $source,
 			labels = $labels,
@@ -146,14 +157,15 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
-		"id":           id,
-		"content":      content,
-		"content_body": contentBody,
-		"title":        title,
-		"source":       string(source),
-		"labels":       labels,
-		"content_hash": optionalString(contentHash),
-		"metadata":     optionalObject(metadata),
+		"id":             id,
+		"content":        content,
+		"content_body":   contentBody,
+		"content_length": len(content),
+		"title":          title,
+		"source":         string(source),
+		"labels":         labels,
+		"content_hash":   optionalString(contentHash),
+		"metadata":       optionalObject(metadata),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update document: %w", err)
@@ -251,6 +263,38 @@ func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, erro
 		return []string{}, nil
 	}
 	return labels, nil
+}
+
+// GetDocumentMetaByPath returns lightweight metadata for a document (no content).
+// Returns nil if the document doesn't exist.
+func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string) (*models.DocumentMeta, error) {
+	sql := `SELECT path, content_length, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
+	results, err := surrealdb.Query[[]models.DocumentMeta](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     path,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get document meta by path: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, nil
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+// ListDocumentMetas returns lightweight metadata (no content) for documents matching the filter.
+func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilter) ([]models.DocumentMeta, error) {
+	where, vars, suffix := buildDocumentFilter(filter)
+	sql := fmt.Sprintf("SELECT path, content_length, updated_at FROM document WHERE %s %s", where, suffix)
+
+	results, err := surrealdb.Query[[]models.DocumentMeta](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list document metas: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
 }
 
 // UpsertDocument creates or updates a document by vault+path.

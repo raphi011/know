@@ -3,7 +3,6 @@ package vault
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
@@ -39,36 +38,23 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.db.DeleteVault(ctx, id)
 }
 
-// ListFolders returns all folders in a vault. If parentPath is provided, filters
-// to immediate children of that path.
+// ListFolders returns all folders in a vault. If parentPath is provided, returns
+// only immediate children of that path using a DB-level prefix filter (avoids
+// loading all folders in the vault).
 func (s *Service) ListFolders(ctx context.Context, vaultID string, parentPath *string) ([]models.Folder, error) {
+	if parentPath != nil {
+		folders, err := s.db.ListChildFolders(ctx, vaultID, *parentPath)
+		if err != nil {
+			return nil, fmt.Errorf("list child folders: %w", err)
+		}
+		return folders, nil
+	}
+
 	folders, err := s.db.ListFolders(ctx, vaultID)
 	if err != nil {
 		return nil, fmt.Errorf("list folders: %w", err)
 	}
-
-	if parentPath == nil {
-		return folders, nil
-	}
-
-	// Filter to immediate children of parentPath
-	prefix := *parentPath
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-
-	var filtered []models.Folder
-	for _, f := range folders {
-		if !strings.HasPrefix(f.Path, prefix) {
-			continue
-		}
-		// Check it's an immediate child (no further "/" after prefix)
-		rel := strings.TrimPrefix(f.Path, prefix)
-		if rel != "" && !strings.Contains(rel, "/") {
-			filtered = append(filtered, f)
-		}
-	}
-	return filtered, nil
+	return folders, nil
 }
 
 // CreateFolder creates a folder and all its ancestor folders.
