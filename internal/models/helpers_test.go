@@ -90,6 +90,30 @@ func TestMustRecordIDString(t *testing.T) {
 	MustRecordIDString(surrealmodels.RecordID{Table: "user", ID: 999})
 }
 
+func TestBareID(t *testing.T) {
+	tests := []struct {
+		table string
+		id    string
+		want  string
+	}{
+		{"vault", "default", "default"},
+		{"vault", "vault:default", "default"},
+		{"document", "document:abc123", "abc123"},
+		{"document", "abc123", "abc123"},
+		{"vault", "vault:vault:nested", "vault:nested"},
+		{"vault", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.table+"/"+tt.id, func(t *testing.T) {
+			got := BareID(tt.table, tt.id)
+			if got != tt.want {
+				t.Errorf("BareID(%q, %q) = %q, want %q", tt.table, tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestContentHash(t *testing.T) {
 	hash1 := ContentHash("hello world")
 	hash2 := ContentHash("hello world")

@@ -47,7 +47,10 @@ func ValidateToken(ctx context.Context, dbClient *db.Client, rawToken string) (*
 		return nil, fmt.Errorf("all vault access IDs failed extraction")
 	}
 
-	tokenID, _ := models.RecordIDString(token.ID)
+	tokenID, err := models.RecordIDString(token.ID)
+	if err != nil {
+		return nil, fmt.Errorf("extract token ID: %w", err)
+	}
 
 	userID, err := models.RecordIDString(token.User)
 	if err != nil {
