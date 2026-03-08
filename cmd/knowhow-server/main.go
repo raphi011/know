@@ -161,10 +161,7 @@ func main() {
 	// Web UI (Templ + HTMX)
 	webHandler := web.NewHandler(
 		resolver.DBClient(),
-		resolver.DocumentService(),
 		resolver.VaultService(),
-		resolver.SearchService(),
-		resolver.EventBus(),
 	)
 	webHandler.Register(mux)
 	slog.Info("Web UI enabled", "login", fmt.Sprintf("http://localhost:%s/login", port))

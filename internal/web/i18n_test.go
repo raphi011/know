@@ -14,9 +14,9 @@ func TestT_English(t *testing.T) {
 func TestT_German(t *testing.T) {
 	tr := T("de")
 
-	got := tr("nav.docs")
-	if got != "Dokumente" {
-		t.Errorf("T(de)(nav.docs) = %q, want %q", got, "Dokumente")
+	got := tr("nav.agent")
+	if got != "Agent" {
+		t.Errorf("T(de)(nav.agent) = %q, want %q", got, "Agent")
 	}
 }
 

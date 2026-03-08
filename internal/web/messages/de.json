@@ -1,6 +1,5 @@
 {
   "app.title": "Knowhow",
-  "nav.docs": "Dokumente",
   "nav.agent": "Agent",
   "nav.settings": "Einstellungen",
   "nav.logout": "Abmelden",
@@ -10,8 +9,6 @@
   "login.submit": "Anmelden",
   "login.error.invalid": "Ungültiges Token",
   "login.error.empty": "Token ist erforderlich",
-  "search.placeholder": "Dokumente suchen...",
-  "search.shortcut": "⌘K",
   "settings.title": "Einstellungen",
   "settings.vault": "Tresor",
   "settings.vault.select": "Aktiver Tresor",
@@ -23,8 +20,5 @@
   "settings.theme.light": "Hell",
   "settings.theme.dark": "Dunkel",
   "settings.theme.system": "System",
-  "settings.save": "Speichern",
-  "versions.title": "Versionshistorie",
-  "versions.empty": "Keine Versionen gefunden.",
-  "error.markdown_render_failed": "Markdown-Rendering fehlgeschlagen."
+  "settings.save": "Speichern"
 }
