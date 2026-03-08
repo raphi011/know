@@ -92,7 +92,7 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("search documents: %w", err)
 	}
 
 	argsJSON, err := json.Marshal(input)
@@ -130,7 +130,7 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("get document: %w", err)
 	}
 
 	argsJSON, err := json.Marshal(input)
@@ -157,7 +157,7 @@ type listLabelsInput struct{}
 func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, input listLabelsInput) (*mcp.CallToolResult, any, error) {
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("list labels: %w", err)
 	}
 
 	labelSet := map[string]bool{}
@@ -191,7 +191,7 @@ type listFoldersInput struct{}
 func (t *mcpTools) listFolders(ctx context.Context, req *mcp.CallToolRequest, input listFoldersInput) (*mcp.CallToolResult, any, error) {
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("list folders: %w", err)
 	}
 
 	var sb strings.Builder
@@ -223,7 +223,7 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("list folder contents: %w", err)
 	}
 
 	argsJSON, err := json.Marshal(input)
@@ -264,7 +264,7 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("get document versions: %w", err)
 	}
 
 	argsJSON, err := json.Marshal(input)
@@ -293,7 +293,7 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 func (t *mcpTools) executeWriteTool(ctx context.Context, toolName string, input any) (*mcp.CallToolResult, any, error) {
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("execute write tool %s: %w", toolName, err)
 	}
 	if len(vaultIDs) == 0 {
 		return nil, nil, fmt.Errorf("no vaults accessible")
@@ -306,7 +306,7 @@ func (t *mcpTools) executeWriteTool(ctx context.Context, toolName string, input 
 
 	result, _, execErr := t.executor.ExecuteTool(ctx, vaultIDs[0], toolName, string(argsJSON))
 	if execErr != nil {
-		return nil, nil, execErr
+		return nil, nil, fmt.Errorf("execute write tool %s: %w", toolName, execErr)
 	}
 	return textResult(result), nil, nil
 }

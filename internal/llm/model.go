@@ -55,7 +55,7 @@ func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, 
 		// Bug 2: patch http.DefaultTransport with the CA so the Anthropic
 		// SDK's http.DefaultClient trusts the proxy certificate.
 		if err := addCAToDefaultTransport(caBundle); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("new bedrock chat model: %w", err)
 		}
 	}
 

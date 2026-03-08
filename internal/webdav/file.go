@@ -3,6 +3,7 @@ package webdav
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -98,7 +99,7 @@ func (f *writeFile) Close() error {
 	if err != nil {
 		slog.Error("webdav: failed to save document on close",
 			"path", f.name, "vault", f.vaultID, "error", err)
-		return err
+		return fmt.Errorf("close %s: %w", f.name, err)
 	}
 
 	slog.Info("webdav: document saved", "path", f.name, "vault", f.vaultID, "size", len(content))
@@ -160,4 +161,26 @@ func (d *dirFile) Stat() (fs.FileInfo, error) {
 		isDir:   true,
 		modTime: d.modTime,
 	}, nil
+}
+
+// nopFile silently accepts and discards writes. Used for macOS metadata
+// files (._*, .DS_Store) so Finder doesn't abort the whole drag-and-drop.
+type nopFile struct {
+	name    string
+	modTime time.Time
+}
+
+func newNopFile(name string) *nopFile {
+	return &nopFile{name: name, modTime: time.Now()}
+}
+func (f *nopFile) Read([]byte) (int, error)                    { return 0, io.EOF }
+func (f *nopFile) Write(p []byte) (int, error)                 { return len(p), nil }
+func (f *nopFile) Seek(int64, int) (int64, error)              { return 0, nil }
+func (f *nopFile) Close() error {
+	slog.Debug("webdav: discarded OS metadata file", "path", f.name)
+	return nil
+}
+func (f *nopFile) Readdir(int) ([]fs.FileInfo, error)          { return nil, os.ErrInvalid }
+func (f *nopFile) Stat() (fs.FileInfo, error) {
+	return &fileInfo{name: path.Base(f.name), modTime: f.modTime}, nil
 }

@@ -3,13 +3,11 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.2
-    container_name: knowhow-surrealdb
     command: start --user root --pass root memory
     ports:
       - "4002:8000"
 
   surrealist:
     image: surrealdb/surrealist:latest
-    container_name: knowhow-surrealist
     ports:
       - "4003:8080"

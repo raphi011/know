@@ -413,15 +413,17 @@ func hasVaultAccess(sess *Session, vaultID string) bool {
 // (e.g., client disconnected).
 func writeSSE(w http.ResponseWriter, eventName, data string) error {
 	if _, err := fmt.Fprintf(w, "event: %s\n", eventName); err != nil {
-		return err
+		return fmt.Errorf("write SSE: %w", err)
 	}
 	for _, line := range strings.Split(data, "\n") {
 		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
-			return err
+			return fmt.Errorf("write SSE: %w", err)
 		}
 	}
-	_, err := fmt.Fprint(w, "\n")
-	return err
+	if _, err := fmt.Fprint(w, "\n"); err != nil {
+		return fmt.Errorf("write SSE: %w", err)
+	}
+	return nil
 }
 
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {

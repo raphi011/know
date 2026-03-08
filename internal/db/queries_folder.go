@@ -149,8 +149,10 @@ func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string
 
 // DeleteFolder deletes a single folder and all its children (paths starting with folderPath + "/").
 func (c *Client) DeleteFolder(ctx context.Context, vaultID, folderPath string) error {
-	_, err := c.deleteFolderTree(ctx, vaultID, folderPath)
-	return err
+	if _, err := c.deleteFolderTree(ctx, vaultID, folderPath); err != nil {
+		return fmt.Errorf("delete folder: %w", err)
+	}
+	return nil
 }
 
 // DeleteFoldersByPrefix deletes all folders whose path starts with the given prefix

@@ -154,7 +154,10 @@ func (h *handler) Filecmd(r *sftp.Request) error {
 			return nil // vault root always exists
 		}
 		_, err = h.vaultSvc.CreateFolder(r.Context(), vaultID, docPath)
-		return err
+		if err != nil {
+			return fmt.Errorf("mkdir %s: %w", docPath, err)
+		}
+		return nil
 
 	case "Remove":
 		if vaultName == "" {
@@ -164,7 +167,10 @@ func (h *handler) Filecmd(r *sftp.Request) error {
 		if err != nil {
 			return os.ErrPermission
 		}
-		return h.docService.Delete(r.Context(), vaultID, docPath)
+		if err := h.docService.Delete(r.Context(), vaultID, docPath); err != nil {
+			return fmt.Errorf("remove %s: %w", docPath, err)
+		}
+		return nil
 
 	case "Rmdir":
 		if vaultName == "" {
@@ -177,7 +183,10 @@ func (h *handler) Filecmd(r *sftp.Request) error {
 		if docPath == "/" {
 			return fmt.Errorf("cannot remove vault root: %w", os.ErrPermission)
 		}
-		return h.vaultSvc.DeleteFolder(r.Context(), vaultID, docPath)
+		if err := h.vaultSvc.DeleteFolder(r.Context(), vaultID, docPath); err != nil {
+			return fmt.Errorf("rmdir %s: %w", docPath, err)
+		}
+		return nil
 
 	case "Rename":
 		targetVault, targetPath := parsePath(r.Target)
@@ -195,23 +204,29 @@ func (h *handler) Filecmd(r *sftp.Request) error {
 		// Try as document first
 		doc, err := h.dbClient.GetDocumentByPath(r.Context(), vaultID, docPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("rename %s: %w", docPath, err)
 		}
 		if doc != nil {
 			if !isMarkdownFile(targetPath) {
 				return errNotMarkdown
 			}
 			_, err = h.docService.Move(r.Context(), vaultID, docPath, targetPath)
-			return err
+			if err != nil {
+				return fmt.Errorf("rename %s to %s: %w", docPath, targetPath, err)
+			}
+			return nil
 		}
 
 		// Try as folder
 		folder, err := h.dbClient.GetFolderByPath(r.Context(), vaultID, docPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("rename %s: %w", docPath, err)
 		}
 		if folder != nil {
-			return h.vaultSvc.MoveFolder(r.Context(), vaultID, docPath, targetPath)
+			if err := h.vaultSvc.MoveFolder(r.Context(), vaultID, docPath, targetPath); err != nil {
+				return fmt.Errorf("rename folder %s to %s: %w", docPath, targetPath, err)
+			}
+			return nil
 		}
 
 		return os.ErrNotExist
@@ -255,7 +270,7 @@ func (h *handler) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 		// Try as document
 		meta, err := h.dbClient.GetDocumentMetaByPath(r.Context(), vaultID, docPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("stat %s: %w", docPath, err)
 		}
 		if meta != nil {
 			return &listAt{entries: []os.FileInfo{
@@ -270,7 +285,7 @@ func (h *handler) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 		// Try as folder
 		folder, err := h.dbClient.GetFolderByPath(r.Context(), vaultID, docPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("stat %s: %w", docPath, err)
 		}
 		if folder != nil {
 			return &listAt{entries: []os.FileInfo{
@@ -303,7 +318,7 @@ func (h *handler) listDir(ctx context.Context, vaultName, docPath string) (sftp.
 
 	entries, err := h.listDirEntries(ctx, vaultID, docPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list %s: %w", docPath, err)
 	}
 
 	return &listAt{entries: entries}, nil
@@ -428,7 +443,7 @@ func (w *writeBuffer) Close() error {
 	if err != nil {
 		slog.Error("sftp: failed to save document on close",
 			"path", w.path, "vault", w.vaultID, "error", err)
-		return err
+		return fmt.Errorf("close %s: %w", w.path, err)
 	}
 
 	slog.Info("sftp: document saved", "path", w.path, "vault", w.vaultID, "size", len(content))

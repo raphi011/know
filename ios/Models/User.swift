@@ -7,9 +7,15 @@ struct User: Codable, Identifiable {
     let createdAt: String
 }
 
+enum Role: String, Codable {
+    case read
+    case write
+    case admin
+}
+
 struct VaultRole: Codable {
     let vaultId: String
-    let role: String
+    let role: Role
 }
 
 struct Me: Codable {

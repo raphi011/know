@@ -60,6 +60,14 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 		return f.openRootDir(ctx)
 	}
 
+	// Silently accept macOS metadata files (._*, .DS_Store) — discard on write
+	if isOSMetadataFile(name) {
+		if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE) != 0 {
+			return newNopFile(name), nil
+		}
+		return nil, os.ErrNotExist
+	}
+
 	// Try as document
 	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, name)
 	if err != nil {
@@ -105,6 +113,11 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		return fmt.Errorf("cannot remove root directory")
 	}
 
+	// macOS metadata files are never stored — nothing to remove
+	if isOSMetadataFile(name) {
+		return nil
+	}
+
 	// Try as document first
 	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, name)
 	if err != nil {
@@ -136,6 +149,11 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 	oldName = normalizeName(oldName)
 	newName = normalizeName(newName)
+
+	// macOS metadata files are never stored — nothing to rename
+	if isOSMetadataFile(oldName) {
+		return nil
+	}
 
 	// Try as document first
 	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, oldName)
@@ -175,6 +193,11 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 		return &fileInfo{name: "/", isDir: true, modTime: time.Now()}, nil
 	}
 
+	// macOS metadata files are never stored — always report not found
+	if isOSMetadataFile(name) {
+		return nil, os.ErrNotExist
+	}
+
 	// Try as document (lightweight meta query — no content loaded)
 	meta, err := f.db.GetDocumentMetaByPath(ctx, f.vaultID, name)
 	if err != nil {
@@ -209,7 +232,7 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 func (f *FS) openRootDir(ctx context.Context) (webdav.File, error) {
 	entries, err := f.listDirEntries(ctx, "/")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open root dir: %w", err)
 	}
 	return newDirFile("/", time.Now(), entries), nil
 }
@@ -218,7 +241,7 @@ func (f *FS) openRootDir(ctx context.Context) (webdav.File, error) {
 func (f *FS) openDir(ctx context.Context, name string, modTime time.Time) (webdav.File, error) {
 	entries, err := f.listDirEntries(ctx, name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open dir %s: %w", name, err)
 	}
 	return newDirFile(name, modTime, entries), nil
 }
@@ -278,6 +301,12 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 // isMarkdownFile returns true if the file has a .md extension (case-insensitive).
 func isMarkdownFile(name string) bool {
 	return strings.EqualFold(path.Ext(name), ".md")
+}
+
+// isOSMetadataFile returns true for macOS resource forks (._*) and .DS_Store.
+func isOSMetadataFile(name string) bool {
+	base := path.Base(name)
+	return strings.HasPrefix(base, "._") || base == ".DS_Store"
 }
 
 // errNotMarkdown is returned when a non-markdown file is created or renamed to.

@@ -104,6 +104,9 @@ struct FolderBrowserView: View {
             }
         }
         .navigationTitle(folder?.components(separatedBy: "/").last ?? vaultName)
+        .refreshable {
+            await syncEngine.performMetadataSync(vaultId: vaultId, modelContext: modelContext)
+        }
         .task {
             // Only trigger sync at the vault root, not on every subfolder navigation
             guard folder == nil else { return }

@@ -42,18 +42,25 @@ struct VaultListView: View {
                 }
             }
         }
+        .refreshable {
+            await loadVaults()
+        }
         .task {
             await loadVaults()
         }
     }
 
     private func loadVaults() async {
-        isLoading = true
+        // Only show full-screen spinner on initial load, not on pull-to-refresh
+        let showSpinner = vaults.isEmpty
+        if showSpinner { isLoading = true }
         errorMessage = nil
-        defer { isLoading = false }
+        defer { if showSpinner { isLoading = false } }
 
         do {
             vaults = try await service.fetchVaults()
+        } catch is CancellationError {
+            // Task cancelled (e.g. view disappeared) — ignore silently
         } catch {
             errorMessage = error.localizedDescription
         }

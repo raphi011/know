@@ -210,7 +210,7 @@ func fetchDocMap(ctx context.Context, dbClient *db.Client, docIDs []string) (map
 	}
 	docs, err := dbClient.GetDocumentsByIDs(ctx, docIDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch doc map: %w", err)
 	}
 	return buildDocMap(docs), nil
 }

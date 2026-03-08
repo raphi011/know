@@ -60,9 +60,12 @@ func FromContext(ctx context.Context) (AuthContext, error) {
 func RequireVaultRole(ctx context.Context, vaultID string, minRole models.VaultRole) error {
 	ac, err := FromContext(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("require vault role: %w", err)
 	}
-	return CheckVaultRole(ac, vaultID, minRole)
+	if err := CheckVaultRole(ac, vaultID, minRole); err != nil {
+		return fmt.Errorf("require vault role: %w", err)
+	}
+	return nil
 }
 
 // CheckVaultRole checks if an AuthContext has at least the given role on a vault.
@@ -96,7 +99,7 @@ func CheckVaultRole(ac AuthContext, vaultID string, minRole models.VaultRole) er
 func RequireSystemAdmin(ctx context.Context) error {
 	ac, err := FromContext(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("require system admin: %w", err)
 	}
 	if !ac.IsSystemAdmin {
 		return fmt.Errorf("forbidden: system admin required")
@@ -110,15 +113,21 @@ func RequireSystemAdmin(ctx context.Context) error {
 func RequireDocAccess(ctx context.Context, vaultID, docPath string) error {
 	ac, err := FromContext(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("require doc access: %w", err)
 	}
 	if ac.Share != nil {
 		if err := checkShareAccess(ac.Share, vaultID); err != nil {
-			return err
+			return fmt.Errorf("require doc access: %w", err)
 		}
-		return checkSharePath(ac.Share, docPath)
+		if err := checkSharePath(ac.Share, docPath); err != nil {
+			return fmt.Errorf("require doc access: %w", err)
+		}
+		return nil
 	}
-	return CheckVaultRole(ac, vaultID, models.RoleRead)
+	if err := CheckVaultRole(ac, vaultID, models.RoleRead); err != nil {
+		return fmt.Errorf("require doc access: %w", err)
+	}
+	return nil
 }
 
 // checkShareAccess verifies the share link targets the correct vault.
@@ -162,7 +171,7 @@ func ResolveVault(ctx context.Context, ac AuthContext, vaultSvc VaultResolver, v
 	}
 
 	if err := CheckVaultRole(ac, v.ID, models.RoleRead); err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve vault: %w", err)
 	}
 
 	return v.ID, nil
