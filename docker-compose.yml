@@ -1,15 +1,17 @@
 # Dev-only: in-memory SurrealDB for fast iteration.
 # Usage: just dev / just dev-all (starts this automatically via db-up)
+#
+# COMPOSE_PROJECT_NAME is pinned so that all git worktrees share the same
+# SurrealDB container instead of each trying to bind port 4002.
+name: knowhow
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.2
-    container_name: knowhow-surrealdb
     command: start --user root --pass root memory
     ports:
       - "4002:8000"
 
   surrealist:
     image: surrealdb/surrealist:latest
-    container_name: knowhow-surrealist
     ports:
       - "4003:8080"
