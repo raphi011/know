@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/pathutil"
 	"github.com/raphi011/knowhow/internal/search"
 )
@@ -41,6 +43,8 @@ func (e *Executor) ExecuteTool(ctx context.Context, vaultID, toolName, arguments
 		return e.execCreateDocument(ctx, vaultID, arguments)
 	case "edit_document":
 		return e.execEditDocument(ctx, vaultID, arguments)
+	case "edit_document_section":
+		return e.execEditDocumentSection(ctx, vaultID, arguments)
 	case "create_memory":
 		return e.execCreateMemory(ctx, vaultID, arguments)
 	case "get_document_versions":
@@ -99,7 +103,8 @@ func (e *Executor) execSearch(ctx context.Context, vaultID, arguments string) (s
 
 func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
 	var input struct {
-		Path string `json:"path"`
+		Path     string `json:"path"`
+		Sections bool   `json:"sections"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
 		return "", nil, fmt.Errorf("parse read_document input: %w", err)
@@ -116,6 +121,31 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 		return fmt.Sprintf("Document not found: %s", input.Path), meta, nil
 	}
 
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "# %s\n\n", doc.Title)
+
+	if input.Sections {
+		parsed, parseErr := parser.ParseMarkdown(doc.ContentBody)
+		if parseErr != nil {
+			slog.Warn("failed to parse markdown for section outline", "path", input.Path, "error", parseErr)
+		} else if len(parsed.Sections) > 0 {
+			outline := parser.SectionOutline(parsed)
+			sb.WriteString("## Sections\n")
+			sb.WriteString("| # | Heading | Pos |\n")
+			sb.WriteString("|---|---------|-----|\n")
+			for _, info := range outline {
+				heading := info.Heading
+				if heading == "" {
+					heading = "(preamble)"
+				}
+				fmt.Fprintf(&sb, "| %d | %s | %d |\n", info.Index, heading, info.Position)
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	sb.WriteString(doc.ContentBody)
+
 	contentLen := len(doc.ContentBody)
 	meta := &ToolResultMeta{
 		DurationMs:    durationMs,
@@ -123,7 +153,7 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 		DocumentTitle: &doc.Title,
 		ContentLength: &contentLen,
 	}
-	return fmt.Sprintf("# %s\n\n%s", doc.Title, doc.ContentBody), meta, nil
+	return sb.String(), meta, nil
 }
 
 func (e *Executor) execListLabels(ctx context.Context, vaultID string) (string, *ToolResultMeta, error) {
@@ -330,6 +360,82 @@ func (e *Executor) execEditDocument(ctx context.Context, vaultID, arguments stri
 		DocumentTitle: &doc.Title,
 	}
 	return fmt.Sprintf("Document updated: %s (%s)", doc.Title, doc.Path), meta, nil
+}
+
+func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
+	var args struct {
+		Path       string  `json:"path"`
+		Operation  string  `json:"operation"`
+		Heading    *string `json:"heading"`
+		Position   *int    `json:"position"`
+		Content    *string `json:"content"`
+		NewHeading *string `json:"new_heading"`
+		NewLevel   *int    `json:"new_level"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return "", nil, fmt.Errorf("parse edit_document_section input: %w", err)
+	}
+	if args.Path == "" {
+		return "", nil, fmt.Errorf("path is required")
+	}
+	if args.Operation == "" {
+		return "", nil, fmt.Errorf("operation is required")
+	}
+
+	existing, err := e.DB.GetDocumentByPath(ctx, vaultID, args.Path)
+	if err != nil {
+		return "", nil, fmt.Errorf("check document: %w", err)
+	}
+	if existing == nil {
+		return "", nil, fmt.Errorf("document not found: %s", args.Path)
+	}
+
+	// Build the section edit
+	edit := parser.BuildSectionEdit(parser.SectionEditArgs{
+		Operation:  args.Operation,
+		Heading:    args.Heading,
+		Position:   args.Position,
+		Content:    args.Content,
+		NewHeading: args.NewHeading,
+		NewLevel:   args.NewLevel,
+	})
+
+	// Apply the section edit to the existing content
+	newContent, err := parser.ApplySectionEdit(existing.Content, edit)
+	if err != nil {
+		return "", nil, fmt.Errorf("apply section edit: %w", err)
+	}
+
+	start := time.Now()
+	doc, err := e.DocService.Create(ctx, models.DocumentInput{
+		VaultID: vaultID,
+		Path:    args.Path,
+		Content: newContent,
+		Source:  models.SourceAIGenerated,
+	})
+	durationMs := time.Since(start).Milliseconds()
+	if err != nil {
+		return "", nil, fmt.Errorf("edit document section: %w", err)
+	}
+
+	opDesc := string(args.Operation)
+	headingDesc := ""
+	if args.Heading != nil {
+		headingDesc = *args.Heading
+		if headingDesc == "" {
+			headingDesc = "(preamble)"
+		}
+	}
+	if args.NewHeading != nil && (args.Operation == "insert_after" || args.Operation == "insert_before" || args.Operation == "append") {
+		headingDesc = *args.NewHeading
+	}
+
+	meta := &ToolResultMeta{
+		DurationMs:    durationMs,
+		DocumentPath:  &doc.Path,
+		DocumentTitle: &doc.Title,
+	}
+	return fmt.Sprintf("Section %s: %q in %s (%s)", opDesc, headingDesc, doc.Title, doc.Path), meta, nil
 }
 
 func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
