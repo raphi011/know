@@ -479,6 +479,7 @@ EOF
 | `get_document` | Retrieve a document by path with full content |
 | `create_document` | Create a new document at a given path |
 | `edit_document` | Edit an existing document by replacing its content |
+| `edit_document_section` | Edit a specific section by heading without sending full content |
 | `list_labels` | List all labels used across documents |
 | `create_memory` | Create a quick memory note under `/memories/` |
 | `list_folders` | Browse the folder structure of a vault |
@@ -509,8 +510,13 @@ EOF
 # Create a new document
 "Create a document at /docs/runbook.md with our deployment steps"
 
-# Edit an existing document
+# Edit an existing document (full replacement)
 "Update /docs/architecture.md to add the new caching section"
+
+# Edit a specific section (targeted, token-efficient)
+"Replace the Installation section of /docs/setup.md with the new Docker instructions"
+"Add a Troubleshooting section to the end of /docs/deployment.md"
+"Delete the Deprecated section from /docs/api.md"
 
 # View document history
 "Show me the version history of /docs/api-guide.md"

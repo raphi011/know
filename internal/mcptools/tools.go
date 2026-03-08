@@ -28,7 +28,7 @@ func (t *mcpTools) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_document",
-		Description: "Get a document by its path. Returns the full content, title, labels, and metadata.",
+		Description: "Get a document by its path. Returns the full content, title, labels, and metadata. Set sections=true to include a section outline for use with edit_document_section.",
 	}, t.getDocument)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -65,6 +65,11 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Name:        "edit_document",
 		Description: "Edit an existing document by replacing its full content. Read the document first with get_document, then pass the complete new content.",
 	}, t.editDocument)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "edit_document_section",
+		Description: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations.",
+	}, t.editDocumentSection)
 }
 
 // ---------- Read tool handlers (iterate all vaults) ----------
@@ -114,7 +119,8 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 }
 
 type getDocumentInput struct {
-	Path string `json:"path" jsonschema:"Document path"`
+	Path     string `json:"path" jsonschema:"Document path"`
+	Sections bool   `json:"sections,omitempty" jsonschema:"Include section outline for targeted editing with edit_document_section"`
 }
 
 func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, input getDocumentInput) (*mcp.CallToolResult, any, error) {
@@ -349,6 +355,26 @@ func (t *mcpTools) editDocument(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, nil, fmt.Errorf("content is required")
 	}
 	return t.executeWriteTool(ctx, "edit_document", input)
+}
+
+type editDocumentSectionInput struct {
+	Path       string  `json:"path" jsonschema:"Document path"`
+	Operation  string  `json:"operation" jsonschema:"One of: replace, insert_after, insert_before, delete, append"`
+	Heading    *string `json:"heading,omitempty" jsonschema:"Target section heading (empty string for preamble, omit for append)"`
+	Position   *int    `json:"position,omitempty" jsonschema:"Disambiguation index for duplicate headings (default 0)"`
+	Content    *string `json:"content,omitempty" jsonschema:"New section body (required for replace, insert, append)"`
+	NewHeading *string `json:"new_heading,omitempty" jsonschema:"Heading text for insert/append operations"`
+	NewLevel   *int    `json:"new_level,omitempty" jsonschema:"Heading level 1-6 for insert/append operations"`
+}
+
+func (t *mcpTools) editDocumentSection(ctx context.Context, req *mcp.CallToolRequest, input editDocumentSectionInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Path) == "" {
+		return nil, nil, fmt.Errorf("path is required")
+	}
+	if strings.TrimSpace(input.Operation) == "" {
+		return nil, nil, fmt.Errorf("operation is required")
+	}
+	return t.executeWriteTool(ctx, "edit_document_section", input)
 }
 
 // ---------- helpers ----------

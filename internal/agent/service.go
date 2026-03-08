@@ -15,6 +15,7 @@ import (
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/search"
 	"github.com/raphi011/knowhow/internal/tools"
 )
@@ -127,12 +128,16 @@ func (s *Service) buildTools() []*schema.ToolInfo {
 		},
 		{
 			Name: "read_document",
-			Desc: "Read the full content of a specific document by its path",
+			Desc: "Read the full content of a specific document by its path. Set sections=true to include a section outline for use with edit_document_section.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"path": {
 					Type:     schema.String,
 					Desc:     "The document path (e.g. /folder/document-name)",
 					Required: true,
+				},
+				"sections": {
+					Type: schema.Boolean,
+					Desc: "Include section outline for targeted editing",
 				},
 			}),
 		},
@@ -195,6 +200,42 @@ func (s *Service) buildTools() []*schema.ToolInfo {
 						Type:     schema.String,
 						Desc:     "Complete new markdown content (replaces existing content entirely)",
 						Required: true,
+					},
+				}),
+			},
+			&schema.ToolInfo{
+				Name: "edit_document_section",
+				Desc: "Edit a specific section of a document by heading, without sending the full content. Use read_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations.",
+				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+					"path": {
+						Type:     schema.String,
+						Desc:     "Document path",
+						Required: true,
+					},
+					"operation": {
+						Type:     schema.String,
+						Desc:     "One of: replace, insert_after, insert_before, delete, append",
+						Required: true,
+					},
+					"heading": {
+						Type: schema.String,
+						Desc: "Target section heading (empty string for preamble, omit for append)",
+					},
+					"position": {
+						Type: schema.Integer,
+						Desc: "Disambiguation index for duplicate headings (default 0)",
+					},
+					"content": {
+						Type: schema.String,
+						Desc: "New section body (required for replace, insert, append)",
+					},
+					"new_heading": {
+						Type: schema.String,
+						Desc: "Heading text for insert/append operations",
+					},
+					"new_level": {
+						Type: schema.Integer,
+						Desc: "Heading level 1-6 for insert/append operations",
 					},
 				}),
 			},
@@ -524,20 +565,26 @@ var agentToolToCanonical = map[string]string{
 	"list_labels":          "list_labels",
 	"list_folders":         "list_folders",
 	"list_folder_contents": "list_folder_contents",
-	"create_document":      "create_document",
-	"edit_document":        "edit_document",
+	"create_document":        "create_document",
+	"edit_document":          "edit_document",
+	"edit_document_section":  "edit_document_section",
 }
 
 // isWriteTool returns true for tools that modify documents.
 func isWriteTool(name string) bool {
-	return name == "create_document" || name == "edit_document"
+	return name == "create_document" || name == "edit_document" || name == "edit_document_section"
 }
 
 // buildApprovalRequest computes the diff for a write tool call.
 func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call schema.ToolCall) (*ApprovalRequest, error) {
 	var args struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
+		Path       string  `json:"path"`
+		Content    string  `json:"content"`
+		Operation  string  `json:"operation"`
+		Heading    *string `json:"heading"`
+		Position   *int    `json:"position"`
+		NewHeading *string `json:"new_heading"`
+		NewLevel   *int    `json:"new_level"`
 	}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
@@ -554,13 +601,43 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 		return nil, fmt.Errorf("check document: %w", err)
 	}
 
+	// For section edits, reconstruct the full new content for the diff
+	newContent := args.Content
+	if call.Function.Name == "edit_document_section" && doc != nil {
+		edit := parser.SectionEdit{
+			Operation:  parser.SectionOperation(args.Operation),
+			Content:    args.Content,
+		}
+		if args.NewHeading != nil {
+			edit.NewHeading = *args.NewHeading
+		}
+		if args.NewLevel != nil {
+			edit.NewLevel = *args.NewLevel
+		}
+		if args.Heading != nil {
+			pos := 0
+			if args.Position != nil {
+				pos = *args.Position
+			}
+			edit.Target = &parser.SectionAddress{
+				Heading:  *args.Heading,
+				Position: pos,
+			}
+		}
+		reconstructed, editErr := parser.ApplySectionEdit(doc.Content, edit)
+		if editErr != nil {
+			return nil, fmt.Errorf("reconstruct section edit: %w", editErr)
+		}
+		newContent = reconstructed
+	}
+
 	if doc == nil {
 		req.IsNew = true
-		req.Content = args.Content
+		req.Content = newContent
 		return req, nil
 	}
 
-	hunks, err := diff.ComputeHunks(doc.Content, args.Content, 3)
+	hunks, err := diff.ComputeHunks(doc.Content, newContent, 3)
 	if err != nil {
 		return nil, fmt.Errorf("compute diff: %w", err)
 	}
