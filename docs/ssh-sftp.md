@@ -2,7 +2,9 @@
 
 ## Context
 
-Knowhow already has WebDAV for editor-based file access, but VS Code and Zed have better support for SSH remote connections than WebDAV. Adding an SFTP server over SSH lets these editors open the knowledge base directly as a remote workspace.
+Knowhow already has WebDAV for editor-based file access. Adding an SFTP server over SSH provides CLI and programmatic access to documents — useful for scripted uploads, batch operations, and SFTP GUI clients (CyberDuck, Transmit, Filezilla).
+
+**Note:** This is an SFTP-only server (no shell). Editor remote features (VS Code Remote SSH, Zed Remote Projects) require a full shell and won't work. For editor integration, use WebDAV instead. A future `sshfs` mount could bridge this gap.
 
 ## Design
 

@@ -321,7 +321,9 @@ cadaver http://localhost:8484/dav/default/
 
 ## SSH/SFTP
 
-Access documents via SFTP over SSH — works with VS Code Remote SSH, Zed, and any SFTP client.
+Access documents via SFTP over SSH for CLI workflows, scripted uploads, and SFTP GUI clients (CyberDuck, Transmit, Filezilla). For editor integration, use WebDAV instead — it has native macOS support and no extra dependencies.
+
+**Note:** This is an SFTP-only server (no shell access). Editor remote features like VS Code Remote SSH and Zed Remote Projects require a full shell and won't work with this server.
 
 ### Configuration
 
@@ -354,32 +356,22 @@ sftp> get notes/todo.md
 sftp> put draft.md notes/draft.md
 ```
 
-### VS Code Remote SSH
-
-Add to `~/.ssh/config`:
-
-```
-Host knowhow
-    HostName localhost
-    Port 2222
-    User knowhow
-```
-
-Then in VS Code: `Remote-SSH: Connect to Host...` → `knowhow` → enter your API token as password. The vault appears as the remote workspace root.
-
-### Zed Remote Projects
-
-In Zed settings, add a remote project pointing to `ssh://knowhow@localhost:2222/default` (where `default` is your vault name).
-
 ### Example Prompts
 
 ```bash
-# "Enable SSH access so I can edit documents with VS Code Remote"
+# "Enable SSH access for CLI document management"
 KNOWHOW_SSH_ENABLED=true just dev
 
-# "Connect via SFTP and upload my notes"
+# "Upload my notes via SFTP"
 sftp -P 2222 user@localhost <<< "put mynotes.md default/mynotes.md"
+
+# "Batch download all docs from a vault"
+sftp -P 2222 user@localhost <<< "get -r default/"
 ```
+
+### Future: sshfs Mount
+
+Mounting vaults as local directories via `sshfs` would enable opening them in any editor (VS Code, Zed, etc.). This requires [macFUSE](https://osxfuse.github.io/) and `sshfs` (`brew install macfuse sshfs`). Not yet tested with this server.
 
 ## Agent Tool Approval (Human-in-the-Loop)
 
