@@ -117,7 +117,10 @@ func ApplySectionEdit(rawContent string, edit SectionEdit) (string, error) {
 
 	// Determine the frontmatter prefix. doc.Content is the content after
 	// frontmatter. We find where it starts in rawContent to extract the prefix.
-	fmPrefix := extractFrontmatterPrefix(rawContent, doc.Content)
+	fmPrefix, err := extractFrontmatterPrefix(rawContent, doc.Content)
+	if err != nil {
+		return "", fmt.Errorf("extract frontmatter: %w", err)
+	}
 
 	// Work with lines of the content-after-frontmatter
 	lines := strings.Split(doc.Content, "\n")
@@ -157,6 +160,9 @@ func validateEdit(edit SectionEdit) error {
 		if edit.NewHeading == "" {
 			return fmt.Errorf("new_heading is required for %s", edit.Operation)
 		}
+		if edit.Content == "" {
+			return fmt.Errorf("content is required for %s", edit.Operation)
+		}
 	case OpDelete:
 		if edit.Target == nil {
 			return fmt.Errorf("target is required for delete")
@@ -168,6 +174,9 @@ func validateEdit(edit SectionEdit) error {
 		if edit.NewHeading == "" {
 			return fmt.Errorf("new_heading is required for append")
 		}
+		if edit.Content == "" {
+			return fmt.Errorf("content is required for append")
+		}
 	default:
 		return fmt.Errorf("unknown operation: %s", edit.Operation)
 	}
@@ -177,11 +186,16 @@ func validateEdit(edit SectionEdit) error {
 // extractFrontmatterPrefix returns the frontmatter portion of rawContent
 // (everything before doc.Content), preserving exact formatting.
 // contentAfterFM is always a suffix of rawContent, so we slice by length.
-func extractFrontmatterPrefix(rawContent, contentAfterFM string) string {
+func extractFrontmatterPrefix(rawContent, contentAfterFM string) (string, error) {
 	if len(contentAfterFM) >= len(rawContent) {
-		return ""
+		return "", nil
 	}
-	return rawContent[:len(rawContent)-len(contentAfterFM)]
+	prefix := rawContent[:len(rawContent)-len(contentAfterFM)]
+	// Verify the invariant: rawContent = prefix + contentAfterFM
+	if !strings.HasSuffix(rawContent, contentAfterFM) {
+		return "", fmt.Errorf("content is not a suffix of raw content; frontmatter would be lost")
+	}
+	return prefix, nil
 }
 
 // lineRange is an inclusive-start, exclusive-end range of 0-based line indices.
@@ -218,6 +232,24 @@ func sectionLineRanges(lines []string, sections []Section) []lineRange {
 	}
 
 	return ranges
+}
+
+// deepSectionEnd returns the end line (exclusive) of a section including all
+// its child sections (subsections with strictly higher level numbers).
+// For the preamble (level 0), returns the shallow range since all headings
+// are children of the preamble in a markdown sense but we want to only
+// target the preamble text itself.
+func deepSectionEnd(sections []Section, ranges []lineRange, idx int) int {
+	level := sections[idx].Level
+	if level == 0 {
+		return ranges[idx].end
+	}
+	for j := idx + 1; j < len(sections); j++ {
+		if sections[j].Level > 0 && sections[j].Level <= level {
+			return ranges[j].start
+		}
+	}
+	return ranges[len(ranges)-1].end
 }
 
 // findSection resolves a SectionAddress to a section index.
@@ -290,6 +322,8 @@ func applyReplace(fmPrefix string, lines []string, ranges []lineRange, sections 
 
 	r := ranges[idx]
 	s := sections[idx]
+	// Use deep end to include all child sections in the replacement
+	deepEnd := deepSectionEnd(sections, ranges, idx)
 
 	var newLines []string
 	// Lines before this section
@@ -311,15 +345,15 @@ func applyReplace(fmPrefix string, lines []string, ranges []lineRange, sections 
 	}
 
 	// Ensure blank line before next section if there is one
-	if r.end < len(lines) {
+	if deepEnd < len(lines) {
 		// Add separator blank line if content doesn't end with one
 		if len(newLines) > 0 && strings.TrimSpace(newLines[len(newLines)-1]) != "" {
 			newLines = append(newLines, "")
 		}
 	}
 
-	// Lines after this section
-	newLines = append(newLines, lines[r.end:]...)
+	// Lines after this section (using deep end to skip child sections)
+	newLines = append(newLines, lines[deepEnd:]...)
 
 	return reassemble(fmPrefix, newLines), nil
 }

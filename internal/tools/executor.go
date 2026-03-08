@@ -128,6 +128,7 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 		parsed, parseErr := parser.ParseMarkdown(doc.ContentBody)
 		if parseErr != nil {
 			slog.Warn("failed to parse markdown for section outline", "path", input.Path, "error", parseErr)
+			fmt.Fprintf(&sb, "**Warning**: could not parse sections: %v\n\n", parseErr)
 		} else if len(parsed.Sections) > 0 {
 			outline := parser.SectionOutline(parsed)
 			sb.WriteString("## Sections\n")
@@ -380,6 +381,13 @@ func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, argumen
 	}
 	if args.Operation == "" {
 		return "", nil, fmt.Errorf("operation is required")
+	}
+	// Validate operation early before DB lookup
+	switch parser.SectionOperation(args.Operation) {
+	case parser.OpReplace, parser.OpInsertAfter, parser.OpInsertBefore, parser.OpDelete, parser.OpAppend:
+		// valid
+	default:
+		return "", nil, fmt.Errorf("unknown operation: %s", args.Operation)
 	}
 
 	existing, err := e.DB.GetDocumentByPath(ctx, vaultID, args.Path)

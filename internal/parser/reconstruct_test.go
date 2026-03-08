@@ -657,6 +657,137 @@ func TestApplySectionEdit_ErrorMissingNewHeading(t *testing.T) {
 	}
 }
 
+func TestApplySectionEdit_ReplaceIncludesChildSections(t *testing.T) {
+	content := "## Setup\n\nIntro text.\n\n### Prerequisites\n\nInstall Go.\n\n### Configuration\n\nConfig steps.\n\n## Usage\n\nUsage info."
+
+	result, err := ApplySectionEdit(content, SectionEdit{
+		Operation: OpReplace,
+		Target:    &SectionAddress{Heading: "Setup"},
+		Content:   "New setup content with everything included.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The replacement should include all child sections
+	if !strings.Contains(result, "## Setup") {
+		t.Error("heading should be preserved")
+	}
+	if !strings.Contains(result, "New setup content with everything included.") {
+		t.Error("new content should be present")
+	}
+	if strings.Contains(result, "Prerequisites") {
+		t.Error("child section Prerequisites should be replaced (deep replace)")
+	}
+	if strings.Contains(result, "Install Go.") {
+		t.Error("child section content should be replaced")
+	}
+	if strings.Contains(result, "Configuration") {
+		t.Error("child section Configuration should be replaced (deep replace)")
+	}
+	if strings.Contains(result, "Config steps.") {
+		t.Error("child section content should be replaced")
+	}
+	// Sibling section should be preserved
+	if !strings.Contains(result, "## Usage") {
+		t.Error("sibling Usage section should be preserved")
+	}
+	if !strings.Contains(result, "Usage info.") {
+		t.Error("Usage content should be preserved")
+	}
+}
+
+func TestApplySectionEdit_ReplaceDeepNestedChildren(t *testing.T) {
+	content := "# Top\n\nTop content.\n\n## Mid\n\nMid content.\n\n### Sub\n\nSub content.\n\n# Another Top\n\nAnother content."
+
+	result, err := ApplySectionEdit(content, SectionEdit{
+		Operation: OpReplace,
+		Target:    &SectionAddress{Heading: "Mid"},
+		Content:   "Replaced mid.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(result, "Sub content.") {
+		t.Error("nested child ### Sub should be replaced with parent ## Mid")
+	}
+	if !strings.Contains(result, "Replaced mid.") {
+		t.Error("new content should be present")
+	}
+	if !strings.Contains(result, "# Another Top") {
+		t.Error("sibling # Another Top should be preserved")
+	}
+}
+
+func TestApplySectionEdit_ErrorMissingContentForInsert(t *testing.T) {
+	_, err := ApplySectionEdit("## X\n\nContent.", SectionEdit{
+		Operation:  OpInsertAfter,
+		Target:     &SectionAddress{Heading: "X"},
+		NewHeading: "Y",
+		NewLevel:   2,
+		Content:    "",
+	})
+	if err == nil {
+		t.Error("expected error for empty content on insert_after")
+	}
+
+	_, err = ApplySectionEdit("## X\n\nContent.", SectionEdit{
+		Operation:  OpInsertBefore,
+		Target:     &SectionAddress{Heading: "X"},
+		NewHeading: "Y",
+		NewLevel:   2,
+		Content:    "",
+	})
+	if err == nil {
+		t.Error("expected error for empty content on insert_before")
+	}
+}
+
+func TestApplySectionEdit_ErrorMissingContentForAppend(t *testing.T) {
+	_, err := ApplySectionEdit("## X\n\nContent.", SectionEdit{
+		Operation:  OpAppend,
+		NewHeading: "Y",
+		NewLevel:   2,
+		Content:    "",
+	})
+	if err == nil {
+		t.Error("expected error for empty content on append")
+	}
+}
+
+func TestApplySectionEdit_RoundTrip(t *testing.T) {
+	// Verify structural integrity: parse → edit → parse should produce valid doc
+	content := "## Setup\n\nSetup content.\n\n## Usage\n\nUsage content."
+
+	result, err := ApplySectionEdit(content, SectionEdit{
+		Operation: OpReplace,
+		Target:    &SectionAddress{Heading: "Setup"},
+		Content:   "New setup.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-parse should succeed and have the right sections
+	doc, err := ParseMarkdown(result)
+	if err != nil {
+		t.Fatalf("re-parse failed: %v", err)
+	}
+
+	outline := SectionOutline(doc)
+	headings := make([]string, 0, len(outline))
+	for _, info := range outline {
+		if info.Level > 0 {
+			headings = append(headings, info.Heading)
+		}
+	}
+
+	if len(headings) != 2 || headings[0] != "Setup" || headings[1] != "Usage" {
+		t.Errorf("expected [Setup, Usage], got %v", headings)
+	}
+}
+
 func TestBuildSectionEdit(t *testing.T) {
 	heading := "Setup"
 	pos := 1

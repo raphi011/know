@@ -560,11 +560,11 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 
 // agentToolToCanonical maps agent-specific tool names to canonical executor names.
 var agentToolToCanonical = map[string]string{
-	"kb_search":            "search",
-	"read_document":        "read_document",
-	"list_labels":          "list_labels",
-	"list_folders":         "list_folders",
-	"list_folder_contents": "list_folder_contents",
+	"kb_search":             "search",
+	"read_document":         "read_document",
+	"list_labels":           "list_labels",
+	"list_folders":          "list_folders",
+	"list_folder_contents":  "list_folder_contents",
 	"create_document":       "create_document",
 	"edit_document":         "edit_document",
 	"edit_document_section": "edit_document_section",
