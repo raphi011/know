@@ -21,7 +21,6 @@ Use `just` for all build and test commands:
 # Build
 just build           # CLI binary
 just build-server    # GraphQL server
-just build-bootstrap # Bootstrap script
 just build-all       # All binaries
 just generate        # Regenerate gqlgen code
 
@@ -156,8 +155,7 @@ The WebDAV server at `/dav/{vaultName}/` allows editing documents with any WebDA
 
 ```
 cmd/knowhow-server/     # GraphQL server + web UI + WebDAV
-cmd/knowhow/            # CLI client (scrape command, uses GraphQL API)
-cmd/bootstrap/          # One-time script: creates user + vault + token
+cmd/knowhow/            # CLI client (scrape, config, dev seed)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -189,8 +187,8 @@ internal/
 - **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
 - **GraphQL**: schema at `internal/graph/schema.graphqls`, config at `gqlgen.yml`
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
-- **CLI uses GraphQL API**: `cmd/knowhow/` never connects directly to DB
-- **Bootstrap connects directly to DB**: `cmd/bootstrap/` is a one-time setup script
+- **CLI uses GraphQL API**: `scrape`/`config` commands communicate via GraphQL
+- **`dev` commands connect directly to DB**: `dev seed` bootstraps schema + user/vault/token
 
 ### Running
 

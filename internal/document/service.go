@@ -389,6 +389,14 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 		contentHash = *doc.ContentHash
 	}
 
+	// Synchronous cleanup — async cascade events are a safety net, not primary.
+	if err := s.db.DeleteWikiLinks(ctx, docID); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	if err := s.db.DeleteChunks(ctx, docID); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+
 	if err := s.db.DeleteDocument(ctx, docID); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
