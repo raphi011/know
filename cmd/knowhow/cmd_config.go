@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
@@ -19,10 +20,6 @@ var configCmd = &cobra.Command{
 
 func init() {
 	configCmd.Flags().BoolVar(&configJSON, "json", false, "output as JSON")
-}
-
-type serverConfigResponse struct {
-	ServerConfig serverConfig `json:"serverConfig"`
 }
 
 type serverConfig struct {
@@ -46,33 +43,15 @@ func runConfig(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	client := newGQLClient(apiURL, apiToken)
+	client := apiclient.New(apiURL, apiToken)
 
-	query := `query {
-		serverConfig {
-			llmProvider
-			llmModel
-			embedProvider
-			embedModel
-			embedDimension
-			semanticSearchEnabled
-			agentChatEnabled
-			webSearchEnabled
-			chunkThreshold
-			chunkTargetSize
-			chunkMaxSize
-			versionCoalesceMinutes
-			versionRetentionCount
-		}
-	}`
-
-	var resp serverConfigResponse
-	if err := client.Do(context.Background(), query, nil, &resp); err != nil {
+	var cfg serverConfig
+	if err := client.Get(context.Background(), "/api/config", &cfg); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
 	if configJSON {
-		out, err := json.MarshalIndent(resp.ServerConfig, "", "  ")
+		out, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
 			return fmt.Errorf("config: marshal json: %w", err)
 		}
@@ -80,21 +59,20 @@ func runConfig(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	c := resp.ServerConfig
 	rows := []struct{ label, value string }{
-		{"LLM Provider", c.LLMProvider},
-		{"LLM Model", c.LLMModel},
-		{"Embed Provider", c.EmbedProvider},
-		{"Embed Model", c.EmbedModel},
-		{"Embed Dimension", strconv.Itoa(c.EmbedDimension)},
-		{"Semantic Search", strconv.FormatBool(c.SemanticSearchEnabled)},
-		{"Agent Chat", strconv.FormatBool(c.AgentChatEnabled)},
-		{"Web Search", strconv.FormatBool(c.WebSearchEnabled)},
-		{"Chunk Threshold", strconv.Itoa(c.ChunkThreshold)},
-		{"Chunk Target Size", strconv.Itoa(c.ChunkTargetSize)},
-		{"Chunk Max Size", strconv.Itoa(c.ChunkMaxSize)},
-		{"Version Coalesce (min)", strconv.Itoa(c.VersionCoalesceMinutes)},
-		{"Version Retention", strconv.Itoa(c.VersionRetentionCount)},
+		{"LLM Provider", cfg.LLMProvider},
+		{"LLM Model", cfg.LLMModel},
+		{"Embed Provider", cfg.EmbedProvider},
+		{"Embed Model", cfg.EmbedModel},
+		{"Embed Dimension", strconv.Itoa(cfg.EmbedDimension)},
+		{"Semantic Search", strconv.FormatBool(cfg.SemanticSearchEnabled)},
+		{"Agent Chat", strconv.FormatBool(cfg.AgentChatEnabled)},
+		{"Web Search", strconv.FormatBool(cfg.WebSearchEnabled)},
+		{"Chunk Threshold", strconv.Itoa(cfg.ChunkThreshold)},
+		{"Chunk Target Size", strconv.Itoa(cfg.ChunkTargetSize)},
+		{"Chunk Max Size", strconv.Itoa(cfg.ChunkMaxSize)},
+		{"Version Coalesce (min)", strconv.Itoa(cfg.VersionCoalesceMinutes)},
+		{"Version Retention", strconv.Itoa(cfg.VersionRetentionCount)},
 	}
 
 	for _, r := range rows {

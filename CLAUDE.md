@@ -1,6 +1,6 @@
 # Knowhow
 
-An MCP (Model Context Protocol) server in Go that provides a persistent knowledge layer for AI agents, backed by SurrealDB. Includes a Go Templ + HTMX web frontend and a WebDAV server for document editing.
+An MCP (Model Context Protocol) server in Go that provides a persistent knowledge layer for AI agents, backed by SurrealDB. Includes a bubbletea v2 TUI for agent chat and a WebDAV server for document editing.
 
 ## Project Status
 
@@ -8,8 +8,8 @@ This project is in active development with no production users. **Don't worry ab
 
 ## Tech Stack
 
-- **Backend**: Go, GraphQL (gqlgen), SurrealDB
-- **Frontend**: Go Templ + HTMX, Tailwind CSS (server-rendered, no JS framework)
+- **Backend**: Go, REST API, SurrealDB
+- **TUI**: Bubbletea v2, Bubbles v2, Glamour, Lipgloss v2
 - **WebDAV**: `golang.org/x/net/webdav` for document editing with any editor
 - **Protocol**: MCP (Model Context Protocol)
 
@@ -20,9 +20,8 @@ Use `just` for all build and test commands:
 ```bash
 # Build
 just build           # CLI binary
-just build-server    # GraphQL server
+just build-server    # Server binary
 just build-all       # All binaries
-just generate        # Regenerate gqlgen code
 
 # Run
 just bootstrap       # Wipe DB + create user/vault/token from env var defaults
@@ -75,24 +74,23 @@ return fmt.Errorf("create document: %w", err)
 - `fmt.Errorf("Create vault: %w", err)` — wrong
 - Proper nouns and acronyms that are normally capitalized (e.g. `KNOWHOW_BEDROCK_*`, `HTTP 500`) are fine
 
-## GraphQL Code Generation
+## REST API
 
-After modifying `internal/graph/schema.graphqls`, regenerate the GraphQL code:
+The server exposes a REST API at `/api/` for CLI and TUI communication:
 
-```bash
-just generate
-```
+- `GET /api/vaults` — list accessible vaults
+- `GET /api/conversations?vault={id}` — list conversations
+- `GET /api/conversations/{id}` — get conversation with messages
+- `POST /api/conversations` — create conversation
+- `DELETE /api/conversations/{id}` — delete conversation
+- `PATCH /api/conversations/{id}` — rename conversation
+- `GET /api/documents?vault={id}&path={path}` — get document by vault+path
+- `POST /api/documents` — create/update document
+- `GET /api/config` — server configuration
 
-### Generation Tips
-
-1. **Helper functions**: Conversion helpers (like `entityToGraphQL`, `serviceJobToGraphQL`) live in `internal/graph/helpers.go` - NOT in `schema.resolvers.go`. gqlgen will move any helper functions from resolvers to a commented block during regeneration.
-
-2. **Generation order**: When adding new GraphQL types that require new helper functions:
-   - First: Update `schema.graphqls` with new fields/types
-   - Second: Add/update helpers in `helpers.go`
-   - Third: Run `just generate`
-   - Fourth: Update resolver code in `schema.resolvers.go` to use the new helpers
-   - Fifth: Verify with `just build-all && just test`
+Agent endpoints (SSE streaming):
+- `POST /agent/chat` — send message, receive SSE stream
+- `POST /agent/approval` — approve/reject tool calls
 
 ## Documentation
 
@@ -114,36 +112,6 @@ Available docs:
 - `docs/docker.md` - Docker Compose, Colima, SurrealDB v3 image gotchas
 - `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
 - `docs/sse.md` - Server-Sent Events, event bus, live updates
-- `docs/templ.md` - Go Templ patterns, component composition, rendering
-- `docs/htmx.md` - HTMX attributes, partials, SSE extension
-- `docs/tailwind-css.md` - Tailwind v4, semantic tokens, dark mode, build
-
-## Web Frontend (Templ + HTMX)
-
-The web frontend is server-rendered Go using [Templ](https://templ.guide/) templates and [HTMX](https://htmx.org/) for interactivity. No JS build step, no Node.js.
-
-### Key Files
-
-- `internal/web/handler.go` — HTTP handlers (login, doc view, settings, HTMX partials)
-- `internal/web/sidebar.go` — sidebar tree builder
-- `internal/web/session.go` — in-memory session store (`sync.Map`, mutex-protected fields)
-- `internal/web/middleware.go` — session middleware, `SessionFromContext`
-- `internal/web/csrf.go` — CSRF protection via Origin/Referer checking
-- `internal/web/render.go` — goldmark markdown renderer (GFM, no unsafe HTML)
-- `internal/web/i18n.go` — embedded JSON i18n (EN/DE), `T(locale)` function
-- `internal/web/templates/` — Templ components (pages, partials, components)
-- `internal/web/static/` — embedded static assets (CSS, JS)
-- `internal/web/messages/` — i18n JSON files
-
-### Architecture
-
-- **Templates**: Templ generates Go code from `.templ` files. Run `templ generate` after editing templates
-- **HTMX partials**: `GET /hx/*` endpoints return HTML fragments for in-page swaps
-- **SSE**: `GET /hx/doc/events` streams live document updates via Server-Sent Events (event bus)
-- **Auth**: Token validated via `auth.ValidateToken()` → in-memory session → `kh_sid` cookie
-- **CSRF**: Origin/Referer header check on all POST endpoints
-- **Buffered rendering**: HTMX partial handlers use `renderBuffered()` to prevent partial HTML on errors
-- **i18n**: `messages/en.json` and `messages/de.json`, accessed via `T(locale)("key")`
 
 ### WebDAV
 
@@ -154,8 +122,8 @@ The WebDAV server at `/dav/{vaultName}/` allows editing documents with any WebDA
 ### Project Structure
 
 ```
-cmd/knowhow-server/     # GraphQL server + web UI + WebDAV
-cmd/knowhow/            # CLI client (scrape, config, dev seed)
+cmd/knowhow-server/     # REST API server + WebDAV + MCP + SSH
+cmd/knowhow/            # CLI client (scrape, config, ui, dev seed)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -164,16 +132,15 @@ internal/
 ├── search/             # Hybrid BM25 + vector search with RRF fusion
 ├── template/           # Template CRUD
 ├── auth/               # Token auth, ValidateToken, AuthContext
-├── graph/              # GraphQL schema, resolvers, gqlgen config
+├── server/             # Application bootstrap (DB, embedder, LLM, services)
+├── api/                # REST API handlers (conversations, vaults, documents, config)
+├── apiclient/          # Lightweight REST client for CLI/TUI
+├── tui/                # Bubbletea v2 terminal UI (chat, conversations)
 ├── parser/             # Markdown parsing, wiki-link extraction, chunking
 ├── llm/                # LLM/embedding provider abstraction
 ├── config/             # Configuration loading
 ├── metrics/            # Metrics collection
 ├── event/              # In-process event bus (SSE change notifications)
-├── web/                # Templ + HTMX web frontend
-│   ├── templates/      # Templ components (pages, partials, components)
-│   ├── static/         # Embedded CSS/JS assets
-│   └── messages/       # i18n JSON files (en, de)
 ├── webdav/             # WebDAV filesystem backed by document service
 └── integration/        # Full lifecycle integration tests
 ```
@@ -185,9 +152,9 @@ internal/
 - **Record ID normalization**: DB queries use `type::record("vault", $id)` which expects a bare ID (`"default"`), not a prefixed one (`"vault:default"`). The `bareID(table, id)` helper in `internal/db/helpers.go` strips the prefix so callers can pass either format
 - **Embedder is optional**: `nil` embedder disables AI features gracefully
 - **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
-- **GraphQL**: schema at `internal/graph/schema.graphqls`, config at `gqlgen.yml`
+- **REST API**: JSON endpoints at `/api/`, auth via `Authorization: Bearer` header
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
-- **CLI uses GraphQL API**: `scrape`/`config` commands communicate via GraphQL
+- **CLI uses REST API**: `scrape`/`config`/`ui` commands communicate via REST
 - **`dev` commands connect directly to DB**: `dev seed` bootstraps schema + user/vault/token
 
 ### Running
@@ -196,24 +163,30 @@ internal/
 # 1. Bootstrap (starts SurrealDB, wipes, creates user/vault/token from justfile defaults)
 just bootstrap
 
-# 2. Start server (includes web UI at /login)
+# 2. Start server
 just dev
 
 # 3. Scrape documents (KNOWHOW_TOKEN is set by justfile)
 just run scrape ./docs --vault vault:default
+
+# 4. Launch TUI
+just run ui
 ```
 
 ## Bubbletea v2 TUI
 
-This project uses **bubbletea v2** for terminal UIs. Use the `bubbletea` subagent for TUI implementation.
+The TUI at `internal/tui/` provides agent chat via `knowhow ui`. Use the `bubbletea` subagent for TUI implementation.
 
 ### Import Paths (v2)
 
 ```go
 import (
-    "charm.land/bubbles/v2/progress"
+    "charm.land/bubbles/v2/list"
+    "charm.land/bubbles/v2/viewport"
+    "charm.land/bubbles/v2/textinput"
     tea "charm.land/bubbletea/v2"
-    "github.com/charmbracelet/lipgloss"  // lipgloss stays at v1
+    lipgloss "charm.land/lipgloss/v2"
+    "github.com/charmbracelet/glamour"
 )
 ```
 
@@ -222,3 +195,14 @@ import (
 - `View()` returns `tea.View`, use `tea.NewView(content)` wrapper
 - `tea.KeyMsg` → `tea.KeyPressMsg`
 - `Init()` returns `tea.Cmd` only (not `(Model, Cmd)`)
+- Alt screen via `View.AltScreen = true` (not program option)
+- Lipgloss moved to `charm.land/lipgloss/v2`
+
+### TUI Package Structure
+
+- `app.go` — Root model with split-pane layout
+- `conversations.go` — Left pane: conversation list (bubbles/v2 list)
+- `chat.go` — Right pane: viewport + text input + glamour rendering
+- `client.go` — REST client wrapper with SSE stream reader
+- `styles.go` — Lipgloss v2 styles
+- `keys.go` — Key binding definitions

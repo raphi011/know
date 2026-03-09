@@ -1,5 +1,5 @@
 // Package main provides the CLI for Knowhow.
-// Most commands communicate with the server via GraphQL API;
+// Most commands communicate with the server via REST API;
 // dev commands connect directly to SurrealDB.
 package main
 
@@ -30,7 +30,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("KNOWHOW_SERVER_URL", "http://localhost:4001/query"), "GraphQL API URL")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("KNOWHOW_SERVER_URL", "http://localhost:4001"), "REST API base URL")
 	rootCmd.PersistentFlags().StringVar(&apiToken, "token", os.Getenv("KNOWHOW_TOKEN"), "API bearer token")
 }
 
@@ -47,6 +47,7 @@ func main() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(devCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(uiCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
