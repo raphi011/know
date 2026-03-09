@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -69,13 +70,14 @@ func (c *Client) ListVaults(ctx context.Context) ([]api.Vault, error) {
 }
 
 // StreamEvent represents a server-sent event from the agent chat endpoint.
+// Field names and types must match the server's agent.StreamEvent JSON output.
 type StreamEvent struct {
-	Type    string `json:"type"`
+	Type    string `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_end" | "conv_id" | "error"
 	Content string `json:"content,omitempty"`
-	// Additional fields for tool events
-	ToolName string `json:"toolName,omitempty"`
-	CallID   string `json:"callId,omitempty"`
-	Diff     string `json:"diff,omitempty"`
+	ConvID  string `json:"convId,omitempty"`
+	Tool    string `json:"tool,omitempty"`
+	CallID  string `json:"callId,omitempty"`
+	Diff    string `json:"diff,omitempty"`
 }
 
 // Chat sends a message and returns a channel of SSE events.
@@ -126,12 +128,19 @@ func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content stri
 			data := strings.TrimPrefix(line, "data: ")
 			var event StreamEvent
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
+				slog.Debug("SSE event unmarshal failed", "data", data, "error", err)
 				continue
 			}
 			select {
 			case ch <- event:
 			case <-ctx.Done():
 				return
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			select {
+			case ch <- StreamEvent{Type: "error", Content: fmt.Sprintf("stream read error: %v", err)}:
+			case <-ctx.Done():
 			}
 		}
 	}()

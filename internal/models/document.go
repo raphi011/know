@@ -39,6 +39,7 @@ type Document struct {
 	SourcePath    *string                `json:"source_path,omitempty"`
 	ContentHash   *string                `json:"content_hash,omitempty"`
 	Metadata      map[string]any         `json:"metadata,omitempty"`
+	Processed     bool                   `json:"processed"`
 	CreatedAt     time.Time              `json:"created_at"`
 	UpdatedAt     time.Time              `json:"updated_at"`
 }

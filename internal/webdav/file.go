@@ -58,9 +58,8 @@ type writeFile struct {
 	name       string
 	vaultID    string
 	docService *document.Service
-	buf        bytes.Buffer
-	modTime    time.Time
-	written    bool
+	buf     bytes.Buffer
+	modTime time.Time
 }
 
 func newWriteFile(name, vaultID string, docService *document.Service, initial []byte, modTime time.Time) *writeFile {
@@ -82,16 +81,14 @@ func (f *writeFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInva
 func (f *writeFile) Seek(int64, int) (int64, error)     { return 0, os.ErrPermission }
 
 func (f *writeFile) Write(p []byte) (int, error) {
-	f.written = true
 	return f.buf.Write(p)
 }
 
-// Close triggers the document pipeline if content was written.
+// Close persists the document. Finder sends an initial PUT with
+// Content-Length=0 to "claim" the file, then verifies with PROPFIND.
+// We must create the document even when empty, otherwise PROPFIND → 404
+// triggers Finder error -43.
 func (f *writeFile) Close() error {
-	if !f.written {
-		return nil
-	}
-
 	content := f.buf.String()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

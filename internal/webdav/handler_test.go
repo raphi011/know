@@ -25,8 +25,8 @@ func TestHandler_OSMetadataFastPath(t *testing.T) {
 		// PUT on ._ files should return 201 (accepted, discarded)
 		{"PUT", "/dav/somevault/._file.md", http.StatusCreated},
 		{"PUT", "/dav/somevault/.DS_Store", http.StatusCreated},
-		// LOCK on ._ files should return 200
-		{"LOCK", "/dav/somevault/._file.md", http.StatusOK},
+		// LOCK on ._ files should return 423 (rejected)
+		{"LOCK", "/dav/somevault/._file.md", http.StatusLocked},
 		// UNLOCK on ._ files should return 204
 		{"UNLOCK", "/dav/somevault/._file.md", http.StatusNoContent},
 		// DELETE on ._ files should return 204

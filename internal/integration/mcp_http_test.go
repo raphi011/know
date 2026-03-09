@@ -20,7 +20,7 @@ import (
 
 // setupMCPServer creates a vault, executor, MCP handler, and httptest.Server.
 // Auth is bypassed via NoAuthMiddleware.
-func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string) {
+func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *document.Service) {
 	t.Helper()
 	ctx := context.Background()
 	vaultID, _ := setupVault(t, ctx, "mcp-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
@@ -40,7 +40,7 @@ func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	srv := httptest.NewServer(wrappedHandler)
 	t.Cleanup(srv.Close)
 
-	return srv, vaultID
+	return srv, vaultID, docSvc
 }
 
 // connectMCPClient creates an MCP client session connected to the given server.
@@ -71,7 +71,7 @@ func connectMCPClient(t *testing.T, ctx context.Context, srv *httptest.Server) *
 }
 
 func TestMCP_ListTools(t *testing.T) {
-	srv, _ := setupMCPServer(t, "list-tools")
+	srv, _, _ := setupMCPServer(t, "list-tools")
 	ctx := context.Background()
 	session := connectMCPClient(t, ctx, srv)
 
@@ -107,7 +107,7 @@ func TestMCP_ListTools(t *testing.T) {
 }
 
 func TestMCP_CreateAndGetDocument(t *testing.T) {
-	srv, _ := setupMCPServer(t, "create-get")
+	srv, _, _ := setupMCPServer(t, "create-get")
 	ctx := context.Background()
 	session := connectMCPClient(t, ctx, srv)
 
@@ -152,7 +152,7 @@ func TestMCP_CreateAndGetDocument(t *testing.T) {
 }
 
 func TestMCP_SearchDocuments(t *testing.T) {
-	srv, _ := setupMCPServer(t, "search")
+	srv, _, docSvc := setupMCPServer(t, "search")
 	ctx := context.Background()
 	session := connectMCPClient(t, ctx, srv)
 
@@ -166,6 +166,10 @@ func TestMCP_SearchDocuments(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
+	}
+
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
 	}
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -186,7 +190,7 @@ func TestMCP_SearchDocuments(t *testing.T) {
 }
 
 func TestMCP_EditDocumentSection(t *testing.T) {
-	srv, _ := setupMCPServer(t, "edit-section")
+	srv, _, _ := setupMCPServer(t, "edit-section")
 	ctx := context.Background()
 	session := connectMCPClient(t, ctx, srv)
 
@@ -239,7 +243,7 @@ func TestMCP_EditDocumentSection(t *testing.T) {
 }
 
 func TestMCP_ErrorHandling(t *testing.T) {
-	srv, _ := setupMCPServer(t, "errors")
+	srv, _, _ := setupMCPServer(t, "errors")
 	ctx := context.Background()
 	session := connectMCPClient(t, ctx, srv)
 

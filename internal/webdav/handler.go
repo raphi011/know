@@ -56,7 +56,7 @@ func NewHandler(
 		vaultName := parts[0]
 
 		// Fast-path: short-circuit OS metadata files (._*, .DS_Store) before auth.
-		// These are 54% of Finder's requests and never touch real data.
+		// The majority of Finder's requests are OS metadata files that never touch real data.
 		filePath := ""
 		if len(parts) > 1 {
 			filePath = "/" + parts[1]
@@ -66,11 +66,14 @@ func NewHandler(
 			case "PROPFIND", http.MethodGet, http.MethodHead:
 				http.Error(w, "not found", http.StatusNotFound)
 			case http.MethodPut:
-				// Drain body so connection stays clean for keep-alive
-				io.Copy(io.Discard, r.Body)
+				// Drain body so connection stays clean for keep-alive.
+				// Error is harmless: body is discarded and connection may just close.
+				_, _ = io.Copy(io.Discard, r.Body)
 				w.WriteHeader(http.StatusCreated)
 			case "LOCK":
-				w.WriteHeader(http.StatusOK)
+				// Reject lock on metadata files — returning 423 tells clients
+				// locking is not available, which they handle gracefully.
+				w.WriteHeader(http.StatusLocked)
 			case "UNLOCK", http.MethodDelete:
 				w.WriteHeader(http.StatusNoContent)
 			default:

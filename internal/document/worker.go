@@ -15,7 +15,17 @@ type EmbeddingWorker struct {
 }
 
 // NewEmbeddingWorker creates a worker that polls for pending chunk embeddings.
+// Panics if service is nil, interval <= 0, or batchSize <= 0 (programmer errors).
 func NewEmbeddingWorker(service *Service, interval time.Duration, batchSize int) *EmbeddingWorker {
+	if service == nil {
+		panic("EmbeddingWorker: nil service")
+	}
+	if interval <= 0 {
+		panic("EmbeddingWorker: interval must be positive")
+	}
+	if batchSize <= 0 {
+		panic("EmbeddingWorker: batchSize must be positive")
+	}
 	return &EmbeddingWorker{
 		service:  service,
 		interval: interval,
@@ -75,7 +85,7 @@ func (w *EmbeddingWorker) runLoop(ctx context.Context) (stopped bool) {
 func (w *EmbeddingWorker) tick(ctx context.Context) {
 	n, err := w.service.EmbedPendingChunks(ctx, w.batch)
 	if err != nil {
-		slog.Warn("embedding worker error", "error", err)
+		slog.Error("embedding worker error", "error", err)
 		return
 	}
 	if n > 0 {

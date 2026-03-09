@@ -33,7 +33,8 @@ var (
 
 	// Chat styles
 	userMsgStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF"))
+			Foreground(lipgloss.Color("#FFFFFF")).
+			PaddingLeft(2)
 
 	assistantMsgStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#D1D5DB"))

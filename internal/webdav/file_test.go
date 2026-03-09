@@ -143,10 +143,5 @@ func TestDirFile(t *testing.T) {
 	}
 }
 
-func TestWriteFile_NoWriteNoSave(t *testing.T) {
-	// A writeFile that is never written to should not trigger save on Close
-	wf := newWriteFile("/test.md", "vault:default", nil, nil, time.Now())
-	if err := wf.Close(); err != nil {
-		t.Errorf("Close() without writes should not error: %v", err)
-	}
-}
+// writeFile.Close() empty-PUT behavior (Finder error -43 fix) is tested via
+// integration tests — writeFile depends on *document.Service which requires DB.

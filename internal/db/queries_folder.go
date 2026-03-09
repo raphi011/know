@@ -37,9 +37,9 @@ func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (
 	return &(*results)[0].Result[0], nil
 }
 
-// EnsureFolders idempotently creates all ancestor folders for a document path.
+// EnsureFolders idempotently creates all ancestor folders for a document path,
+// caching recent calls to skip redundant DB round-trips (60s TTL).
 // For example, given "/guides/sub/file.md", it creates "/guides" and "/guides/sub".
-// All folders are inserted in a single batched query to avoid N+1 round-trips.
 func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) error {
 	docPath = models.NormalizePath(docPath)
 	dir := path.Dir(docPath)
@@ -50,7 +50,7 @@ func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) err
 	// Check cache — skip DB call if this folder was recently ensured
 	cacheKey := vaultID + ":" + dir
 	if expiry, ok := c.folderCache.Load(cacheKey); ok {
-		if expiry.(time.Time).After(time.Now()) {
+		if t, ok := expiry.(time.Time); ok && t.After(time.Now()) {
 			return nil
 		}
 		c.folderCache.Delete(cacheKey)
@@ -180,10 +180,14 @@ func (c *Client) DeleteFoldersByPrefix(ctx context.Context, vaultID, prefix stri
 }
 
 // InvalidateFolderCache removes cached folder entries for a vault+path prefix.
+// Scans all cached entries (expected to be small — one entry per recently-used folder).
 func (c *Client) InvalidateFolderCache(vaultID, folderPath string) {
+	prefix := vaultID + ":" + folderPath
 	c.folderCache.Range(func(key, _ any) bool {
-		k := key.(string)
-		prefix := vaultID + ":" + folderPath
+		k, ok := key.(string)
+		if !ok {
+			return true
+		}
 		if k == prefix || strings.HasPrefix(k, prefix+"/") {
 			c.folderCache.Delete(key)
 		}
