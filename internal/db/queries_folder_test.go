@@ -185,6 +185,40 @@ func TestDeleteFoldersByPrefix(t *testing.T) {
 	}
 }
 
+func TestEnsureFolders_CachesRecentCalls(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	docPath := "/" + t.Name() + "/sub/doc.md"
+
+	// First call should succeed (hits DB)
+	if err := testDB.EnsureFolders(ctx, vaultID, docPath); err != nil {
+		t.Fatalf("first EnsureFolders: %v", err)
+	}
+
+	// Verify folders were created
+	folders, err := testDB.ListFolders(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("list folders: %v", err)
+	}
+	if len(folders) == 0 {
+		t.Fatal("expected folders after EnsureFolders")
+	}
+
+	// Second call for same path should succeed (from cache)
+	if err := testDB.EnsureFolders(ctx, vaultID, docPath); err != nil {
+		t.Fatalf("second EnsureFolders (cached): %v", err)
+	}
+
+	// Call for different file in same dir should also be cached
+	if err := testDB.EnsureFolders(ctx, vaultID, "/"+t.Name()+"/sub/other.md"); err != nil {
+		t.Fatalf("third EnsureFolders (same dir, cached): %v", err)
+	}
+}
+
 func TestMoveFoldersByPrefix(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

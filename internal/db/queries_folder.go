@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -45,7 +46,23 @@ func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) err
 	if dir == "/" || dir == "." {
 		return nil // root-level document, no folders to create
 	}
-	return c.EnsureFolderPath(ctx, vaultID, dir)
+
+	// Check cache — skip DB call if this folder was recently ensured
+	cacheKey := vaultID + ":" + dir
+	if expiry, ok := c.folderCache.Load(cacheKey); ok {
+		if expiry.(time.Time).After(time.Now()) {
+			return nil
+		}
+		c.folderCache.Delete(cacheKey)
+	}
+
+	if err := c.EnsureFolderPath(ctx, vaultID, dir); err != nil {
+		return err
+	}
+
+	// Cache for 60 seconds
+	c.folderCache.Store(cacheKey, time.Now().Add(60*time.Second))
+	return nil
 }
 
 // EnsureFolderPath idempotently creates a folder and all its ancestors.
@@ -162,10 +179,23 @@ func (c *Client) DeleteFoldersByPrefix(ctx context.Context, vaultID, prefix stri
 	return c.deleteFolderTree(ctx, vaultID, folderPath)
 }
 
+// InvalidateFolderCache removes cached folder entries for a vault+path prefix.
+func (c *Client) InvalidateFolderCache(vaultID, folderPath string) {
+	c.folderCache.Range(func(key, _ any) bool {
+		k := key.(string)
+		prefix := vaultID + ":" + folderPath
+		if k == prefix || strings.HasPrefix(k, prefix+"/") {
+			c.folderCache.Delete(key)
+		}
+		return true
+	})
+}
+
 // deleteFolderTree deletes a folder and all its children in a transaction.
 // Two statements are needed because SurrealDB v3 doesn't support parenthesized OR in WHERE.
 // Returns the total number of deleted folders.
 func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath string) (int, error) {
+	c.InvalidateFolderCache(vaultID, folderPath)
 	prefix := folderPath + "/"
 	vars := map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -204,6 +234,10 @@ func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath strin
 func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newPath string) (int, error) {
 	oldFolderPath := strings.TrimSuffix(oldPath, "/")
 	newFolderPath := strings.TrimSuffix(newPath, "/")
+
+	c.InvalidateFolderCache(vaultID, oldFolderPath)
+	c.InvalidateFolderCache(vaultID, newFolderPath)
+
 	oldPrefix := oldFolderPath + "/"
 	newPrefix := newFolderPath + "/"
 
