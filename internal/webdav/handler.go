@@ -39,6 +39,10 @@ func NewHandler(
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always advertise WebDAV compliance so clients (e.g. macOS Finder)
+		// recognise this as a WebDAV endpoint before authenticating.
+		w.Header().Set("DAV", "1, 2")
+
 		// Extract vault name from URL: /dav/{vaultName}/...
 		trimmed := strings.TrimPrefix(r.URL.Path, pathPrefix)
 		parts := strings.SplitN(trimmed, "/", 2)
