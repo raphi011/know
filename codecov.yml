@@ -1,0 +1,47 @@
+codecov:
+  require_ci_to_pass: true
+
+comment:
+  layout: "reach,diff,flags"
+  behavior: default         # post on every PR
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto        # no regression vs base
+        threshold: 1%       # allow 1% drop
+    patch:
+      default:
+        target: 80%         # new code should be well-tested
+
+flag_management:
+  default_rules:
+    carryforward: true
+
+flags:
+  go:
+    paths:
+      - cmd/
+      - internal/
+    carryforward: true
+  ios:
+    paths:
+      - ios/
+    carryforward: true
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+  individual_components:
+    - component_id: go
+      name: Go (Backend + Web)
+      paths:
+        - cmd/**
+        - internal/**
+    - component_id: ios
+      name: iOS App
+      paths:
+        - ios/**

@@ -1,0 +1,49 @@
+name: CI — iOS
+
+on:
+  workflow_dispatch: {}  # manual trigger only for now
+  # Uncomment below to enable on PRs:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "ios/**"
+  #     - ".github/workflows/ci-ios.yml"
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - "ios/**"
+  #     - ".github/workflows/ci-ios.yml"
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+
+      - name: Run tests with coverage
+        run: |
+          xcodebuild test \
+            -project ios/Knowhow.xcodeproj \
+            -scheme Knowhow \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -enableCodeCoverage YES \
+            -resultBundlePath ios/TestResults.xcresult
+
+      - name: Convert xcresult to lcov
+        run: |
+          xcrun xcresulttool export \
+            --type cobertura \
+            --path ios/TestResults.xcresult \
+            --output-path ios/coverage.xml
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ios/coverage.xml
+          flags: ios
+          token: ${{ secrets.CODECOV_TOKEN }}
