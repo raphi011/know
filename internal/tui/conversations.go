@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -50,7 +51,7 @@ func (d conversationDelegate) Render(w io.Writer, m list.Model, index int, item 
 			Render("▸ "+title))
 	} else {
 		fmt.Fprint(w, lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D1D5DB")).
+			Foreground(mutedColor).
 			Render("  "+title))
 	}
 }
@@ -60,11 +61,13 @@ type conversationList struct {
 	list    list.Model
 	client  *Client
 	vaultID string
+	ctx     context.Context
 	width   int
 	height  int
+	errMsg  string
 }
 
-func newConversationList(client *Client, vaultID string) conversationList {
+func newConversationList(ctx context.Context, client *Client, vaultID string) conversationList {
 	l := list.New(nil, conversationDelegate{}, 0, 0)
 	l.Title = "Conversations"
 	l.SetShowStatusBar(false)
@@ -76,6 +79,7 @@ func newConversationList(client *Client, vaultID string) conversationList {
 		list:    l,
 		client:  client,
 		vaultID: vaultID,
+		ctx:     ctx,
 	}
 }
 
@@ -98,18 +102,20 @@ type conversationDeletedMsg struct {
 
 func (cl *conversationList) fetchConversations() tea.Cmd {
 	client := cl.client
+	ctx := cl.ctx
 	vaultID := cl.vaultID
 	return func() tea.Msg {
-		convs, err := client.ListConversations(context.Background(), vaultID)
+		convs, err := client.ListConversations(ctx, vaultID)
 		return fetchConversationsMsg{convs: convs, err: err}
 	}
 }
 
 func (cl *conversationList) createConversation() tea.Cmd {
 	client := cl.client
+	ctx := cl.ctx
 	vaultID := cl.vaultID
 	return func() tea.Msg {
-		conv, err := client.CreateConversation(context.Background(), vaultID)
+		conv, err := client.CreateConversation(ctx, vaultID)
 		return conversationCreatedMsg{conv: conv, err: err}
 	}
 }
@@ -120,9 +126,10 @@ func (cl *conversationList) deleteSelected() tea.Cmd {
 		return nil
 	}
 	client := cl.client
+	ctx := cl.ctx
 	id := item.conv.ID
 	return func() tea.Msg {
-		return conversationDeletedMsg{err: client.DeleteConversation(context.Background(), id)}
+		return conversationDeletedMsg{err: client.DeleteConversation(ctx, id)}
 	}
 }
 
@@ -145,8 +152,11 @@ func (cl *conversationList) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case fetchConversationsMsg:
 		if msg.err != nil {
+			cl.errMsg = fmt.Sprintf("Fetch failed: %v", msg.err)
+			slog.Warn("failed to fetch conversations", "error", msg.err)
 			return nil
 		}
+		cl.errMsg = ""
 		items := make([]list.Item, len(msg.convs))
 		for i := range msg.convs {
 			items[i] = conversationItem{conv: msg.convs[i]}
@@ -155,14 +165,20 @@ func (cl *conversationList) update(msg tea.Msg) tea.Cmd {
 
 	case conversationCreatedMsg:
 		if msg.err != nil {
+			cl.errMsg = fmt.Sprintf("Create failed: %v", msg.err)
+			slog.Warn("failed to create conversation", "error", msg.err)
 			return nil
 		}
+		cl.errMsg = ""
 		return cl.fetchConversations()
 
 	case conversationDeletedMsg:
 		if msg.err != nil {
+			cl.errMsg = fmt.Sprintf("Delete failed: %v", msg.err)
+			slog.Warn("failed to delete conversation", "error", msg.err)
 			return nil
 		}
+		cl.errMsg = ""
 		return cl.fetchConversations()
 	}
 
@@ -172,6 +188,12 @@ func (cl *conversationList) update(msg tea.Msg) tea.Cmd {
 }
 
 func (cl *conversationList) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Clear error on ESC
+	if key.Matches(msg, keys.Escape) && cl.errMsg != "" {
+		cl.errMsg = ""
+		return nil, true
+	}
+
 	switch {
 	case key.Matches(msg, keys.NewConv):
 		return cl.createConversation(), true
@@ -189,8 +211,12 @@ func (cl *conversationList) view(active bool) string {
 
 	content := cl.list.View()
 
-	// Add help at bottom
-	help := helpStyle.Render("n:new  d:del  tab:switch")
+	// Add error + help at bottom
+	var footer string
+	if cl.errMsg != "" {
+		footer = errorMsgStyle.Render(cl.errMsg) + "\n"
+	}
+	footer += helpStyle.Render("n:new  d:del  tab:switch")
 
 	// Calculate available content height
 	availH := cl.height - 4 // border + help line
@@ -202,5 +228,5 @@ func (cl *conversationList) view(active bool) string {
 	return style.
 		Width(cl.width - 2).
 		Height(cl.height - 2).
-		Render(strings.Join(lines, "\n") + "\n" + help)
+		Render(strings.Join(lines, "\n") + "\n" + footer)
 }

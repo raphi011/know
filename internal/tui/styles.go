@@ -70,4 +70,8 @@ var (
 	rejectKeyStyle = lipgloss.NewStyle().
 			Foreground(errorColor).
 			Bold(true)
+
+	// Error message style
+	errorMsgStyle = lipgloss.NewStyle().
+			Foreground(errorColor)
 )

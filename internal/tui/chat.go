@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -27,12 +28,17 @@ type chatPane struct {
 	width          int
 	height         int
 	renderer       *glamour.TermRenderer
+	rendererWidth  int // cached width to avoid unnecessary glamour re-creation
+	ctx            context.Context
 
 	// Tool approval state
 	pendingApproval *StreamEvent
+
+	// Error display
+	errMsg string
 }
 
-func newChatPane(client *Client, vaultID string) chatPane {
+func newChatPane(ctx context.Context, client *Client, vaultID string) chatPane {
 	vp := viewport.New()
 	vp.SetContent("Select or create a conversation to start chatting.")
 
@@ -40,10 +46,13 @@ func newChatPane(client *Client, vaultID string) chatPane {
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
 
-	r, _ := glamour.NewTermRenderer(
+	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(0), // we'll set this dynamically
 	)
+	if err != nil {
+		slog.Warn("glamour renderer init failed, markdown will render as plain text", "error", err)
+	}
 
 	return chatPane{
 		viewport: vp,
@@ -51,12 +60,15 @@ func newChatPane(client *Client, vaultID string) chatPane {
 		client:   client,
 		vaultID:  vaultID,
 		renderer: r,
+		ctx:      ctx,
 	}
 }
 
 // streamEventMsg wraps SSE events from the chat stream.
+// ch carries the channel for chaining listenForEvents after each event.
 type streamEventMsg struct {
 	event StreamEvent
+	ch    <-chan StreamEvent
 	done  bool
 }
 
@@ -74,8 +86,9 @@ type approvalSentMsg struct {
 func (cp *chatPane) loadConversation(id string) tea.Cmd {
 	cp.conversationID = id
 	client := cp.client
+	ctx := cp.ctx
 	return func() tea.Msg {
-		conv, err := client.GetConversation(context.Background(), id)
+		conv, err := client.GetConversation(ctx, id)
 		return conversationLoadedMsg{conv: conv, err: err}
 	}
 }
@@ -91,28 +104,22 @@ func (cp *chatPane) sendMessage() tea.Cmd {
 	cp.streamContent = ""
 
 	client := cp.client
+	ctx := cp.ctx
 	convID := cp.conversationID
 	vaultID := cp.vaultID
 
 	return func() tea.Msg {
-		ch, err := client.Chat(context.Background(), convID, vaultID, content, false)
+		ch, err := client.Chat(ctx, convID, vaultID, content, false)
 		if err != nil {
 			return streamEventMsg{event: StreamEvent{Type: "error", Content: err.Error()}, done: true}
 		}
 
-		// Read first event to start the stream
 		event, ok := <-ch
 		if !ok {
 			return streamEventMsg{done: true}
 		}
 
-		// Start a goroutine to forward remaining events
-		go func() {
-			// This will be handled by the program's event loop
-			// through the listenForEvents command
-		}()
-
-		return streamEventMsg{event: event}
+		return streamEventMsg{event: event, ch: ch}
 	}
 }
 
@@ -122,7 +129,7 @@ func (cp *chatPane) listenForEvents(ch <-chan StreamEvent) tea.Cmd {
 		if !ok {
 			return streamEventMsg{done: true}
 		}
-		return streamEventMsg{event: event}
+		return streamEventMsg{event: event, ch: ch}
 	}
 }
 
@@ -132,13 +139,14 @@ func (cp *chatPane) sendApproval(action string) tea.Cmd {
 	}
 
 	client := cp.client
+	ctx := cp.ctx
 	convID := cp.conversationID
 	callID := cp.pendingApproval.CallID
 
 	cp.pendingApproval = nil
 
 	return func() tea.Msg {
-		err := client.Approve(context.Background(), convID, callID, action)
+		err := client.Approve(ctx, convID, callID, action)
 		return approvalSentMsg{err: err}
 	}
 }
@@ -150,14 +158,18 @@ func (cp *chatPane) setSize(w, h int) {
 	cp.viewport.SetWidth(w - 4) // account for border + padding
 	cp.viewport.SetHeight(h - inputH - 4)
 
-	// Recreate renderer with correct word wrap
-	if w > 8 {
+	// Only recreate glamour renderer when width actually changes
+	wrapWidth := w - 8
+	if wrapWidth > 0 && wrapWidth != cp.rendererWidth {
 		r, err := glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(w-8),
+			glamour.WithWordWrap(wrapWidth),
 		)
-		if err == nil {
+		if err != nil {
+			slog.Debug("glamour renderer re-creation failed on resize", "error", err)
+		} else {
 			cp.renderer = r
+			cp.rendererWidth = wrapWidth
 		}
 	}
 }
@@ -182,6 +194,12 @@ func (cp *chatPane) update(msg tea.Msg) tea.Cmd {
 		cp.messages = msg.conv.Messages
 		cp.updateViewport()
 
+	case approvalSentMsg:
+		if msg.err != nil {
+			cp.errMsg = fmt.Sprintf("Approval failed: %v", msg.err)
+		}
+		return nil
+
 	case streamEventMsg:
 		if msg.done {
 			cp.streaming = false
@@ -192,19 +210,29 @@ func (cp *chatPane) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Chain the next event read for all non-terminal events
+		var nextCmd tea.Cmd
+		if msg.ch != nil {
+			nextCmd = cp.listenForEvents(msg.ch)
+		}
+
 		switch msg.event.Type {
 		case "token":
 			cp.streamContent += msg.event.Content
 			cp.updateViewportWithStream()
+			return nextCmd
 		case "tool_start":
 			cp.streamContent += fmt.Sprintf("\n🔧 Running: %s\n", msg.event.ToolName)
 			cp.updateViewportWithStream()
+			return nextCmd
 		case "tool_result":
 			cp.streamContent += fmt.Sprintf("✓ %s complete\n", msg.event.ToolName)
 			cp.updateViewportWithStream()
+			return nextCmd
 		case "approval_request":
 			cp.pendingApproval = &msg.event
 			cp.updateViewportWithStream()
+			return nextCmd
 		case "error":
 			cp.streamContent += fmt.Sprintf("\n❌ Error: %s\n", msg.event.Content)
 			cp.streaming = false
@@ -232,6 +260,11 @@ func (cp *chatPane) update(msg tea.Msg) tea.Cmd {
 }
 
 func (cp *chatPane) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Clear error on any keypress
+	if cp.errMsg != "" {
+		cp.errMsg = ""
+	}
+
 	// Handle approval keys when pending
 	if cp.pendingApproval != nil {
 		switch {
@@ -243,6 +276,13 @@ func (cp *chatPane) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 
 	switch {
+	case key.Matches(msg, keys.Escape):
+		// Two-phase ESC: clear input first, second ESC handled by parent
+		if cp.input.Value() != "" {
+			cp.input.SetValue("")
+			return nil, true
+		}
+		return nil, false
 	case key.Matches(msg, keys.Send):
 		if !cp.streaming && cp.conversationID != "" {
 			return cp.sendMessage(), true
@@ -310,6 +350,7 @@ func (cp *chatPane) renderMarkdown(content string) string {
 	}
 	rendered, err := cp.renderer.Render(content)
 	if err != nil {
+		slog.Debug("markdown render failed, using raw content", "error", err)
 		return content
 	}
 	return strings.TrimSpace(rendered)
@@ -343,6 +384,9 @@ func (cp *chatPane) view(active bool) string {
 	}
 	if cp.conversationID == "" {
 		inputBox = statusStyle.Render("← Select a conversation")
+	}
+	if cp.errMsg != "" {
+		inputBox = errorMsgStyle.Render(cp.errMsg) + "\n" + inputBox
 	}
 
 	vpContent := cp.viewport.View()

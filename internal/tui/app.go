@@ -2,6 +2,8 @@
 package tui
 
 import (
+	"context"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -23,16 +25,27 @@ type Model struct {
 	width         int
 	height        int
 	vaultID       string
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
-// NewModel creates a new TUI model.
+// NewModel creates a new TUI model. The caller should defer model.Close()
+// to cancel in-flight requests on quit.
 func NewModel(client *Client, vaultID string) Model {
+	ctx, cancel := context.WithCancel(context.Background())
 	return Model{
-		conversations: newConversationList(client, vaultID),
-		chat:          newChatPane(client, vaultID),
+		conversations: newConversationList(ctx, client, vaultID),
+		chat:          newChatPane(ctx, client, vaultID),
 		activePane:    paneConversations,
 		vaultID:       vaultID,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
+}
+
+// Close cancels the TUI context, stopping in-flight requests.
+func (m *Model) Close() {
+	m.cancel()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -52,12 +65,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		// Global keys
 		if key.Matches(msg, keys.Quit) {
+			m.cancel()
 			return m, tea.Quit
 		}
 
 		if key.Matches(msg, keys.Tab) {
-			m.switchPane()
-			return m, nil
+			cmd := m.switchPane()
+			return m, cmd
 		}
 
 		// Delegate to active pane
@@ -84,10 +98,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
 			}
+
+			// ESC with empty input: switch back to conversations pane
+			if key.Matches(msg, keys.Escape) {
+				m.activePane = paneConversations
+				m.chat.blur()
+				return m, nil
+			}
 		}
+
+		// Route unhandled key presses only to the active pane
+		switch m.activePane {
+		case paneConversations:
+			cmd := m.conversations.update(msg)
+			return m, cmd
+		case paneChat:
+			cmd := m.chat.update(msg)
+			return m, cmd
+		}
+		return m, nil
 	}
 
-	// Route messages to both panes
+	// Route non-key messages to both panes (WindowSizeMsg, custom messages, etc.)
 	cmd := m.conversations.update(msg)
 	if cmd != nil {
 		cmds = append(cmds, cmd)
@@ -136,12 +168,12 @@ func (m *Model) layoutPanes() {
 	m.chat.setSize(rightW, m.height)
 }
 
-func (m *Model) switchPane() {
+func (m *Model) switchPane() tea.Cmd {
 	if m.activePane == paneConversations {
 		m.activePane = paneChat
-		m.chat.focus()
-	} else {
-		m.activePane = paneConversations
-		m.chat.blur()
+		return m.chat.focus()
 	}
+	m.activePane = paneConversations
+	m.chat.blur()
+	return nil
 }
