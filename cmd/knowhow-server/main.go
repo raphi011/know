@@ -72,6 +72,25 @@ func main() {
 		}
 	}()
 
+	// Listen for SIGHUP to reload LLM config from .env
+	sighup := make(chan os.Signal, 1)
+	signal.Notify(sighup, syscall.SIGHUP)
+	go func() {
+		for range sighup {
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						slog.Error("ReloadLLM panicked", "error", p)
+					}
+				}()
+				slog.Info("SIGHUP received, reloading LLM config")
+				if err := resolver.ReloadLLM(); err != nil {
+					slog.Warn("LLM reload failed", "error", err)
+				}
+			}()
+		}
+	}()
+
 	// Create GraphQL server
 	srv := handler.New(graph.NewExecutableSchema(graph.Config{
 		Resolvers: resolver,

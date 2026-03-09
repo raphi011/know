@@ -22,6 +22,11 @@ const (
 	ProviderGoogleAI  LLMProvider = "googleai"
 )
 
+// Enabled returns true if the provider is configured (not empty or "none").
+func (p LLMProvider) Enabled() bool {
+	return p != ProviderNone && p != ""
+}
+
 // Config holds all configuration values.
 type Config struct {
 	// SurrealDB connection

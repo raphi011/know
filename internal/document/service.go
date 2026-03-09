@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/text/cases"
@@ -28,11 +29,21 @@ type VersionConfig struct {
 // Service manages document lifecycle: parse → extract → store → link → embed.
 type Service struct {
 	db            *db.Client
-	embedder      *llm.Embedder // optional — nil disables embedding
+	embedder      atomic.Pointer[llm.Embedder] // optional — nil disables embedding
 	resolver      *LinkResolver
 	chunkConfig   parser.ChunkConfig
 	versionConfig VersionConfig
 	bus           *event.Bus // optional — nil disables change events
+}
+
+// SetEmbedder atomically replaces the embedder (used by SIGHUP reload).
+func (s *Service) SetEmbedder(e *llm.Embedder) {
+	s.embedder.Store(e)
+}
+
+// getEmbedder returns the current embedder via an atomic load.
+func (s *Service) getEmbedder() *llm.Embedder {
+	return s.embedder.Load()
 }
 
 // NewService creates a new document service.
@@ -45,14 +56,15 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 		slog.Warn("version coalesce minutes negative, clamping to 0", "configured", versionConfig.CoalesceMinutes)
 		versionConfig.CoalesceMinutes = 0
 	}
-	return &Service{
+	s := &Service{
 		db:            db,
-		embedder:      embedder,
 		resolver:      NewLinkResolver(db),
 		chunkConfig:   chunkConfig,
 		versionConfig: versionConfig,
 		bus:           bus,
 	}
+	s.embedder.Store(embedder)
+	return s
 }
 
 func (s *Service) publishDocEvent(eventType string, vaultID string, doc *models.Document) {
@@ -229,7 +241,8 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 // content before embedding, improving semantic precision without altering stored content.
 // Returns the number of chunks successfully embedded.
 func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error) {
-	if s.embedder == nil {
+	embedder := s.getEmbedder()
+	if embedder == nil {
 		return 0, nil
 	}
 
@@ -256,7 +269,7 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 		}
 		embeddingText := buildEmbeddingContext(chunk, docTitles[docID])
 
-		emb, err := s.embedder.Embed(ctx, embeddingText)
+		emb, err := embedder.Embed(ctx, embeddingText)
 		if err != nil {
 			slog.Warn("failed to embed chunk", "chunk_id", chunkID, "error", err)
 			s.rescheduleChunk(chunkID)
@@ -622,7 +635,7 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 			}
 
 			// Only schedule embedding if embedder is configured
-			if s.embedder != nil {
+			if s.getEmbedder() != nil {
 				now := time.Now().UTC()
 				input.EmbedAt = &now
 			}
