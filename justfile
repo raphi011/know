@@ -71,6 +71,10 @@ install:
 test:
     go test -buildvcs=false -v ./...
 
+# Build snapshot release locally (requires goreleaser)
+snapshot:
+    goreleaser release --snapshot --clean
+
 # Start dev environment with live-reload
 dev: db-up
     air

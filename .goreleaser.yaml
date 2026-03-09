@@ -1,0 +1,84 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - mkdir -p completions
+    - sh -c "go run -buildvcs=false ./cmd/knowhow completion bash > completions/knowhow.bash"
+    - sh -c "go run -buildvcs=false ./cmd/knowhow completion zsh > completions/_knowhow"
+    - sh -c "go run -buildvcs=false ./cmd/knowhow completion fish > completions/knowhow.fish"
+    - sh -c "test -s completions/knowhow.bash && test -s completions/_knowhow && test -s completions/knowhow.fish"
+
+builds:
+  - id: knowhow
+    main: ./cmd/knowhow
+    binary: knowhow
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+  - id: knowhow-server
+    main: ./cmd/knowhow-server
+    binary: knowhow-server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - completions/*
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  groups:
+    - title: "Features"
+      regexp: '^.*?feat(\(.+\))?\!?:.+$'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\(.+\))?\!?:.+$'
+      order: 1
+    - title: "Documentation"
+      regexp: '^.*?docs(\(.+\))?\!?:.+$'
+      order: 2
+    - title: "Other"
+      order: 999
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - repository:
+      owner: raphi011
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/raphi011/knowhow"
+    description: "Knowledge management CLI with AI-powered search"
+    license: "MIT"
+    extra_install: |
+      bash_completion.install "completions/knowhow.bash" => "knowhow"
+      zsh_completion.install "completions/_knowhow"
+      fish_completion.install "completions/knowhow.fish"
