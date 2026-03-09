@@ -4,10 +4,15 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/raphi011/knowhow/internal/agent"
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/db"
@@ -20,18 +25,19 @@ import (
 )
 
 // Resolver is the root resolver with all dependencies.
+// mu protects serverConfig, workerCancel, and workerDone.
 type Resolver struct {
+	mu              sync.RWMutex
 	db              *db.Client
 	vaultService    *vault.Service
 	documentService *document.Service
 	searchService   *search.Service
 	templateService *template.Service
-	model           *llm.Model
 	agentService    *agent.Service
 	bus             *event.Bus
-	workerCancel    context.CancelFunc
-	workerDone      chan struct{}
-	serverConfig    ServerConfig
+	workerCancel    context.CancelFunc // guarded by mu
+	workerDone      chan struct{}       // guarded by mu
+	serverConfig    ServerConfig       // guarded by mu
 }
 
 // NewResolver creates a new resolver with all dependencies.
@@ -57,6 +63,14 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		return nil, err
 	}
 
+	// In no-auth mode, auto-bootstrap the default user/vault if the DB is empty.
+	// This allows the server to self-provision when running as a launchd service.
+	if cfg.NoAuth {
+		if err := seedIfEmpty(ctx, dbClient); err != nil {
+			slog.Warn("auto-bootstrap failed", "error", err)
+		}
+	}
+
 	slog.Info("LLM config",
 		"embed_provider", cfg.EmbedProvider,
 		"embed_model", cfg.EmbedModel,
@@ -67,7 +81,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 
 	// Embedder is optional — nil disables AI features
 	var embedder *llm.Embedder
-	if cfg.EmbedProvider != config.ProviderNone && cfg.EmbedProvider != "" {
+	if cfg.EmbedProvider.Enabled() {
 		e, err := llm.NewEmbedder(ctx, cfg, nil)
 		if err != nil {
 			slog.Warn("embedder initialization failed, AI features disabled", "error", err)
@@ -78,7 +92,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 
 	// LLM model is optional — nil disables agent chat
 	var model *llm.Model
-	if cfg.LLMProvider != config.ProviderNone && cfg.LLMProvider != "" {
+	if cfg.LLMProvider.Enabled() {
 		m, err := llm.NewModel(ctx, cfg, nil)
 		if err != nil {
 			slog.Warn("LLM model initialization failed, agent chat disabled", "error", err)
@@ -113,8 +127,9 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	bus := event.New()
 	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig, bus)
 
+	// workerDone defaults to a closed channel so <-workerDone is a no-op in Close
 	workerDone := make(chan struct{})
-	close(workerDone) // safe default: <-workerDone returns immediately if no worker
+	close(workerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
 	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
@@ -125,7 +140,6 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		documentService: docService,
 		searchService:   searchSvc,
 		templateService: template.NewService(dbClient),
-		model:           model,
 		agentService:    agentSvc,
 		bus:             bus,
 		workerDone:      workerDone,
@@ -147,17 +161,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	}
 
 	// Start background embedding worker if embedder is available
-	if embedder != nil {
-		workerCtx, workerCancel := context.WithCancel(context.Background())
-		r.workerCancel = workerCancel
-		r.workerDone = make(chan struct{})
-		interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
-		worker := document.NewEmbeddingWorker(docService, interval, cfg.EmbedWorkerBatch)
-		go func() {
-			defer close(r.workerDone)
-			worker.Run(workerCtx)
-		}()
-	}
+	r.syncEmbeddingWorker(cfg, embedder)
 
 	return r, nil
 }
@@ -194,12 +198,162 @@ func (r *Resolver) VaultService() *vault.Service {
 
 // Close stops background workers and closes all connections.
 func (r *Resolver) Close(ctx context.Context) error {
-	if r.workerCancel != nil {
-		r.workerCancel()
-		<-r.workerDone
+	r.mu.Lock()
+	cancel := r.workerCancel
+	done := r.workerDone
+	r.workerCancel = nil
+	r.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+		<-done
 	}
 	if r.db != nil {
 		return r.db.Close(ctx)
 	}
 	return nil
+}
+
+// ReloadLLM re-reads .env, recreates LLM/embedding clients, and swaps them
+// into the running services. Called on SIGHUP. On failure, existing working
+// providers are kept — only successful initializations are swapped in.
+func (r *Resolver) ReloadLLM() error {
+	// Load .env into process environment (overwrite existing vars)
+	if err := godotenv.Overload(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			slog.Debug("no .env file to load")
+		} else {
+			slog.Warn("failed to load .env file, using current environment", "error", err)
+		}
+	}
+
+	cfg := config.Load()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var errs []string
+
+	// Reload embedder — only swap if initialization succeeds
+	embedderWanted := cfg.EmbedProvider.Enabled()
+	var newEmbedder *llm.Embedder
+	embedderChanged := false
+
+	if embedderWanted {
+		e, err := llm.NewEmbedder(ctx, cfg, nil)
+		if err != nil {
+			slog.Error("embedder reload failed, keeping existing", "error", err)
+			errs = append(errs, fmt.Sprintf("embedder: %v", err))
+		} else {
+			newEmbedder = e
+			embedderChanged = true
+		}
+	} else {
+		// Explicitly disabled
+		embedderChanged = true
+		newEmbedder = nil
+	}
+
+	// Reload model — only swap if initialization succeeds
+	modelWanted := cfg.LLMProvider.Enabled()
+	var newModel *llm.Model
+	modelChanged := false
+
+	if modelWanted {
+		m, err := llm.NewModel(ctx, cfg, nil)
+		if err != nil {
+			slog.Error("LLM model reload failed, keeping existing", "error", err)
+			errs = append(errs, fmt.Sprintf("model: %v", err))
+		} else {
+			newModel = m
+			modelChanged = true
+		}
+	} else {
+		modelChanged = true
+		newModel = nil
+	}
+
+	// Only swap providers that were successfully (re)created
+	if embedderChanged {
+		r.documentService.SetEmbedder(newEmbedder)
+		r.searchService.SetEmbedder(newEmbedder)
+	}
+	if modelChanged {
+		r.agentService.SetModel(newModel)
+	}
+
+	// Manage embedding worker lifecycle
+	if embedderChanged {
+		r.syncEmbeddingWorker(cfg, newEmbedder)
+	}
+
+	// Update server config
+	r.mu.Lock()
+	if embedderChanged {
+		r.serverConfig.SemanticSearchEnabled = newEmbedder != nil
+		r.serverConfig.EmbedProvider = string(cfg.EmbedProvider)
+		r.serverConfig.EmbedModel = cfg.EmbedModel
+		r.serverConfig.EmbedDimension = cfg.EmbedDimension
+	}
+	if modelChanged {
+		r.serverConfig.AgentChatEnabled = newModel != nil
+		r.serverConfig.LLMProvider = string(cfg.LLMProvider)
+		r.serverConfig.LLMModel = cfg.LLMModel
+	}
+	r.serverConfig.WebSearchEnabled = cfg.TavilyAPIKey != ""
+	r.mu.Unlock()
+
+	slog.Info("LLM providers reloaded (only LLM/embedding settings are applied)",
+		"semantic_search_changed", embedderChanged,
+		"semantic_search", r.searchService.HasSemanticSearch(),
+		"agent_chat_changed", modelChanged,
+		"agent_chat", r.agentService.Available(),
+	)
+
+	if len(errs) > 0 {
+		return fmt.Errorf("partial reload failure: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// syncEmbeddingWorker starts or stops the background embedding worker based on
+// whether an embedder is available. Protects worker fields with r.mu.
+func (r *Resolver) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
+	r.mu.Lock()
+
+	if embedder == nil {
+		// Stop worker if running
+		if r.workerCancel != nil {
+			cancel := r.workerCancel
+			done := r.workerDone
+			r.workerCancel = nil
+			r.mu.Unlock()
+			cancel()
+			<-done
+			slog.Info("stopped embedding worker (embedder removed)")
+			return
+		}
+		r.mu.Unlock()
+		return
+	}
+
+	// Already running — keep it (it picks up the new embedder via getEmbedder)
+	if r.workerCancel != nil {
+		r.mu.Unlock()
+		return
+	}
+
+	// Start new worker
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	r.workerCancel = workerCancel
+	done := make(chan struct{})
+	r.workerDone = done
+	r.mu.Unlock()
+
+	interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
+	worker := document.NewEmbeddingWorker(r.documentService, interval, cfg.EmbedWorkerBatch)
+	go func() {
+		defer close(done)
+		worker.Run(workerCtx)
+	}()
 }

@@ -879,7 +879,10 @@ func (r *queryResolver) SyncMetadata(ctx context.Context, vaultID string, since 
 
 // ServerConfig is the resolver for the serverConfig field.
 func (r *queryResolver) ServerConfig(ctx context.Context) (*ServerConfig, error) {
-	return &r.serverConfig, nil
+	r.mu.RLock()
+	cfg := r.serverConfig
+	r.mu.RUnlock()
+	return &cfg, nil
 }
 
 // DocumentVersion is the resolver for the documentVersion field.

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
@@ -36,12 +37,22 @@ type StreamEvent struct {
 // Service orchestrates the agent loop: native tool calling → streaming answer.
 type Service struct {
 	db              *db.Client
-	model           *llm.Model
+	model           atomic.Pointer[llm.Model]
 	search          *search.Service
 	docService      *document.Service
 	executor        *tools.Executor
 	tavily          *tavilyClient
 	activeApprovals sync.Map // map[conversationID]*approvalSession
+}
+
+// SetModel atomically replaces the LLM model (used by SIGHUP reload).
+func (s *Service) SetModel(m *llm.Model) {
+	s.model.Store(m)
+}
+
+// getModel returns the current model via an atomic load.
+func (s *Service) getModel() *llm.Model {
+	return s.model.Load()
 }
 
 // approvalSession pairs an approval registry with vault context for access checks.
@@ -54,7 +65,6 @@ type approvalSession struct {
 func NewService(db *db.Client, model *llm.Model, search *search.Service, docService *document.Service, tavilyAPIKey string) *Service {
 	s := &Service{
 		db:         db,
-		model:      model,
 		search:     search,
 		docService: docService,
 		executor: &tools.Executor{
@@ -63,6 +73,7 @@ func NewService(db *db.Client, model *llm.Model, search *search.Service, docServ
 			DocService: docService,
 		},
 	}
+	s.model.Store(model)
 	if tavilyAPIKey != "" {
 		s.tavily = newTavilyClient(tavilyAPIKey)
 	}
@@ -71,7 +82,7 @@ func NewService(db *db.Client, model *llm.Model, search *search.Service, docServ
 
 // Available returns true if the agent has an LLM model configured.
 func (s *Service) Available() bool {
-	return s.model != nil
+	return s.getModel() != nil
 }
 
 // buildSystemPrompt constructs the system prompt, optionally appending the vault's folder tree.
@@ -301,7 +312,8 @@ type ChatRequest struct {
 
 // Chat runs the agent loop using native tool calling and emits SSE events via the callback.
 func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEvent)) error {
-	if s.model == nil {
+	model := s.getModel()
+	if model == nil {
 		emit(StreamEvent{Type: "error", Content: "agent not available: no LLM configured"})
 		return nil
 	}
@@ -393,7 +405,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	tools := s.buildTools()
 
 	// 6. Call GenerateStreamWithTools
-	err = s.model.GenerateStreamWithTools(ctx, messages, tools,
+	err = model.GenerateStreamWithTools(ctx, messages, tools,
 		func(token string) error {
 			answer.WriteString(token)
 			emit(StreamEvent{Type: "text", Content: token})
@@ -692,8 +704,13 @@ func (s *Service) execWebSearch(ctx context.Context, arguments string) (string, 
 }
 
 func (s *Service) autoTitle(ctx context.Context, conversationID, firstMessage string) {
+	model := s.getModel()
+	if model == nil {
+		slog.Debug("skipping auto-title: no LLM model configured", "conversation_id", conversationID)
+		return
+	}
 	prompt := fmt.Sprintf("Generate a very short title (3-6 words, no quotes) for a conversation that starts with this message:\n\n%s", firstMessage)
-	title, err := s.model.GenerateWithSystem(ctx, "You generate short conversation titles. Respond with ONLY the title, nothing else.", prompt)
+	title, err := model.GenerateWithSystem(ctx, "You generate short conversation titles. Respond with ONLY the title, nothing else.", prompt)
 	if err != nil {
 		slog.Warn("auto-title failed", "conversation_id", conversationID, "error", err)
 		return

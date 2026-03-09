@@ -34,7 +34,7 @@ type Config struct {
 	Database  string
 	Username  string
 	Password  string
-	AuthLevel string // "root" or "database"
+	AuthLevel string // "root", "database", "namespace", or "none" (unauthenticated)
 }
 
 // Client wraps SurrealDB connection with auto-reconnect.
@@ -115,6 +115,8 @@ func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Co
 	// Authenticate based on auth level
 	sdkLogger.Info("authenticating", "user", cfg.Username, "auth_level", cfg.AuthLevel)
 	switch cfg.AuthLevel {
+	case "none":
+		sdkLogger.Info("skipping authentication (unauthenticated mode)")
 	case "database":
 		_, err = db.SignIn(ctx, surrealdb.Auth{
 			Namespace: cfg.Namespace,

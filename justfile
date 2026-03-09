@@ -62,10 +62,10 @@ build-all: build build-server
 server *args: build-server
     "{{build_dir}}/{{server}}" "$@"
 
-# Install both binaries to GOPATH/bin
+# Install both binaries to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
 install:
-    go install -buildvcs=false ./cmd/knowhow
-    go install -buildvcs=false ./cmd/knowhow-server
+    GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/knowhow
+    GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/knowhow-server
 
 # Run all tests
 test:
@@ -82,6 +82,14 @@ dev: db-up
 # Start dev environment and wipe database on first start
 dev-reset: db-up
     KNOWHOW_WIPE_DB=true air
+
+# Start dev environment using local (launchd) SurrealDB — no Docker needed
+dev-local:
+    SURREALDB_URL="ws://localhost:8000/rpc" SURREALDB_AUTH_LEVEL="none" KNOWHOW_NO_AUTH="true" air
+
+# Bootstrap local (launchd) SurrealDB — no Docker needed
+bootstrap-local: build
+    SURREALDB_URL="ws://localhost:8000/rpc" SURREALDB_AUTH_LEVEL="none" KNOWHOW_NO_AUTH="true" {{build_dir}}/{{binary}} dev seed --wipe
 
 # Run CLI command (ensures correct server URL)
 run *args: build

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -18,12 +19,24 @@ import (
 // Base: BM25 fulltext on chunks (always). Semantic: chunk vector search (if embedder configured).
 type Service struct {
 	db       *db.Client
-	embedder *llm.Embedder // optional
+	embedder atomic.Pointer[llm.Embedder] // optional
 }
 
 // NewService creates a new search service.
 func NewService(db *db.Client, embedder *llm.Embedder) *Service {
-	return &Service{db: db, embedder: embedder}
+	s := &Service{db: db}
+	s.embedder.Store(embedder)
+	return s
+}
+
+// SetEmbedder atomically replaces the embedder (used by SIGHUP reload).
+func (s *Service) SetEmbedder(e *llm.Embedder) {
+	s.embedder.Store(e)
+}
+
+// getEmbedder returns the current embedder via an atomic load.
+func (s *Service) getEmbedder() *llm.Embedder {
+	return s.embedder.Load()
 }
 
 type SearchInput struct {
@@ -102,7 +115,8 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 	}
 
 	// If no embedder, aggregate BM25 chunks into results
-	if s.embedder == nil || input.BM25Only {
+	embedder := s.getEmbedder()
+	if embedder == nil || input.BM25Only {
 		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, false)
 	}
 
@@ -129,7 +143,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		}()
 	} else {
 		// Cache miss — call embedder
-		queryEmbedding, err = s.embedder.Embed(ctx, input.Query)
+		queryEmbedding, err = embedder.Embed(ctx, input.Query)
 		if err != nil {
 			slog.Warn("failed to embed query, falling back to BM25", "error", err)
 			return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, true)
@@ -165,7 +179,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 
 // HasSemanticSearch returns true if vector search is available.
 func (s *Service) HasSemanticSearch() bool {
-	return s.embedder != nil
+	return s.getEmbedder() != nil
 }
 
 // collectDocIDs returns deduplicated document IDs from multiple chunk slices.
