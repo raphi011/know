@@ -1,6 +1,6 @@
-// Package graph provides GraphQL resolvers for Knowhow.
-// This file will not be regenerated automatically.
-package graph
+// Package server provides the application bootstrap — creates DB client,
+// embedder, LLM model, all services, and background workers.
+package server
 
 import (
 	"context"
@@ -19,14 +19,32 @@ import (
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/search"
 	"github.com/raphi011/knowhow/internal/template"
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
-// Resolver is the root resolver with all dependencies.
+// ServerConfig holds the server's effective configuration for display.
+type ServerConfig struct {
+	LLMProvider            string `json:"llmProvider"`
+	LLMModel               string `json:"llmModel"`
+	EmbedProvider          string `json:"embedProvider"`
+	EmbedModel             string `json:"embedModel"`
+	EmbedDimension         int    `json:"embedDimension"`
+	SemanticSearchEnabled  bool   `json:"semanticSearchEnabled"`
+	AgentChatEnabled       bool   `json:"agentChatEnabled"`
+	WebSearchEnabled       bool   `json:"webSearchEnabled"`
+	ChunkThreshold         int    `json:"chunkThreshold"`
+	ChunkTargetSize        int    `json:"chunkTargetSize"`
+	ChunkMaxSize           int    `json:"chunkMaxSize"`
+	VersionCoalesceMinutes int    `json:"versionCoalesceMinutes"`
+	VersionRetentionCount  int    `json:"versionRetentionCount"`
+}
+
+// App holds all application services and dependencies.
 // mu protects serverConfig, workerCancel, and workerDone.
-type Resolver struct {
+type App struct {
 	mu              sync.RWMutex
 	db              *db.Client
 	vaultService    *vault.Service
@@ -40,8 +58,8 @@ type Resolver struct {
 	serverConfig    ServerConfig       // guarded by mu
 }
 
-// NewResolver creates a new resolver with all dependencies.
-func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
+// New creates a new App with all dependencies initialized.
+func New(ctx context.Context, cfg config.Config) (*App, error) {
 	dbCfg := db.Config{
 		URL:       cfg.SurrealDBURL,
 		Namespace: cfg.SurrealDBNamespace,
@@ -109,7 +127,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 		return nil, fmt.Errorf("invalid chunk configuration: %w", err)
 	}
 
-	slog.Info("resolver initialized",
+	slog.Info("app initialized",
 		"embed_provider", cfg.EmbedProvider,
 		"embed_dimension", cfg.EmbedDimension,
 		"semantic_search", embedder != nil,
@@ -134,7 +152,7 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	searchSvc := search.NewService(dbClient, embedder)
 	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
 
-	r := &Resolver{
+	app := &App{
 		db:              dbClient,
 		vaultService:    vault.NewService(dbClient),
 		documentService: docService,
@@ -161,55 +179,65 @@ func NewResolver(ctx context.Context, cfg config.Config) (*Resolver, error) {
 	}
 
 	// Start background embedding worker if embedder is available
-	r.syncEmbeddingWorker(cfg, embedder)
+	app.syncEmbeddingWorker(cfg, embedder)
 
-	return r, nil
+	return app, nil
 }
 
-// DBClient returns the underlying DB client for use by middleware.
-func (r *Resolver) DBClient() *db.Client {
-	return r.db
+// DBClient returns the underlying DB client.
+func (a *App) DBClient() *db.Client {
+	return a.db
 }
 
-// AgentService returns the agent service for use by the SSE handler.
-func (r *Resolver) AgentService() *agent.Service {
-	return r.agentService
+// AgentService returns the agent service.
+func (a *App) AgentService() *agent.Service {
+	return a.agentService
 }
 
-// EventBus returns the event bus for use by the SSE handler.
-func (r *Resolver) EventBus() *event.Bus {
-	return r.bus
+// EventBus returns the event bus.
+func (a *App) EventBus() *event.Bus {
+	return a.bus
 }
 
 // SearchService returns the search service.
-func (r *Resolver) SearchService() *search.Service {
-	return r.searchService
+func (a *App) SearchService() *search.Service {
+	return a.searchService
 }
 
 // DocumentService returns the document service.
-func (r *Resolver) DocumentService() *document.Service {
-	return r.documentService
+func (a *App) DocumentService() *document.Service {
+	return a.documentService
 }
 
 // VaultService returns the vault service.
-func (r *Resolver) VaultService() *vault.Service {
-	return r.vaultService
+func (a *App) VaultService() *vault.Service {
+	return a.vaultService
+}
+
+// TemplateService returns the template service.
+func (a *App) TemplateService() *template.Service {
+	return a.templateService
+}
+
+// Config returns the server configuration.
+func (a *App) Config() ServerConfig {
+	return a.serverConfig
 }
 
 // Close stops background workers and closes all connections.
-func (r *Resolver) Close(ctx context.Context) error {
-	r.mu.Lock()
-	cancel := r.workerCancel
-	done := r.workerDone
-	r.workerCancel = nil
-	r.mu.Unlock()
+func (a *App) Close(ctx context.Context) error {
+	a.mu.Lock()
+	cancel := a.workerCancel
+	done := a.workerDone
+	a.workerCancel = nil
+	a.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
 		<-done
 	}
-	if r.db != nil {
-		return r.db.Close(ctx)
+	if a.db != nil {
+		return a.db.Close(ctx)
 	}
 	return nil
 }
@@ -217,7 +245,7 @@ func (r *Resolver) Close(ctx context.Context) error {
 // ReloadLLM re-reads .env, recreates LLM/embedding clients, and swaps them
 // into the running services. Called on SIGHUP. On failure, existing working
 // providers are kept — only successful initializations are swapped in.
-func (r *Resolver) ReloadLLM() error {
+func (a *App) ReloadLLM() error {
 	// Load .env into process environment (overwrite existing vars)
 	if err := godotenv.Overload(); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -275,39 +303,39 @@ func (r *Resolver) ReloadLLM() error {
 
 	// Only swap providers that were successfully (re)created
 	if embedderChanged {
-		r.documentService.SetEmbedder(newEmbedder)
-		r.searchService.SetEmbedder(newEmbedder)
+		a.documentService.SetEmbedder(newEmbedder)
+		a.searchService.SetEmbedder(newEmbedder)
 	}
 	if modelChanged {
-		r.agentService.SetModel(newModel)
+		a.agentService.SetModel(newModel)
 	}
 
 	// Manage embedding worker lifecycle
 	if embedderChanged {
-		r.syncEmbeddingWorker(cfg, newEmbedder)
+		a.syncEmbeddingWorker(cfg, newEmbedder)
 	}
 
 	// Update server config
-	r.mu.Lock()
+	a.mu.Lock()
 	if embedderChanged {
-		r.serverConfig.SemanticSearchEnabled = newEmbedder != nil
-		r.serverConfig.EmbedProvider = string(cfg.EmbedProvider)
-		r.serverConfig.EmbedModel = cfg.EmbedModel
-		r.serverConfig.EmbedDimension = cfg.EmbedDimension
+		a.serverConfig.SemanticSearchEnabled = newEmbedder != nil
+		a.serverConfig.EmbedProvider = string(cfg.EmbedProvider)
+		a.serverConfig.EmbedModel = cfg.EmbedModel
+		a.serverConfig.EmbedDimension = cfg.EmbedDimension
 	}
 	if modelChanged {
-		r.serverConfig.AgentChatEnabled = newModel != nil
-		r.serverConfig.LLMProvider = string(cfg.LLMProvider)
-		r.serverConfig.LLMModel = cfg.LLMModel
+		a.serverConfig.AgentChatEnabled = newModel != nil
+		a.serverConfig.LLMProvider = string(cfg.LLMProvider)
+		a.serverConfig.LLMModel = cfg.LLMModel
 	}
-	r.serverConfig.WebSearchEnabled = cfg.TavilyAPIKey != ""
-	r.mu.Unlock()
+	a.serverConfig.WebSearchEnabled = cfg.TavilyAPIKey != ""
+	a.mu.Unlock()
 
 	slog.Info("LLM providers reloaded (only LLM/embedding settings are applied)",
 		"semantic_search_changed", embedderChanged,
-		"semantic_search", r.searchService.HasSemanticSearch(),
+		"semantic_search", a.searchService.HasSemanticSearch(),
 		"agent_chat_changed", modelChanged,
-		"agent_chat", r.agentService.Available(),
+		"agent_chat", a.agentService.Available(),
 	)
 
 	if len(errs) > 0 {
@@ -317,43 +345,120 @@ func (r *Resolver) ReloadLLM() error {
 }
 
 // syncEmbeddingWorker starts or stops the background embedding worker based on
-// whether an embedder is available. Protects worker fields with r.mu.
-func (r *Resolver) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
-	r.mu.Lock()
+// whether an embedder is available. Protects worker fields with a.mu.
+func (a *App) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
+	a.mu.Lock()
 
 	if embedder == nil {
 		// Stop worker if running
-		if r.workerCancel != nil {
-			cancel := r.workerCancel
-			done := r.workerDone
-			r.workerCancel = nil
-			r.mu.Unlock()
+		if a.workerCancel != nil {
+			cancel := a.workerCancel
+			done := a.workerDone
+			a.workerCancel = nil
+			a.mu.Unlock()
 			cancel()
 			<-done
 			slog.Info("stopped embedding worker (embedder removed)")
 			return
 		}
-		r.mu.Unlock()
+		a.mu.Unlock()
 		return
 	}
 
 	// Already running — keep it (it picks up the new embedder via getEmbedder)
-	if r.workerCancel != nil {
-		r.mu.Unlock()
+	if a.workerCancel != nil {
+		a.mu.Unlock()
 		return
 	}
 
 	// Start new worker
 	workerCtx, workerCancel := context.WithCancel(context.Background())
-	r.workerCancel = workerCancel
+	a.workerCancel = workerCancel
 	done := make(chan struct{})
-	r.workerDone = done
-	r.mu.Unlock()
+	a.workerDone = done
+	a.mu.Unlock()
 
 	interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
-	worker := document.NewEmbeddingWorker(r.documentService, interval, cfg.EmbedWorkerBatch)
+	worker := document.NewEmbeddingWorker(a.documentService, interval, cfg.EmbedWorkerBatch)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)
 	}()
+}
+
+// seedIfEmpty checks each bootstrap resource (user, vault, membership)
+// independently and creates any that are missing. This allows the server to
+// self-bootstrap against an empty database (e.g. when running as a launchd
+// service) and to recover from a partial previous bootstrap.
+func seedIfEmpty(ctx context.Context, dbClient *db.Client) error {
+	// 1. Ensure admin user exists
+	user, err := dbClient.GetUser(ctx, "admin")
+	if err != nil {
+		return fmt.Errorf("check admin user: %w", err)
+	}
+	if user == nil {
+		slog.Info("auto-bootstrap: creating admin user")
+		user, err = dbClient.CreateUserWithID(ctx, "admin", models.UserInput{
+			Name: "admin",
+		})
+		if err != nil {
+			return fmt.Errorf("create admin user: %w", err)
+		}
+	}
+
+	userID, err := models.RecordIDString(user.ID)
+	if err != nil {
+		return fmt.Errorf("extract user id: %w", err)
+	}
+
+	if !user.IsSystemAdmin {
+		if err := dbClient.UpdateUserSystemAdmin(ctx, userID, true); err != nil {
+			return fmt.Errorf("set system admin: %w", err)
+		}
+	}
+
+	// 2. Ensure default vault exists
+	v, err := dbClient.GetVault(ctx, "default")
+	if err != nil {
+		return fmt.Errorf("check default vault: %w", err)
+	}
+	if v == nil {
+		slog.Info("auto-bootstrap: creating default vault")
+		desc := "Default vault"
+		v, err = dbClient.CreateVaultWithID(ctx, "default", userID, models.VaultInput{
+			Name:        "default",
+			Description: &desc,
+		})
+		if err != nil {
+			return fmt.Errorf("create default vault: %w", err)
+		}
+	}
+
+	vaultID, err := models.RecordIDString(v.ID)
+	if err != nil {
+		return fmt.Errorf("extract vault id: %w", err)
+	}
+
+	// 3. Ensure vault membership exists
+	members, err := dbClient.GetVaultMembers(ctx, vaultID)
+	if err != nil {
+		return fmt.Errorf("check vault members: %w", err)
+	}
+	hasMembership := false
+	for _, m := range members {
+		mid, midErr := models.RecordIDString(m.User)
+		if midErr == nil && mid == userID {
+			hasMembership = true
+			break
+		}
+	}
+	if !hasMembership {
+		slog.Info("auto-bootstrap: creating vault membership")
+		if _, err := dbClient.CreateVaultMember(ctx, userID, vaultID, models.RoleAdmin); err != nil {
+			return fmt.Errorf("create vault member: %w", err)
+		}
+	}
+
+	slog.Info("auto-bootstrap complete", "user", userID, "vault", vaultID)
+	return nil
 }

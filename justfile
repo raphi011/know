@@ -26,7 +26,7 @@ export KNOWHOW_CHUNK_MAX_SIZE := env_var_or_default("KNOWHOW_CHUNK_MAX_SIZE", "1
 
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "4001")
-export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:4001/query")
+export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:4001")
 
 # Bootstrap / CLI defaults (stable dev token + vault)
 export KNOWHOW_BOOTSTRAP_TOKEN := env_var_or_default("KNOWHOW_BOOTSTRAP_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
@@ -100,25 +100,6 @@ dev-setup: db-up
     @echo "SurrealDB running at localhost:4002"
     @echo "Run 'just dev' to start the server, or '{{build_dir}}/knowhow <command>' for CLI"
 
-# Regenerate GraphQL code
-generate:
-    go run github.com/99designs/gqlgen generate --config gqlgen.yml
-
-# Generate Go code from templ files
-templ-generate:
-    go tool templ generate ./internal/web/templates/...
-
-# Build Tailwind CSS (requires tailwindcss CLI from brew)
-css:
-    /opt/homebrew/bin/tailwindcss --input internal/web/static/css/input.css --output internal/web/static/css/app.css
-
-# Watch Tailwind CSS for changes
-css-watch:
-    /opt/homebrew/bin/tailwindcss --input internal/web/static/css/input.css --output internal/web/static/css/app.css --watch
-
-# Generate all (GraphQL + templ + CSS)
-generate-all: generate templ-generate css
-
 # Pull Ollama models (embedding + LLM)
 ollama-pull:
     ollama pull {{KNOWHOW_EMBED_MODEL}}
@@ -147,7 +128,7 @@ clean:
     rm -rf tmp
     docker compose down -v
 
-# Start all services (SurrealDB + Go server with live-reload + CSS watcher)
+# Start all services (SurrealDB + Go server with live-reload)
 dev-all: db-up
     #!/usr/bin/env bash
     set -e
@@ -159,7 +140,6 @@ dev-all: db-up
     }
     trap cleanup EXIT INT TERM
     air 2>&1 | sed $'s/^/\e[36m[go]\e[0m /' &
-    just css-watch 2>&1 | sed $'s/^/\e[35m[css]\e[0m /' &
     just ios-run 2>&1 | sed $'s/^/\e[33m[ios]\e[0m /' &
     wait
 

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/graphqlclient"
+	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +63,7 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path must be a directory: %s", dirPath)
 	}
 
-	client := newGQLClient(apiURL, apiToken)
+	client := apiclient.New(apiURL, apiToken)
 
 	// 1. Collect local markdown files
 	files, err := collectMarkdownFiles(dirPath)
@@ -128,7 +128,7 @@ func runScrape(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Create/update document via GraphQL
+		// Create/update document via REST API
 		isNew, err := upsertDocument(client, scrapeVaultID, lf.relPath, lf.content, scrapeSource)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", lf.relPath, err)
@@ -154,65 +154,44 @@ func runScrape(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// getDocumentHash queries the existing document's contentHash.
+// getDocumentHash queries the existing document's contentHash via REST API.
 // Returns empty string if document doesn't exist.
-func getDocumentHash(client *graphqlclient.Client, vaultID, path string) (string, error) {
-	query := `query($vaultId: ID!, $path: String!) {
-		document(vaultId: $vaultId, path: $path) {
-			contentHash
-		}
-	}`
-
-	var resp struct {
-		Document *struct {
-			ContentHash *string `json:"contentHash"`
-		} `json:"document"`
+func getDocumentHash(client *apiclient.Client, vaultID, path string) (string, error) {
+	var doc struct {
+		ContentHash *string `json:"contentHash"`
 	}
 
-	if err := client.Do(context.Background(), query, map[string]any{
-		"vaultId": vaultID,
-		"path":    path,
-	}, &resp); err != nil {
+	err := client.Get(context.Background(), fmt.Sprintf("/api/documents?vault=%s&path=%s", vaultID, path), &doc)
+	if err != nil {
 		return "", fmt.Errorf("get hash: %w", err)
 	}
 
-	if resp.Document == nil || resp.Document.ContentHash == nil {
+	if doc.ContentHash == nil {
 		return "", nil
 	}
-	return *resp.Document.ContentHash, nil
+	return *doc.ContentHash, nil
 }
 
-// upsertDocument creates or updates a document. Returns true if newly created.
-func upsertDocument(client *graphqlclient.Client, vaultID, path, content, source string) (bool, error) {
-	query := `mutation($vaultId: ID!, $file: FileInput!, $source: String) {
-		createDocument(vaultId: $vaultId, file: $file, source: $source) {
-			id
-			createdAt
-			updatedAt
-		}
-	}`
-
+// upsertDocument creates or updates a document via REST API. Returns true if newly created.
+func upsertDocument(client *apiclient.Client, vaultID, path, content, source string) (bool, error) {
 	var resp struct {
-		CreateDocument struct {
-			ID        string `json:"id"`
-			CreatedAt string `json:"createdAt"`
-			UpdatedAt string `json:"updatedAt"`
-		} `json:"createDocument"`
+		CreatedAt string `json:"createdAt"`
+		UpdatedAt string `json:"updatedAt"`
 	}
 
-	if err := client.Do(context.Background(), query, map[string]any{
+	body := map[string]string{
 		"vaultId": vaultID,
-		"file": map[string]any{
-			"path":    path,
-			"content": content,
-		},
-		"source": source,
-	}, &resp); err != nil {
+		"path":    path,
+		"content": content,
+		"source":  source,
+	}
+
+	if err := client.Post(context.Background(), "/api/documents", body, &resp); err != nil {
 		return false, fmt.Errorf("upsert: %w", err)
 	}
 
 	// If createdAt == updatedAt, it's a new document
-	return resp.CreateDocument.CreatedAt == resp.CreateDocument.UpdatedAt, nil
+	return resp.CreatedAt == resp.UpdatedAt, nil
 }
 
 // collectMarkdownFiles walks a directory recursively for .md/.markdown files.
