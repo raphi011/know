@@ -20,6 +20,8 @@ import (
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
+const markdownContentType = "text/markdown; charset=utf-8"
+
 // FS implements webdav.FileSystem backed by document and vault services.
 type FS struct {
 	vaultID    string
@@ -204,12 +206,17 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 		return nil, fmt.Errorf("stat %s: %w", name, err)
 	}
 	if meta != nil {
-		return &fileInfo{
-			name:    path.Base(name),
-			size:    int64(meta.ContentLength),
-			modTime: meta.UpdatedAt,
-			isDir:   false,
-		}, nil
+		fi := &fileInfo{
+			name:        path.Base(name),
+			size:        int64(meta.ContentLength),
+			modTime:     meta.UpdatedAt,
+			isDir:       false,
+			contentType: markdownContentType,
+		}
+		if meta.ContentHash != nil {
+			fi.etag = `"` + *meta.ContentHash + `"`
+		}
+		return fi, nil
 	}
 
 	// Try as folder
@@ -287,12 +294,17 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 		if strings.Contains(rel, "/") {
 			continue // nested doc, skip
 		}
-		entries = append(entries, &fileInfo{
-			name:    path.Base(meta.Path),
-			size:    int64(meta.ContentLength),
-			modTime: meta.UpdatedAt,
-			isDir:   false,
-		})
+		fi := &fileInfo{
+			name:        path.Base(meta.Path),
+			size:        int64(meta.ContentLength),
+			modTime:     meta.UpdatedAt,
+			isDir:       false,
+			contentType: markdownContentType,
+		}
+		if meta.ContentHash != nil {
+			fi.etag = `"` + *meta.ContentHash + `"`
+		}
+		entries = append(entries, fi)
 	}
 
 	return entries, nil
@@ -325,16 +337,42 @@ func normalizeName(name string) string {
 }
 
 // fileInfo implements os.FileInfo for WebDAV entries.
+// It optionally implements webdav.ContentTyper (to avoid opening files to
+// sniff MIME type) and webdav.ETager (to return content-hash-based ETags
+// instead of the default ModTime+Size heuristic).
 type fileInfo struct {
-	name    string
-	size    int64
-	modTime time.Time
-	isDir   bool
+	name        string
+	size        int64
+	modTime     time.Time
+	isDir       bool
+	contentType string
+	etag        string
 }
 
-func (fi *fileInfo) Name() string        { return fi.name }
-func (fi *fileInfo) Size() int64          { return fi.size }
-func (fi *fileInfo) Mode() fs.FileMode    { if fi.isDir { return fs.ModeDir | 0755 }; return 0644 }
-func (fi *fileInfo) ModTime() time.Time   { return fi.modTime }
-func (fi *fileInfo) IsDir() bool          { return fi.isDir }
-func (fi *fileInfo) Sys() any             { return nil }
+func (fi *fileInfo) Name() string { return fi.name }
+func (fi *fileInfo) Size() int64  { return fi.size }
+func (fi *fileInfo) Mode() fs.FileMode {
+	if fi.isDir {
+		return fs.ModeDir | 0755
+	}
+	return 0644
+}
+func (fi *fileInfo) ModTime() time.Time { return fi.modTime }
+func (fi *fileInfo) IsDir() bool        { return fi.isDir }
+func (fi *fileInfo) Sys() any           { return nil }
+
+// ContentType implements webdav.ContentTyper.
+func (fi *fileInfo) ContentType(_ context.Context) (string, error) {
+	if fi.contentType == "" {
+		return "", webdav.ErrNotImplemented
+	}
+	return fi.contentType, nil
+}
+
+// ETag implements webdav.ETager.
+func (fi *fileInfo) ETag(_ context.Context) (string, error) {
+	if fi.etag == "" {
+		return "", webdav.ErrNotImplemented
+	}
+	return fi.etag, nil
+}

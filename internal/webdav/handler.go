@@ -20,12 +20,14 @@ import (
 // NewHandler creates an http.Handler that serves WebDAV for vault documents.
 // The path prefix is stripped from incoming requests (e.g. "/dav/default/").
 // Auth uses HTTP Basic Auth where the password is a knowhow API token.
+// maxPutBytes limits the size of PUT request bodies (0 = no limit).
 func NewHandler(
 	pathPrefix string,
 	dbClient *db.Client,
 	docService *document.Service,
 	vaultSvc *vault.Service,
 	noAuth bool,
+	maxPutBytes int64,
 ) http.Handler {
 	// Per-vault lock systems to isolate WebDAV locks across vaults.
 	var lockSystems sync.Map // vaultID → webdav.LockSystem
@@ -85,6 +87,25 @@ func NewHandler(
 				http.Error(w, "read-only access", http.StatusForbidden)
 				return
 			}
+		}
+
+		// Reject PROPFIND Depth:infinity — unbounded recursion is a DoS vector (RFC 4918 §9.1).
+		if r.Method == "PROPFIND" && r.Header.Get("Depth") == "infinity" {
+			http.Error(w, "Depth: infinity not supported", http.StatusForbidden)
+			return
+		}
+
+		// Limit PUT body size to prevent memory exhaustion (write-on-close buffers in memory).
+		// The ContentLength check provides a clean 413 when the header is present.
+		// MaxBytesReader is a fallback for chunked transfers without Content-Length;
+		// in that case the x/net/webdav library surfaces a 500 because it cannot map
+		// http.MaxBytesError to a WebDAV status code.
+		if r.Method == http.MethodPut && maxPutBytes > 0 {
+			if r.ContentLength > maxPutBytes {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, maxPutBytes)
 		}
 
 		// Create per-request WebDAV handler with the resolved vault

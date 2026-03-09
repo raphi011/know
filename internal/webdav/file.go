@@ -31,8 +31,8 @@ func newReadFile(name string, doc *models.Document) *readFile {
 	}
 }
 
-func (f *readFile) Read(p []byte) (int, error)  { return f.reader.Read(p) }
-func (f *readFile) Write([]byte) (int, error)   { return 0, os.ErrPermission }
+func (f *readFile) Read(p []byte) (int, error) { return f.reader.Read(p) }
+func (f *readFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
 func (f *readFile) Seek(offset int64, whence int) (int64, error) {
 	return f.reader.Seek(offset, whence)
 }
@@ -41,11 +41,16 @@ func (f *readFile) Readdir(count int) ([]fs.FileInfo, error) {
 	return nil, os.ErrInvalid
 }
 func (f *readFile) Stat() (fs.FileInfo, error) {
-	return &fileInfo{
-		name:    path.Base(f.name),
-		size:    int64(len(f.doc.Content)),
-		modTime: f.doc.UpdatedAt,
-	}, nil
+	fi := &fileInfo{
+		name:        path.Base(f.name),
+		size:        int64(len(f.doc.Content)),
+		modTime:     f.doc.UpdatedAt,
+		contentType: markdownContentType,
+	}
+	if f.doc.ContentHash != nil {
+		fi.etag = `"` + *f.doc.ContentHash + `"`
+	}
+	return fi, nil
 }
 
 // writeFile buffers writes and triggers the document pipeline on Close().
@@ -66,14 +71,15 @@ func newWriteFile(name, vaultID string, docService *document.Service, initial []
 		modTime:    modTime,
 	}
 	if initial != nil {
+		// bytes.Buffer.Write never returns a non-nil error; safe to ignore.
 		wf.buf.Write(initial)
 	}
 	return wf
 }
 
-func (f *writeFile) Read([]byte) (int, error)               { return 0, os.ErrPermission }
-func (f *writeFile) Readdir(int) ([]fs.FileInfo, error)      { return nil, os.ErrInvalid }
-func (f *writeFile) Seek(int64, int) (int64, error)          { return 0, os.ErrPermission }
+func (f *writeFile) Read([]byte) (int, error)           { return 0, os.ErrPermission }
+func (f *writeFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
+func (f *writeFile) Seek(int64, int) (int64, error)     { return 0, os.ErrPermission }
 
 func (f *writeFile) Write(p []byte) (int, error) {
 	f.written = true
@@ -108,9 +114,10 @@ func (f *writeFile) Close() error {
 
 func (f *writeFile) Stat() (fs.FileInfo, error) {
 	return &fileInfo{
-		name:    path.Base(f.name),
-		size:    int64(f.buf.Len()),
-		modTime: f.modTime,
+		name:        path.Base(f.name),
+		size:        int64(f.buf.Len()),
+		modTime:     f.modTime,
+		contentType: markdownContentType,
 	}, nil
 }
 
@@ -126,10 +133,10 @@ func newDirFile(name string, modTime time.Time, entries []fs.FileInfo) *dirFile 
 	return &dirFile{name: name, modTime: modTime, entries: entries}
 }
 
-func (d *dirFile) Read([]byte) (int, error)             { return 0, os.ErrInvalid }
-func (d *dirFile) Write([]byte) (int, error)            { return 0, os.ErrPermission }
-func (d *dirFile) Seek(int64, int) (int64, error)       { return 0, os.ErrInvalid }
-func (d *dirFile) Close() error                         { return nil }
+func (d *dirFile) Read([]byte) (int, error)       { return 0, os.ErrInvalid }
+func (d *dirFile) Write([]byte) (int, error)      { return 0, os.ErrPermission }
+func (d *dirFile) Seek(int64, int) (int64, error) { return 0, os.ErrInvalid }
+func (d *dirFile) Close() error                   { return nil }
 
 func (d *dirFile) Readdir(count int) ([]fs.FileInfo, error) {
 	if count <= 0 {
@@ -173,14 +180,14 @@ type nopFile struct {
 func newNopFile(name string) *nopFile {
 	return &nopFile{name: name, modTime: time.Now()}
 }
-func (f *nopFile) Read([]byte) (int, error)                    { return 0, io.EOF }
-func (f *nopFile) Write(p []byte) (int, error)                 { return len(p), nil }
-func (f *nopFile) Seek(int64, int) (int64, error)              { return 0, nil }
+func (f *nopFile) Read([]byte) (int, error)       { return 0, io.EOF }
+func (f *nopFile) Write(p []byte) (int, error)    { return len(p), nil }
+func (f *nopFile) Seek(int64, int) (int64, error) { return 0, nil }
 func (f *nopFile) Close() error {
 	slog.Debug("webdav: discarded OS metadata file", "path", f.name)
 	return nil
 }
-func (f *nopFile) Readdir(int) ([]fs.FileInfo, error)          { return nil, os.ErrInvalid }
+func (f *nopFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
 func (f *nopFile) Stat() (fs.FileInfo, error) {
 	return &fileInfo{name: path.Base(f.name), modTime: f.modTime}, nil
 }

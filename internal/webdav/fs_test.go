@@ -1,10 +1,13 @@
 package webdav
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
 	"testing"
+
+	"golang.org/x/net/webdav"
 )
 
 func TestNormalizeName(t *testing.T) {
@@ -67,8 +70,8 @@ func TestIsMarkdownFile(t *testing.T) {
 		{"/notes/file.txt", false},
 		{"/notes/binary.exe", false},
 		{"/notes/noext", false},
-		{"/notes/.md", true},           // hidden file with .md extension
-		{"/notes/._readme.md", true},   // has .md extension (OS filtering is separate)
+		{"/notes/.md", true},         // hidden file with .md extension
+		{"/notes/._readme.md", true}, // has .md extension (OS filtering is separate)
 	}
 
 	for _, tt := range tests {
@@ -141,4 +144,50 @@ func TestErrNotMarkdownWrapsErrPermission(t *testing.T) {
 	if !errors.Is(errNotMarkdown, os.ErrPermission) {
 		t.Error("errNotMarkdown should wrap os.ErrPermission")
 	}
+}
+
+func TestFileInfoContentType(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns content type when set", func(t *testing.T) {
+		fi := &fileInfo{name: "test.md", contentType: "text/markdown; charset=utf-8"}
+		ct, err := fi.ContentType(ctx)
+		if err != nil {
+			t.Fatalf("ContentType() error: %v", err)
+		}
+		if ct != "text/markdown; charset=utf-8" {
+			t.Errorf("ContentType() = %q, want %q", ct, "text/markdown; charset=utf-8")
+		}
+	})
+
+	t.Run("returns ErrNotImplemented when empty", func(t *testing.T) {
+		fi := &fileInfo{name: "test.md"}
+		_, err := fi.ContentType(ctx)
+		if err != webdav.ErrNotImplemented {
+			t.Errorf("ContentType() error = %v, want ErrNotImplemented", err)
+		}
+	})
+}
+
+func TestFileInfoETag(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns etag when set", func(t *testing.T) {
+		fi := &fileInfo{name: "test.md", etag: `"abc123"`}
+		etag, err := fi.ETag(ctx)
+		if err != nil {
+			t.Fatalf("ETag() error: %v", err)
+		}
+		if etag != `"abc123"` {
+			t.Errorf("ETag() = %q, want %q", etag, `"abc123"`)
+		}
+	})
+
+	t.Run("returns ErrNotImplemented when empty", func(t *testing.T) {
+		fi := &fileInfo{name: "test.md"}
+		_, err := fi.ETag(ctx)
+		if err != webdav.ErrNotImplemented {
+			t.Errorf("ETag() error = %v, want ErrNotImplemented", err)
+		}
+	})
 }

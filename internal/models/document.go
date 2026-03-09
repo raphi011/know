@@ -62,6 +62,7 @@ type DocumentInput struct {
 type DocumentMeta struct {
 	Path          string    `json:"path"`
 	ContentLength int       `json:"content_length"`
+	ContentHash   *string   `json:"content_hash,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 

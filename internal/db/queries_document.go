@@ -344,7 +344,7 @@ func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, erro
 // GetDocumentMetaByPath returns lightweight metadata for a document (no content).
 // Returns nil if the document doesn't exist.
 func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string) (*models.DocumentMeta, error) {
-	sql := `SELECT path, content_length, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
+	sql := `SELECT path, content_length, content_hash ?? null AS content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.DocumentMeta](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
 		"path":     path,
@@ -361,7 +361,7 @@ func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string
 // ListDocumentMetas returns lightweight metadata (no content) for documents matching the filter.
 func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilter) ([]models.DocumentMeta, error) {
 	where, vars, suffix := buildDocumentFilter(filter)
-	sql := fmt.Sprintf("SELECT path, content_length, updated_at FROM document WHERE %s %s", where, suffix)
+	sql := fmt.Sprintf("SELECT path, content_length, content_hash ?? null AS content_hash, updated_at FROM document WHERE %s %s", where, suffix)
 
 	results, err := surrealdb.Query[[]models.DocumentMeta](ctx, c.DB(), sql, vars)
 	if err != nil {

@@ -130,6 +130,7 @@ func main() {
 		resolver.DocumentService(),
 		resolver.VaultService(),
 		cfg.NoAuth,
+		10*1024*1024, // 10 MB max PUT body
 	)
 	mux.Handle("/dav/", davHandler)
 	slog.Info("WebDAV endpoint enabled", "path", "/dav/{vaultName}/")
