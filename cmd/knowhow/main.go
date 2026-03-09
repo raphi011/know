@@ -6,8 +6,16 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
+)
+
+// Version information — set by GoReleaser ldflags at build time.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 var (
@@ -26,10 +34,19 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiToken, "token", os.Getenv("KNOWHOW_TOKEN"), "API bearer token")
 }
 
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version information",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("knowhow %s (%s, %s, %s)\n", version, commit[:min(7, len(commit))], date, runtime.Version())
+	},
+}
+
 func main() {
 	rootCmd.AddCommand(scrapeCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(devCmd)
+	rootCmd.AddCommand(versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -29,6 +29,9 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
+// Version information — set by GoReleaser ldflags at build time.
+var version = "dev"
+
 func main() {
 	// Load configuration
 	cfg := config.Load()
@@ -47,7 +50,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
-	slog.Info("starting knowhow-server", "port", port)
+	slog.Info("starting knowhow-server", "version", version, "port", port)
 
 	// Bind the port early so we fail fast if another instance is still running.
 	// This prevents the race where initialization succeeds but ListenAndServe

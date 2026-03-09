@@ -19,11 +19,11 @@ Store any type of knowledge (people, services, concepts, documents) with flexibl
 ## Installation
 
 ```bash
-# Build from source
-go build -o knowhow ./cmd/knowhow
+# Homebrew (macOS/Linux)
+brew install raphi011/tap/knowhow
 
-# Install to path
-go install ./cmd/knowhow
+# Or build from source
+go build -o knowhow ./cmd/knowhow
 ```
 
 ### Prerequisites
