@@ -51,16 +51,12 @@ build:
 build-server:
     go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
 
-# Build bootstrap script
-build-bootstrap:
-    go build -buildvcs=false -o {{build_dir}}/bootstrap ./cmd/bootstrap
-
 # Bootstrap DB (wipe + create user/vault/token from env vars)
-bootstrap: build-bootstrap db-up
-    {{build_dir}}/bootstrap
+bootstrap: build db-up
+    {{build_dir}}/{{binary}} dev seed --wipe
 
 # Build all binaries
-build-all: build build-server build-bootstrap
+build-all: build build-server
 
 # Run server with optional args (e.g., just server --wipe)
 server *args: build-server
@@ -171,7 +167,7 @@ prod-reset:
     rm -rf data/surreal
 
 # Bootstrap prod DB (start only surrealdb, run bootstrap, stop)
-prod-bootstrap: build-bootstrap
+prod-bootstrap: build
     #!/usr/bin/env bash
     set -e
     docker compose -f docker-compose.prod.yml up -d surrealdb
@@ -180,7 +176,7 @@ prod-bootstrap: build-bootstrap
         sleep 1
     done
     echo "Running bootstrap..."
-    SURREALDB_URL="ws://localhost:5002/rpc" {{build_dir}}/bootstrap
+    SURREALDB_URL="ws://localhost:5002/rpc" {{build_dir}}/{{binary}} dev seed --wipe
     echo "Bootstrap complete. Run 'just prod' to start the full stack."
 
 # Run all tests

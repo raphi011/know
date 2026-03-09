@@ -1,5 +1,6 @@
 // Package main provides the CLI for Knowhow.
-// All commands communicate with the server via GraphQL API.
+// Most commands communicate with the server via GraphQL API;
+// dev commands connect directly to SurrealDB.
 package main
 
 import (
@@ -27,6 +28,8 @@ func init() {
 
 func main() {
 	rootCmd.AddCommand(scrapeCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(devCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -42,7 +45,7 @@ func envOrDefault(key, def string) string {
 
 func requireToken() error {
 	if apiToken == "" {
-		return fmt.Errorf("api token required: set KNOWHOW_V2_TOKEN or use --token")
+		return fmt.Errorf("api token required: set KNOWHOW_TOKEN or use --token")
 	}
 	return nil
 }

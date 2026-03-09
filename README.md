@@ -208,6 +208,16 @@ knowhow usage --since "7d"
 knowhow usage --detailed --costs
 ```
 
+### Server Configuration
+
+```bash
+# Show server configuration (LLM, embedding, chunking settings)
+knowhow config
+
+# Output as JSON
+knowhow config --json
+```
+
 ## Configuration
 
 Environment variables:
