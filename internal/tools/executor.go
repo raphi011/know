@@ -124,6 +124,10 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# %s\n\n", doc.Title)
 
+	if doc.ContentHash != nil {
+		fmt.Fprintf(&sb, "Content-Hash: %s\n\n", *doc.ContentHash)
+	}
+
 	if input.Sections {
 		parsed, parseErr := parser.ParseMarkdown(doc.ContentBody)
 		if parseErr != nil {
@@ -297,7 +301,7 @@ func (e *Executor) execCreateDocument(ctx context.Context, vaultID, arguments st
 		return "", nil, fmt.Errorf("check existing document: %w", err)
 	}
 	if existing != nil {
-		return "", nil, fmt.Errorf("document already exists at path: %s", args.Path)
+		return "", nil, &ToolError{Message: fmt.Sprintf("document already exists at path: %s", args.Path)}
 	}
 
 	start := time.Now()
@@ -322,8 +326,9 @@ func (e *Executor) execCreateDocument(ctx context.Context, vaultID, arguments st
 
 func (e *Executor) execEditDocument(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
 	var args struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
+		Path         string  `json:"path"`
+		Content      string  `json:"content"`
+		ExpectedHash *string `json:"expected_hash"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return "", nil, fmt.Errorf("parse edit_document input: %w", err)
@@ -340,7 +345,10 @@ func (e *Executor) execEditDocument(ctx context.Context, vaultID, arguments stri
 		return "", nil, fmt.Errorf("check document: %w", err)
 	}
 	if existing == nil {
-		return "", nil, fmt.Errorf("document not found: %s", args.Path)
+		return "", nil, &ToolError{Message: fmt.Sprintf("document not found: %s", args.Path)}
+	}
+	if err := checkContentHash(args.ExpectedHash, existing.ContentHash); err != nil {
+		return "", nil, err
 	}
 
 	start := time.Now()
@@ -365,13 +373,14 @@ func (e *Executor) execEditDocument(ctx context.Context, vaultID, arguments stri
 
 func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
 	var args struct {
-		Path       string  `json:"path"`
-		Operation  string  `json:"operation"`
-		Heading    *string `json:"heading"`
-		Position   *int    `json:"position"`
-		Content    *string `json:"content"`
-		NewHeading *string `json:"new_heading"`
-		NewLevel   *int    `json:"new_level"`
+		Path         string  `json:"path"`
+		Operation    string  `json:"operation"`
+		Heading      *string `json:"heading"`
+		Position     *int    `json:"position"`
+		Content      *string `json:"content"`
+		NewHeading   *string `json:"new_heading"`
+		NewLevel     *int    `json:"new_level"`
+		ExpectedHash *string `json:"expected_hash"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return "", nil, fmt.Errorf("parse edit_document_section input: %w", err)
@@ -387,7 +396,7 @@ func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, argumen
 	case parser.OpReplace, parser.OpInsertAfter, parser.OpInsertBefore, parser.OpDelete, parser.OpAppend:
 		// valid
 	default:
-		return "", nil, fmt.Errorf("unknown operation: %s", args.Operation)
+		return "", nil, &ToolError{Message: fmt.Sprintf("unknown operation: %s", args.Operation)}
 	}
 
 	existing, err := e.DB.GetDocumentByPath(ctx, vaultID, args.Path)
@@ -395,7 +404,10 @@ func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, argumen
 		return "", nil, fmt.Errorf("check document: %w", err)
 	}
 	if existing == nil {
-		return "", nil, fmt.Errorf("document not found: %s", args.Path)
+		return "", nil, &ToolError{Message: fmt.Sprintf("document not found: %s", args.Path)}
+	}
+	if err := checkContentHash(args.ExpectedHash, existing.ContentHash); err != nil {
+		return "", nil, err
 	}
 
 	// Build the section edit
@@ -411,7 +423,7 @@ func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, argumen
 	// Apply the section edit to the existing content
 	newContent, err := parser.ApplySectionEdit(existing.Content, edit)
 	if err != nil {
-		return "", nil, fmt.Errorf("apply section edit: %w", err)
+		return "", nil, &ToolError{Message: fmt.Sprintf("apply section edit: %s", err)}
 	}
 
 	start := time.Now()
@@ -574,4 +586,20 @@ func (e *Executor) execGetDocumentVersions(ctx context.Context, vaultID, argumen
 		ResultCount: IntPtr(totalCount),
 	}
 	return sb.String(), meta, nil
+}
+
+// checkContentHash validates optimistic concurrency. Returns a ToolError if
+// hashes mismatch, or if the caller provided expected_hash but the document
+// has no stored hash.
+func checkContentHash(expectedHash, currentHash *string) error {
+	if expectedHash == nil {
+		return nil
+	}
+	if currentHash == nil {
+		return &ToolError{Message: "document has no content hash; cannot verify expected_hash — re-read with get_document"}
+	}
+	if *expectedHash != *currentHash {
+		return &ToolError{Message: fmt.Sprintf("document changed since you read it (expected hash %s, current %s), re-read with get_document", *expectedHash, *currentHash)}
+	}
+	return nil
 }

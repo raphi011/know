@@ -4,6 +4,7 @@ package mcptools
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/knowhow/internal/db"
@@ -18,6 +19,7 @@ func NewHandler(executor *tools.Executor, dbClient *db.Client, vaultService *vau
 		executor:     executor,
 		db:           dbClient,
 		vaultService: vaultService,
+		cache:        newCache(60 * time.Second),
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{
