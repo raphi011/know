@@ -82,8 +82,8 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			if !isMarkdownFile(name) {
 				return nil, errNotMarkdown
 			}
-			// Open for writing — start with existing content
-			return newWriteFile(name, f.vaultID, f.docService, []byte(doc.Content), doc.UpdatedAt), nil
+			// Open for writing — PUT is a full replacement, don't pre-load existing content
+			return newWriteFile(name, f.vaultID, f.docService, nil, doc.UpdatedAt), nil
 		}
 		return newReadFile(name, doc), nil
 	}

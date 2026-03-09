@@ -309,6 +309,25 @@ func TestApplySectionEdit_OnlyPreambleDocument(t *testing.T) {
 	}
 }
 
+func TestApplySectionEdit_ReplaceEmptyPreamble_ReturnsError(t *testing.T) {
+	// When a document starts with a heading (no actual preamble content),
+	// targeting heading="" should return an error, not match the empty
+	// Level=0 section the parser always creates.
+	content := "# Doc\n\n## Section A\n\nContent A."
+
+	_, err := ApplySectionEdit(content, SectionEdit{
+		Operation: OpReplace,
+		Target:    &SectionAddress{Heading: ""},
+		Content:   "Injected.",
+	})
+	if err == nil {
+		t.Fatal("expected error when replacing preamble on doc without preamble")
+	}
+	if !strings.Contains(err.Error(), "preamble section not found") {
+		t.Errorf("expected 'preamble section not found' error, got: %v", err)
+	}
+}
+
 func TestApplySectionEdit_ErrorSectionNotFound(t *testing.T) {
 	content := "## Existing\n\nContent."
 

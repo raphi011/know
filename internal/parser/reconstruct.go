@@ -258,6 +258,13 @@ func findSection(sections []Section, addr SectionAddress) (int, error) {
 	for i, s := range sections {
 		match := false
 		if addr.Heading == "" && s.Level == 0 {
+			// Skip empty preamble sections — the parser always creates a
+			// Level=0 section, but if the doc starts with a heading it has
+			// no actual preamble content. Treating it as a match would
+			// prepend content before the first heading, corrupting the doc.
+			if s.Content == "" {
+				continue
+			}
 			match = true
 		} else if s.Heading == addr.Heading {
 			match = true
