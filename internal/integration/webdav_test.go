@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raphi011/knowhow/internal/asset"
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/models"
@@ -58,7 +60,8 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	vaultID, vaultSvc := setupVault(t, ctx, "webdav-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil)
 
-	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, vaultSvc, true, 1024*1024)
+	assetSvc := asset.NewService(testDB, nil)
+	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -439,7 +442,8 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 	}
 
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil)
-	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, vaultSvc, false, 1024*1024)
+	assetSvc := asset.NewService(testDB, nil)
+	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -835,4 +839,281 @@ func TestWebDAV_MoveFolder(t *testing.T) {
 			t.Errorf("GET new %s status = %d, want 200", name, resp.StatusCode)
 		}
 	}
+}
+
+// testPNG is a minimal valid 1x1 red PNG (67 bytes).
+var testPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
+	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+	0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, // IDAT chunk
+	0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x36, 0x28, 0xcf,
+	0x80, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND chunk
+	0x44, 0xae, 0x42, 0x60, 0x82,
+}
+
+func TestWebDAV_AssetPutGetRoundtrip(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "asset-roundtrip")
+	vaultName := vaultNameFromID(vaultID)
+	url := davURL(srv, vaultName, "/photo.png")
+
+	// PUT image
+	req := mustNewRequest(t, http.MethodPut, url, bytes.NewReader(testPNG))
+	req.Header.Set("Content-Type", "image/png")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT", http.StatusCreated, http.StatusNoContent)
+
+	// GET image back
+	resp, err = http.Get(url)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	requireStatus(t, resp, "GET", http.StatusOK)
+
+	body := mustReadAll(t, resp.Body)
+	if !bytes.Equal(body, testPNG) {
+		t.Errorf("GET body length = %d, want %d", len(body), len(testPNG))
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+}
+
+func TestWebDAV_AssetDelete(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "asset-delete")
+	vaultName := vaultNameFromID(vaultID)
+	url := davURL(srv, vaultName, "/delete-me.png")
+
+	// PUT
+	req := mustNewRequest(t, http.MethodPut, url, bytes.NewReader(testPNG))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT", http.StatusCreated, http.StatusNoContent)
+
+	// DELETE
+	req = mustNewRequest(t, http.MethodDelete, url, nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "DELETE", http.StatusNoContent, http.StatusOK)
+
+	// GET should 404
+	resp, err = http.Get(url)
+	if err != nil {
+		t.Fatalf("GET after delete: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET after delete status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestWebDAV_AssetRename(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "asset-rename")
+	vaultName := vaultNameFromID(vaultID)
+	srcURL := davURL(srv, vaultName, "/rename-src.png")
+	dstURL := davURL(srv, vaultName, "/rename-dst.jpg")
+
+	// PUT
+	req := mustNewRequest(t, http.MethodPut, srcURL, bytes.NewReader(testPNG))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT", http.StatusCreated, http.StatusNoContent)
+
+	// MOVE to new image name
+	req = mustNewRequest(t, "MOVE", srcURL, nil)
+	req.Header.Set("Destination", dstURL)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("MOVE: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "MOVE", http.StatusCreated, http.StatusNoContent)
+
+	// Old path should 404
+	resp, err = http.Get(srcURL)
+	if err != nil {
+		t.Fatalf("GET old: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET old path status = %d, want 404", resp.StatusCode)
+	}
+
+	// New path should exist with correct content
+	resp, err = http.Get(dstURL)
+	if err != nil {
+		t.Fatalf("GET new: %v", err)
+	}
+	defer resp.Body.Close()
+	requireStatus(t, resp, "GET new", http.StatusOK)
+
+	body := mustReadAll(t, resp.Body)
+	if !bytes.Equal(body, testPNG) {
+		t.Errorf("GET new body length = %d, want %d", len(body), len(testPNG))
+	}
+}
+
+func TestWebDAV_AssetRenameToNonImageRejected(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "asset-rename-reject")
+	vaultName := vaultNameFromID(vaultID)
+	srcURL := davURL(srv, vaultName, "/img.png")
+	dstURL := davURL(srv, vaultName, "/img.txt")
+
+	// PUT
+	req := mustNewRequest(t, http.MethodPut, srcURL, bytes.NewReader(testPNG))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT", http.StatusCreated, http.StatusNoContent)
+
+	// MOVE to non-image should fail
+	req = mustNewRequest(t, "MOVE", srcURL, nil)
+	req.Header.Set("Destination", dstURL)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("MOVE: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 400 {
+		t.Errorf("MOVE to non-image status = %d, want error", resp.StatusCode)
+	}
+
+	// Original should still exist
+	resp, err = http.Get(srcURL)
+	if err != nil {
+		t.Fatalf("GET original: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "GET original", http.StatusOK)
+}
+
+func TestWebDAV_AssetInDirListing(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "asset-listing")
+	vaultName := vaultNameFromID(vaultID)
+
+	// PUT a markdown file and an image at root
+	req := mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/readme.md"), strings.NewReader("# Readme"))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT md: %v", err)
+	}
+	resp.Body.Close()
+
+	req = mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/logo.png"), bytes.NewReader(testPNG))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT png: %v", err)
+	}
+	resp.Body.Close()
+
+	// PROPFIND on root should list both
+	req = mustNewRequest(t, "PROPFIND", davURL(srv, vaultName, "/"), nil)
+	req.Header.Set("Depth", "1")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PROPFIND: %v", err)
+	}
+	defer resp.Body.Close()
+	requireStatus(t, resp, "PROPFIND", http.StatusMultiStatus)
+
+	body := string(mustReadAll(t, resp.Body))
+	if !strings.Contains(body, "readme.md") {
+		t.Error("PROPFIND missing readme.md")
+	}
+	if !strings.Contains(body, "logo.png") {
+		t.Error("PROPFIND missing logo.png")
+	}
+}
+
+func TestWebDAV_FolderDeleteCascadeAssets(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "folder-cascade-assets")
+	vaultName := vaultNameFromID(vaultID)
+
+	// Create folder
+	req := mustNewRequest(t, "MKCOL", davURL(srv, vaultName, "/imgs"), nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("MKCOL: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "MKCOL", http.StatusCreated)
+
+	// PUT a doc and an asset inside
+	req = mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/imgs/note.md"), strings.NewReader("# Note"))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT md: %v", err)
+	}
+	resp.Body.Close()
+
+	req = mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/imgs/pic.png"), bytes.NewReader(testPNG))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT png: %v", err)
+	}
+	resp.Body.Close()
+
+	// DELETE folder
+	req = mustNewRequest(t, http.MethodDelete, davURL(srv, vaultName, "/imgs/"), nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "DELETE", http.StatusNoContent, http.StatusOK)
+
+	// Both should be gone
+	for _, p := range []string{"/imgs/note.md", "/imgs/pic.png"} {
+		resp, err = http.Get(davURL(srv, vaultName, p))
+		if err != nil {
+			t.Fatalf("GET %s: %v", p, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GET %s after folder delete status = %d, want 404", p, resp.StatusCode)
+		}
+	}
+}
+
+func TestWebDAV_NonImageNonMarkdownRejected(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "reject-nonimage")
+	vaultName := vaultNameFromID(vaultID)
+
+	// PUT a .txt file should be rejected
+	req := mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/file.txt"), strings.NewReader("hello"))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 400 {
+		t.Errorf("PUT .txt status = %d, want error", resp.StatusCode)
+	}
+
+	// PUT a .png file should be accepted
+	req = mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/ok.png"), bytes.NewReader(testPNG))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT .png", http.StatusCreated, http.StatusNoContent)
 }

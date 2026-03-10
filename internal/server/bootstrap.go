@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/raphi011/knowhow/internal/agent"
+	"github.com/raphi011/knowhow/internal/asset"
 	"github.com/raphi011/knowhow/internal/config"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
@@ -49,6 +50,7 @@ type App struct {
 	db                      *db.Client
 	vaultService            *vault.Service
 	documentService         *document.Service
+	assetService            *asset.Service
 	searchService           *search.Service
 	templateService         *template.Service
 	agentService            *agent.Service
@@ -158,9 +160,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	searchSvc := search.NewService(dbClient, embedder)
 	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
 
+	assetSvc := asset.NewService(dbClient, bus)
+
 	app := &App{
 		db:                       dbClient,
 		vaultService:             vault.NewService(dbClient),
+		assetService:             assetSvc,
 		processingWorkerInterval: time.Duration(cfg.ProcessingWorkerInterval) * time.Second,
 		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
 		documentService:      docService,
@@ -229,6 +234,11 @@ func (a *App) VaultService() *vault.Service {
 // TemplateService returns the template service.
 func (a *App) TemplateService() *template.Service {
 	return a.templateService
+}
+
+// AssetService returns the asset service.
+func (a *App) AssetService() *asset.Service {
+	return a.assetService
 }
 
 // Config returns the server configuration.

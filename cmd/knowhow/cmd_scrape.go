@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/raphi011/knowhow/internal/apiclient"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -23,11 +26,12 @@ var (
 
 var scrapeCmd = &cobra.Command{
 	Use:   "scrape <directory>",
-	Short: "Ingest Markdown files into a vault via the API",
-	Long: `Walk a directory for .md files and create/update documents in a vault.
+	Short: "Ingest Markdown files and images into a vault via the API",
+	Long: `Walk a directory for .md files and images and create/update documents/assets in a vault.
 
 Unchanged files are skipped by comparing content hashes, unless --force is set.
-Each file goes through the full document pipeline (parse, embed, link, chunk).
+Markdown files go through the full document pipeline (parse, embed, link, chunk).
+Image files (PNG, JPEG, GIF, SVG, WebP) are uploaded as binary assets.
 
 Examples:
   knowhow scrape ./docs --vault <id>
@@ -65,22 +69,32 @@ func runScrape(cmd *cobra.Command, args []string) error {
 
 	client := apiclient.New(apiURL, apiToken)
 
-	// 1. Collect local markdown files
-	files, err := collectMarkdownFiles(dirPath)
+	// 1. Collect local files (markdown + images)
+	files, err := collectFiles(dirPath)
 	if err != nil {
 		return fmt.Errorf("scrape: %w", err)
 	}
 	if len(files) == 0 {
-		fmt.Println("No Markdown files found")
+		fmt.Println("No files found")
 		return nil
 	}
-	fmt.Printf("Found %d Markdown files\n", len(files))
+
+	var mdCount, imgCount int
+	for _, f := range files {
+		if models.IsImageFile(f) {
+			imgCount++
+		} else {
+			mdCount++
+		}
+	}
+	fmt.Printf("Found %d Markdown files, %d images\n", mdCount, imgCount)
 
 	// 2. Read content and compute hashes
 	type localFile struct {
 		relPath string // vault-relative path, e.g. /docs/readme.md
-		content string
+		content []byte
 		hash    string
+		isImage bool
 	}
 
 	var localFiles []localFile
@@ -95,19 +109,19 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			rel = absPath
 		}
-		// Normalize to vault path: /relative/path.md
 		vaultPath := "/" + filepath.ToSlash(rel)
 
 		h := sha256.Sum256(content)
 		localFiles = append(localFiles, localFile{
 			relPath: vaultPath,
-			content: string(content),
+			content: content,
 			hash:    hex.EncodeToString(h[:]),
+			isImage: models.IsImageFile(absPath),
 		})
 	}
 
 	// 3. For each file, check existing hash and decide whether to ingest
-	var created, updated, skipped, errCount int
+	var created, updated, skipped, errCount, imagesUploaded int
 
 	for _, lf := range localFiles {
 		if scrapeDryRun {
@@ -116,11 +130,32 @@ func runScrape(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Check existing document's content hash (unless --force)
+		if lf.isImage {
+			// Check existing asset hash (unless --force)
+			if !scrapeForce {
+				existing, err := getAssetHash(client, scrapeVaultID, lf.relPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: hash check for %s: %v\n", lf.relPath, err)
+				} else if existing == lf.hash {
+					skipped++
+					continue
+				}
+			}
+
+			if err := uploadAsset(client, scrapeVaultID, lf.relPath, lf.content); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", lf.relPath, err)
+				errCount++
+				continue
+			}
+			fmt.Printf("  + %s (image)\n", lf.relPath)
+			imagesUploaded++
+			continue
+		}
+
+		// Markdown file
 		if !scrapeForce {
 			existing, err := getDocumentHash(client, scrapeVaultID, lf.relPath)
 			if err != nil {
-				// Document might not exist — that's fine, we'll create it
 				fmt.Fprintf(os.Stderr, "Warning: hash check for %s: %v\n", lf.relPath, err)
 			} else if existing == lf.hash {
 				skipped++
@@ -128,8 +163,7 @@ func runScrape(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Create/update document via REST API
-		isNew, err := upsertDocument(client, scrapeVaultID, lf.relPath, lf.content, scrapeSource)
+		isNew, err := upsertDocument(client, scrapeVaultID, lf.relPath, string(lf.content), scrapeSource)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", lf.relPath, err)
 			errCount++
@@ -150,7 +184,7 @@ func runScrape(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("\nDone: %d created, %d updated, %d unchanged, %d errors\n", created, updated, skipped, errCount)
+	fmt.Printf("\nDone: %d created, %d updated, %d images uploaded, %d unchanged, %d errors\n", created, updated, imagesUploaded, skipped, errCount)
 	return nil
 }
 
@@ -161,7 +195,8 @@ func getDocumentHash(client *apiclient.Client, vaultID, path string) (string, er
 		ContentHash *string `json:"contentHash"`
 	}
 
-	err := client.Get(context.Background(), fmt.Sprintf("/api/documents?vault=%s&path=%s", vaultID, path), &doc)
+	q := url.Values{"vault": {vaultID}, "path": {path}}
+	err := client.Get(context.Background(), "/api/documents?"+q.Encode(), &doc)
 	if err != nil {
 		return "", fmt.Errorf("get hash: %w", err)
 	}
@@ -194,8 +229,8 @@ func upsertDocument(client *apiclient.Client, vaultID, path, content, source str
 	return resp.CreatedAt == resp.UpdatedAt, nil
 }
 
-// collectMarkdownFiles walks a directory recursively for .md/.markdown files.
-func collectMarkdownFiles(dirPath string) ([]string, error) {
+// collectFiles walks a directory recursively for .md/.markdown and image files.
+func collectFiles(dirPath string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -205,7 +240,7 @@ func collectMarkdownFiles(dirPath string) ([]string, error) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext == ".md" || ext == ".markdown" {
+		if ext == ".md" || ext == ".markdown" || models.IsImageFile(path) {
 			files = append(files, path)
 		}
 		return nil
@@ -214,4 +249,36 @@ func collectMarkdownFiles(dirPath string) ([]string, error) {
 		return nil, fmt.Errorf("scan directory: %w", err)
 	}
 	return files, nil
+}
+
+// getAssetHash queries the existing asset's contentHash via REST API.
+// Returns empty string if asset doesn't exist.
+func getAssetHash(client *apiclient.Client, vaultID, path string) (string, error) {
+	var asset struct {
+		ContentHash string `json:"contentHash"`
+	}
+
+	q := url.Values{"vault": {vaultID}, "path": {path}}
+	err := client.Get(context.Background(), "/api/assets/meta?"+q.Encode(), &asset)
+	if err != nil {
+		return "", fmt.Errorf("get asset hash: %w", err)
+	}
+
+	return asset.ContentHash, nil
+}
+
+// uploadAsset uploads an image file via multipart POST to the REST API.
+func uploadAsset(client *apiclient.Client, vaultID, path string, data []byte) error {
+	return client.PostMultipart(
+		context.Background(),
+		"/api/assets",
+		map[string]string{
+			"vault": vaultID,
+			"path":  path,
+		},
+		"file",
+		filepath.Base(path),
+		bytes.NewReader(data),
+		nil,
+	)
 }
