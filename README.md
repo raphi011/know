@@ -288,8 +288,8 @@ The web UI provides a document editor for browsing and editing `document`-type e
 The frontend is embedded in the Go binary. Build and run:
 
 ```bash
-just build-server
-./bin/knowhow-server
+just build
+./bin/knowhow serve
 # Open http://localhost:8484
 ```
 
@@ -456,13 +456,13 @@ mutation {
 
 ## MCP Server (AI Agent Integration)
 
-The `knowhow-mcp` binary exposes your knowledge base to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). It aggregates one or more knowhow-server instances and provides 4 tools over Streamable HTTP.
+The `knowhow mcp` command exposes your knowledge base to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). It aggregates one or more knowhow server instances and provides 4 tools over Streamable HTTP.
 
 ### Setup
 
 ```bash
 # Build
-just build-all
+just build
 
 # Create config
 mkdir -p ~/.config/knowhow-mcp
@@ -476,9 +476,9 @@ token = "kh_your_token_here"
 EOF
 
 # Start
-./bin/knowhow-mcp
+./bin/knowhow mcp
 # or with a custom config path:
-./bin/knowhow-mcp --config /path/to/config.toml
+./bin/knowhow mcp --config /path/to/config.toml
 ```
 
 ### Tools

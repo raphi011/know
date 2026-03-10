@@ -83,5 +83,5 @@ OOM during `bun run build` in Docker. Increase Colima memory to 4+ GB (see above
 SurrealDB appears running in logs but stays unhealthy → the healthcheck command itself is failing. Verify manually:
 
 ```bash
-docker compose -f docker-compose.local.yml exec surrealdb /surreal is-ready
+docker compose exec surrealdb /surreal is-ready
 ```
