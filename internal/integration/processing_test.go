@@ -34,7 +34,7 @@ func setupProcessingTest(t *testing.T, ctx context.Context) (string, *document.S
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
 		CoalesceMinutes: 10,
 		RetentionCount:  50,
-	}, nil)
+	}, nil, 0)
 
 	return vaultID, docSvc
 }

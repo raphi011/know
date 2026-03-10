@@ -21,7 +21,7 @@ func setupExecutor(t *testing.T, suffix string) (*tools.Executor, string) {
 	vaultID, _ := setupVault(t, ctx, "exec-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 
 	searchSvc := search.NewService(testDB, nil)
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	return &tools.Executor{
 		DB:         testDB,

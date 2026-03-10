@@ -28,17 +28,24 @@ type VersionConfig struct {
 
 // Service manages document lifecycle: parse → extract → store → link → embed.
 type Service struct {
-	db            *db.Client
-	embedder      atomic.Pointer[llm.Embedder] // optional — nil disables embedding
-	resolver      *LinkResolver
-	chunkConfig   parser.ChunkConfig
-	versionConfig VersionConfig
-	bus           *event.Bus // optional — nil disables change events
+	db                 *db.Client
+	embedder           atomic.Pointer[llm.Embedder] // optional — nil disables embedding
+	resolver           *LinkResolver
+	chunkConfig        parser.ChunkConfig
+	versionConfig      VersionConfig
+	bus                *event.Bus // optional — nil disables change events
+	embedMaxInputChars int        // hard limit for embedding API input (0 = no limit)
 }
 
 // SetEmbedder atomically replaces the embedder (used by SIGHUP reload).
 func (s *Service) SetEmbedder(e *llm.Embedder) {
 	s.embedder.Store(e)
+}
+
+// SetChunkConfig updates the chunk config and embed limit (used by SIGHUP reload).
+func (s *Service) SetChunkConfig(cc parser.ChunkConfig, embedMaxInputChars int) {
+	s.chunkConfig = cc
+	s.embedMaxInputChars = embedMaxInputChars
 }
 
 // getEmbedder returns the current embedder via an atomic load.
@@ -47,7 +54,8 @@ func (s *Service) getEmbedder() *llm.Embedder {
 }
 
 // NewService creates a new document service.
-func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus) *Service {
+// embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
+func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
 	if versionConfig.RetentionCount < 1 {
 		slog.Warn("version retention count too low, clamping to 1", "configured", versionConfig.RetentionCount)
 		versionConfig.RetentionCount = 1
@@ -57,11 +65,12 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 		versionConfig.CoalesceMinutes = 0
 	}
 	s := &Service{
-		db:            db,
-		resolver:      NewLinkResolver(db),
-		chunkConfig:   chunkConfig,
-		versionConfig: versionConfig,
-		bus:           bus,
+		db:                 db,
+		resolver:           NewLinkResolver(db),
+		chunkConfig:        chunkConfig,
+		versionConfig:      versionConfig,
+		bus:                bus,
+		embedMaxInputChars: embedMaxInputChars,
 	}
 	s.embedder.Store(embedder)
 	return s
@@ -319,7 +328,7 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 			slog.Warn("failed to extract document ID for contextual embedding", "chunk_id", chunkID, "error", err)
 			continue
 		}
-		embeddingText := buildEmbeddingContext(chunk, docTitles[docID])
+		embeddingText := buildEmbeddingContext(chunk, docTitles[docID], s.embedMaxInputChars)
 
 		emb, err := embedder.Embed(ctx, embeddingText)
 		if err != nil {
@@ -385,7 +394,9 @@ func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map
 // buildEmbeddingContext prepends document and section context to chunk content
 // for better embedding quality (contextual retrieval technique).
 // The context prefix is only used at embedding time, not stored in the chunk.
-func buildEmbeddingContext(chunk models.Chunk, docTitle string) string {
+// If maxChars > 0 and the assembled string exceeds maxChars, the content is
+// truncated at a word boundary (the prefix is preserved).
+func buildEmbeddingContext(chunk models.Chunk, docTitle string, maxChars int) string {
 	var b strings.Builder
 	if docTitle != "" {
 		fmt.Fprintf(&b, "Document: %s\n", docTitle)
@@ -397,8 +408,40 @@ func buildEmbeddingContext(chunk models.Chunk, docTitle string) string {
 	if b.Len() > 0 {
 		b.WriteString("\n")
 	}
+	prefixLen := b.Len()
+
 	b.WriteString(chunk.Content)
-	return b.String()
+	result := b.String()
+
+	if maxChars > 0 && len(result) > maxChars {
+		if prefixLen > maxChars {
+			// Prefix alone exceeds limit — truncate the entire string.
+			// This shouldn't happen with a properly sized maxEmbedContextOverhead
+			// (see config.maxEmbedContextOverhead), but guard against it.
+			result = result[:maxChars]
+		} else {
+			// Truncate content at word boundary, keeping prefix intact.
+			contentBudget := maxChars - prefixLen
+			result = result[:prefixLen] + truncateAtWordBoundary(chunk.Content, contentBudget)
+		}
+	}
+	return result
+}
+
+// truncateAtWordBoundary truncates s to at most maxLen characters,
+// cutting at the last space boundary to avoid splitting words.
+func truncateAtWordBoundary(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 0 {
+		return ""
+	}
+	truncated := s[:maxLen]
+	if idx := strings.LastIndexByte(truncated, ' '); idx > maxLen/2 {
+		truncated = truncated[:idx]
+	}
+	return truncated
 }
 
 // stripMarkdownHeadingPrefixes removes markdown heading markers from a heading path.
