@@ -72,6 +72,10 @@ type Config struct {
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
 	EmbedWorkerBatch    int // max chunks per tick (default: 10)
 
+	// Processing worker settings
+	ProcessingWorkerInterval int // seconds between processing ticks (default: 2)
+	ProcessingWorkerBatch    int // max documents per tick (default: 20)
+
 	// Chunking settings
 	ChunkThreshold  int // only chunk if content exceeds this length (default: 6000)
 	ChunkTargetSize int // ideal chunk size in chars (default: 3000)
@@ -134,6 +138,10 @@ func Load() Config {
 		// Embedding worker
 		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),
 		EmbedWorkerBatch:    getEnvInt("KNOWHOW_EMBED_WORKER_BATCH", 10),
+
+		// Processing worker
+		ProcessingWorkerInterval: getEnvInt("KNOWHOW_PROCESSING_WORKER_INTERVAL", 2),
+		ProcessingWorkerBatch:    getEnvInt("KNOWHOW_PROCESSING_WORKER_BATCH", 20),
 
 		// Chunking
 		ChunkThreshold:  getEnvInt("KNOWHOW_CHUNK_THRESHOLD", 6000),

@@ -56,9 +56,9 @@ func init() {
 
 func runServe(_ *cobra.Command, _ []string) error {
 	// Initialize logging
-	level := slog.LevelInfo
-	if serveLogLevel == "debug" {
-		level = slog.LevelDebug
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(serveLogLevel)); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", serveLogLevel, err)
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
@@ -207,18 +207,18 @@ func runServe(_ *cobra.Command, _ []string) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
 		slog.Info("REST API available", "url", fmt.Sprintf("http://localhost:%s/api/", port))
 
 		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
-			os.Exit(1)
+			quit <- syscall.SIGTERM
 		}
 	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	slog.Info("shutting down server...")

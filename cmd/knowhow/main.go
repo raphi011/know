@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 	"strconv"
@@ -67,6 +68,7 @@ func envOrDefaultInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		i, err := strconv.Atoi(v)
 		if err != nil {
+			slog.Warn("invalid integer env var, using default", "key", key, "value", v, "default", def, "error", err)
 			return def
 		}
 		return i
@@ -78,6 +80,7 @@ func envOrDefaultBool(key string, def bool) bool {
 	if v := os.Getenv(key); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
+			slog.Warn("invalid boolean env var, using default", "key", key, "value", v, "default", def, "error", err)
 			return def
 		}
 		return b

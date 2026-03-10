@@ -55,9 +55,11 @@ type App struct {
 	bus                     *event.Bus
 	workerCancel            context.CancelFunc // guarded by mu
 	workerDone              chan struct{}       // guarded by mu
-	processingWorkerCancel  context.CancelFunc // guarded by mu
-	processingWorkerDone    chan struct{}       // guarded by mu
-	serverConfig            ServerConfig       // guarded by mu
+	processingWorkerCancel    context.CancelFunc // guarded by mu
+	processingWorkerDone      chan struct{}       // guarded by mu
+	processingWorkerInterval  time.Duration
+	processingWorkerBatch     int
+	serverConfig              ServerConfig // guarded by mu
 }
 
 // New creates a new App with all dependencies initialized.
@@ -87,7 +89,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// This allows the server to self-provision when running as a launchd service.
 	if cfg.NoAuth {
 		if err := seedIfEmpty(ctx, dbClient); err != nil {
-			slog.Warn("auto-bootstrap failed", "error", err)
+			slog.Error("auto-bootstrap failed, no-auth mode may not work correctly — check DB connectivity", "error", err)
 		}
 	}
 
@@ -157,8 +159,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
 
 	app := &App{
-		db:                   dbClient,
-		vaultService:         vault.NewService(dbClient),
+		db:                       dbClient,
+		vaultService:             vault.NewService(dbClient),
+		processingWorkerInterval: time.Duration(cfg.ProcessingWorkerInterval) * time.Second,
+		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
 		documentService:      docService,
 		searchService:        searchSvc,
 		templateService:      template.NewService(dbClient),
@@ -423,7 +427,7 @@ func (a *App) startProcessingWorker() {
 	a.processingWorkerDone = done
 	a.mu.Unlock()
 
-	worker := document.NewProcessingWorker(a.documentService, 2*time.Second, 20)
+	worker := document.NewProcessingWorker(a.documentService, a.processingWorkerInterval, a.processingWorkerBatch)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)

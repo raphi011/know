@@ -110,7 +110,8 @@ func (w *ProcessingWorker) tick(ctx context.Context) {
 		}
 
 		if w.failures[docID] >= w.maxRetries {
-			continue // poison-pill document — skip until server restart
+			slog.Warn("skipping poison-pill document", "path", doc.Path, "id", docID, "failures", w.failures[docID])
+			continue
 		}
 
 		if err := w.processOne(ctx, &doc); err != nil {
