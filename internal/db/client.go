@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,8 +45,9 @@ type Client struct {
 	cfg        Config
 	logger     logger.Logger
 	metrics    *metrics.Collector
-	lastActive atomic.Int64  // Unix timestamp of last DB operation (for idle detection)
-	done       chan struct{} // closed on Close() to stop monitorConnection goroutine
+	folderCache sync.Map     // key: "vaultID:folderPath", value: time.Time (expiry)
+	lastActive  atomic.Int64 // Unix timestamp of last DB operation (for idle detection)
+	done        chan struct{} // closed on Close() to stop monitorConnection goroutine
 }
 
 // NewClient creates a new SurrealDB client with auto-reconnecting WebSocket.

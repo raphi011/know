@@ -45,17 +45,19 @@ type ServerConfig struct {
 // App holds all application services and dependencies.
 // mu protects serverConfig, workerCancel, and workerDone.
 type App struct {
-	mu              sync.RWMutex
-	db              *db.Client
-	vaultService    *vault.Service
-	documentService *document.Service
-	searchService   *search.Service
-	templateService *template.Service
-	agentService    *agent.Service
-	bus             *event.Bus
-	workerCancel    context.CancelFunc // guarded by mu
-	workerDone      chan struct{}       // guarded by mu
-	serverConfig    ServerConfig       // guarded by mu
+	mu                      sync.RWMutex
+	db                      *db.Client
+	vaultService            *vault.Service
+	documentService         *document.Service
+	searchService           *search.Service
+	templateService         *template.Service
+	agentService            *agent.Service
+	bus                     *event.Bus
+	workerCancel            context.CancelFunc // guarded by mu
+	workerDone              chan struct{}       // guarded by mu
+	processingWorkerCancel  context.CancelFunc // guarded by mu
+	processingWorkerDone    chan struct{}       // guarded by mu
+	serverConfig            ServerConfig       // guarded by mu
 }
 
 // New creates a new App with all dependencies initialized.
@@ -146,21 +148,24 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig, bus)
 
 	// workerDone defaults to a closed channel so <-workerDone is a no-op in Close
-	workerDone := make(chan struct{})
-	close(workerDone)
+	embeddingWorkerDone := make(chan struct{})
+	close(embeddingWorkerDone)
+	processingWorkerDone := make(chan struct{})
+	close(processingWorkerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
 	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
 
 	app := &App{
-		db:              dbClient,
-		vaultService:    vault.NewService(dbClient),
-		documentService: docService,
-		searchService:   searchSvc,
-		templateService: template.NewService(dbClient),
-		agentService:    agentSvc,
-		bus:             bus,
-		workerDone:      workerDone,
+		db:                   dbClient,
+		vaultService:         vault.NewService(dbClient),
+		documentService:      docService,
+		searchService:        searchSvc,
+		templateService:      template.NewService(dbClient),
+		agentService:         agentSvc,
+		bus:                  bus,
+		workerDone:           embeddingWorkerDone,
+		processingWorkerDone: processingWorkerDone,
 		serverConfig: ServerConfig{
 			LLMProvider:            string(cfg.LLMProvider),
 			LLMModel:               cfg.LLMModel,
@@ -180,6 +185,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	// Start background embedding worker if embedder is available
 	app.syncEmbeddingWorker(cfg, embedder)
+
+	// Start background document processing worker (always runs)
+	app.startProcessingWorker()
 
 	return app, nil
 }
@@ -227,14 +235,21 @@ func (a *App) Config() ServerConfig {
 // Close stops background workers and closes all connections.
 func (a *App) Close(ctx context.Context) error {
 	a.mu.Lock()
-	cancel := a.workerCancel
-	done := a.workerDone
+	embedCancel := a.workerCancel
+	embedDone := a.workerDone
 	a.workerCancel = nil
+	procCancel := a.processingWorkerCancel
+	procDone := a.processingWorkerDone
+	a.processingWorkerCancel = nil
 	a.mu.Unlock()
 
-	if cancel != nil {
-		cancel()
-		<-done
+	if embedCancel != nil {
+		embedCancel()
+		<-embedDone
+	}
+	if procCancel != nil {
+		procCancel()
+		<-procDone
 	}
 	if a.db != nil {
 		return a.db.Close(ctx)
@@ -380,6 +395,35 @@ func (a *App) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
 
 	interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
 	worker := document.NewEmbeddingWorker(a.documentService, interval, cfg.EmbedWorkerBatch)
+	go func() {
+		defer close(done)
+		worker.Run(workerCtx)
+	}()
+}
+
+// startProcessingWorker starts the background document processing worker.
+// Stops any existing worker first to prevent orphaned goroutines.
+func (a *App) startProcessingWorker() {
+	a.mu.Lock()
+
+	// Stop existing worker if running
+	if a.processingWorkerCancel != nil {
+		cancel := a.processingWorkerCancel
+		done := a.processingWorkerDone
+		a.processingWorkerCancel = nil
+		a.mu.Unlock()
+		cancel()
+		<-done
+		a.mu.Lock()
+	}
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	a.processingWorkerCancel = workerCancel
+	done := make(chan struct{})
+	a.processingWorkerDone = done
+	a.mu.Unlock()
+
+	worker := document.NewProcessingWorker(a.documentService, 2*time.Second, 20)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)

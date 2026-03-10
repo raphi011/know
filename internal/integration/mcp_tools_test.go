@@ -633,6 +633,10 @@ func TestToolsExecutor_Search(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
+	if err := exec.DocService.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
 	result, _, err := exec.ExecuteTool(ctx, vaultID, "search", `{"query":"quantum"}`)
 	if err != nil {
 		t.Fatalf("search: %v", err)

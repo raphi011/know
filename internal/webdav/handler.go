@@ -2,6 +2,7 @@ package webdav
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -53,6 +54,33 @@ func NewHandler(
 			return
 		}
 		vaultName := parts[0]
+
+		// Fast-path: short-circuit OS metadata files (._*, .DS_Store) before auth.
+		// The majority of Finder's requests are OS metadata files that never touch real data.
+		filePath := ""
+		if len(parts) > 1 {
+			filePath = "/" + parts[1]
+		}
+		if filePath != "" && isOSMetadataFile(filePath) {
+			switch r.Method {
+			case "PROPFIND", http.MethodGet, http.MethodHead:
+				http.Error(w, "not found", http.StatusNotFound)
+			case http.MethodPut:
+				// Drain body so connection stays clean for keep-alive.
+				// Error is harmless: body is discarded and connection may just close.
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.WriteHeader(http.StatusCreated)
+			case "LOCK":
+				// Reject lock on metadata files — returning 423 tells clients
+				// locking is not available, which they handle gracefully.
+				w.WriteHeader(http.StatusLocked)
+			case "UNLOCK", http.MethodDelete:
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return
+		}
 
 		// Authenticate via HTTP Basic Auth (password = API token)
 		var rawToken string

@@ -104,7 +104,8 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 			source = $source,
 			source_path = $source_path,
 			content_hash = $content_hash,
-			metadata = $metadata
+			metadata = $metadata,
+			processed = false
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
@@ -229,7 +230,8 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 			source = $source,
 			labels = $labels,
 			content_hash = $content_hash,
-			metadata = $metadata
+			metadata = $metadata,
+			processed = false
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
@@ -320,6 +322,33 @@ func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.
 	return &(*results)[0].Result[0], nil
 }
 
+// ListUnprocessedDocuments returns documents that have not yet been processed by the async worker.
+func (c *Client) ListUnprocessedDocuments(ctx context.Context, limit int) ([]models.Document, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	sql := `SELECT * FROM document WHERE processed = false ORDER BY updated_at ASC LIMIT $limit`
+	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
+		"limit": limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list unprocessed documents: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
+
+// MarkDocumentProcessed sets processed = true on a document.
+func (c *Client) MarkDocumentProcessed(ctx context.Context, docID string) error {
+	sql := `UPDATE type::record("document", $id) SET processed = true`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": docID}); err != nil {
+		return fmt.Errorf("mark document processed: %w", err)
+	}
+	return nil
+}
+
 // ListLabels returns all distinct labels used by documents in the given vault.
 func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
 	sql := `RETURN array::distinct(array::flatten(
@@ -375,28 +404,45 @@ func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilt
 
 // UpsertDocument creates or updates a document by vault+path.
 // On update, previousDoc contains the document state before the update (for versioning).
+// Handles concurrent creates gracefully: if CreateDocument hits a unique constraint
+// violation (another request created the same path between our check and insert),
+// we retry as an update.
 func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput) (doc *models.Document, created bool, previousDoc *models.Document, err error) {
-	existing, err := c.GetDocumentByPath(ctx, input.VaultID, input.Path)
-	if err != nil {
-		return nil, false, nil, fmt.Errorf("check existing document: %w", err)
-	}
+	const maxRetries = 3
 
-	if existing == nil {
-		doc, err := c.CreateDocument(ctx, input)
+	for attempt := range maxRetries {
+		existing, err := c.GetDocumentByPath(ctx, input.VaultID, input.Path)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("check existing document: %w", err)
+		}
+
+		if existing == nil {
+			doc, err := c.CreateDocument(ctx, input)
+			if err != nil {
+				// Unique constraint violation — another concurrent request created
+				// the same vault+path between our check and insert.
+				// Re-check so the next iteration finds the existing document.
+				if isUniqueViolation(err) && attempt < maxRetries-1 {
+					continue
+				}
+				return nil, false, nil, err
+			}
+			return doc, true, nil, nil
+		}
+
+		// Found existing document — update it
+		idStr, err := models.RecordIDString(existing.ID)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("extract document id: %w", err)
+		}
+
+		doc, err = c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Source, input.Labels, input.ContentHash, input.Metadata)
 		if err != nil {
 			return nil, false, nil, err
 		}
-		return doc, true, nil, nil
+		return doc, false, existing, nil
 	}
 
-	idStr, err := models.RecordIDString(existing.ID)
-	if err != nil {
-		return nil, false, nil, fmt.Errorf("extract document id: %w", err)
-	}
-
-	doc, err = c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Source, input.Labels, input.ContentHash, input.Metadata)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	return doc, false, existing, nil
+	// Should not be reached — the loop always returns or continues
+	return nil, false, nil, fmt.Errorf("upsert exhausted %d retries due to concurrent writes", maxRetries)
 }

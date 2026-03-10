@@ -131,7 +131,8 @@ func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldP
 	})
 }
 
-// Create runs the full document lifecycle pipeline.
+// Create stores a document with fast-path parsing and defers heavy processing
+// (chunks, wiki-links, relations) to the async ProcessingWorker.
 func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
 	// 1. Parse frontmatter
 	parsed, err := parser.ParseMarkdown(input.Content)
@@ -198,35 +199,17 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		return nil, fmt.Errorf("upsert document: %w", err)
 	}
 
-	docID, err := models.RecordIDString(doc.ID)
-	if err != nil {
-		return nil, fmt.Errorf("extract doc id: %w", err)
-	}
-
-	// 8.5 Create version snapshot of old content (if this was an update)
+	// Create version snapshot of old content (if this was an update with changed content)
 	if !created && previousDoc != nil {
-		s.maybeCreateVersion(ctx, docID, input.VaultID, previousDoc, contentHash)
+		docID, idErr := models.RecordIDString(doc.ID)
+		if idErr != nil {
+			slog.Warn("failed to extract doc ID for versioning", "error", idErr)
+		} else {
+			s.maybeCreateVersion(ctx, docID, input.VaultID, previousDoc, contentHash)
+		}
 	}
 
-	// 9. Sync chunks (with smart diffing — only re-embed changed chunks)
-	if err := s.syncChunks(ctx, docID, parsed, allLabels); err != nil {
-		slog.Warn("failed to sync chunks", "path", path, "error", err)
-	}
-
-	// 10. Extract and store wiki-links
-	if err := s.processWikiLinks(ctx, docID, input.VaultID, parsed.Content); err != nil {
-		slog.Warn("failed to process wiki-links", "path", path, "error", err)
-	}
-
-	// 11. Resolve dangling links that might point to this document
-	s.resolveDanglingForDoc(ctx, input.VaultID, doc)
-
-	// 12. Process explicit relates_to from frontmatter
-	if created {
-		s.processRelatesTo(ctx, docID, input.VaultID, parsed.Frontmatter)
-	}
-
-	// 13. Publish change event
+	// Publish change event (document is stored but not yet processed)
 	if created {
 		s.publishDocEvent("document.created", input.VaultID, doc)
 	} else {
@@ -234,6 +217,75 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	}
 
 	return doc, nil
+}
+
+// ProcessDocument runs the deferred heavy processing pipeline for a document:
+// chunks, wiki-links, dangling link resolution, and relations.
+// Called by the ProcessingWorker for documents with processed = false.
+func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) error {
+	docID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		return fmt.Errorf("extract doc id: %w", err)
+	}
+
+	vaultID, err := models.RecordIDString(doc.Vault)
+	if err != nil {
+		return fmt.Errorf("extract vault id: %w", err)
+	}
+
+	parsed, err := parser.ParseMarkdown(doc.Content)
+	if err != nil {
+		return fmt.Errorf("parse markdown: %w", err)
+	}
+
+	// 1. Sync chunks (with smart diffing — only re-embed changed chunks)
+	if err := s.syncChunks(ctx, docID, parsed, doc.Labels); err != nil {
+		return fmt.Errorf("sync chunks for %s: %w", doc.Path, err)
+	}
+
+	// 2. Extract and store wiki-links
+	if err := s.processWikiLinks(ctx, docID, vaultID, parsed.Content); err != nil {
+		return fmt.Errorf("process wiki-links for %s: %w", doc.Path, err)
+	}
+
+	// 3. Resolve dangling links that might point to this document
+	if err := s.resolveDanglingForDoc(ctx, vaultID, doc); err != nil {
+		return fmt.Errorf("resolve dangling links for %s: %w", doc.Path, err)
+	}
+
+	// 4. Process explicit relates_to from frontmatter
+	if err := s.processRelatesTo(ctx, docID, vaultID, parsed.Frontmatter); err != nil {
+		return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
+	}
+
+	// 5. Mark as processed
+	if err := s.db.MarkDocumentProcessed(ctx, docID); err != nil {
+		return fmt.Errorf("mark processed: %w", err)
+	}
+
+	// 6. Publish processed event
+	s.publishDocEvent("document.processed", vaultID, doc)
+
+	return nil
+}
+
+// ProcessAllPending processes all unprocessed documents synchronously.
+// Intended for tests and CLI commands that need immediate processing.
+func (s *Service) ProcessAllPending(ctx context.Context) error {
+	for {
+		docs, err := s.db.ListUnprocessedDocuments(ctx, 100)
+		if err != nil {
+			return fmt.Errorf("list unprocessed: %w", err)
+		}
+		if len(docs) == 0 {
+			return nil
+		}
+		for _, doc := range docs {
+			if err := s.ProcessDocument(ctx, &doc); err != nil {
+				return fmt.Errorf("process %s: %w", doc.Path, err)
+			}
+		}
+	}
 }
 
 // EmbedPendingChunks claims chunks that are due for embedding and embeds them.
@@ -549,28 +601,33 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content 
 	return s.db.CreateWikiLinks(ctx, docID, vaultID, links)
 }
 
-func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc *models.Document) {
+func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc *models.Document) error {
 	docID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		slog.Warn("failed to extract document ID for dangling link resolution", "path", doc.Path, "error", err)
-		return
+		return fmt.Errorf("extract document id: %w", err)
 	}
 
 	// Try to resolve by title
 	if doc.Title != "" {
-		if n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Title, docID); err != nil {
-			slog.Warn("failed to resolve dangling links by title", "title", doc.Title, "error", err)
-		} else if n > 0 {
+		n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Title, docID)
+		if err != nil {
+			return fmt.Errorf("resolve by title %q: %w", doc.Title, err)
+		}
+		if n > 0 {
 			slog.Info("resolved dangling wiki-links", "title", doc.Title, "count", n)
 		}
 	}
 
 	// Try to resolve by path
-	if n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Path, docID); err != nil {
-		slog.Warn("failed to resolve dangling links by path", "path", doc.Path, "error", err)
-	} else if n > 0 {
+	n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Path, docID)
+	if err != nil {
+		return fmt.Errorf("resolve by path %q: %w", doc.Path, err)
+	}
+	if n > 0 {
 		slog.Info("resolved dangling wiki-links", "path", doc.Path, "count", n)
 	}
+
+	return nil
 }
 
 // syncChunks performs smart chunk diffing: compares new chunks against existing ones
@@ -663,10 +720,10 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 	return nil
 }
 
-func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, frontmatter map[string]any) {
+func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, frontmatter map[string]any) error {
 	relatesTo, ok := frontmatter["relates_to"]
 	if !ok {
-		return
+		return nil
 	}
 
 	var targets []string
@@ -684,8 +741,7 @@ func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, f
 	for _, target := range targets {
 		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
 		if err != nil {
-			slog.Warn("failed to resolve relates_to target", "target", target, "error", err)
-			continue
+			return fmt.Errorf("resolve relates_to target %q: %w", target, err)
 		}
 		if resolved == nil {
 			slog.Info("relates_to target not found", "target", target)
@@ -693,8 +749,7 @@ func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, f
 		}
 		toDocID, err := models.RecordIDString(resolved.ID)
 		if err != nil {
-			slog.Warn("failed to extract resolved document ID for relates_to", "target", target, "error", err)
-			continue
+			return fmt.Errorf("extract resolved document id for %q: %w", target, err)
 		}
 		if _, err := s.db.CreateRelation(ctx, models.DocRelationInput{
 			FromDocID: docID,
@@ -702,9 +757,11 @@ func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, f
 			RelType:   string(models.RelRelatesTo),
 			Source:    string(models.RelSourceFrontmatter),
 		}); err != nil {
-			slog.Warn("failed to create relates_to relation", "target", target, "error", err)
+			return fmt.Errorf("create relates_to relation for %q: %w", target, err)
 		}
 	}
+
+	return nil
 }
 
 // filenameTitle extracts a title from a file path.

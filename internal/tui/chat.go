@@ -15,6 +15,35 @@ import (
 	"github.com/raphi011/knowhow/internal/api"
 )
 
+// PartType distinguishes the kind of content in a streaming response.
+type PartType int
+
+const (
+	PartText     PartType = iota // Markdown text from the assistant
+	PartToolCall                 // Tool invocation with status tracking
+	PartError                    // Error message
+)
+
+// ToolStatus tracks the lifecycle of a tool call.
+type ToolStatus int
+
+const (
+	ToolRunning  ToolStatus = iota // Tool is currently executing
+	ToolComplete                   // Tool finished successfully
+	ToolFailed                     // Tool execution failed
+)
+
+// ContentPart represents one segment of a streaming response.
+// Parts are ordered sequentially and rendered in order, allowing
+// text and tool calls to interleave naturally.
+type ContentPart struct {
+	Type     PartType
+	Content  string     // text content or error message
+	ToolName string     // for PartToolCall
+	CallID   string     // for PartToolCall — key for in-place updates
+	Status   ToolStatus // for PartToolCall
+}
+
 // chatPane is the right pane model.
 type chatPane struct {
 	viewport       viewport.Model
@@ -24,7 +53,7 @@ type chatPane struct {
 	conversationID string
 	messages       []*api.ChatMessage
 	streaming      bool
-	streamContent  string
+	streamParts    []ContentPart // structured content parts during streaming
 	width          int
 	height         int
 	renderer       *glamour.TermRenderer
@@ -45,6 +74,7 @@ func newChatPane(ctx context.Context, client *Client, vaultID string) chatPane {
 	ti := textinput.New()
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
+	ti.Prompt = inputPromptStyle.Render("> ")
 
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
@@ -101,7 +131,9 @@ func (cp *chatPane) sendMessage() tea.Cmd {
 
 	cp.input.SetValue("")
 	cp.streaming = true
-	cp.streamContent = ""
+	cp.streamParts = nil
+	cp.messages = append(cp.messages, &api.ChatMessage{Role: "user", Content: content})
+	cp.updateViewport()
 
 	client := cp.client
 	ctx := cp.ctx
@@ -157,6 +189,7 @@ func (cp *chatPane) setSize(w, h int) {
 	inputH := 3 // input area height
 	cp.viewport.SetWidth(w - 4) // account for border + padding
 	cp.viewport.SetHeight(h - inputH - 4)
+	cp.input.SetWidth(w - 4 - lipgloss.Width(cp.input.Prompt)) // text area excludes prompt
 
 	// Only recreate glamour renderer when width actually changes
 	wrapWidth := w - 8
@@ -201,12 +234,14 @@ func (cp *chatPane) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case streamEventMsg:
+		// Handle error events before checking done — when Chat() fails,
+		// the message has both an error and done=true.
+		if msg.event.Type == "error" {
+			cp.errMsg = msg.event.Content
+		}
+
 		if msg.done {
-			cp.streaming = false
-			// Reload conversation to get final messages
-			if cp.conversationID != "" {
-				return cp.loadConversation(cp.conversationID)
-			}
+			cp.finalizeStream()
 			return nil
 		}
 
@@ -217,31 +252,40 @@ func (cp *chatPane) update(msg tea.Msg) tea.Cmd {
 		}
 
 		switch msg.event.Type {
-		case "token":
-			cp.streamContent += msg.event.Content
+		case "text":
+			cp.appendText(msg.event.Content)
 			cp.updateViewportWithStream()
 			return nextCmd
 		case "tool_start":
-			cp.streamContent += fmt.Sprintf("\n🔧 Running: %s\n", msg.event.ToolName)
+			cp.streamParts = append(cp.streamParts, ContentPart{
+				Type:     PartToolCall,
+				ToolName: msg.event.Tool,
+				CallID:   msg.event.CallID,
+				Status:   ToolRunning,
+			})
 			cp.updateViewportWithStream()
 			return nextCmd
-		case "tool_result":
-			cp.streamContent += fmt.Sprintf("✓ %s complete\n", msg.event.ToolName)
+		case "tool_end":
+			cp.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete)
 			cp.updateViewportWithStream()
 			return nextCmd
-		case "approval_request":
+		case "tool_approval_required":
 			cp.pendingApproval = &msg.event
 			cp.updateViewportWithStream()
 			return nextCmd
+		case "conv_id":
+			cp.conversationID = msg.event.ConvID
+			return nextCmd
 		case "error":
-			cp.streamContent += fmt.Sprintf("\n❌ Error: %s\n", msg.event.Content)
-			cp.streaming = false
-			cp.updateViewportWithStream()
-		case "done":
-			cp.streaming = false
-			if cp.conversationID != "" {
-				return cp.loadConversation(cp.conversationID)
-			}
+			cp.streamParts = append(cp.streamParts, ContentPart{
+				Type:    PartError,
+				Content: msg.event.Content,
+			})
+			cp.finalizeStream()
+			return nextCmd // keep reading so the goroutine can exit cleanly
+		case "msg_end":
+			cp.finalizeStream()
+			return nextCmd // keep reading; channel close sends done
 		}
 	}
 
@@ -296,18 +340,108 @@ func (cp *chatPane) updateViewport() {
 	cp.viewport.GotoBottom()
 }
 
+// appendText adds text to the last PartText or creates a new one.
+// This naturally coalesces consecutive text events while keeping
+// tool calls as separate interleaved parts.
+func (cp *chatPane) appendText(s string) {
+	if n := len(cp.streamParts); n > 0 && cp.streamParts[n-1].Type == PartText {
+		cp.streamParts[n-1].Content += s
+		return
+	}
+	cp.streamParts = append(cp.streamParts, ContentPart{Type: PartText, Content: s})
+}
+
+// updateToolStatus finds a tool call part by CallID and updates its status.
+// Falls back to matching by tool name if CallID is empty (older servers).
+func (cp *chatPane) updateToolStatus(callID, toolName string, status ToolStatus) {
+	// Search backwards — most recent match is the one we want
+	for i := len(cp.streamParts) - 1; i >= 0; i-- {
+		p := &cp.streamParts[i]
+		if p.Type != PartToolCall {
+			continue
+		}
+		if callID != "" && p.CallID == callID {
+			p.Status = status
+			return
+		}
+		if callID == "" && p.ToolName == toolName && p.Status == ToolRunning {
+			p.Status = status
+			return
+		}
+	}
+	slog.Debug("tool_end event had no matching tool_start", "callID", callID, "tool", toolName)
+}
+
+// finalizeStream commits streamed content into messages and resets streaming state.
+func (cp *chatPane) finalizeStream() {
+	if !cp.streaming {
+		return
+	}
+	cp.streaming = false
+
+	// Build messages from stream parts, preserving interleaving order
+	var text strings.Builder
+	for _, p := range cp.streamParts {
+		switch p.Type {
+		case PartText:
+			text.WriteString(p.Content)
+		case PartToolCall:
+			name := p.ToolName
+			cp.messages = append(cp.messages, &api.ChatMessage{
+				Role: "tool_result", ToolName: &name,
+			})
+		case PartError:
+			cp.messages = append(cp.messages, &api.ChatMessage{
+				Role: "assistant", Content: "Error: " + p.Content,
+			})
+		}
+	}
+	if text.Len() > 0 {
+		cp.messages = append(cp.messages, &api.ChatMessage{Role: "assistant", Content: text.String()})
+	}
+
+	cp.streamParts = nil
+	cp.pendingApproval = nil
+	cp.updateViewport()
+}
+
 func (cp *chatPane) updateViewportWithStream() {
 	content := cp.renderMessages()
-	if cp.streamContent != "" {
+
+	if len(cp.streamParts) > 0 {
 		content += "\n" + assistantRoleStyle.Render("assistant") + "\n"
-		rendered := cp.renderMarkdown(cp.streamContent)
-		content += assistantMsgStyle.Render(rendered)
 	}
+	for _, p := range cp.streamParts {
+		switch p.Type {
+		case PartText:
+			rendered := cp.renderMarkdown(p.Content)
+			content += assistantMsgStyle.Render(rendered)
+		case PartToolCall:
+			content += cp.renderToolStatus(p) + "\n"
+		case PartError:
+			content += errorMsgStyle.Render("Error: "+p.Content) + "\n"
+		}
+	}
+
 	if cp.pendingApproval != nil {
 		content += "\n" + cp.renderApproval()
 	}
 	cp.viewport.SetContent(content)
 	cp.viewport.GotoBottom()
+}
+
+// renderToolStatus renders a single tool call part with status indicator.
+func (cp *chatPane) renderToolStatus(p ContentPart) string {
+	switch p.Status {
+	case ToolRunning:
+		return toolRoleStyle.Render(fmt.Sprintf("🔧 Running: %s", p.ToolName))
+	case ToolComplete:
+		return toolRoleStyle.Render(fmt.Sprintf("✓ %s complete", p.ToolName))
+	case ToolFailed:
+		return toolRoleStyle.Render(fmt.Sprintf("✗ %s failed", p.ToolName))
+	default:
+		return toolRoleStyle.Render(fmt.Sprintf("🔧 %s", p.ToolName))
+	}
 }
 
 func (cp *chatPane) renderMessages() string {
@@ -332,7 +466,7 @@ func (cp *chatPane) renderMessages() string {
 			if m.ToolName != nil {
 				name = *m.ToolName
 			}
-			sb.WriteString(toolRoleStyle.Render("🔧 " + name))
+			sb.WriteString(toolRoleStyle.Render("✓ " + name + " complete"))
 			sb.WriteString("\n")
 		default:
 			sb.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Render(m.Role))
@@ -359,8 +493,8 @@ func (cp *chatPane) renderMarkdown(content string) string {
 func (cp *chatPane) renderApproval() string {
 	var sb strings.Builder
 	sb.WriteString("⚠️  Tool approval required\n")
-	if cp.pendingApproval.ToolName != "" {
-		sb.WriteString(fmt.Sprintf("Tool: %s\n", cp.pendingApproval.ToolName))
+	if cp.pendingApproval.Tool != "" {
+		sb.WriteString(fmt.Sprintf("Tool: %s\n", cp.pendingApproval.Tool))
 	}
 	if cp.pendingApproval.Diff != "" {
 		sb.WriteString("\n" + cp.pendingApproval.Diff + "\n")
@@ -378,7 +512,7 @@ func (cp *chatPane) view(active bool) string {
 	}
 
 	// Input area
-	inputBox := inputPromptStyle.Render("> ") + cp.input.View()
+	inputBox := cp.input.View()
 	if cp.streaming {
 		inputBox = statusStyle.Render("⏳ Streaming response...")
 	}

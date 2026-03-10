@@ -56,6 +56,29 @@ func TestEmbeddingWorker_TicksImmediatelyOnStartup(t *testing.T) {
 	}
 }
 
+func TestProcessingWorker_StopsOnContextCancel(t *testing.T) {
+	// nil db → tick panics → restart loop catches it → context cancel stops it
+	svc := &Service{}
+	worker := NewProcessingWorker(svc, 50*time.Millisecond, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		worker.Run(ctx)
+		close(done)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// Worker stopped — success
+	case <-time.After(2 * time.Second):
+		t.Fatal("ProcessingWorker did not stop after context cancellation")
+	}
+}
+
 func TestEmbeddingWorker_RestartsAfterPanic(t *testing.T) {
 	// Create a service that will panic on the first call
 	svc := &Service{}

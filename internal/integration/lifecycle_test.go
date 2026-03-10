@@ -160,6 +160,11 @@ See also [[Beta Notes]] and [[missing-page]].
 		t.Fatalf("doc1 ID: %v", err)
 	}
 
+	// Process pending documents (deferred pipeline: chunks, wiki-links, etc.)
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
 	// Verify doc1 was parsed correctly
 	if doc1.Title != "Project Alpha" {
 		t.Errorf("doc1 title: got %q, want %q", doc1.Title, "Project Alpha")
@@ -205,6 +210,10 @@ Some notes about the beta project.
 	doc2ID, err := models.RecordIDString(doc2.ID)
 	if err != nil {
 		t.Fatalf("doc2 ID: %v", err)
+	}
+
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending after doc2: %v", err)
 	}
 
 	// Verify dangling link to "Beta Notes" is now resolved
@@ -792,6 +801,10 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
 	// Get initial chunks
 	initialChunks, err := testDB.GetChunks(ctx, docID)
 	if err != nil {
@@ -822,6 +835,10 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatalf("upsert same content: %v", err)
 	}
 
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending step 2: %v", err)
+	}
+
 	afterSameUpdate, err := testDB.GetChunks(ctx, docID)
 	if err != nil {
 		t.Fatalf("get chunks after same-content update: %v", err)
@@ -848,6 +865,10 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("upsert new content: %v", err)
+	}
+
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending step 3: %v", err)
 	}
 
 	afterNewContent, err := testDB.GetChunks(ctx, docID)

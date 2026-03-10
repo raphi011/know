@@ -55,6 +55,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS source_path  ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS processed ON document TYPE bool DEFAULT false;
     DEFINE FIELD IF NOT EXISTS created_at ON document TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS updated_at ON document TYPE datetime VALUE time::now();
 

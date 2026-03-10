@@ -96,16 +96,56 @@ Key points:
 
 The Go SDK provides three error types (v1.4.0+):
 
-| Type | When | Use |
-|------|------|-----|
-| `RPCError` | Transport/protocol failures | Retriable |
-| `QueryError` | SurrealQL syntax/type errors | Not retriable |
-| `ServerError` | Structured v3 errors with Kind/Details/Cause chain | Branch on `Kind` for specific handling |
+| Type | When | Fields | Use |
+|------|------|--------|-----|
+| `RPCError` | Transport/protocol failures | `Code`, `Message` | Retriable |
+| `QueryError` | `surrealdb.Query()` failures (syntax, constraints, "already exists") | `Message` only | Check `Message` content |
+| `ServerError` | RPC method failures (`Create`, `Insert`, `Select`, etc.) | `Kind`, `Details`, `Cause` | Branch on `Kind` |
+
+### Query vs RPC error paths
+
+**Critical distinction**: The error type you get depends on which SDK method you call, not the nature of the error.
+
+- **`surrealdb.Query()`** → returns `*QueryError` with only a `Message` string. No structured `Kind` field. `QueryError.Is()` matches on type only, not message content.
+- **RPC methods** (`Create`, `Insert`, `Select`, `Update`, `Delete`) → return `*ServerError` with structured `Kind`/`Details`/`Cause`.
+
+The same underlying DB error (e.g. unique constraint violation) surfaces as different Go types depending on the call path.
+
+### Matching specific errors
 
 ```go
+// For Query()-based operations: use errors.As + message check
+// (QueryError has no Kind — message inspection is unavoidable)
+func isUniqueViolation(err error) bool {
+    var qe *surrealdb.QueryError
+    if errors.As(err, &qe) {
+        return strings.Contains(qe.Message, "already exists")
+    }
+    return false
+}
+
+// For RPC-based operations: use errors.As + Kind check
 var se *surrealdb.ServerError
 if errors.As(err, &se) {
     fmt.Println(se.Kind, se.Details) // e.g. "NotFound", "NotAllowed"
+}
+```
+
+### Unique constraint retry pattern
+
+Concurrent upserts can race between a "does it exist?" check and a CREATE, causing a unique constraint violation. Handle with a retry:
+
+```go
+if existing == nil {
+    doc, err := c.CreateDocument(ctx, input)
+    if err != nil {
+        if isUniqueViolation(err) {
+            // Another goroutine created it between our check and CREATE — retry
+            return c.UpsertDocument(ctx, input)
+        }
+        return nil, err
+    }
+    return doc, nil
 }
 ```
 

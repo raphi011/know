@@ -37,10 +37,6 @@ helm/
 .claude/
 CLAUDE.md
 
-# Web build artifacts (rebuilt in Docker)
-web/node_modules/
-web/dist/
-
 # Local data (SurrealDB persistent volumes)
 data/
 

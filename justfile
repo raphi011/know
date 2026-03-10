@@ -77,7 +77,7 @@ snapshot:
 
 # Start dev environment with live-reload
 dev: db-up
-    air
+    KNOWHOW_DAV_DEBUG_LOG=/tmp/dav-debug.log air
 
 # Start dev environment and wipe database on first start
 dev-reset: db-up

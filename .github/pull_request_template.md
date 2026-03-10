@@ -1,9 +1,9 @@
-<!-- Brief summary of changes (1-2 sentences) -->
+<!-- 1-3 sentences: what and why -->
+
+## New Features
+<!-- Delete section if none -->
+-
 
 ## Breaking Changes
-<!-- Delete if none -->
+<!-- Delete section if none -->
 - None
-
-## Test Coverage
-- Unit tests added:
-- Integration tests added:

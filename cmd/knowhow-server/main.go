@@ -121,7 +121,7 @@ func main() {
 	}
 
 	// WebDAV endpoint for document editing with any editor
-	davHandler := knowhowdav.NewHandler(
+	var davHandler http.Handler = knowhowdav.NewHandler(
 		"/dav/",
 		app.DBClient(),
 		app.DocumentService(),
@@ -129,6 +129,20 @@ func main() {
 		cfg.NoAuth,
 		10*1024*1024, // 10 MB max PUT body
 	)
+
+	// Optional debug log: KNOWHOW_DAV_DEBUG_LOG=/tmp/dav-debug.log
+	davDebugLog := os.Getenv("KNOWHOW_DAV_DEBUG_LOG")
+	if davDebugLog != "" {
+		davLogger, davLogFile, err := knowhowdav.NewDebugLogger(davDebugLog)
+		if err != nil {
+			slog.Error("failed to open DAV debug log", "path", davDebugLog, "error", err)
+		} else {
+			defer davLogFile.Close()
+			davHandler = knowhowdav.DebugLogMiddleware(davLogger, davHandler)
+			slog.Info("WebDAV debug logging enabled", "path", davDebugLog)
+		}
+	}
+
 	mux.Handle("/dav/", davHandler)
 	slog.Info("WebDAV endpoint enabled", "path", "/dav/{vaultName}/")
 
@@ -163,11 +177,11 @@ func main() {
 	})
 
 	httpServer := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
