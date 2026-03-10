@@ -1,4 +1,3 @@
-// Package main provides the Knowhow server.
 package main
 
 import (
@@ -20,45 +19,71 @@ import (
 	"github.com/raphi011/knowhow/internal/sshd"
 	"github.com/raphi011/knowhow/internal/tools"
 	knowhowdav "github.com/raphi011/knowhow/internal/webdav"
+	"github.com/spf13/cobra"
 )
 
-// Version information — set by GoReleaser ldflags at build time.
-var version = "dev"
+var (
+	servePort     int
+	serveNoAuth   bool
+	serveSSH      bool
+	serveSSHPort  int
+	serveLogLevel string
+)
 
-func main() {
-	// Load configuration
-	cfg := config.Load()
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the Knowhow server",
+	Long: `Start the Knowhow HTTP server with REST API, WebDAV, and optional MCP/SSH endpoints.
 
-	// Get server port from environment or default
-	port := os.Getenv("KNOWHOW_SERVER_PORT")
-	if port == "" {
-		port = "8484"
-	}
+Configuration is loaded from environment variables (see config package).
+Flags override the corresponding env vars.
 
+Examples:
+  knowhow serve
+  knowhow serve --port 8080
+  knowhow serve --no-auth --log-level debug
+  knowhow serve --ssh --ssh-port 2222`,
+	RunE: runServe,
+}
+
+func init() {
+	serveCmd.Flags().IntVar(&servePort, "port", envOrDefaultInt("KNOWHOW_SERVER_PORT", 8484), "HTTP server port")
+	serveCmd.Flags().BoolVar(&serveNoAuth, "no-auth", envOrDefaultBool("KNOWHOW_NO_AUTH", false), "disable token authentication")
+	serveCmd.Flags().BoolVar(&serveSSH, "ssh", envOrDefaultBool("KNOWHOW_SSH_ENABLED", false), "enable SSH/SFTP server")
+	serveCmd.Flags().IntVar(&serveSSHPort, "ssh-port", envOrDefaultInt("KNOWHOW_SSH_PORT", 2222), "SSH server port")
+	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
+}
+
+func runServe(_ *cobra.Command, _ []string) error {
 	// Initialize logging
 	level := slog.LevelInfo
-	if os.Getenv("LOG_LEVEL") == "debug" {
+	if serveLogLevel == "debug" {
 		level = slog.LevelDebug
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
-	slog.Info("starting knowhow-server", "version", version, "port", port)
+	port := fmt.Sprintf("%d", servePort)
+	slog.Info("starting knowhow server", "version", version, "port", port)
 
 	// Bind the port early so we fail fast if another instance is still running.
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		slog.Error("failed to bind port", "port", port, "error", err)
-		os.Exit(1)
+		return fmt.Errorf("bind port %s: %w", port, err)
 	}
+
+	// Load configuration and apply flag overrides
+	cfg := config.Load()
+	cfg.NoAuth = serveNoAuth
+	cfg.SSHEnabled = serveSSH
+	cfg.SSHPort = fmt.Sprintf("%d", serveSSHPort)
 
 	// Create application with all dependencies
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	app, err := server.New(ctx, cfg)
 	cancel()
 	if err != nil {
-		slog.Error("failed to create app", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("create app: %w", err)
 	}
 	defer func() {
 		if err := app.Close(context.Background()); err != nil {
@@ -133,9 +158,9 @@ func main() {
 	// Optional debug log: KNOWHOW_DAV_DEBUG_LOG=/tmp/dav-debug.log
 	davDebugLog := os.Getenv("KNOWHOW_DAV_DEBUG_LOG")
 	if davDebugLog != "" {
-		davLogger, davLogFile, err := knowhowdav.NewDebugLogger(davDebugLog)
-		if err != nil {
-			slog.Error("failed to open DAV debug log", "path", davDebugLog, "error", err)
+		davLogger, davLogFile, logErr := knowhowdav.NewDebugLogger(davDebugLog)
+		if logErr != nil {
+			slog.Error("failed to open DAV debug log", "path", davDebugLog, "error", logErr)
 		} else {
 			defer davLogFile.Close()
 			davHandler = knowhowdav.DebugLogMiddleware(davLogger, davHandler)
@@ -149,10 +174,9 @@ func main() {
 	// SSH/SFTP server (optional)
 	var sshSrv *sshd.Server
 	if cfg.SSHEnabled {
-		sshLn, err := net.Listen("tcp", ":"+cfg.SSHPort)
-		if err != nil {
-			slog.Error("failed to bind SSH port", "port", cfg.SSHPort, "error", err)
-			os.Exit(1)
+		sshLn, listenErr := net.Listen("tcp", ":"+cfg.SSHPort)
+		if listenErr != nil {
+			return fmt.Errorf("bind SSH port %s: %w", cfg.SSHPort, listenErr)
 		}
 		sshSrv, err = sshd.NewServer(
 			sshLn,
@@ -163,8 +187,7 @@ func main() {
 			cfg.NoAuth,
 		)
 		if err != nil {
-			slog.Error("failed to create SSH server", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("create SSH server: %w", err)
 		}
 		go sshSrv.Serve()
 		slog.Info("SSH/SFTP server enabled", "port", cfg.SSHPort)
@@ -208,9 +231,9 @@ func main() {
 	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
-		slog.Error("server forced to shutdown", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("server shutdown: %w", err)
 	}
 
 	slog.Info("server stopped")
+	return nil
 }

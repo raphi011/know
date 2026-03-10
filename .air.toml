@@ -6,10 +6,9 @@ tmp_dir = "tmp"
 
 [build]
 # Build command - must use -buildvcs=false (git subdir issue)
-# Builds both server and CLI so knowhow commands work immediately after changes
-cmd = "go build -buildvcs=false -o ./bin/knowhow-server ./cmd/knowhow-server && go build -buildvcs=false -o ./bin/knowhow ./cmd/knowhow"
-# Binary to run
-bin = "./bin/knowhow-server"
+cmd = "go build -buildvcs=false -o ./bin/knowhow ./cmd/knowhow"
+# Binary to run (serve subcommand starts the server)
+bin = "./bin/knowhow serve"
 # Watch these file extensions
 include_ext = ["go", "toml", "graphqls"]
 # Don't watch .env — it changes on every bedrock-setup and causes port-bind races

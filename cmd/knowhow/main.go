@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -48,6 +49,7 @@ func main() {
 	rootCmd.AddCommand(devCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(uiCmd)
+	rootCmd.AddCommand(serveCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -57,6 +59,28 @@ func main() {
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envOrDefaultInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			return def
+		}
+		return i
+	}
+	return def
+}
+
+func envOrDefaultBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return def
+		}
+		return b
 	}
 	return def
 }

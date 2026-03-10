@@ -21,26 +21,13 @@ builds:
     goarch:
       - amd64
       - arm64
+    flags:
+      - -buildvcs=false
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
-  - id: knowhow-server
-    main: ./cmd/knowhow-server
-    binary: knowhow-server
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - darwin
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -82,3 +69,8 @@ brews:
       bash_completion.install "completions/knowhow.bash" => "knowhow"
       zsh_completion.install "completions/_knowhow"
       fish_completion.install "completions/knowhow.fish"
+    service: |
+      run [opt_bin/"knowhow", "serve"]
+      keep_alive true
+      log_path var/"log/knowhow.log"
+      error_log_path var/"log/knowhow.log"

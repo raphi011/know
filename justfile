@@ -37,7 +37,6 @@ export KNOWHOW_TOKEN := env_var_or_default("KNOWHOW_TOKEN", "kh_0000000000000000
 # Build directories
 build_dir := "./bin"
 binary := "knowhow"
-server := "knowhow-server"
 
 # Default recipe - show help
 default:
@@ -47,25 +46,20 @@ default:
 build:
     go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/knowhow
 
-# Build server binary
-build-server:
-    go build -buildvcs=false -o {{build_dir}}/{{server}} ./cmd/knowhow-server
-
 # Bootstrap DB (wipe + create user/vault/token from env vars)
 bootstrap: build db-up
     {{build_dir}}/{{binary}} dev seed --wipe
 
 # Build all binaries
-build-all: build build-server
+build-all: build
 
-# Run server with optional args (e.g., just server --wipe)
-server *args: build-server
-    "{{build_dir}}/{{server}}" "$@"
+# Run server with optional args (e.g., just serve --no-auth)
+serve *args: build
+    "{{build_dir}}/{{binary}}" serve "$@"
 
-# Install both binaries to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
+# Install binary to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
 install:
     GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/knowhow
-    GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/knowhow-server
 
 # Run all tests
 test:

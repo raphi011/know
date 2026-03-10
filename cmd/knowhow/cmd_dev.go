@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/spf13/cobra"
@@ -37,18 +36,6 @@ func init() {
 	pf.IntVar(&embedDim, "embed-dimension", envOrDefaultInt("KNOWHOW_EMBED_DIMENSION", 768), "embedding vector dimension")
 
 	devCmd.AddCommand(devSeedCmd)
-}
-
-func envOrDefaultInt(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		i, err := strconv.Atoi(v)
-		if err != nil {
-			slog.Warn("invalid integer env var, using default", "key", key, "value", v, "default", fallback, "error", err)
-			return fallback
-		}
-		return i
-	}
-	return fallback
 }
 
 func connectDB(ctx context.Context) (*db.Client, error) {
