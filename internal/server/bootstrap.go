@@ -125,7 +125,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 	}
 
-	chunkConfig := cfg.ChunkConfig()
+	chunkConfig := cfg.EffectiveChunkConfig()
 	if err := chunkConfig.Validate(); err != nil {
 		if closeErr := dbClient.Close(ctx); closeErr != nil {
 			slog.Warn("failed to close DB during cleanup", "error", closeErr)
@@ -149,7 +149,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		RetentionCount:  cfg.VersionRetentionCount,
 	}
 	bus := event.New()
-	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig, bus)
+	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
 
 	// workerDone defaults to a closed channel so <-workerDone is a no-op in Close
 	embeddingWorkerDone := make(chan struct{})

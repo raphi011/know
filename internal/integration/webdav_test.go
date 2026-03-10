@@ -58,7 +58,7 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "webdav-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	assetSvc := asset.NewService(testDB, nil)
 	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
@@ -441,7 +441,7 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 		t.Fatalf("create token: %v", err)
 	}
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 	assetSvc := asset.NewService(testDB, nil)
 	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
 	srv := httptest.NewServer(handler)

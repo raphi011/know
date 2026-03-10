@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -233,20 +235,34 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string, tlsSk
 		return nil, fmt.Errorf("unsupported bedrock embedding provider: %s (use 'amazon' or 'cohere')", provider)
 	}
 
-	// Create AWS client, optionally skipping TLS verification for local proxy.
-	// See .env.example for required AWS env vars.
+	// Create AWS client with explicit proxy and optional TLS skip.
+	// ProxyFromEnvironment caches proxy env vars via sync.Once on first use.
+	// After SIGHUP reload, HTTPS_PROXY may have changed, so we always set
+	// proxy explicitly from the current environment.
 	var opts []func(*awsconfig.LoadOptions) error
-	if tlsSkipVerify {
-		slog.Warn("bedrock embedder: skipping TLS verification for local proxy")
+
+	proxyEnv := os.Getenv("HTTPS_PROXY")
+	if tlsSkipVerify || proxyEnv != "" {
 		opts = append(opts, awsconfig.WithHTTPClient(
 			awshttp.NewBuildableClient().WithTransportOptions(func(t *http.Transport) {
-				if t.TLSClientConfig == nil {
-					t.TLSClientConfig = &tls.Config{}
+				if tlsSkipVerify {
+					slog.Warn("bedrock embedder: skipping TLS verification for local proxy")
+					if t.TLSClientConfig == nil {
+						t.TLSClientConfig = &tls.Config{}
+					}
+					t.TLSClientConfig.InsecureSkipVerify = true
 				}
-				t.TLSClientConfig.InsecureSkipVerify = true
+				if proxyEnv != "" {
+					if proxyURL, err := url.Parse(proxyEnv); err == nil {
+						t.Proxy = http.ProxyURL(proxyURL)
+					} else {
+						slog.Warn("bedrock embedder: failed to parse HTTPS_PROXY", "value", proxyEnv, "error", err)
+					}
+				}
 			}),
 		))
 	}
+
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("load AWS config: %w", err)

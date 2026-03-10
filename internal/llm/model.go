@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -59,15 +60,21 @@ func newBedrockChatModel(ctx context.Context, model string, tlsSkipVerify bool) 
 	if tlsSkipVerify {
 		// Skip TLS verification takes precedence over CA bundle injection.
 		// AWS_CA_BUNDLE is still unset above to prevent the eino-ext panic (bug 1).
-		slog.Warn("skipping TLS verification on http.DefaultTransport", "reason", "eino-ext bug #2")
-		if err := skipVerifyDefaultTransport(); err != nil {
-			return nil, fmt.Errorf("skip verify default transport: %w", err)
+		slog.Warn("patching http.DefaultTransport", "tls_skip_verify", true, "reason", "eino-ext bug #2")
+		if err := patchDefaultTransport(true); err != nil {
+			return nil, fmt.Errorf("patch default transport: %w", err)
 		}
-	} else if caBundle != "" {
-		// Fallback: patch http.DefaultTransport with the CA so the Anthropic
-		// SDK's http.DefaultClient trusts the proxy certificate.
-		if err := addCAToDefaultTransport(caBundle); err != nil {
-			return nil, fmt.Errorf("add CA to default transport: %w", err)
+	} else {
+		if caBundle != "" {
+			// Patch http.DefaultTransport with the CA so the Anthropic
+			// SDK's http.DefaultClient trusts the proxy certificate.
+			if err := addCAToDefaultTransport(caBundle); err != nil {
+				return nil, fmt.Errorf("add CA to default transport: %w", err)
+			}
+		}
+		// Also patch proxy (ProxyFromEnvironment caches on first use).
+		if err := patchDefaultTransport(false); err != nil {
+			return nil, fmt.Errorf("patch default transport: %w", err)
 		}
 	}
 
@@ -77,18 +84,31 @@ func newBedrockChatModel(ctx context.Context, model string, tlsSkipVerify bool) 
 	})
 }
 
-// skipVerifyDefaultTransport sets InsecureSkipVerify on http.DefaultTransport.
-// This is process-global but necessary because the Anthropic SDK uses
-// http.DefaultClient for Bedrock API calls (eino-ext bug #2).
-func skipVerifyDefaultTransport() error {
+// patchDefaultTransport sets proxy and optionally InsecureSkipVerify on
+// http.DefaultTransport. This is process-global but necessary because the
+// Anthropic SDK uses http.DefaultClient for Bedrock API calls (eino-ext bug #2).
+//
+// ProxyFromEnvironment caches proxy env vars via sync.Once on first use.
+// After SIGHUP reload, HTTPS_PROXY may have changed, so we set proxy
+// explicitly from the current environment.
+func patchDefaultTransport(tlsSkipVerify bool) error {
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return fmt.Errorf("http.DefaultTransport is not *http.Transport")
 	}
-	if transport.TLSClientConfig == nil {
-		transport.TLSClientConfig = &tls.Config{}
+	if tlsSkipVerify {
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = &tls.Config{}
+		}
+		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
-	transport.TLSClientConfig.InsecureSkipVerify = true
+	if proxy := os.Getenv("HTTPS_PROXY"); proxy != "" {
+		proxyURL, err := url.Parse(proxy)
+		if err != nil {
+			return fmt.Errorf("parse HTTPS_PROXY %q: %w", proxy, err)
+		}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
 	return nil
 }
 

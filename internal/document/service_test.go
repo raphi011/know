@@ -80,6 +80,7 @@ func TestBuildEmbeddingContext(t *testing.T) {
 		name     string
 		chunk    models.Chunk
 		docTitle string
+		maxChars int
 		want     string
 	}{
 		{
@@ -112,13 +113,58 @@ func TestBuildEmbeddingContext(t *testing.T) {
 			docTitle: "My Doc",
 			want:     "Document: My Doc\n\nSome text.",
 		},
+		{
+			name:     "truncation preserves prefix",
+			chunk:    models.Chunk{Content: "word1 word2 word3 word4 word5", HeadingPath: hp("## Section")},
+			docTitle: "Doc",
+			maxChars: 40, // "Document: Doc\nSection: Section\n\n" = 32 chars, leaves 8 for content
+			want:     "Document: Doc\nSection: Section\n\nword1",
+		},
+		{
+			name:     "no truncation when within limit",
+			chunk:    models.Chunk{Content: "short"},
+			docTitle: "D",
+			maxChars: 100,
+			want:     "Document: D\n\nshort",
+		},
+		{
+			name:     "no truncation when maxChars is zero",
+			chunk:    models.Chunk{Content: "anything goes"},
+			docTitle: "Title",
+			maxChars: 0,
+			want:     "Document: Title\n\nanything goes",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildEmbeddingContext(tt.chunk, tt.docTitle)
+			got := buildEmbeddingContext(tt.chunk, tt.docTitle, tt.maxChars)
 			if got != tt.want {
 				t.Errorf("buildEmbeddingContext() =\n%q\nwant:\n%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTruncateAtWordBoundary(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"within limit", "hello world", 100, "hello world"},
+		{"exact limit", "hello", 5, "hello"},
+		{"truncate at space", "hello world foo", 11, "hello world"},
+		{"truncate mid-word finds space", "hello world foo", 13, "hello world"},
+		{"no space in first half uses hard cut", "abcdefghij", 5, "abcde"},
+		{"zero maxLen", "anything", 0, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateAtWordBoundary(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("truncateAtWordBoundary(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
 	}

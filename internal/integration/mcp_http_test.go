@@ -26,7 +26,7 @@ func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *doc
 	vaultID, _ := setupVault(t, ctx, "mcp-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 
 	searchSvc := search.NewService(testDB, nil)
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil)
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 	vaultSvc := vault.NewService(testDB)
 	executor := &tools.Executor{
 		DB:         testDB,
