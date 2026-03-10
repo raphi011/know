@@ -149,6 +149,29 @@ if existing == nil {
 }
 ```
 
+### `UPSERT ... WHERE` Does Not Create New Records
+
+In SurrealDB v3, `UPSERT ... WHERE` only updates existing rows — it **never creates** new records when the WHERE clause matches nothing. This silently does nothing and returns an empty result set.
+
+```sql
+-- BAD: silently does nothing if no asset matches this vault+path
+UPSERT asset SET data = $data WHERE vault = $v AND path = $p RETURN AFTER
+
+-- GOOD: check-then-create/update pattern
+-- 1. SELECT to check existence (use a lightweight projection to avoid loading blobs)
+-- 2. If not found: CREATE asset SET ...
+-- 3. If found: UPDATE asset SET ... WHERE ...
+-- 4. On unique constraint violation during CREATE: retry as UPDATE (race condition)
+```
+
+This is the same pattern used by `UpsertDocument` and `UpsertAsset` in this codebase.
+
+### `bytes` Fields Reject NULL
+
+SurrealDB's `bytes` type does not accept NULL — even for empty/nil data. Passing a Go `nil` slice results in `Couldn't coerce value for field: Expected 'bytes' but found 'NULL'`.
+
+**Fix**: Normalize `nil` to `[]byte{}` before passing to the query.
+
 ## v3.0 Breaking Changes
 
 ### KNN Operator

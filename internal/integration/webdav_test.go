@@ -1093,6 +1093,61 @@ func TestWebDAV_FolderDeleteCascadeAssets(t *testing.T) {
 	}
 }
 
+func TestWebDAV_AssetFinderTwoPhasePut(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "finder-2phase")
+	vaultName := vaultNameFromID(vaultID)
+	url := davURL(srv, vaultName, "/finder-upload.png")
+
+	// Phase 1: PUT with empty body (macOS Finder "claim" request)
+	req := mustNewRequest(t, http.MethodPut, url, bytes.NewReader(nil))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT empty: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT empty", http.StatusCreated, http.StatusNoContent)
+
+	// Phase 2: PROPFIND Depth:0 to verify file exists (Finder does this before uploading data)
+	req = mustNewRequest(t, "PROPFIND", url, nil)
+	req.Header.Set("Depth", "0")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PROPFIND: %v", err)
+	}
+	defer resp.Body.Close()
+	requireStatus(t, resp, "PROPFIND", http.StatusMultiStatus)
+	propBody := string(mustReadAll(t, resp.Body))
+	if !strings.Contains(propBody, "finder-upload.png") {
+		t.Errorf("PROPFIND response missing filename:\n%s", propBody)
+	}
+
+	// Phase 3: PUT with real PNG data
+	req = mustNewRequest(t, http.MethodPut, url, bytes.NewReader(testPNG))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT real data: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT real data", http.StatusCreated, http.StatusNoContent)
+
+	// Verify: GET returns the real data with correct Content-Type
+	resp, err = http.Get(url)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	requireStatus(t, resp, "GET", http.StatusOK)
+
+	body := mustReadAll(t, resp.Body)
+	if !bytes.Equal(body, testPNG) {
+		t.Errorf("GET body length = %d, want %d", len(body), len(testPNG))
+	}
+	ct := resp.Header.Get("Content-Type")
+	if ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+}
+
 func TestWebDAV_NonImageNonMarkdownRejected(t *testing.T) {
 	srv, vaultID := setupWebDAV(t, "reject-nonimage")
 	vaultName := vaultNameFromID(vaultID)
