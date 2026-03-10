@@ -134,6 +134,13 @@ func TestBuildEmbeddingContext(t *testing.T) {
 			maxChars: 0,
 			want:     "Document: Title\n\nanything goes",
 		},
+		{
+			name:     "prefix exceeds maxChars truncates entire string",
+			chunk:    models.Chunk{Content: "body text here", HeadingPath: hp("## Long Section Name")},
+			docTitle: "A Document With A Long Title",
+			maxChars: 20, // prefix "Document: A Document With A Long Title\nSection: Long Section Name\n\n" >> 20
+			want:     "Document: A Document",
+		},
 	}
 
 	for _, tt := range tests {
@@ -159,6 +166,7 @@ func TestTruncateAtWordBoundary(t *testing.T) {
 		{"truncate mid-word finds space", "hello world foo", 13, "hello world"},
 		{"no space in first half uses hard cut", "abcdefghij", 5, "abcde"},
 		{"zero maxLen", "anything", 0, ""},
+		{"negative maxLen", "anything", -1, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

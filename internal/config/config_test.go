@@ -4,75 +4,129 @@ import (
 	"testing"
 )
 
-func TestEffectiveChunkConfig_NoLimit(t *testing.T) {
-	cfg := Config{
-		ChunkThreshold:     6000,
-		ChunkTargetSize:    3000,
-		ChunkMaxSize:       4000,
-		EmbedMaxInputChars: 0,
+func TestEffectiveChunkConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		cfg           Config
+		wantThreshold int
+		wantMaxSize   int
+		wantTargetSize int
+	}{
+		{
+			name: "no limit passes through unchanged",
+			cfg: Config{
+				ChunkThreshold:     6000,
+				ChunkTargetSize:    3000,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 0,
+			},
+			wantThreshold:  6000,
+			wantMaxSize:    4000,
+			wantTargetSize: 3000,
+		},
+		{
+			name: "caps MaxSize and Threshold",
+			cfg: Config{
+				ChunkThreshold:     6000,
+				ChunkTargetSize:    3000,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 2048,
+			},
+			wantThreshold:  2048 - maxEmbedContextOverhead, // 1798
+			wantMaxSize:    2048 - maxEmbedContextOverhead, // 1798
+			wantTargetSize: (2048 - maxEmbedContextOverhead) * 3 / 4,
+		},
+		{
+			name: "adjusts TargetSize when it exceeds capped MaxSize",
+			cfg: Config{
+				ChunkThreshold:     6000,
+				ChunkTargetSize:    3000,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 2048,
+			},
+			wantThreshold:  2048 - maxEmbedContextOverhead,
+			wantMaxSize:    2048 - maxEmbedContextOverhead,
+			wantTargetSize: (2048 - maxEmbedContextOverhead) * 3 / 4,
+		},
+		{
+			name: "TargetSize below capped MaxSize stays unchanged",
+			cfg: Config{
+				ChunkThreshold:     6000,
+				ChunkTargetSize:    500,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 2048,
+			},
+			wantThreshold:  2048 - maxEmbedContextOverhead,
+			wantMaxSize:    2048 - maxEmbedContextOverhead,
+			wantTargetSize: 500,
+		},
+		{
+			name: "small limit clamps contentBudget to 100",
+			cfg: Config{
+				ChunkThreshold:     6000,
+				ChunkTargetSize:    3000,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 300,
+			},
+			wantThreshold:  100,
+			wantMaxSize:    100,
+			wantTargetSize: 75, // 100 * 3/4
+		},
+		{
+			name: "generous limit does not cap anything",
+			cfg: Config{
+				ChunkThreshold:     6000,
+				ChunkTargetSize:    3000,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 10000,
+			},
+			wantThreshold:  6000,
+			wantMaxSize:    4000,
+			wantTargetSize: 3000,
+		},
+		{
+			name: "Threshold already below content budget stays unchanged",
+			cfg: Config{
+				ChunkThreshold:     1000,
+				ChunkTargetSize:    500,
+				ChunkMaxSize:       4000,
+				EmbedMaxInputChars: 2048,
+			},
+			wantThreshold:  1000,
+			wantMaxSize:    2048 - maxEmbedContextOverhead,
+			wantTargetSize: 500,
+		},
 	}
-	cc := cfg.EffectiveChunkConfig()
-	if cc.MaxSize != 4000 {
-		t.Errorf("MaxSize = %d, want 4000", cc.MaxSize)
-	}
-	if cc.TargetSize != 3000 {
-		t.Errorf("TargetSize = %d, want 3000", cc.TargetSize)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cc := tt.cfg.EffectiveChunkConfig()
+			if cc.Threshold != tt.wantThreshold {
+				t.Errorf("Threshold = %d, want %d", cc.Threshold, tt.wantThreshold)
+			}
+			if cc.MaxSize != tt.wantMaxSize {
+				t.Errorf("MaxSize = %d, want %d", cc.MaxSize, tt.wantMaxSize)
+			}
+			if cc.TargetSize != tt.wantTargetSize {
+				t.Errorf("TargetSize = %d, want %d", cc.TargetSize, tt.wantTargetSize)
+			}
+		})
 	}
 }
 
-func TestEffectiveChunkConfig_CapsMaxSize(t *testing.T) {
-	cfg := Config{
-		ChunkThreshold:     6000,
-		ChunkTargetSize:    3000,
-		ChunkMaxSize:       4000,
-		EmbedMaxInputChars: 2048,
-	}
-	cc := cfg.EffectiveChunkConfig()
-	wantMax := 2048 - maxEmbedContextOverhead // 1798
-	if cc.MaxSize != wantMax {
-		t.Errorf("MaxSize = %d, want %d", cc.MaxSize, wantMax)
-	}
-}
-
-func TestEffectiveChunkConfig_AdjustsTargetSize(t *testing.T) {
-	cfg := Config{
-		ChunkThreshold:     6000,
-		ChunkTargetSize:    3000,
-		ChunkMaxSize:       4000,
-		EmbedMaxInputChars: 2048,
-	}
-	cc := cfg.EffectiveChunkConfig()
-	// TargetSize (3000) >= MaxSize (1798), so it should be adjusted to 3/4 of MaxSize
-	wantTarget := cc.MaxSize * 3 / 4
-	if cc.TargetSize != wantTarget {
-		t.Errorf("TargetSize = %d, want %d", cc.TargetSize, wantTarget)
-	}
-}
-
-func TestEffectiveChunkConfig_TargetAlreadyBelow(t *testing.T) {
-	cfg := Config{
-		ChunkThreshold:     6000,
-		ChunkTargetSize:    500,
-		ChunkMaxSize:       4000,
-		EmbedMaxInputChars: 2048,
-	}
-	cc := cfg.EffectiveChunkConfig()
-	// TargetSize (500) < MaxSize (1798), so it stays unchanged
-	if cc.TargetSize != 500 {
-		t.Errorf("TargetSize = %d, want 500", cc.TargetSize)
-	}
-}
-
-func TestEffectiveChunkConfig_SmallLimit(t *testing.T) {
-	cfg := Config{
-		ChunkThreshold:     6000,
-		ChunkTargetSize:    3000,
-		ChunkMaxSize:       4000,
-		EmbedMaxInputChars: 300, // very small limit
-	}
-	cc := cfg.EffectiveChunkConfig()
-	// contentBudget = 300 - 250 = 50, but clamped to 100
-	if cc.MaxSize != 100 {
-		t.Errorf("MaxSize = %d, want 100", cc.MaxSize)
+func TestEffectiveChunkConfig_PassesValidate(t *testing.T) {
+	// EffectiveChunkConfig output must always pass Validate for reasonable inputs.
+	limits := []int{0, 300, 500, 1000, 2048, 5000, 10000}
+	for _, limit := range limits {
+		cfg := Config{
+			ChunkThreshold:     6000,
+			ChunkTargetSize:    3000,
+			ChunkMaxSize:       4000,
+			EmbedMaxInputChars: limit,
+		}
+		cc := cfg.EffectiveChunkConfig()
+		if err := cc.Validate(); err != nil {
+			t.Errorf("EmbedMaxInputChars=%d: EffectiveChunkConfig().Validate() = %v", limit, err)
+		}
 	}
 }

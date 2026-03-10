@@ -106,17 +106,26 @@ func (c Config) ChunkConfig() parser.ChunkConfig {
 const maxEmbedContextOverhead = 250
 
 // EffectiveChunkConfig returns chunk config adjusted for the embedding model's
-// input limit. If EmbedMaxInputChars is set, MaxSize and TargetSize are capped
-// to leave room for the contextual prefix (doc title + section heading).
+// input limit. If EmbedMaxInputChars is set, MaxSize, TargetSize, and Threshold
+// are capped to leave room for the contextual prefix (doc title + section heading).
+//
+// The contextual prefix is built by buildEmbeddingContext in document/service.go
+// — keep maxEmbedContextOverhead in sync with that format.
 func (c Config) EffectiveChunkConfig() parser.ChunkConfig {
 	cc := c.ChunkConfig()
 	if c.EmbedMaxInputChars > 0 {
-		contentBudget := c.EmbedMaxInputChars - maxEmbedContextOverhead
-		if contentBudget < 100 {
-			contentBudget = 100
-		}
+		contentBudget := max(c.EmbedMaxInputChars-maxEmbedContextOverhead, 100)
 		if cc.MaxSize > contentBudget {
+			slog.Info("chunk MaxSize capped by embed input limit",
+				"configured", cc.MaxSize, "effective", contentBudget,
+				"embed_max_input_chars", c.EmbedMaxInputChars)
 			cc.MaxSize = contentBudget
+		}
+		if cc.Threshold > contentBudget {
+			slog.Info("chunk Threshold capped by embed input limit",
+				"configured", cc.Threshold, "effective", contentBudget,
+				"embed_max_input_chars", c.EmbedMaxInputChars)
+			cc.Threshold = contentBudget
 		}
 		if cc.TargetSize >= cc.MaxSize {
 			cc.TargetSize = cc.MaxSize * 3 / 4
@@ -127,6 +136,13 @@ func (c Config) EffectiveChunkConfig() parser.ChunkConfig {
 
 // Load reads configuration from environment variables.
 func Load() Config {
+	embedMaxInputChars := getEnvInt("KNOWHOW_EMBED_MAX_INPUT_CHARS", 0)
+	if embedMaxInputChars < 0 {
+		slog.Warn("KNOWHOW_EMBED_MAX_INPUT_CHARS is negative, treating as 0 (no limit)",
+			"configured", embedMaxInputChars)
+		embedMaxInputChars = 0
+	}
+
 	return Config{
 		// SurrealDB
 		SurrealDBURL:       getEnv("SURREALDB_URL", "ws://localhost:4002/rpc"),
@@ -179,7 +195,7 @@ func Load() Config {
 		ChunkMaxSize:    getEnvInt("KNOWHOW_CHUNK_MAX_SIZE", 4000),
 
 		// Embedding input limit (0 = no limit; Cohere Embed v3 on Bedrock: 2048)
-		EmbedMaxInputChars: getEnvInt("KNOWHOW_EMBED_MAX_INPUT_CHARS", 0),
+		EmbedMaxInputChars: embedMaxInputChars,
 
 		// Versioning
 		VersionCoalesceMinutes: getEnvInt("KNOWHOW_VERSION_COALESCE_MINUTES", 10),

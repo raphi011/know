@@ -330,6 +330,14 @@ func (a *App) ReloadLLM() error {
 		newModel = nil
 	}
 
+	// Update chunk config and embed limit (these always reload)
+	chunkConfig := cfg.EffectiveChunkConfig()
+	if err := chunkConfig.Validate(); err != nil {
+		errs = append(errs, fmt.Sprintf("chunk config: %v", err))
+	} else {
+		a.documentService.SetChunkConfig(chunkConfig, cfg.EmbedMaxInputChars)
+	}
+
 	// Only swap providers that were successfully (re)created
 	if embedderChanged {
 		a.documentService.SetEmbedder(newEmbedder)
@@ -358,9 +366,12 @@ func (a *App) ReloadLLM() error {
 		a.serverConfig.LLMModel = cfg.LLMModel
 	}
 	a.serverConfig.WebSearchEnabled = cfg.TavilyAPIKey != ""
+	a.serverConfig.ChunkThreshold = chunkConfig.Threshold
+	a.serverConfig.ChunkTargetSize = chunkConfig.TargetSize
+	a.serverConfig.ChunkMaxSize = chunkConfig.MaxSize
 	a.mu.Unlock()
 
-	slog.Info("LLM providers reloaded (only LLM/embedding settings are applied)",
+	slog.Info("LLM providers reloaded",
 		"semantic_search_changed", embedderChanged,
 		"semantic_search", a.searchService.HasSemanticSearch(),
 		"agent_chat_changed", modelChanged,

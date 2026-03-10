@@ -42,6 +42,12 @@ func (s *Service) SetEmbedder(e *llm.Embedder) {
 	s.embedder.Store(e)
 }
 
+// SetChunkConfig updates the chunk config and embed limit (used by SIGHUP reload).
+func (s *Service) SetChunkConfig(cc parser.ChunkConfig, embedMaxInputChars int) {
+	s.chunkConfig = cc
+	s.embedMaxInputChars = embedMaxInputChars
+}
+
 // getEmbedder returns the current embedder via an atomic load.
 func (s *Service) getEmbedder() *llm.Embedder {
 	return s.embedder.Load()
@@ -408,12 +414,16 @@ func buildEmbeddingContext(chunk models.Chunk, docTitle string, maxChars int) st
 	result := b.String()
 
 	if maxChars > 0 && len(result) > maxChars {
-		// Truncate content, keeping prefix intact.
-		contentBudget := maxChars - prefixLen
-		if contentBudget < 0 {
-			contentBudget = 0
+		if prefixLen > maxChars {
+			// Prefix alone exceeds limit — truncate the entire string.
+			// This shouldn't happen with a properly sized maxEmbedContextOverhead
+			// (see config.maxEmbedContextOverhead), but guard against it.
+			result = result[:maxChars]
+		} else {
+			// Truncate content at word boundary, keeping prefix intact.
+			contentBudget := maxChars - prefixLen
+			result = result[:prefixLen] + truncateAtWordBoundary(chunk.Content, contentBudget)
 		}
-		result = result[:prefixLen] + truncateAtWordBoundary(chunk.Content, contentBudget)
 	}
 	return result
 }

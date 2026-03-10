@@ -242,7 +242,15 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string, tlsSk
 	var opts []func(*awsconfig.LoadOptions) error
 
 	proxyEnv := os.Getenv("HTTPS_PROXY")
-	if tlsSkipVerify || proxyEnv != "" {
+	var proxyURL *url.URL
+	if proxyEnv != "" {
+		var err error
+		proxyURL, err = url.Parse(proxyEnv)
+		if err != nil {
+			return nil, fmt.Errorf("parse HTTPS_PROXY %q: %w", proxyEnv, err)
+		}
+	}
+	if tlsSkipVerify || proxyURL != nil {
 		opts = append(opts, awsconfig.WithHTTPClient(
 			awshttp.NewBuildableClient().WithTransportOptions(func(t *http.Transport) {
 				if tlsSkipVerify {
@@ -252,12 +260,8 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string, tlsSk
 					}
 					t.TLSClientConfig.InsecureSkipVerify = true
 				}
-				if proxyEnv != "" {
-					if proxyURL, err := url.Parse(proxyEnv); err == nil {
-						t.Proxy = http.ProxyURL(proxyURL)
-					} else {
-						slog.Warn("bedrock embedder: failed to parse HTTPS_PROXY", "value", proxyEnv, "error", err)
-					}
+				if proxyURL != nil {
+					t.Proxy = http.ProxyURL(proxyURL)
 				}
 			}),
 		))
