@@ -369,36 +369,45 @@ func (cp *chatPane) updateToolStatus(callID, toolName string, status ToolStatus)
 			return
 		}
 	}
-	slog.Debug("tool_end event had no matching tool_start", "callID", callID, "tool", toolName)
+	slog.Warn("tool_end event had no matching tool_start", "callID", callID, "tool", toolName)
 }
 
 // finalizeStream commits streamed content into messages and resets streaming state.
+// Text is flushed before each non-text part to preserve interleaving order.
 func (cp *chatPane) finalizeStream() {
 	if !cp.streaming {
 		return
 	}
 	cp.streaming = false
 
-	// Build messages from stream parts, preserving interleaving order
+	// Build messages from stream parts, flushing accumulated text before each
+	// non-text part so the interleaving order is preserved in the message list.
 	var text strings.Builder
+	flushText := func() {
+		if text.Len() > 0 {
+			cp.messages = append(cp.messages, &api.ChatMessage{Role: "assistant", Content: text.String()})
+			text.Reset()
+		}
+	}
+
 	for _, p := range cp.streamParts {
 		switch p.Type {
 		case PartText:
 			text.WriteString(p.Content)
 		case PartToolCall:
+			flushText()
 			name := p.ToolName
 			cp.messages = append(cp.messages, &api.ChatMessage{
 				Role: "tool_result", ToolName: &name,
 			})
 		case PartError:
+			flushText()
 			cp.messages = append(cp.messages, &api.ChatMessage{
 				Role: "assistant", Content: "Error: " + p.Content,
 			})
 		}
 	}
-	if text.Len() > 0 {
-		cp.messages = append(cp.messages, &api.ChatMessage{Role: "assistant", Content: text.String()})
-	}
+	flushText()
 
 	cp.streamParts = nil
 	cp.pendingApproval = nil

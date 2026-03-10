@@ -19,14 +19,13 @@ Use `just` for all build and test commands:
 
 ```bash
 # Build
-just build           # CLI binary
-just build-server    # Server binary
-just build-all       # All binaries
+just build           # Single binary (CLI + server)
+just build-all       # Same as build (single binary)
 
 # Run
 just bootstrap       # Wipe DB + create user/vault/token from env var defaults
 just dev             # Start Go dev environment (air)
-just dev-all         # Start everything (SurrealDB + Go server)
+just serve           # Build and run server (knowhow serve)
 
 # Test
 just test            # Run Go tests
@@ -122,8 +121,7 @@ The WebDAV server at `/dav/{vaultName}/` allows editing documents with any WebDA
 ### Project Structure
 
 ```
-cmd/knowhow-server/     # REST API server + WebDAV + MCP + SSH
-cmd/knowhow/            # CLI client (scrape, config, ui, dev seed)
+cmd/knowhow/            # Single binary: CLI (scrape, config, ui, dev seed) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -155,6 +153,7 @@ internal/
 - **REST API**: JSON endpoints at `/api/`, auth via `Authorization: Bearer` header
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
 - **CLI uses REST API**: `scrape`/`config`/`ui` commands communicate via REST
+- **`serve` connects directly to DB**: starts the HTTP server (REST API, WebDAV, MCP, SSH)
 - **`dev` commands connect directly to DB**: `dev seed` bootstraps schema + user/vault/token
 
 ### Running

@@ -128,7 +128,7 @@ func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content stri
 			data := strings.TrimPrefix(line, "data: ")
 			var event StreamEvent
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				slog.Debug("SSE event unmarshal failed", "data", data, "error", err)
+				slog.Warn("SSE event unmarshal failed", "data", data, "error", err)
 				continue
 			}
 			select {

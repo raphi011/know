@@ -332,7 +332,7 @@ func (c *Client) ListUnprocessedDocuments(ctx context.Context, limit int) ([]mod
 		"limit": limit,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list unprocessed documents: %w", err)
+		return nil, fmt.Errorf("list unprocessed: %w", err)
 	}
 	if results == nil || len(*results) == 0 {
 		return nil, nil
@@ -344,7 +344,7 @@ func (c *Client) ListUnprocessedDocuments(ctx context.Context, limit int) ([]mod
 func (c *Client) MarkDocumentProcessed(ctx context.Context, docID string) error {
 	sql := `UPDATE type::record("document", $id) SET processed = true`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": docID}); err != nil {
-		return fmt.Errorf("mark document processed: %w", err)
+		return fmt.Errorf("mark processed: %w", err)
 	}
 	return nil
 }
