@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"time"
 )
@@ -48,6 +49,41 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
+// PostMultipart performs a multipart/form-data POST request.
+// fields are sent as form fields, fileData is sent as a file upload with the given fileField name and fileName.
+func (c *Client) PostMultipart(ctx context.Context, path string, fields map[string]string, fileField, fileName string, fileData io.Reader, target any) error {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	for k, v := range fields {
+		if err := writer.WriteField(k, v); err != nil {
+			return fmt.Errorf("write field %s: %w", k, err)
+		}
+	}
+
+	part, err := writer.CreateFormFile(fileField, fileName)
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, fileData); err != nil {
+		return fmt.Errorf("copy file data: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &buf)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	return c.handleResponse(req, target)
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, target any) error {
 	var bodyReader io.Reader
 	if body != nil {
@@ -69,6 +105,11 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
+	return c.handleResponse(req, target)
+}
+
+// handleResponse executes the request and processes the response.
+func (c *Client) handleResponse(req *http.Request, target any) error {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
@@ -81,7 +122,6 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	}
 
 	if resp.StatusCode >= 400 {
-		// Try to extract error message from JSON
 		var errResp struct {
 			Error string `json:"error"`
 		}

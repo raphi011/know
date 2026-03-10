@@ -93,14 +93,20 @@ func (s *Service) CreateFolder(ctx context.Context, vaultID, folderPath string) 
 	return folder, nil
 }
 
-// DeleteFolder deletes a folder, all child folders, and all documents under the folder prefix.
+// DeleteFolder deletes a folder, all child folders, documents, and assets under the folder prefix.
 func (s *Service) DeleteFolder(ctx context.Context, vaultID, folderPath string) error {
 	folderPath = models.NormalizePath(folderPath)
 
-	// Delete child documents
 	prefix := folderPath + "/"
+
+	// Delete child documents
 	if _, err := s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix); err != nil {
 		return fmt.Errorf("delete folder documents: %w", err)
+	}
+
+	// Delete child assets
+	if _, err := s.db.DeleteAssetsByPrefix(ctx, vaultID, prefix); err != nil {
+		return fmt.Errorf("delete folder assets: %w", err)
 	}
 
 	// Delete folder records (self + children)
@@ -111,7 +117,7 @@ func (s *Service) DeleteFolder(ctx context.Context, vaultID, folderPath string) 
 	return nil
 }
 
-// MoveFolder moves a folder and all its children (folders + documents) from oldPath to newPath.
+// MoveFolder moves a folder and all its children (folders, documents, and assets) from oldPath to newPath.
 func (s *Service) MoveFolder(ctx context.Context, vaultID, oldPath, newPath string) error {
 	oldPath = models.NormalizePath(oldPath)
 	newPath = models.NormalizePath(newPath)
@@ -124,6 +130,11 @@ func (s *Service) MoveFolder(ctx context.Context, vaultID, oldPath, newPath stri
 	// Move documents
 	if _, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
 		return fmt.Errorf("move folder documents: %w", err)
+	}
+
+	// Move assets
+	if _, err := s.db.MoveAssetsByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
+		return fmt.Errorf("move folder assets: %w", err)
 	}
 
 	// Ensure destination ancestor folders exist

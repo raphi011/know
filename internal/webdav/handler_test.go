@@ -9,7 +9,7 @@ import (
 func TestHandler_OSMetadataFastPath(t *testing.T) {
 	// Handler with nil dependencies — if the fast path works,
 	// these are never touched and we don't panic.
-	handler := NewHandler("/dav/", nil, nil, nil, true, 0)
+	handler := NewHandler("/dav/", nil, nil, nil, nil, true, 0)
 
 	tests := []struct {
 		method string
@@ -48,7 +48,7 @@ func TestHandler_OSMetadataFastPath(t *testing.T) {
 func TestHandler_RealFilesNotShortCircuited(t *testing.T) {
 	// A request for a real .md file with nil deps should panic,
 	// proving the fast path did NOT intercept it.
-	handler := NewHandler("/dav/", nil, nil, nil, true, 0)
+	handler := NewHandler("/dav/", nil, nil, nil, nil, true, 0)
 	req := httptest.NewRequest("PROPFIND", "/dav/somevault/readme.md", nil)
 	rec := httptest.NewRecorder()
 

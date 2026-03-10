@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/net/webdav"
 
+	"github.com/raphi011/knowhow/internal/asset"
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
@@ -26,6 +27,7 @@ func NewHandler(
 	pathPrefix string,
 	dbClient *db.Client,
 	docService *document.Service,
+	assetSvc *asset.Service,
 	vaultSvc *vault.Service,
 	noAuth bool,
 	maxPutBytes int64,
@@ -137,7 +139,7 @@ func NewHandler(
 		}
 
 		// Create per-request WebDAV handler with the resolved vault
-		davFS := NewFS(vaultID, dbClient, docService, vaultSvc)
+		davFS := NewFS(vaultID, dbClient, docService, assetSvc, vaultSvc)
 		davHandler := &webdav.Handler{
 			FileSystem: davFS,
 			LockSystem: getLockSystem(vaultID),

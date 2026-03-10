@@ -49,6 +49,17 @@ type ChatMessage struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+// AssetMeta is the JSON representation of asset metadata.
+type AssetMeta struct {
+	VaultID     string    `json:"vaultId"`
+	Path        string    `json:"path"`
+	MimeType    string    `json:"mimeType"`
+	Size        int       `json:"size"`
+	ContentHash string    `json:"contentHash"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 // ServerConfig holds the server's effective configuration.
 type ServerConfig struct {
 	LLMProvider            string `json:"llmProvider"`

@@ -15,27 +15,31 @@ import (
 
 	"golang.org/x/net/webdav"
 
+	"github.com/raphi011/knowhow/internal/asset"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
 const markdownContentType = "text/markdown; charset=utf-8"
 
-// FS implements webdav.FileSystem backed by document and vault services.
+// FS implements webdav.FileSystem backed by document, asset, and vault services.
 type FS struct {
 	vaultID    string
 	db         *db.Client
 	docService *document.Service
+	assetSvc   *asset.Service
 	vaultSvc   *vault.Service
 }
 
 // NewFS creates a WebDAV filesystem for the given vault.
-func NewFS(vaultID string, db *db.Client, docService *document.Service, vaultSvc *vault.Service) *FS {
+func NewFS(vaultID string, db *db.Client, docService *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service) *FS {
 	return &FS{
 		vaultID:    vaultID,
 		db:         db,
 		docService: docService,
+		assetSvc:   assetSvc,
 		vaultSvc:   vaultSvc,
 	}
 }
@@ -88,6 +92,26 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 		return newReadFile(name, doc), nil
 	}
 
+	// Try as asset
+	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+		// For write mode, only need metadata (avoid loading full binary data)
+		assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, name)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", name, err)
+		}
+		if assetMeta != nil {
+			return newAssetWriteFile(name, f.vaultID, f.assetSvc, assetMeta.UpdatedAt), nil
+		}
+	} else {
+		assetObj, err := f.assetSvc.Get(ctx, f.vaultID, name)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", name, err)
+		}
+		if assetObj != nil {
+			return newAssetReadFile(name, assetObj), nil
+		}
+	}
+
 	// Try as folder
 	folder, err := f.db.GetFolderByPath(ctx, f.vaultID, name)
 	if err != nil {
@@ -99,6 +123,9 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 
 	// Not found — if creating, open for write
 	if flag&os.O_CREATE != 0 {
+		if models.IsImageFile(name) {
+			return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now()), nil
+		}
 		if !isMarkdownFile(name) {
 			return nil, errNotMarkdown
 		}
@@ -128,6 +155,18 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 	if doc != nil {
 		if err := f.docService.Delete(ctx, f.vaultID, name); err != nil {
 			return fmt.Errorf("remove document %s: %w", name, err)
+		}
+		return nil
+	}
+
+	// Try as asset
+	assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, name)
+	if err != nil {
+		return fmt.Errorf("remove %s: %w", name, err)
+	}
+	if assetMeta != nil {
+		if err := f.assetSvc.Delete(ctx, f.vaultID, name); err != nil {
+			return fmt.Errorf("remove asset %s: %w", name, err)
 		}
 		return nil
 	}
@@ -168,6 +207,21 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 		}
 		if _, err := f.docService.Move(ctx, f.vaultID, oldName, newName); err != nil {
 			return fmt.Errorf("rename %s to %s: %w", oldName, newName, err)
+		}
+		return nil
+	}
+
+	// Try as asset
+	assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, oldName)
+	if err != nil {
+		return fmt.Errorf("rename %s: %w", oldName, err)
+	}
+	if assetMeta != nil {
+		if !models.IsImageFile(newName) {
+			return fmt.Errorf("cannot rename asset to non-image file: %w", os.ErrPermission)
+		}
+		if err := f.assetSvc.Move(ctx, f.vaultID, oldName, newName); err != nil {
+			return fmt.Errorf("rename asset %s to %s: %w", oldName, newName, err)
 		}
 		return nil
 	}
@@ -217,6 +271,22 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 			fi.etag = `"` + *meta.ContentHash + `"`
 		}
 		return fi, nil
+	}
+
+	// Try as asset
+	assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, name)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", name, err)
+	}
+	if assetMeta != nil {
+		return &fileInfo{
+			name:        path.Base(name),
+			size:        int64(assetMeta.Size),
+			modTime:     assetMeta.UpdatedAt,
+			isDir:       false,
+			contentType: assetMeta.MimeType,
+			etag:        `"` + assetMeta.ContentHash + `"`,
+		}, nil
 	}
 
 	// Try as folder
@@ -307,6 +377,29 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 		entries = append(entries, fi)
 	}
 
+	// List immediate child assets
+	assetMetas, err := f.assetSvc.ListMetas(ctx, f.vaultID, &folderFilter)
+	if err != nil {
+		return nil, fmt.Errorf("list assets in %s: %w", dirPath, err)
+	}
+	for _, am := range assetMetas {
+		rel := strings.TrimPrefix(am.Path, folderFilter)
+		if dirPath == "/" {
+			rel = strings.TrimPrefix(am.Path, "/")
+		}
+		if strings.Contains(rel, "/") {
+			continue // nested asset, skip
+		}
+		entries = append(entries, &fileInfo{
+			name:        path.Base(am.Path),
+			size:        int64(am.Size),
+			modTime:     am.UpdatedAt,
+			isDir:       false,
+			contentType: am.MimeType,
+			etag:        `"` + am.ContentHash + `"`,
+		})
+	}
+
 	return entries, nil
 }
 
@@ -321,8 +414,8 @@ func isOSMetadataFile(name string) bool {
 	return strings.HasPrefix(base, "._") || base == ".DS_Store"
 }
 
-// errNotMarkdown is returned when a non-markdown file is created or renamed to.
-var errNotMarkdown = fmt.Errorf("only markdown files (.md) are allowed: %w", os.ErrPermission)
+// errNotMarkdown is returned when a non-markdown, non-image file is created or renamed to.
+var errNotMarkdown = fmt.Errorf("only markdown (.md) and image files are allowed: %w", os.ErrPermission)
 
 // normalizeName cleans up a WebDAV path to match our internal path format.
 func normalizeName(name string) string {

@@ -150,6 +150,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		"/dav/",
 		app.DBClient(),
 		app.DocumentService(),
+		app.AssetService(),
 		app.VaultService(),
 		cfg.NoAuth,
 		10*1024*1024, // 10 MB max PUT body

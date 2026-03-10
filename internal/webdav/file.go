@@ -11,6 +11,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/raphi011/knowhow/internal/asset"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/models"
 )
@@ -187,4 +188,91 @@ func (f *nopFile) Close() error {
 func (f *nopFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
 func (f *nopFile) Stat() (fs.FileInfo, error) {
 	return &fileInfo{name: path.Base(f.name), modTime: f.modTime}, nil
+}
+
+// assetReadFile provides read-only access to an asset's binary data.
+type assetReadFile struct {
+	name   string
+	asset  *models.Asset
+	reader *bytes.Reader
+}
+
+func newAssetReadFile(name string, a *models.Asset) *assetReadFile {
+	return &assetReadFile{
+		name:   name,
+		asset:  a,
+		reader: bytes.NewReader(a.Data),
+	}
+}
+
+func (f *assetReadFile) Read(p []byte) (int, error) { return f.reader.Read(p) }
+func (f *assetReadFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
+func (f *assetReadFile) Seek(offset int64, whence int) (int64, error) {
+	return f.reader.Seek(offset, whence)
+}
+func (f *assetReadFile) Close() error                           { return nil }
+func (f *assetReadFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
+func (f *assetReadFile) Stat() (fs.FileInfo, error) {
+	return &fileInfo{
+		name:        path.Base(f.name),
+		size:        int64(f.asset.Size),
+		modTime:     f.asset.UpdatedAt,
+		contentType: f.asset.MimeType,
+		etag:        `"` + f.asset.ContentHash + `"`,
+	}, nil
+}
+
+// assetWriteFile buffers writes and stores the asset on Close().
+type assetWriteFile struct {
+	name     string
+	vaultID  string
+	assetSvc *asset.Service
+	buf      bytes.Buffer
+	modTime  time.Time
+}
+
+func newAssetWriteFile(name, vaultID string, assetSvc *asset.Service, modTime time.Time) *assetWriteFile {
+	return &assetWriteFile{
+		name:     name,
+		vaultID:  vaultID,
+		assetSvc: assetSvc,
+		modTime:  modTime,
+	}
+}
+
+func (f *assetWriteFile) Read([]byte) (int, error)           { return 0, os.ErrPermission }
+func (f *assetWriteFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
+func (f *assetWriteFile) Seek(int64, int) (int64, error)     { return 0, os.ErrPermission }
+
+func (f *assetWriteFile) Write(p []byte) (int, error) {
+	return f.buf.Write(p)
+}
+
+func (f *assetWriteFile) Close() error {
+	data := f.buf.Bytes()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err := f.assetSvc.Create(ctx, models.AssetInput{
+		VaultID: f.vaultID,
+		Path:    f.name,
+		Data:    data,
+	})
+	if err != nil {
+		slog.Error("webdav: failed to save asset on close",
+			"path", f.name, "vault", f.vaultID, "error", err)
+		return fmt.Errorf("close %s: %w", f.name, err)
+	}
+
+	slog.Info("webdav: asset saved", "path", f.name, "vault", f.vaultID, "size", len(data))
+	return nil
+}
+
+func (f *assetWriteFile) Stat() (fs.FileInfo, error) {
+	return &fileInfo{
+		name:        path.Base(f.name),
+		size:        int64(f.buf.Len()),
+		modTime:     f.modTime,
+		contentType: models.MimeTypeFromExt(f.name),
+	}, nil
 }

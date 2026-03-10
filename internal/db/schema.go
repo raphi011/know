@@ -301,5 +301,27 @@ func SchemaSQL(dimension int) string {
             doc_id = type::string($before.id),
             path = $before.path
     };
+
+    -- ==========================================================================
+    -- ASSET TABLE (binary image storage)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS asset SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS vault        ON asset TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS path         ON asset TYPE string;
+    DEFINE FIELD IF NOT EXISTS mime_type    ON asset TYPE string;
+    DEFINE FIELD IF NOT EXISTS size         ON asset TYPE int;
+    DEFINE FIELD IF NOT EXISTS content_hash ON asset TYPE string;
+    DEFINE FIELD IF NOT EXISTS data         ON asset TYPE bytes;
+    DEFINE FIELD IF NOT EXISTS created_at   ON asset TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at   ON asset TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_asset_vault_path ON asset FIELDS vault, path UNIQUE;
+
+    -- Cascade: delete assets when vault deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_assets ON vault
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM asset WHERE vault = $before.id
+    };
 `, dimension)
 }
