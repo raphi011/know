@@ -84,6 +84,9 @@ type Config struct {
 	// Versioning settings
 	VersionCoalesceMinutes int // minutes between version snapshots (default: 10)
 	VersionRetentionCount  int // max versions per document (default: 50)
+
+	// TLS settings
+	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOWHOW_TLS_SKIP_VERIFY)
 }
 
 // ChunkConfig returns the chunking configuration as a parser.ChunkConfig.
@@ -151,6 +154,9 @@ func Load() Config {
 		// Versioning
 		VersionCoalesceMinutes: getEnvInt("KNOWHOW_VERSION_COALESCE_MINUTES", 10),
 		VersionRetentionCount:  getEnvInt("KNOWHOW_VERSION_RETENTION", 50),
+
+		// TLS
+		TLSSkipVerify: getEnvBool("KNOWHOW_TLS_SKIP_VERIFY", false),
 	}
 }
 

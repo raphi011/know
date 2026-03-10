@@ -3,12 +3,15 @@ package llm
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/cloudwego/eino/components/embedding"
 	geminiembed "github.com/cloudwego/eino-ext/components/embedding/gemini"
@@ -99,9 +102,7 @@ func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) 
 		}
 
 	case config.ProviderBedrock:
-		// AWS SDK picks up env vars: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-		// AWS_REGION, HTTPS_PROXY, AWS_CA_BUNDLE
-		model, err = newBedrockEmbedder(ctx, cfg.EmbedModel, cfg.BedrockEmbedModelProvider)
+		model, err = newBedrockEmbedder(ctx, cfg.EmbedModel, cfg.BedrockEmbedModelProvider, cfg.TLSSkipVerify)
 		if err != nil {
 			return nil, fmt.Errorf("create bedrock embedder: %w", err)
 		}
@@ -212,7 +213,7 @@ type bedrockEmbedder struct {
 
 // newBedrockEmbedder creates a Bedrock embedder that supports inference profile ARNs.
 // If providerHint is empty and modelID is an ARN, returns error.
-func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (*bedrockEmbedder, error) {
+func newBedrockEmbedder(ctx context.Context, modelID, providerHint string, tlsSkipVerify bool) (*bedrockEmbedder, error) {
 	// Determine provider
 	provider := providerHint
 	if provider == "" {
@@ -232,8 +233,21 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string) (*bed
 		return nil, fmt.Errorf("unsupported bedrock embedding provider: %s (use 'amazon' or 'cohere')", provider)
 	}
 
-	// Create AWS client
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	// Create AWS client, optionally skipping TLS verification for local proxy.
+	// See .env.example for required AWS env vars.
+	var opts []func(*awsconfig.LoadOptions) error
+	if tlsSkipVerify {
+		slog.Warn("bedrock embedder: skipping TLS verification for local proxy")
+		opts = append(opts, awsconfig.WithHTTPClient(
+			awshttp.NewBuildableClient().WithTransportOptions(func(t *http.Transport) {
+				if t.TLSClientConfig == nil {
+					t.TLSClientConfig = &tls.Config{}
+				}
+				t.TLSClientConfig.InsecureSkipVerify = true
+			}),
+		))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}

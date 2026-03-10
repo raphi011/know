@@ -37,25 +37,37 @@ import (
 //     (for actual API calls). So the Anthropic SDK always uses
 //     http.DefaultClient for Bedrock requests, ignoring Config.HTTPClient.
 //
-// Workaround: temporarily unset AWS_CA_BUNDLE to prevent the panic (bug 1),
-// and inject the CA into http.DefaultTransport so the Anthropic SDK's
-// http.DefaultClient trusts the proxy certificate (bug 2).
+// Workaround: temporarily unset AWS_CA_BUNDLE to prevent the panic (bug 1).
+// For bug 2, when tlsSkipVerify is true, set InsecureSkipVerify on
+// http.DefaultTransport. Otherwise, inject the CA from AWS_CA_BUNDLE
+// into http.DefaultTransport so http.DefaultClient trusts the proxy cert.
 //
 // TODO: remove this once eino-ext fixes both bugs.
 // See: https://github.com/cloudwego/eino-ext/issues/712
 // See: docs/teleport-proxy.md (Issues 1 & 2)
-func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, error) {
+func newBedrockChatModel(ctx context.Context, model string, tlsSkipVerify bool) (*claude.ChatModel, error) {
+	// NOTE: This temporarily mutates the environment. NewModel and NewEmbedder
+	// must not be called concurrently when AWS_CA_BUNDLE is set.
 	caBundle := os.Getenv("AWS_CA_BUNDLE")
 	if caBundle != "" {
 		// Bug 1: unset to prevent AWS SDK panic.
 		// Errors from Unsetenv/Setenv are impossible here (key is a valid, non-empty string).
 		_ = os.Unsetenv("AWS_CA_BUNDLE")
 		defer func() { _ = os.Setenv("AWS_CA_BUNDLE", caBundle) }()
+	}
 
-		// Bug 2: patch http.DefaultTransport with the CA so the Anthropic
+	if tlsSkipVerify {
+		// Skip TLS verification takes precedence over CA bundle injection.
+		// AWS_CA_BUNDLE is still unset above to prevent the eino-ext panic (bug 1).
+		slog.Warn("skipping TLS verification on http.DefaultTransport", "reason", "eino-ext bug #2")
+		if err := skipVerifyDefaultTransport(); err != nil {
+			return nil, fmt.Errorf("skip verify default transport: %w", err)
+		}
+	} else if caBundle != "" {
+		// Fallback: patch http.DefaultTransport with the CA so the Anthropic
 		// SDK's http.DefaultClient trusts the proxy certificate.
 		if err := addCAToDefaultTransport(caBundle); err != nil {
-			return nil, fmt.Errorf("new bedrock chat model: %w", err)
+			return nil, fmt.Errorf("add CA to default transport: %w", err)
 		}
 	}
 
@@ -63,6 +75,21 @@ func newBedrockChatModel(ctx context.Context, model string) (*claude.ChatModel, 
 		ByBedrock: true,
 		Model:     model,
 	})
+}
+
+// skipVerifyDefaultTransport sets InsecureSkipVerify on http.DefaultTransport.
+// This is process-global but necessary because the Anthropic SDK uses
+// http.DefaultClient for Bedrock API calls (eino-ext bug #2).
+func skipVerifyDefaultTransport() error {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return fmt.Errorf("http.DefaultTransport is not *http.Transport")
+	}
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.InsecureSkipVerify = true
+	return nil
 }
 
 // addCAToDefaultTransport appends a PEM CA certificate to http.DefaultTransport's
@@ -204,7 +231,7 @@ func NewModel(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*M
 		}
 
 	case config.ProviderBedrock:
-		chatModel, err = newBedrockChatModel(ctx, cfg.LLMModel)
+		chatModel, err = newBedrockChatModel(ctx, cfg.LLMModel, cfg.TLSSkipVerify)
 		if err != nil {
 			return nil, fmt.Errorf("create bedrock model: %w", err)
 		}
