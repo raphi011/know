@@ -27,6 +27,7 @@ export KNOWHOW_CHUNK_MAX_SIZE := env_var_or_default("KNOWHOW_CHUNK_MAX_SIZE", "1
 # Server defaults
 export KNOWHOW_SERVER_PORT := env_var_or_default("KNOWHOW_SERVER_PORT", "4001")
 export KNOWHOW_SERVER_URL := env_var_or_default("KNOWHOW_SERVER_URL", "http://localhost:4001")
+export KNOWHOW_DAV_DEBUG_LOG := env_var_or_default("KNOWHOW_DAV_DEBUG_LOG", "/tmp/dav-debug.log")
 
 # Bootstrap / CLI defaults (stable dev token + vault)
 export KNOWHOW_BOOTSTRAP_TOKEN := env_var_or_default("KNOWHOW_BOOTSTRAP_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
@@ -42,71 +43,35 @@ binary := "knowhow"
 default:
     @just --list
 
-# Build CLI binary
+# --- Build, test, run ---
+
+# Build binary
 build:
     go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/knowhow
-
-# Bootstrap DB (wipe + create user/vault/token from env vars)
-bootstrap: build db-up
-    {{build_dir}}/{{binary}} dev seed --wipe
-
-# Build all binaries
-build-all: build
-
-# Run server with optional args (e.g., just serve --no-auth)
-serve *args: build
-    "{{build_dir}}/{{binary}}" serve "$@"
-
-# Install binary to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
-install:
-    GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/knowhow
 
 # Run all tests
 test:
     go test -buildvcs=false -v ./...
+
+# Build and run CLI command (e.g., just run serve, just run scrape ./docs)
+run *args: build
+    "{{build_dir}}/{{binary}}" "$@"
+
+# Install binary to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
+install:
+    GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/knowhow
 
 # Build snapshot release locally (requires goreleaser)
 snapshot:
     goreleaser release --snapshot --clean
 
 # Start dev environment with live-reload
-dev: db-up
-    KNOWHOW_DAV_DEBUG_LOG=/tmp/dav-debug.log air
+dev:
+    air
 
-# Start dev environment and wipe database on first start
-dev-reset: db-up
-    KNOWHOW_WIPE_DB=true air
-
-# Start dev environment using local (launchd) SurrealDB — no Docker needed
-dev-local:
-    SURREALDB_URL="ws://localhost:8000/rpc" SURREALDB_AUTH_LEVEL="none" KNOWHOW_NO_AUTH="true" air
-
-# Bootstrap local (launchd) SurrealDB — no Docker needed
-bootstrap-local: build
-    SURREALDB_URL="ws://localhost:8000/rpc" SURREALDB_AUTH_LEVEL="none" KNOWHOW_NO_AUTH="true" {{build_dir}}/{{binary}} dev seed --wipe
-
-# Run CLI command (ensures correct server URL)
-run *args: build
-    "{{build_dir}}/{{binary}}" "$@"
-
-# Start development environment without running the server
-dev-setup: db-up
-    @echo "SurrealDB running at localhost:4002"
-    @echo "Run 'just dev' to start the server, or '{{build_dir}}/knowhow <command>' for CLI"
-
-# Pull Ollama models (embedding + LLM)
-ollama-pull:
-    ollama pull {{KNOWHOW_EMBED_MODEL}}
-    @echo "Embedding model ready: {{KNOWHOW_EMBED_MODEL}}"
-
-# Pull a small Ollama LLM for local agent chat testing
-ollama-pull-llm model="qwen2.5:1.5b":
-    ollama pull {{model}}
-    @echo ""
-    @echo "Model ready: {{model}}"
-    @echo "To use it, create .env with:"
-    @echo "  KNOWHOW_LLM_PROVIDER=ollama"
-    @echo "  KNOWHOW_LLM_MODEL={{model}}"
+# Bootstrap DB (wipe + create user/vault/token from env vars)
+bootstrap: build
+    {{build_dir}}/{{binary}} dev seed --wipe
 
 # Start SurrealDB
 db-up:
@@ -122,51 +87,21 @@ clean:
     rm -rf tmp
     docker compose down -v
 
-# Start all services (SurrealDB + Go server with live-reload)
-dev-all: db-up
-    #!/usr/bin/env bash
-    set -e
-    set -m
-    cleanup() {
-        kill 0 2>/dev/null
-        printf '\e[?1l\e[>0q' 2>/dev/null
-        stty sane 2>/dev/null
-    }
-    trap cleanup EXIT INT TERM
-    air 2>&1 | sed $'s/^/\e[36m[go]\e[0m /' &
-    just ios-run 2>&1 | sed $'s/^/\e[33m[ios]\e[0m /' &
-    wait
+# --- Ollama ---
 
-# --- Prod-local Docker stack (Bedrock via Teleport proxy) ---
+# Pull Ollama models (embedding + LLM)
+ollama-pull:
+    ollama pull {{KNOWHOW_EMBED_MODEL}}
+    @echo "Embedding model ready: {{KNOWHOW_EMBED_MODEL}}"
 
-# Start prod stack (persistent DB + Bedrock server + web, no auth)
-prod:
-    docker compose -f docker-compose.prod.yml up --build -d
-
-# Stop prod stack
-prod-down:
-    docker compose -f docker-compose.prod.yml down
-
-# Reset prod stack (wipe DB + data)
-prod-reset:
-    docker compose -f docker-compose.prod.yml down -v
-    rm -rf data/surreal
-
-# Bootstrap prod DB (start only surrealdb, run bootstrap, stop)
-prod-bootstrap: build
-    #!/usr/bin/env bash
-    set -e
-    docker compose -f docker-compose.prod.yml up -d surrealdb
-    echo "Waiting for SurrealDB to be healthy..."
-    until docker inspect --format='{{"{{.State.Health.Status}}"}}' knowhow-surrealdb-prod 2>/dev/null | grep -q healthy; do
-        sleep 1
-    done
-    echo "Running bootstrap..."
-    SURREALDB_URL="ws://localhost:5002/rpc" {{build_dir}}/{{binary}} dev seed --wipe
-    echo "Bootstrap complete. Run 'just prod' to start the full stack."
-
-# Run all tests
-test-all: test
+# Pull a small Ollama LLM for local agent chat testing
+ollama-pull-llm model="qwen2.5:1.5b":
+    ollama pull {{model}}
+    @echo ""
+    @echo "Model ready: {{model}}"
+    @echo "To use it, create .env with:"
+    @echo "  KNOWHOW_LLM_PROVIDER=ollama"
+    @echo "  KNOWHOW_LLM_MODEL={{model}}"
 
 # --- iOS ---
 

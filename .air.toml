@@ -1,4 +1,4 @@
-# Air configuration for knowhow-server live-reload
+# Air configuration for knowhow live-reload
 # https://github.com/air-verse/air
 
 root = "."

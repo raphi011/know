@@ -20,12 +20,11 @@ Use `just` for all build and test commands:
 ```bash
 # Build
 just build           # Single binary (CLI + server)
-just build-all       # Same as build (single binary)
 
 # Run
-just bootstrap       # Wipe DB + create user/vault/token from env var defaults
-just dev             # Start Go dev environment (air)
-just serve           # Build and run server (knowhow serve)
+just bootstrap       # Wipe DB + create user/vault/token (requires running DB)
+just dev             # Start Go dev environment (air, requires running DB)
+just run serve       # Build and run server
 
 # Test
 just test            # Run Go tests
@@ -33,7 +32,7 @@ just test            # Run Go tests
 
 **IMPORTANT**: Before committing any changes, always run `just test`.
 
-**IMPORTANT**: Always use `just build` or `just build-all` instead of raw `go build ./...`. The justfile includes `-buildvcs=false` which is required because this project is in a subdirectory of the git repo. Raw `go build` will fail with `error obtaining VCS status: exit status 128`.
+**IMPORTANT**: Always use `just build` instead of raw `go build ./...`. The justfile includes `-buildvcs=false` which is required because this project is in a subdirectory of the git repo. Raw `go build` will fail with `error obtaining VCS status: exit status 128`.
 
 ## SurrealDB Reference
 
@@ -159,16 +158,19 @@ internal/
 ### Running
 
 ```bash
-# 1. Bootstrap (starts SurrealDB, wipes, creates user/vault/token from justfile defaults)
+# 1. Start SurrealDB (Docker) or use launchd — configure SURREALDB_URL in .env
+just db-up
+
+# 2. Bootstrap (wipe + create user/vault/token from justfile defaults)
 just bootstrap
 
-# 2. Start server
+# 3. Start server with live-reload
 just dev
 
-# 3. Scrape documents (KNOWHOW_TOKEN is set by justfile)
+# 4. Scrape documents (KNOWHOW_TOKEN is set by justfile)
 just run scrape ./docs --vault vault:default
 
-# 4. Launch TUI
+# 5. Launch TUI
 just run ui
 ```
 

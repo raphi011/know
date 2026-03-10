@@ -121,7 +121,6 @@ env -u HTTPS_PROXY -u HTTP_PROXY tsh proxy aws --app $APP -p $PORT
 - `internal/llm/model.go` — Bedrock LLM workaround (issues 1 & 2)
 - `internal/llm/embedder.go` — Bedrock embedder (uses AWS SDK natively)
 - `bedrock-setup.fish` — Proxy startup + cert snapshot (issues 3 & 4)
-- `docker-compose.prod.yml` — Docker prod stack config
 - `.env` — Generated credentials and proxy config (not committed)
 
 ## Teleport Source References (v18.6.1)

@@ -102,4 +102,4 @@ if cfg.SSHEnabled {
 5. Create `internal/sshd/handler_test.go` — unit tests for path parsing
 6. Integrate SSH server startup/shutdown in `cmd/knowhow-server/main.go`
 7. Update `README.md` with SFTP usage and editor configuration examples
-8. `just build-all && just test`
+8. `just build && just test`
