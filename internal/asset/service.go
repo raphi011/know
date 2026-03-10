@@ -22,16 +22,17 @@ func NewService(db *db.Client, bus *event.Bus) *Service {
 }
 
 // Create validates and upserts an asset.
+// Accepts empty data to support macOS Finder's two-phase PUT protocol
+// (empty PUT to claim, then PUT with real data).
 func (s *Service) Create(ctx context.Context, input models.AssetInput) (*models.Asset, error) {
-	if len(input.Data) == 0 {
-		return nil, fmt.Errorf("empty asset data")
-	}
-
 	if input.MimeType == "" {
 		input.MimeType = models.MimeTypeFromExt(input.Path)
 	}
-	if input.MimeType == "" {
+	if input.MimeType == "" && len(input.Data) > 0 {
 		input.MimeType = http.DetectContentType(input.Data)
+	}
+	if input.MimeType == "" {
+		input.MimeType = "application/octet-stream"
 	}
 
 	input.Path = models.NormalizePath(input.Path)
@@ -41,7 +42,9 @@ func (s *Service) Create(ctx context.Context, input models.AssetInput) (*models.
 		return nil, fmt.Errorf("create: %w", err)
 	}
 
-	if s.bus != nil {
+	// Only publish event when there's actual data — empty claim PUTs
+	// from macOS Finder's two-phase protocol are not meaningful changes.
+	if s.bus != nil && len(input.Data) > 0 {
 		vaultID := models.BareID("vault", input.VaultID)
 		s.bus.Publish(event.ChangeEvent{
 			Type:    "asset.created",

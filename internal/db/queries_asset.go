@@ -13,15 +13,77 @@ import (
 
 // UpsertAsset creates or updates an asset by vault+path.
 // Computes content_hash and size from the input data.
+// Uses check-then-create/update to work around SurrealDB v3's UPSERT ... WHERE
+// not creating new records when no match exists.
 func (c *Client) UpsertAsset(ctx context.Context, input models.AssetInput) (*models.Asset, error) {
+	// Normalize nil to empty slice — SurrealDB rejects NULL for bytes fields.
+	if input.Data == nil {
+		input.Data = []byte{}
+	}
 	h := sha256.Sum256(input.Data)
 	contentHash := hex.EncodeToString(h[:])
 	size := len(input.Data)
 
+	const maxRetries = 3
+
+	for attempt := range maxRetries {
+		existing, err := c.GetAssetMetaByPath(ctx, input.VaultID, input.Path)
+		if err != nil {
+			return nil, fmt.Errorf("upsert asset: check existing: %w", err)
+		}
+
+		if existing == nil {
+			asset, err := c.createAsset(ctx, input, contentHash, size)
+			if err != nil {
+				if isUniqueViolation(err) && attempt < maxRetries-1 {
+					continue
+				}
+				return nil, fmt.Errorf("upsert asset: %w", err)
+			}
+			return asset, nil
+		}
+
+		asset, err := c.updateAsset(ctx, input, contentHash, size)
+		if err != nil {
+			return nil, fmt.Errorf("upsert asset: %w", err)
+		}
+		return asset, nil
+	}
+
+	return nil, fmt.Errorf("upsert asset: exhausted %d retries due to concurrent writes", maxRetries)
+}
+
+func (c *Client) createAsset(ctx context.Context, input models.AssetInput, contentHash string, size int) (*models.Asset, error) {
 	sql := `
-		UPSERT asset SET
+		CREATE asset SET
 			vault = type::record("vault", $vault_id),
 			path = $path,
+			mime_type = $mime_type,
+			size = $size,
+			content_hash = $content_hash,
+			data = $data
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.Asset](ctx, c.DB(), sql, map[string]any{
+		"vault_id":     bareID("vault", input.VaultID),
+		"path":         input.Path,
+		"mime_type":    input.MimeType,
+		"size":         size,
+		"content_hash": contentHash,
+		"data":         input.Data,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create asset: %w", err)
+	}
+	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
+		return nil, fmt.Errorf("create asset: no result returned")
+	}
+	return &(*results)[0].Result[0], nil
+}
+
+func (c *Client) updateAsset(ctx context.Context, input models.AssetInput, contentHash string, size int) (*models.Asset, error) {
+	sql := `
+		UPDATE asset SET
 			mime_type = $mime_type,
 			size = $size,
 			content_hash = $content_hash,
@@ -38,10 +100,10 @@ func (c *Client) UpsertAsset(ctx context.Context, input models.AssetInput) (*mod
 		"data":         input.Data,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("upsert asset: %w", err)
+		return nil, fmt.Errorf("update asset: %w", err)
 	}
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("upsert asset: no result returned")
+		return nil, fmt.Errorf("update asset: no result returned")
 	}
 	return &(*results)[0].Result[0], nil
 }
