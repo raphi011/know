@@ -34,10 +34,6 @@ func init() {
 }
 
 func runUI(_ *cobra.Command, _ []string) error {
-	if err := requireToken(); err != nil {
-		return fmt.Errorf("ui: %w", err)
-	}
-
 	client := tui.NewClient(apiURL, apiToken)
 	model := tui.NewModel(client, uiVaultID)
 
