@@ -10,7 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var uiVaultID string
+var (
+	uiAPI     *apiFlags
+	uiVaultID *string
+)
 
 var uiCmd = &cobra.Command{
 	Use:   "ui",
@@ -27,12 +30,13 @@ environment variables or flags:
 Examples:
   knowhow ui
   knowhow ui --vault default
-  knowhow ui --server-url http://localhost:4001 --token kh_...`,
+  knowhow ui --api-url http://localhost:4001 --token kh_...`,
 	RunE: runUI,
 }
 
 func init() {
-	uiCmd.Flags().StringVar(&uiVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name to use")
+	uiAPI = addAPIFlags(uiCmd)
+	uiVaultID = addVaultFlag(uiCmd)
 }
 
 func runUI(_ *cobra.Command, _ []string) error {
@@ -42,8 +46,8 @@ func runUI(_ *cobra.Command, _ []string) error {
 	// bubbletea is running.
 	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 
-	client := tui.NewClient(apiURL, apiToken)
-	model := tui.NewModel(client, uiVaultID, isDark)
+	client := tui.NewClient(uiAPI.URL, uiAPI.Token)
+	model := tui.NewModel(client, *uiVaultID, isDark)
 	defer model.Close()
 
 	p := tea.NewProgram(model)

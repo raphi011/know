@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
@@ -21,20 +22,32 @@ var (
 	date    = "unknown"
 )
 
-var (
-	apiURL   string
-	apiToken string
-)
-
 var rootCmd = &cobra.Command{
 	Use:          "knowhow",
 	Short:        "Knowhow CLI — document ingestion and management",
 	SilenceUsage: true,
 }
 
-func init() {
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("KNOWHOW_SERVER_URL", "http://localhost:4001"), "REST API base URL")
-	rootCmd.PersistentFlags().StringVar(&apiToken, "token", os.Getenv("KNOWHOW_TOKEN"), "API bearer token")
+type apiFlags struct {
+	URL   string
+	Token string
+}
+
+func addAPIFlags(cmd *cobra.Command) *apiFlags {
+	f := &apiFlags{}
+	cmd.Flags().StringVar(&f.URL, "api-url", envOrDefault("KNOWHOW_SERVER_URL", "http://localhost:4001"), "REST API base URL")
+	cmd.Flags().StringVar(&f.Token, "token", os.Getenv("KNOWHOW_TOKEN"), "API bearer token")
+	return f
+}
+
+func (f *apiFlags) newClient() *apiclient.Client {
+	return apiclient.New(f.URL, f.Token)
+}
+
+func addVaultFlag(cmd *cobra.Command) *string {
+	v := new(string)
+	cmd.Flags().StringVar(v, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
+	return v
 }
 
 var versionCmd = &cobra.Command{
