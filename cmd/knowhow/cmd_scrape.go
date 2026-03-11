@@ -33,6 +33,9 @@ Unchanged files are skipped by comparing content hashes, unless --force is set.
 Markdown files go through the full document pipeline (parse, embed, link, chunk).
 Image files (PNG, JPEG, GIF, SVG, WebP) are uploaded as binary assets.
 
+Environment variables:
+  KNOWHOW_VAULT    vault name (alternative to --vault flag)
+
 Examples:
   knowhow scrape ./docs --vault <id>
   knowhow scrape ./notes --vault <id> --labels personal,notes
@@ -43,17 +46,17 @@ Examples:
 }
 
 func init() {
-	scrapeCmd.Flags().StringVar(&scrapeVaultID, "vault", "", "vault ID (required)")
+	scrapeCmd.Flags().StringVar(&scrapeVaultID, "vault", envOrDefault("KNOWHOW_VAULT", ""), "vault name (env: KNOWHOW_VAULT)")
 	scrapeCmd.Flags().StringSliceVarP(&scrapeLabels, "labels", "l", nil, "labels to include in document path metadata")
 	scrapeCmd.Flags().BoolVar(&scrapeDryRun, "dry-run", false, "show what would be ingested without changes")
 	scrapeCmd.Flags().BoolVar(&scrapeForce, "force", false, "re-ingest all files (ignore content hash)")
 	scrapeCmd.Flags().StringVar(&scrapeSource, "source", "scrape", "document source tag")
-	if err := scrapeCmd.MarkFlagRequired("vault"); err != nil {
-		panic(fmt.Sprintf("mark vault flag required: %v", err))
-	}
 }
 
 func runScrape(cmd *cobra.Command, args []string) error {
+	if scrapeVaultID == "" {
+		return fmt.Errorf("scrape: vault is required (set KNOWHOW_VAULT or use --vault)")
+	}
 	if err := requireToken(); err != nil {
 		return fmt.Errorf("scrape: %w", err)
 	}
