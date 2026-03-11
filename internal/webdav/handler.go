@@ -108,7 +108,8 @@ func NewHandler(
 		if len(parts) > 1 {
 			filePath = "/" + parts[1]
 		}
-		if filePath != "" && (isOSMetadataFile(filePath) || isUnsupportedFile(filePath)) {
+		unsupported := isUnsupportedFile(filePath)
+		if filePath != "" && (isOSMetadataFile(filePath) || unsupported) {
 			switch r.Method {
 			case "PROPFIND", http.MethodGet, http.MethodHead:
 				http.Error(w, "not found", http.StatusNotFound)
@@ -116,7 +117,7 @@ func NewHandler(
 				// Drain body so connection stays clean for keep-alive.
 				// Error is harmless: body is discarded and connection may just close.
 				_, _ = io.Copy(io.Discard, r.Body)
-				if isUnsupportedFile(filePath) {
+				if unsupported {
 					slog.Info("webdav: discarded unsupported file", "path", filePath)
 				}
 				w.WriteHeader(http.StatusCreated)

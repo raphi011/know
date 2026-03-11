@@ -172,7 +172,7 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 	}
 
 	// OS metadata and unsupported file types are never stored — nothing to remove
-	if isOSMetadataFile(name) || isUnsupportedFile(name) {
+	if isNonStoredFile(name) {
 		return nil
 	}
 
@@ -236,7 +236,7 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 	// OS metadata and unsupported file types are never stored — nothing to rename.
 	// Note: only oldName is checked. Renaming a supported file *to* an unsupported
 	// extension is caught later by errNotMarkdown, protecting data integrity.
-	if isOSMetadataFile(oldName) || isUnsupportedFile(oldName) {
+	if isNonStoredFile(oldName) {
 		return nil
 	}
 
@@ -304,7 +304,7 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 	}
 
 	// OS metadata and unsupported file types are never stored — always report not found
-	if isOSMetadataFile(name) || isUnsupportedFile(name) {
+	if isNonStoredFile(name) {
 		return nil, os.ErrNotExist
 	}
 
@@ -513,6 +513,12 @@ func isUnsupportedFile(name string) bool {
 		return false
 	}
 	return !isMarkdownFile(name) && !models.IsImageFile(name) && !isOSMetadataFile(name)
+}
+
+// isNonStoredFile returns true for files that are never persisted to the DB:
+// OS metadata files (._*, .DS_Store) and unsupported file types (.pdf, .txt, etc.).
+func isNonStoredFile(name string) bool {
+	return isOSMetadataFile(name) || isUnsupportedFile(name)
 }
 
 // normalizeName cleans up a WebDAV path to match our internal path format.

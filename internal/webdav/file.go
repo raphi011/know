@@ -210,11 +210,7 @@ func (f *nopFile) Read([]byte) (int, error)       { return 0, io.EOF }
 func (f *nopFile) Write(p []byte) (int, error)    { return len(p), nil }
 func (f *nopFile) Seek(int64, int) (int64, error) { return 0, nil }
 func (f *nopFile) Close() error {
-	if isOSMetadataFile(f.name) {
-		slog.Debug("webdav: discarded OS metadata file", "path", f.name)
-	} else {
-		slog.Info("webdav: discarded unsupported file", "path", f.name)
-	}
+	slog.Debug("webdav: discarded OS metadata file", "path", f.name)
 	return nil
 }
 func (f *nopFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
