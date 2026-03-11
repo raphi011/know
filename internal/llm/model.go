@@ -557,6 +557,12 @@ func (m *Model) GenerateStreamWithTools(
 	copy(msgs, messages)
 
 	var usage TokenUsage
+	start := time.Now()
+	defer func() {
+		if m.metrics != nil && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
+			m.metrics.RecordLLMUsage(metrics.OpLLMStream, time.Since(start), usage.InputTokens, usage.OutputTokens)
+		}
+	}()
 
 	const maxIterations = 10
 	for i := range maxIterations {
@@ -607,9 +613,6 @@ func (m *Model) GenerateStreamWithTools(
 
 		// No tool calls — model produced a final answer.
 		if len(merged.ToolCalls) == 0 {
-			if m.metrics != nil {
-				m.metrics.RecordLLMUsage(metrics.OpLLMStream, 0, usage.InputTokens, usage.OutputTokens)
-			}
 			return usage, nil
 		}
 

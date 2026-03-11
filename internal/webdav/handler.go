@@ -220,13 +220,18 @@ func NewHandler(
 type singleWriteResponseWriter struct {
 	http.ResponseWriter
 	wroteHeader bool
+	statusCode  int
 }
 
 func (w *singleWriteResponseWriter) WriteHeader(code int) {
 	if w.wroteHeader {
+		if code != w.statusCode {
+			slog.Debug("webdav: suppressed duplicate WriteHeader", "first", w.statusCode, "suppressed", code)
+		}
 		return
 	}
 	w.wroteHeader = true
+	w.statusCode = code
 	w.ResponseWriter.WriteHeader(code)
 }
 

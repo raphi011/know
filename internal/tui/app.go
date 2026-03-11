@@ -209,7 +209,7 @@ func (m Model) View() tea.View {
 	// Input always visible
 	content.WriteString(m.input.View())
 	content.WriteString("\n\n")
-	content.WriteString(renderStatusBar(m.tokenInput, m.tokenOutput, m.vaultID, m.width))
+	content.WriteString(renderStatusBar(m.tokenInput, m.tokenOutput, m.vaultID))
 
 	return tea.NewView(content.String())
 }

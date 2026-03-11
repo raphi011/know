@@ -139,7 +139,7 @@ func formatTokens(n int64) string {
 }
 
 // renderStatusBar renders the inline status bar below the prompt.
-func renderStatusBar(tokenInput, tokenOutput int64, vaultID string, _ int) string {
+func renderStatusBar(tokenInput, tokenOutput int64, vaultID string) string {
 	if tokenInput == 0 && tokenOutput == 0 {
 		return statusBarDetailStyle.Render(" vault: " + vaultID)
 	}

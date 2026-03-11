@@ -36,7 +36,7 @@ func TestGenerateStreamWithTools_TextOnly(t *testing.T) {
 	m := &Model{chatModel: mock, modelName: "test"}
 
 	var got []string
-	_, err := m.GenerateStreamWithTools(
+	usage, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "hi"}},
 		nil,
@@ -54,6 +54,100 @@ func TestGenerateStreamWithTools_TextOnly(t *testing.T) {
 	}
 	if got[0] != "Hello " || got[1] != "world" {
 		t.Errorf("unexpected tokens: %v", got)
+	}
+	// No ResponseMeta in mock — usage should be zero.
+	if usage.InputTokens != 0 || usage.OutputTokens != 0 {
+		t.Errorf("expected zero token usage, got input=%d output=%d", usage.InputTokens, usage.OutputTokens)
+	}
+}
+
+func TestGenerateStreamWithTools_TokenUsage(t *testing.T) {
+	mock := &mockChatModel{
+		streamFn: func(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+			return schema.StreamReaderFromArray([]*schema.Message{
+				{Content: "hello"},
+				{
+					Content: "",
+					ResponseMeta: &schema.ResponseMeta{
+						Usage: &schema.TokenUsage{
+							PromptTokens:     100,
+							CompletionTokens: 25,
+						},
+					},
+				},
+			}), nil
+		},
+	}
+
+	m := &Model{chatModel: mock, modelName: "test"}
+
+	usage, err := m.GenerateStreamWithTools(
+		context.Background(),
+		[]*schema.Message{{Role: schema.User, Content: "hi"}},
+		nil,
+		func(token string) error { return nil },
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if usage.InputTokens != 100 {
+		t.Errorf("expected InputTokens=100, got %d", usage.InputTokens)
+	}
+	if usage.OutputTokens != 25 {
+		t.Errorf("expected OutputTokens=25, got %d", usage.OutputTokens)
+	}
+}
+
+func TestGenerateStreamWithTools_TokenUsageAccumulates(t *testing.T) {
+	callCount := 0
+
+	mock := &mockChatModel{
+		streamFn: func(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+			callCount++
+			if callCount == 1 {
+				return schema.StreamReaderFromArray([]*schema.Message{
+					{
+						ToolCalls: []schema.ToolCall{{
+							ID:       "call-1",
+							Function: schema.FunctionCall{Name: "search", Arguments: `{"q":"go"}`},
+						}},
+					},
+					{
+						ResponseMeta: &schema.ResponseMeta{
+							Usage: &schema.TokenUsage{PromptTokens: 50, CompletionTokens: 10},
+						},
+					},
+				}), nil
+			}
+			return schema.StreamReaderFromArray([]*schema.Message{
+				{Content: "done"},
+				{
+					ResponseMeta: &schema.ResponseMeta{
+						Usage: &schema.TokenUsage{PromptTokens: 80, CompletionTokens: 15},
+					},
+				},
+			}), nil
+		},
+	}
+
+	m := &Model{chatModel: mock, modelName: "test"}
+
+	usage, err := m.GenerateStreamWithTools(
+		context.Background(),
+		[]*schema.Message{{Role: schema.User, Content: "search"}},
+		[]*schema.ToolInfo{{Name: "search"}},
+		func(token string) error { return nil },
+		func(call schema.ToolCall) (string, error) { return "ok", nil },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if usage.InputTokens != 130 {
+		t.Errorf("expected InputTokens=130 (50+80), got %d", usage.InputTokens)
+	}
+	if usage.OutputTokens != 25 {
+		t.Errorf("expected OutputTokens=25 (10+15), got %d", usage.OutputTokens)
 	}
 }
 

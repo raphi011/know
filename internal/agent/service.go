@@ -507,18 +507,18 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			return result, nil
 		},
 	)
-	if err != nil {
-		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
-		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
-		emit(StreamEvent{Type: "msg_end"})
-		return fmt.Errorf("generate stream: %w", err)
-	}
-
-	// Persist cumulative token usage on the conversation
+	// Persist cumulative token usage on the conversation (even on error — tokens were consumed).
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
 		if tokenErr := s.db.UpdateConversationTokens(ctx, req.ConversationID, usage.InputTokens, usage.OutputTokens); tokenErr != nil {
 			slog.Warn("failed to update conversation tokens", "conversation_id", req.ConversationID, "error", tokenErr)
 		}
+	}
+
+	if err != nil {
+		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
+		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
+		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
+		return fmt.Errorf("generate stream: %w", err)
 	}
 
 	// 7. Store assistant message with tool calls JSON if applicable
@@ -572,11 +572,12 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		assistantMsgID, idErr := models.RecordIDString(assistantMsg.ID)
 		if idErr != nil {
 			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", idErr)
+			emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 		} else {
 			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 		}
 	} else {
-		emit(StreamEvent{Type: "msg_end"})
+		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 	}
 
 	// 10. Auto-title if first message
