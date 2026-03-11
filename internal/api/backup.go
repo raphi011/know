@@ -1,0 +1,139 @@
+package api
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/models"
+)
+
+func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	vaultID := r.URL.Query().Get("vault")
+	if vaultID == "" {
+		writeError(w, http.StatusBadRequest, "vault query parameter is required")
+		return
+	}
+
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	dbClient := s.app.DBClient()
+
+	// Phase 1: Build manifest — collect all paths without content.
+	const pageSize = 1000
+
+	var docMetas []models.DocumentMeta
+	for offset := 0; ; offset += pageSize {
+		batch, err := dbClient.ListDocumentMetas(ctx, db.ListDocumentsFilter{
+			VaultID: vaultID,
+			OrderBy: db.OrderByPathAsc,
+			Limit:   pageSize,
+			Offset:  offset,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("list documents: %v", err))
+			return
+		}
+		docMetas = append(docMetas, batch...)
+		if len(batch) < pageSize {
+			break
+		}
+	}
+
+	assetMetas, err := dbClient.ListAssetMetas(ctx, vaultID, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("list assets: %v", err))
+		return
+	}
+
+	// Phase 2: Write tar.gz to temp file.
+	tmp, err := os.CreateTemp("", "knowhow-backup-*.tar.gz")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("create temp file: %v", err))
+		return
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	gzw := gzip.NewWriter(tmp)
+	tw := tar.NewWriter(gzw)
+
+	for _, meta := range docMetas {
+		doc, err := dbClient.GetDocumentByPath(ctx, vaultID, meta.Path)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("get document %s: %v", meta.Path, err))
+			return
+		}
+		if doc == nil {
+			slog.Warn("document deleted since manifest", "path", meta.Path)
+			continue
+		}
+		if err := writeTarEntry(tw, doc.Path, []byte(doc.Content), doc.UpdatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write document %s: %v", meta.Path, err))
+			return
+		}
+	}
+
+	for _, meta := range assetMetas {
+		asset, err := dbClient.GetAssetByPath(ctx, vaultID, meta.Path)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("get asset %s: %v", meta.Path, err))
+			return
+		}
+		if asset == nil {
+			slog.Warn("asset deleted since manifest", "path", meta.Path)
+			continue
+		}
+		if err := writeTarEntry(tw, asset.Path, asset.Data, asset.UpdatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write asset %s: %v", meta.Path, err))
+			return
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("close tar writer: %v", err))
+		return
+	}
+	if err := gzw.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("close gzip writer: %v", err))
+		return
+	}
+
+	// Phase 3: Serve completed file.
+	if _, err := tmp.Seek(0, 0); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("seek temp file: %v", err))
+		return
+	}
+
+	bareVault := models.BareID("vault", vaultID)
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="knowhow-backup-%s.tar.gz"`, bareVault))
+	http.ServeContent(w, r, "", time.Time{}, tmp)
+}
+
+func writeTarEntry(tw *tar.Writer, path string, data []byte, modTime time.Time) error {
+	if err := tw.WriteHeader(&tar.Header{
+		Name:    strings.TrimPrefix(path, "/"),
+		Size:    int64(len(data)),
+		Mode:    0644,
+		ModTime: modTime,
+	}); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+	if _, err := tw.Write(data); err != nil {
+		return fmt.Errorf("write content: %w", err)
+	}
+	return nil
+}

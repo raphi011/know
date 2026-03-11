@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
@@ -201,6 +202,57 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]mo
 		return nil, fmt.Errorf("list labels with counts: %w", err)
 	}
 	return counts, nil
+}
+
+// DownloadBackup downloads a vault backup archive to the given output path.
+// Returns the number of bytes written.
+func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/backup?vault="+url.QueryEscape(vaultID), nil)
+	if err != nil {
+		return 0, fmt.Errorf("create request: %w", err)
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	// Use a client with no timeout — large vaults may take a while.
+	// Context controls cancellation instead.
+	noTimeoutClient := &http.Client{}
+	resp, err := noTimeoutClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if readErr != nil {
+			return 0, fmt.Errorf("HTTP %d (failed to read error body: %w)", resp.StatusCode, readErr)
+		}
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
+			return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, errResp.Error)
+		}
+		return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return 0, fmt.Errorf("create output file: %w", err)
+	}
+
+	n, copyErr := io.Copy(f, resp.Body)
+	if closeErr := f.Close(); closeErr != nil && copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		os.Remove(outputPath)
+		return 0, fmt.Errorf("write output file: %w", copyErr)
+	}
+
+	return n, nil
 }
 
 // handleResponse executes the request and processes the response.

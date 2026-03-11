@@ -52,6 +52,7 @@ func main() {
 	rootCmd.AddCommand(uiCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(labelsCmd)
+	rootCmd.AddCommand(backupCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

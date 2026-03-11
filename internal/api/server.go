@@ -46,6 +46,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	// Labels
 	mux.Handle("GET /api/labels", authMw(http.HandlerFunc(s.listLabels)))
 
+	// Backup
+	mux.Handle("GET /api/backup", authMw(http.HandlerFunc(s.backup)))
+
 	// Config
 	mux.Handle("GET /api/config", authMw(http.HandlerFunc(s.getConfig)))
 }
