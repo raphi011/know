@@ -67,6 +67,12 @@ type DocumentMeta struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+// LabelCount holds a label and its document count.
+type LabelCount struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
 // Folder is a first-class folder record backed by the folder table.
 type Folder struct {
 	ID        surrealmodels.RecordID `json:"id"`

@@ -85,7 +85,7 @@ func (s *Service) Available() bool {
 	return s.getModel() != nil
 }
 
-// buildSystemPrompt constructs the system prompt, optionally appending the vault's folder tree.
+// buildSystemPrompt constructs the system prompt, appending the vault's folder tree and label summary when available.
 func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string {
 	base := `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
 
@@ -99,27 +99,35 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 - Always cite document paths when referencing information from the knowledge base
 - Do not include a sources section at the end of your response — sources are shown separately in the UI`
 
+	var sb strings.Builder
+	sb.WriteString(base)
+
 	folders, err := s.db.ListFolders(ctx, vaultID)
 	if err != nil {
 		slog.Warn("failed to list folders for system prompt", "vault_id", vaultID, "error", err)
-		return base
-	}
-	if len(folders) == 0 {
-		return base
+	} else if len(folders) > 0 {
+		sb.WriteString("\n\nVault folder structure:\n```\n/\n")
+		for _, f := range folders {
+			depth := strings.Count(strings.Trim(f.Path, "/"), "/")
+			indent := strings.Repeat("  ", depth)
+			sb.WriteString(indent)
+			sb.WriteString("├── ")
+			sb.WriteString(f.Name)
+			sb.WriteString("/\n")
+		}
+		sb.WriteString("```")
 	}
 
-	var sb strings.Builder
-	sb.WriteString(base)
-	sb.WriteString("\n\nVault folder structure:\n```\n/\n")
-	for _, f := range folders {
-		depth := strings.Count(strings.Trim(f.Path, "/"), "/")
-		indent := strings.Repeat("  ", depth)
-		sb.WriteString(indent)
-		sb.WriteString("├── ")
-		sb.WriteString(f.Name)
-		sb.WriteString("/\n")
+	labelCounts, err := s.db.ListLabelsWithCounts(ctx, vaultID)
+	if err != nil {
+		slog.Warn("failed to list labels for system prompt", "vault_id", vaultID, "error", err)
+	} else if len(labelCounts) > 0 {
+		sb.WriteString("\n\nVault labels:\n")
+		for _, lc := range labelCounts {
+			fmt.Fprintf(&sb, "- %s (%d)\n", lc.Label, lc.Count)
+		}
 	}
-	sb.WriteString("```")
+
 	return sb.String()
 }
 

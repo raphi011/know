@@ -459,6 +459,69 @@ func TestListLabels(t *testing.T) {
 	}
 }
 
+func TestListLabelsWithCounts(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Empty vault should return empty slice
+	emptyCounts, err := testDB.ListLabelsWithCounts(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("ListLabelsWithCounts on empty vault failed: %v", err)
+	}
+	if len(emptyCounts) != 0 {
+		t.Errorf("expected 0 label counts on empty vault, got %d", len(emptyCounts))
+	}
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	for _, doc := range []struct {
+		path   string
+		labels []string
+	}{
+		{"/lc-" + suffix + "/a.md", []string{"go", "project"}},
+		{"/lc-" + suffix + "/b.md", []string{"go", "tutorial"}},
+		{"/lc-" + suffix + "/c.md", []string{"rust"}},
+	} {
+		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+			VaultID:     vaultID,
+			Path:        doc.path,
+			Title:       "Doc " + doc.path,
+			Content:     "content",
+			ContentBody: "content",
+			Source:      models.SourceManual,
+			Labels:      doc.labels,
+		})
+		if err != nil {
+			t.Fatalf("CreateDocument %s failed: %v", doc.path, err)
+		}
+	}
+
+	counts, err := testDB.ListLabelsWithCounts(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("ListLabelsWithCounts failed: %v", err)
+	}
+
+	// Should be sorted by count desc: go(2), then project/tutorial/rust(1 each)
+	if len(counts) != 4 {
+		t.Fatalf("expected 4 label counts, got %d", len(counts))
+	}
+	if counts[0].Label != "go" || counts[0].Count != 2 {
+		t.Errorf("expected first label to be go(2), got %s(%d)", counts[0].Label, counts[0].Count)
+	}
+
+	countMap := map[string]int{}
+	for _, lc := range counts {
+		countMap[lc.Label] = lc.Count
+	}
+	for _, label := range []string{"project", "tutorial", "rust"} {
+		if countMap[label] != 1 {
+			t.Errorf("expected label %q count 1, got %d", label, countMap[label])
+		}
+	}
+}
+
 func TestUpsertDocument(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
