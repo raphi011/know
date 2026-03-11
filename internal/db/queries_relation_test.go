@@ -161,6 +161,72 @@ func TestGetRelationByID(t *testing.T) {
 	}
 }
 
+func TestDeleteRelationsBySource(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/delsrc-a-" + suffix + ".md", Title: "DelSrc A",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument A failed: %v", err)
+	}
+	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/delsrc-b-" + suffix + ".md", Title: "DelSrc B",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument B failed: %v", err)
+	}
+	docC, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/delsrc-c-" + suffix + ".md", Title: "DelSrc C",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument C failed: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+	docBID := models.MustRecordIDString(docB.ID)
+	docCID := models.MustRecordIDString(docC.ID)
+
+	// Create one frontmatter relation and one API relation from A
+	_, err = testDB.CreateRelation(ctx, models.DocRelationInput{
+		FromDocID: docAID, ToDocID: docBID, RelType: "relates_to", Source: "frontmatter",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelation A->B failed: %v", err)
+	}
+	_, err = testDB.CreateRelation(ctx, models.DocRelationInput{
+		FromDocID: docAID, ToDocID: docCID, RelType: "relates_to", Source: "api",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelation A->C failed: %v", err)
+	}
+
+	// Delete only frontmatter relations
+	err = testDB.DeleteRelationsBySource(ctx, docAID, "frontmatter")
+	if err != nil {
+		t.Fatalf("DeleteRelationsBySource failed: %v", err)
+	}
+
+	// Should have 1 remaining relation (the API one)
+	rels, err := testDB.GetRelations(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetRelations after delete failed: %v", err)
+	}
+	if len(rels) != 1 {
+		t.Errorf("Expected 1 remaining relation, got %d", len(rels))
+	}
+	if len(rels) > 0 && rels[0].Source != "api" {
+		t.Errorf("Expected remaining relation to have source 'api', got %q", rels[0].Source)
+	}
+}
+
 func TestDeleteRelation(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
