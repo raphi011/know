@@ -187,6 +187,27 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// Document is the JSON representation of a document returned by the REST API.
+type Document struct {
+	ID          string  `json:"id"`
+	VaultID     string  `json:"vaultId"`
+	Path        string  `json:"path"`
+	Title       string  `json:"title"`
+	Content     string  `json:"content"`
+	Source      string  `json:"source"`
+	ContentHash *string `json:"contentHash,omitempty"`
+}
+
+// GetDocument fetches a document by vault and path.
+func (c *Client) GetDocument(ctx context.Context, vaultID, path string) (*Document, error) {
+	q := url.Values{"vault": {vaultID}, "path": {path}}
+	var doc Document
+	if err := c.Get(ctx, "/api/documents?"+q.Encode(), &doc); err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	return &doc, nil
+}
+
 // ListFiles lists files and folders at the given path in a vault.
 func (c *Client) ListFiles(ctx context.Context, vaultID, path string, recursive bool) ([]models.FileEntry, error) {
 	q := url.Values{"vault": {vaultID}, "path": {path}}
