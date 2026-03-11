@@ -53,7 +53,7 @@ build:
 test:
     go test -buildvcs=false -v ./...
 
-# Build and run CLI command (e.g., just run serve, just run scrape ./docs)
+# Build and run CLI command (e.g., just run serve, just run cp ./docs /)
 run *args: build
     "{{build_dir}}/{{binary}}" "$@"
 

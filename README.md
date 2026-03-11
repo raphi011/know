@@ -101,23 +101,20 @@ knowhow ask "What are John's responsibilities?" --labels "work" --type person
 - Auto-disables when: writing to file (`-o`), piping output, or using templates
 - Override with `--no-stream` flag
 
-### Ingest Markdown Files
+### Copy Files into a Vault
 
 ```bash
-# Scrape a directory (unchanged files are automatically skipped)
-knowhow scrape ./docs
+# Copy top-level files (unchanged files are automatically skipped)
+knowhow cp ./docs / --vault default
 
-# With labels
-knowhow scrape ./notes --labels "personal"
+# Recursive copy with labels
+knowhow cp ./notes /notes --vault default -r --labels "personal"
 
-# Extract entity relations using LLM
-knowhow scrape ./specs --extract-graph
+# Dry run (preview which files would be copied)
+knowhow cp ./wiki /wiki --vault default --dry-run
 
-# Dry run (preview which files would be ingested)
-knowhow scrape ./wiki --dry-run
-
-# Force re-ingest all files (skip change detection)
-knowhow scrape ./docs --force
+# Force overwrite files with different content hash
+knowhow cp ./docs /docs --vault default --force
 ```
 
 ### Manage Relations
@@ -563,7 +560,7 @@ When no instance is specified in a tool call, all instances are searched. Specif
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                      CLI (cobra)                         │
-│  add, search, ask, scrape, link, update, delete, ...    │
+│  add, search, ask, cp, link, update, delete, ...        │
 ├─────────────────────────────────────────────────────────┤
 │              Service Layer                               │
 │  EntityService, SearchService, IngestService             │
