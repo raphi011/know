@@ -35,9 +35,10 @@ type Model struct {
 	width         int
 
 	// Lifecycle
-	ctx    context.Context
-	cancel context.CancelFunc
-	ready  bool // true after conversation created
+	ctx      context.Context
+	cancel   context.CancelFunc
+	focusCmd tea.Cmd // cursor blink cmd from textinput.Focus()
+	ready    bool    // true after conversation created
 }
 
 // conversationCreatedMsg is sent when a new conversation is created on startup.
@@ -68,6 +69,7 @@ func NewModel(client *Client, vaultID string) Model {
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
 	ti.Prompt = inputPromptStyle.Render("> ")
+	focusCmd := ti.Focus()
 
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
@@ -84,6 +86,7 @@ func NewModel(client *Client, vaultID string) Model {
 		renderer: r,
 		ctx:      ctx,
 		cancel:   cancel,
+		focusCmd: focusCmd,
 	}
 }
 
@@ -95,7 +98,7 @@ func (m *Model) Close() {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.createConversation(),
-		m.input.Focus(),
+		m.focusCmd,
 	)
 }
 

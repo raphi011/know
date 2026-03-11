@@ -263,17 +263,31 @@ case tea.KeyPressMsg:
 
 `air` doesn't support TTY programs. Use `watchexec` with separate build/run scripts instead.
 
-### 6. Focus Cmd Must Be Returned
+### 6. Focus Must Happen on the Real Model, Not a Copy
+
+`textinput.Focus()` is a **pointer receiver** that both sets `m.focus = true` AND returns a cursor blink `tea.Cmd`. When not focused, `textinput.Update()` silently drops all messages — **the input appears frozen**.
+
+This is dangerous with `Init()`, which receives a **value copy** of the model:
 
 ```go
-// textinput.Focus() returns a tea.Cmd (for cursor blink)
-// You MUST return it or the cursor won't blink
-cmd := m.input.Focus()
-return m, cmd
+// BAD — Focus() mutates a copy; the real model's input stays unfocused
+func (m Model) Init() tea.Cmd {
+    return m.input.Focus() // m is a copy — m.input.focus = true is lost
+}
 
-// Blur() does NOT return a Cmd
-m.input.Blur()
+// GOOD — Focus in constructor (persists), return cmd from Init for cursor blink
+func NewModel() Model {
+    ti := textinput.New()
+    focusCmd := ti.Focus() // sets ti.focus = true on the actual struct
+    return Model{input: ti, focusCmd: focusCmd}
+}
+
+func (m Model) Init() tea.Cmd {
+    return m.focusCmd // cursor blink timer
+}
 ```
+
+Also remember: `Blur()` does NOT return a Cmd — just call it directly.
 
 ### 7. Viewport Content Accumulation
 
