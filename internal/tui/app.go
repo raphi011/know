@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
@@ -21,7 +22,8 @@ type Model struct {
 	conversationID string
 
 	// Input
-	input textinput.Model
+	input   textinput.Model
+	spinner spinner.Model
 
 	// Streaming state
 	streaming       bool
@@ -72,6 +74,10 @@ func NewModel(client *Client, vaultID string, isDark bool) Model {
 	ti.CharLimit = 4096
 	ti.Prompt = inputPromptStyle.Render("> ")
 
+	styles := ti.Styles()
+	styles.Cursor.Blink = false
+	ti.SetStyles(styles)
+
 	glamourStyle := "light"
 	if isDark {
 		glamourStyle = "dark"
@@ -79,16 +85,21 @@ func NewModel(client *Client, vaultID string, isDark bool) Model {
 
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle(glamourStyle),
-		glamour.WithWordWrap(0),
+		glamour.WithWordWrap(maxTextWidth),
 	)
 	if err != nil {
 		slog.Warn("glamour renderer init failed, markdown will render as plain text", "error", err)
 	}
 
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+	)
+
 	return Model{
 		client:       client,
 		vaultID:      vaultID,
 		input:        ti,
+		spinner:      sp,
 		renderer:     r,
 		glamourStyle: glamourStyle,
 		ctx:          ctx,
@@ -141,6 +152,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Warn("approval failed", "conversationID", m.conversationID, "error", msg.err)
 		}
 		return m, nil
+
+	case spinner.TickMsg:
+		if m.streaming {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
 	}
 
 	// Pass other messages to text input (cursor blink, etc.)
@@ -161,10 +180,9 @@ func (m Model) View() tea.View {
 		return tea.NewView(content.String())
 	}
 
-	// Show streaming content in the managed region
+	// Streaming content
 	if m.streaming && len(m.streamParts) > 0 {
 		content.WriteString(renderStreamParts(m.renderer, m.streamParts, m.pendingApproval, m.width))
-		content.WriteString("\n")
 	}
 
 	// Error line
@@ -173,12 +191,17 @@ func (m Model) View() tea.View {
 		content.WriteString("\n")
 	}
 
-	// Input area
+	// Blank line before prompt
+	content.WriteString("\n")
+
+	// Spinner (only during streaming)
 	if m.streaming {
-		content.WriteString(statusStyle.Render("Streaming response..."))
-	} else {
-		content.WriteString(m.input.View())
+		content.WriteString(statusStyle.Render(m.spinner.View() + " Thinking..."))
+		content.WriteString("\n\n")
 	}
+
+	// Input always visible
+	content.WriteString(m.input.View())
 
 	return tea.NewView(content.String())
 }
@@ -259,10 +282,10 @@ func (m *Model) sendMessage() tea.Cmd {
 		return streamEventMsg{event: event, ch: ch}
 	}
 
-	// Print user message to scrollback, then start streaming
+	// Print user message to scrollback, then start streaming + spinner
 	return tea.Sequence(
 		tea.Println(renderUserMessage(content)),
-		startStreamCmd,
+		tea.Batch(startStreamCmd, m.spinner.Tick),
 	)
 }
 
@@ -405,7 +428,7 @@ func (m *Model) tryFocus() tea.Cmd {
 // Uses the pre-detected glamourStyle to avoid direct TTY reads that would
 // race with bubbletea's TerminalReader.
 func (m *Model) updateRenderer() {
-	wrapWidth := m.width - 4
+	wrapWidth := min(m.width-4, maxTextWidth)
 	if wrapWidth > 0 && wrapWidth != m.rendererWidth {
 		r, err := glamour.NewTermRenderer(
 			glamour.WithStandardStyle(m.glamourStyle),

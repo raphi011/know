@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/glamour"
 )
 
+const maxTextWidth = 120
+
 // PartType distinguishes the kind of content in a streaming response.
 type PartType int
 
@@ -71,7 +73,7 @@ func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []Co
 		switch p.Type {
 		case PartText:
 			rendered := renderMarkdown(renderer, p.Content)
-			sb.WriteString(assistantMsgStyle.Render(rendered))
+			sb.WriteString(assistantMsgStyle.MaxWidth(maxTextWidth).Render(rendered))
 		case PartToolCall:
 			sb.WriteString(renderToolStatus(p))
 			sb.WriteString("\n")
@@ -107,7 +109,7 @@ func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, pend
 
 // renderUserMessage renders a user message with role label for scrollback output.
 func renderUserMessage(content string) string {
-	return userRoleStyle.Render("you") + "\n" + userMsgStyle.Render(content) + "\n"
+	return "\n" + userRoleStyle.Render("you") + "\n" + userMsgStyle.MaxWidth(maxTextWidth).Render(content) + "\n"
 }
 
 // renderAssistantMessage renders a finalized assistant response for scrollback output.

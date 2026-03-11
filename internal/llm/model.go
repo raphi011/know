@@ -599,6 +599,9 @@ func (m *Model) GenerateStreamWithTools(
 		}
 
 		// Append assistant turn with the tool calls.
+		for _, tc := range merged.ToolCalls {
+			slog.Info("tool call ID before sending back", "iteration", i, "id", tc.ID, "name", tc.Function.Name, "index", tc.Index)
+		}
 		msgs = append(msgs, schema.AssistantMessage(merged.Content, merged.ToolCalls))
 
 		// Execute each tool and append results.
