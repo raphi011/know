@@ -29,18 +29,11 @@ Examples:
 }
 
 func init() {
-	labelsCmd.Flags().StringVar(&labelsVaultID, "vault", envOrDefault("KNOWHOW_VAULT", ""), "vault name (env: KNOWHOW_VAULT)")
+	labelsCmd.Flags().StringVar(&labelsVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
 	labelsCmd.Flags().BoolVar(&labelsCounts, "count", false, "show document count per label")
 }
 
 func runLabels(_ *cobra.Command, _ []string) error {
-	if labelsVaultID == "" {
-		return fmt.Errorf("labels: vault is required (set KNOWHOW_VAULT or use --vault)")
-	}
-	if err := requireToken(); err != nil {
-		return fmt.Errorf("labels: %w", err)
-	}
-
 	client := apiclient.New(apiURL, apiToken)
 	ctx := context.Background()
 

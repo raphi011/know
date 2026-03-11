@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -186,6 +187,19 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// ListFiles lists files and folders at the given path in a vault.
+func (c *Client) ListFiles(ctx context.Context, vaultID, path string, recursive bool) ([]models.FileEntry, error) {
+	q := url.Values{"vault": {vaultID}, "path": {path}}
+	if recursive {
+		q.Set("recursive", "true")
+	}
+	var entries []models.FileEntry
+	if err := c.Get(ctx, "/api/ls?"+q.Encode(), &entries); err != nil {
+		return nil, fmt.Errorf("list files: %w", err)
+	}
+	return entries, nil
+}
+
 // ListLabels returns all distinct labels in the given vault.
 func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
 	var labels []string
@@ -248,7 +262,9 @@ func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string)
 		copyErr = closeErr
 	}
 	if copyErr != nil {
-		os.Remove(outputPath)
+		if removeErr := os.Remove(outputPath); removeErr != nil {
+			slog.Warn("failed to clean up partial backup file", "path", outputPath, "error", removeErr)
+		}
 		return 0, fmt.Errorf("write output file: %w", copyErr)
 	}
 

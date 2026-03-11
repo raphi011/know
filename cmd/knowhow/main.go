@@ -54,6 +54,7 @@ func main() {
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(labelsCmd)
 	rootCmd.AddCommand(backupCmd)
+	rootCmd.AddCommand(lsCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -89,11 +90,4 @@ func envOrDefaultBool(key string, def bool) bool {
 		return b
 	}
 	return def
-}
-
-func requireToken() error {
-	if apiToken == "" {
-		return fmt.Errorf("api token required: set KNOWHOW_TOKEN or use --token")
-	}
-	return nil
 }

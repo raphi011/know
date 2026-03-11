@@ -74,6 +74,14 @@ type LabelCount struct {
 	Count int    `json:"count"`
 }
 
+// FileEntry is a lightweight entry for directory listings (ls endpoint).
+type FileEntry struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	IsDir bool   `json:"isDir"`
+	Size  int    `json:"size,omitempty"`
+}
+
 // Folder is a first-class folder record backed by the folder table.
 type Folder struct {
 	ID        surrealmodels.RecordID `json:"id"`

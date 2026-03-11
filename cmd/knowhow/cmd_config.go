@@ -39,10 +39,6 @@ type serverConfig struct {
 }
 
 func runConfig(_ *cobra.Command, _ []string) error {
-	if err := requireToken(); err != nil {
-		return err
-	}
-
 	client := apiclient.New(apiURL, apiToken)
 
 	var cfg serverConfig

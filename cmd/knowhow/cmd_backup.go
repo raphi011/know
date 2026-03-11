@@ -21,17 +21,14 @@ var backupCmd = &cobra.Command{
 preserving the path structure.
 
 Examples:
-  knowhow backup --vault vault:default
-  knowhow backup --vault vault:default -o my-backup.tar.gz`,
+  knowhow backup --vault default
+  knowhow backup --vault default -o my-backup.tar.gz`,
 	RunE: runBackup,
 }
 
 func init() {
-	backupCmd.Flags().StringVar(&backupVaultID, "vault", "", "vault ID (required)")
+	backupCmd.Flags().StringVar(&backupVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
 	backupCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "output file path (default: knowhow-backup-{vault}.tar.gz)")
-	if err := backupCmd.MarkFlagRequired("vault"); err != nil {
-		panic(fmt.Sprintf("mark vault flag required: %v", err))
-	}
 }
 
 func runBackup(cmd *cobra.Command, args []string) error {
