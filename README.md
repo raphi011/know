@@ -147,6 +147,12 @@ knowhow delete "old-notes" --force
 ### List & Explore
 
 ```bash
+# List files and folders in a vault
+knowhow ls
+knowhow ls /docs
+knowhow ls /docs -R
+knowhow ls --vault my-vault /notes
+
 # List all entities
 knowhow list
 

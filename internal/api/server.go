@@ -31,6 +31,7 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("GET /api/vaults", authMw(http.HandlerFunc(s.listVaults)))
 
 	// Documents
+	mux.Handle("GET /api/ls", authMw(http.HandlerFunc(s.ls)))
 	mux.Handle("GET /api/documents", authMw(http.HandlerFunc(s.getDocument)))
 	mux.Handle("POST /api/documents", authMw(http.HandlerFunc(s.upsertDocument)))
 
@@ -45,6 +46,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 
 	// Labels
 	mux.Handle("GET /api/labels", authMw(http.HandlerFunc(s.listLabels)))
+
+	// Backup
+	mux.Handle("GET /api/backup", authMw(http.HandlerFunc(s.backup)))
 
 	// Config
 	mux.Handle("GET /api/config", authMw(http.HandlerFunc(s.getConfig)))

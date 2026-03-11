@@ -55,10 +55,6 @@ func init() {
 }
 
 func runCp(cmd *cobra.Command, args []string) error {
-	if err := requireToken(); err != nil {
-		return fmt.Errorf("cp: %w", err)
-	}
-
 	dirPath := args[0]
 	vaultPath := args[1]
 

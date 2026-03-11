@@ -768,6 +768,478 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 	}
 }
 
+// TestDeleteUnresolvesIncomingWikiLinks verifies that deleting a document makes
+// incoming wiki_links dangling (to_doc = NONE) rather than deleting them.
+func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "unresolve-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "unresolve-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create doc B (target)
+	docB, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/target.md",
+		Content: "# Target\n\nTarget content.", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create target doc: %v", err)
+	}
+	docBID := models.MustRecordIDString(docB.ID)
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Create doc A (source) that links to Target
+	docA, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/source.md",
+		Content: "# Source\n\nSee [[Target]].", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create source doc: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Verify link from A to B is resolved
+	links, err := testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToDoc == nil {
+		t.Fatal("wiki-link should be resolved before delete")
+	}
+
+	// Delete doc B
+	if err := docSvc.Delete(ctx, vaultID, "/target.md"); err != nil {
+		t.Fatalf("delete target doc: %v", err)
+	}
+
+	// Verify doc B is gone
+	gone, err := testDB.GetDocumentByID(ctx, docBID)
+	if err != nil {
+		t.Fatalf("get deleted doc: %v", err)
+	}
+	if gone != nil {
+		t.Error("target doc should be deleted")
+	}
+
+	// Verify wiki-link from A still exists but is now dangling
+	links, err = testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("get wiki-links after delete: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link preserved, got %d", len(links))
+	}
+	if links[0].ToDoc != nil {
+		t.Error("wiki-link should be dangling after target deleted")
+	}
+	if links[0].RawTarget != "Target" {
+		t.Errorf("raw_target should be preserved, got %q", links[0].RawTarget)
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestMoveUpdatesWikiLinkRawTargets verifies that moving a document updates
+// raw_target in wiki_links that reference the old path.
+func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "move-rawt-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "move-rawt-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create target doc
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/old/target.md",
+		Content: "# Target", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Create source doc linking by path
+	docA, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/source.md",
+		Content: "# Source\n\nSee [[/old/target.md]].", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Move target doc
+	_, err = docSvc.Move(ctx, vaultID, "/old/target.md", "/new/target.md")
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	// Verify wiki-link raw_target was updated
+	links, err := testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("get wiki-links after move: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].RawTarget != "/new/target.md" {
+		t.Errorf("expected raw_target '/new/target.md', got %q", links[0].RawTarget)
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestMoveByPrefixUpdatesWikiLinkRawTargets verifies that MoveByPrefix
+// updates raw_targets for all wiki_links referencing paths under the old prefix.
+func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "mbp-rawt-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "mbp-rawt-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create docs under /old-dir/
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/old-dir/a.md",
+		Content: "# A", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Create source that references paths under /old-dir/
+	src, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/source.md",
+		Content: "# Source\n\nSee [[/old-dir/a.md]].", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	srcID := models.MustRecordIDString(src.ID)
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Move by prefix
+	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/old-dir", "/new-dir")
+	if err != nil {
+		t.Fatalf("move by prefix: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 moved, got %d", count)
+	}
+
+	// Verify raw_target updated
+	links, err := testDB.GetWikiLinks(ctx, srcID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].RawTarget != "/new-dir/a.md" {
+		t.Errorf("expected raw_target '/new-dir/a.md', got %q", links[0].RawTarget)
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestProcessRelatesToDeleteThenRecreate verifies that updating a document's
+// relates_to frontmatter removes stale relations and creates new ones.
+func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "relto-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "relto-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create target docs
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/target-a.md",
+		Content: "# Target A", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create target-a: %v", err)
+	}
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/target-b.md",
+		Content: "# Target B", Source: models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create target-b: %v", err)
+	}
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Create source doc with relates_to: [Target A]
+	src, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/relto-src.md",
+		Content: "---\ntitle: Source\nrelates_to:\n  - Target A\n---\n# Source",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	srcID := models.MustRecordIDString(src.ID)
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Verify relation to Target A exists
+	rels, err := testDB.GetRelations(ctx, srcID)
+	if err != nil {
+		t.Fatalf("get relations: %v", err)
+	}
+	if len(rels) != 1 {
+		t.Fatalf("expected 1 relation, got %d", len(rels))
+	}
+
+	// Update source to relates_to: [Target B] (removing Target A)
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/relto-src.md",
+		Content: "---\ntitle: Source\nrelates_to:\n  - Target B\n---\n# Source Updated",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending after update: %v", err)
+	}
+
+	// Verify: only relation to Target B exists (Target A was cleaned up)
+	rels, err = testDB.GetRelations(ctx, srcID)
+	if err != nil {
+		t.Fatalf("get relations after update: %v", err)
+	}
+	if len(rels) != 1 {
+		t.Fatalf("expected 1 relation after update, got %d", len(rels))
+	}
+
+	// Update source to remove all relates_to
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/relto-src.md",
+		Content: "---\ntitle: Source\n---\n# Source No Relations",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("update source no rels: %v", err)
+	}
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending after remove: %v", err)
+	}
+
+	// Verify: no frontmatter relations remain
+	rels, err = testDB.GetRelations(ctx, srcID)
+	if err != nil {
+		t.Fatalf("get relations after remove: %v", err)
+	}
+	if len(rels) != 0 {
+		t.Errorf("expected 0 relations after removing relates_to, got %d", len(rels))
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestLabelGraph verifies that ProcessDocument creates has_label edges
+// and that label graph queries work correctly.
+func TestLabelGraph(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "label-graph-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "label-graph-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create docs with labels
+	doc1, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/labeled-1.md",
+		Content: "---\nlabels: [go, backend]\n---\n# Doc 1",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create doc1: %v", err)
+	}
+	doc1ID := models.MustRecordIDString(doc1.ID)
+
+	doc2, err := docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/labeled-2.md",
+		Content: "---\nlabels: [go, frontend]\n---\n# Doc 2",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("create doc2: %v", err)
+	}
+	doc2ID := models.MustRecordIDString(doc2.ID)
+
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Verify labels for doc1
+	labels, err := testDB.GetLabelsForDocument(ctx, doc1ID)
+	if err != nil {
+		t.Fatalf("get labels for doc1: %v", err)
+	}
+	if len(labels) != 2 {
+		t.Errorf("expected 2 labels for doc1, got %d: %v", len(labels), labels)
+	}
+
+	// Verify labels for doc2
+	labels, err = testDB.GetLabelsForDocument(ctx, doc2ID)
+	if err != nil {
+		t.Fatalf("get labels for doc2: %v", err)
+	}
+	if len(labels) != 2 {
+		t.Errorf("expected 2 labels for doc2, got %d: %v", len(labels), labels)
+	}
+
+	// Query by "go" — should return both
+	docs, err := testDB.GetDocumentsByLabel(ctx, vaultID, "go")
+	if err != nil {
+		t.Fatalf("get docs by label 'go': %v", err)
+	}
+	if len(docs) != 2 {
+		t.Errorf("expected 2 docs with 'go' label, got %d", len(docs))
+	}
+
+	// Query by "backend" — should return only doc1
+	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "backend")
+	if err != nil {
+		t.Fatalf("get docs by label 'backend': %v", err)
+	}
+	if len(docs) != 1 {
+		t.Errorf("expected 1 doc with 'backend' label, got %d", len(docs))
+	}
+
+	// Update doc1 to change labels (remove "backend", add "infra")
+	_, err = docSvc.Create(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/labeled-1.md",
+		Content: "---\nlabels: [go, infra]\n---\n# Doc 1 Updated",
+		Source:  models.SourceManual,
+	})
+	if err != nil {
+		t.Fatalf("update doc1: %v", err)
+	}
+	if err := docSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending after update: %v", err)
+	}
+
+	// Verify "backend" no longer returns doc1
+	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "backend")
+	if err != nil {
+		t.Fatalf("get docs by label 'backend' after update: %v", err)
+	}
+	if len(docs) != 0 {
+		t.Errorf("expected 0 docs with 'backend' label after update, got %d", len(docs))
+	}
+
+	// Verify "infra" returns doc1
+	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "infra")
+	if err != nil {
+		t.Fatalf("get docs by label 'infra': %v", err)
+	}
+	if len(docs) != 1 {
+		t.Errorf("expected 1 doc with 'infra' label, got %d", len(docs))
+	}
+
+	// Delete doc1 — has_label edges should be cleaned up
+	if err := docSvc.Delete(ctx, vaultID, "/labeled-1.md"); err != nil {
+		t.Fatalf("delete doc1: %v", err)
+	}
+
+	labels, err = testDB.GetLabelsForDocument(ctx, doc1ID)
+	if err != nil {
+		t.Fatalf("get labels for deleted doc1: %v", err)
+	}
+	if len(labels) != 0 {
+		t.Errorf("expected 0 labels for deleted doc, got %d: %v", len(labels), labels)
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
 // TestSyncChunks_PreservesUnchangedChunks verifies the content-based chunk diffing:
 // unchanged chunks keep their embeddings, changed chunks get new embed_at, removed chunks are deleted.
 func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {

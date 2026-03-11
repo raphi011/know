@@ -19,6 +19,9 @@ var labelsCmd = &cobra.Command{
 	Short: "List labels in a vault",
 	Long: `List all labels used by documents in a vault.
 
+Environment variables:
+  KNOWHOW_VAULT    vault name (alternative to --vault flag)
+
 Examples:
   knowhow labels --vault default
   knowhow labels --vault default --count`,
@@ -26,18 +29,11 @@ Examples:
 }
 
 func init() {
-	labelsCmd.Flags().StringVar(&labelsVaultID, "vault", "", "vault name (required)")
+	labelsCmd.Flags().StringVar(&labelsVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
 	labelsCmd.Flags().BoolVar(&labelsCounts, "count", false, "show document count per label")
-	if err := labelsCmd.MarkFlagRequired("vault"); err != nil {
-		panic(fmt.Sprintf("mark vault flag required: %v", err))
-	}
 }
 
 func runLabels(_ *cobra.Command, _ []string) error {
-	if err := requireToken(); err != nil {
-		return fmt.Errorf("labels: %w", err)
-	}
-
 	client := apiclient.New(apiURL, apiToken)
 	ctx := context.Background()
 

@@ -141,6 +141,171 @@ func TestResolveDanglingLinks(t *testing.T) {
 	}
 }
 
+func TestUnresolveWikiLinksToDoc(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/unresolve-a.md", Title: "Unresolve A",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument A failed: %v", err)
+	}
+	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/unresolve-b.md", Title: "Unresolve B",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument B failed: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+	docBID := models.MustRecordIDString(docB.ID)
+
+	// Create a resolved link from A -> B
+	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
+		{RawTarget: "Unresolve B", ToDocID: &docBID},
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
+	}
+
+	// Verify link is resolved
+	links, err := testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks failed: %v", err)
+	}
+	if len(links) != 1 || links[0].ToDoc == nil {
+		t.Fatal("Link should be resolved initially")
+	}
+
+	// Unresolve links pointing to B
+	count, err := testDB.UnresolveWikiLinksToDoc(ctx, docBID)
+	if err != nil {
+		t.Fatalf("UnresolveWikiLinksToDoc failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 unresolved link, got %d", count)
+	}
+
+	// Verify link is now dangling but still exists
+	links, err = testDB.GetWikiLinks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks after unresolve failed: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("Expected 1 link (preserved), got %d", len(links))
+	}
+	if links[0].ToDoc != nil {
+		t.Error("Link should be dangling after unresolve")
+	}
+	if links[0].RawTarget != "Unresolve B" {
+		t.Errorf("RawTarget should be preserved, got %q", links[0].RawTarget)
+	}
+}
+
+func TestUpdateWikiLinkRawTargets(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/raw-target-src.md", Title: "Raw Target Source",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateWikiLinks(ctx, docID, vaultID, []WikiLinkInput{
+		{RawTarget: "/old/path.md"},
+		{RawTarget: "Unrelated Target"},
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
+	}
+
+	count, err := testDB.UpdateWikiLinkRawTargets(ctx, vaultID, "/old/path.md", "/new/path.md")
+	if err != nil {
+		t.Fatalf("UpdateWikiLinkRawTargets failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 updated, got %d", count)
+	}
+
+	links, err := testDB.GetWikiLinks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks failed: %v", err)
+	}
+	found := false
+	for _, l := range links {
+		if l.RawTarget == "/new/path.md" {
+			found = true
+		}
+		if l.RawTarget == "/old/path.md" {
+			t.Error("Old raw_target should not exist after update")
+		}
+	}
+	if !found {
+		t.Error("Expected to find link with new raw_target /new/path.md")
+	}
+}
+
+func TestUpdateWikiLinkRawTargetsByPrefix(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		VaultID: vaultID, Path: "/prefix-src.md", Title: "Prefix Source",
+		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateWikiLinks(ctx, docID, vaultID, []WikiLinkInput{
+		{RawTarget: "/old-folder/a.md"},
+		{RawTarget: "/old-folder/sub/b.md"},
+		{RawTarget: "/other/c.md"},
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
+	}
+
+	count, err := testDB.UpdateWikiLinkRawTargetsByPrefix(ctx, vaultID, "/old-folder/", "/new-folder/")
+	if err != nil {
+		t.Fatalf("UpdateWikiLinkRawTargetsByPrefix failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Expected 2 updated, got %d", count)
+	}
+
+	links, err := testDB.GetWikiLinks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks failed: %v", err)
+	}
+	targets := make(map[string]bool)
+	for _, l := range links {
+		targets[l.RawTarget] = true
+	}
+	if !targets["/new-folder/a.md"] {
+		t.Error("Expected /new-folder/a.md")
+	}
+	if !targets["/new-folder/sub/b.md"] {
+		t.Error("Expected /new-folder/sub/b.md")
+	}
+	if !targets["/other/c.md"] {
+		t.Error("Expected /other/c.md to be unchanged")
+	}
+}
+
 func TestDeleteWikiLinks(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

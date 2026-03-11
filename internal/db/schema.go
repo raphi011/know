@@ -78,7 +78,10 @@ func SchemaSQL(dimension int) string {
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_document_wiki_links ON document
     WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM wiki_link WHERE from_doc = $before.id OR to_doc = $before.id
+        -- Outgoing links: delete (the doc's own links)
+        DELETE FROM wiki_link WHERE from_doc = $before.id;
+        -- Incoming links: unresolve (preserve the dangling reference)
+        UPDATE wiki_link SET to_doc = NONE WHERE to_doc = $before.id
     };
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_doc_relations ON document
@@ -147,6 +150,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS vault      ON wiki_link TYPE record<vault>;
 
     DEFINE INDEX IF NOT EXISTS idx_wiki_link_from_doc         ON wiki_link FIELDS from_doc;
+    DEFINE INDEX IF NOT EXISTS idx_wiki_link_to_doc           ON wiki_link FIELDS to_doc;
     DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault            ON wiki_link FIELDS vault;
     DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault_raw_target ON wiki_link FIELDS vault, raw_target;
 
@@ -160,6 +164,37 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS created_at ON doc_relation TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_doc_relation_unique ON doc_relation FIELDS in, out, rel_type UNIQUE;
+
+    -- ==========================================================================
+    -- LABEL TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS label SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS name       ON label TYPE string ASSERT string::len($value) > 0;
+    DEFINE FIELD IF NOT EXISTS vault      ON label TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS created_at ON label TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_label_vault_name ON label FIELDS vault, name UNIQUE;
+
+    -- ==========================================================================
+    -- HAS_LABEL RELATION (document -> label)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS has_label SCHEMAFULL TYPE RELATION FROM document TO label;
+
+    DEFINE FIELD IF NOT EXISTS created_at ON has_label TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_has_label_unique ON has_label FIELDS in, out UNIQUE;
+
+    -- Cascade: clean up edges when label or document deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_label_edges ON label
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM has_label WHERE out = $before.id
+    };
+
+    DEFINE EVENT IF NOT EXISTS cascade_delete_document_label_edges ON document
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM has_label WHERE in = $before.id
+    };
 
     -- ==========================================================================
     -- TEMPLATE TABLE
@@ -223,6 +258,12 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS created_at ON share_link TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_share_link_hash ON share_link FIELDS token_hash UNIQUE;
+
+    -- Cascade: delete labels when vault deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_labels ON vault
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM label WHERE vault = $before.id
+    };
 
     -- Cascade: delete share_links when vault deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_vault_share_links ON vault
