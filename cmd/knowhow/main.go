@@ -46,7 +46,7 @@ var versionCmd = &cobra.Command{
 }
 
 func main() {
-	rootCmd.AddCommand(scrapeCmd)
+	rootCmd.AddCommand(cpCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(devCmd)
 	rootCmd.AddCommand(versionCmd)

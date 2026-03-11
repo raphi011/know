@@ -181,24 +181,25 @@ A native SwiftUI app with offline support and real-time sync.
 
 ## CLI
 
-A command-line client (`cmd/knowhow/`) for bulk document ingestion. Communicates exclusively via the GraphQL API.
+A command-line client (`cmd/knowhow/`) for bulk document ingestion. Communicates via the REST API.
 
-### Scrape Command
+### Copy Command
 
 ```bash
-knowhow scrape <directory> --vault <id> [flags]
+knowhow cp <local-dir> <vault-path> --vault <id> [flags]
 ```
 
-Walks a directory for `.md`/`.markdown` files and upserts them into a vault. Computes SHA256 content hashes and skips unchanged files for efficient re-runs.
+Copies Markdown and image files from a local directory into a vault path. Uses the bulk upload endpoint for efficient single-request transfers. Unchanged files are skipped by content hash.
 
 | Flag | Description |
 |------|-------------|
 | `--vault` | Target vault ID (required) |
-| `--labels, -l` | Comma-separated labels to apply |
+| `-r, --recursive` | Recurse into subdirectories (default: false) |
+| `--force` | Overwrite existing files if content hash differs |
 | `--dry-run` | Preview without changes |
-| `--force` | Re-ingest all files, ignoring content hash |
-| `--source` | Document source tag (default: `scrape`) |
-| `--api-url` | GraphQL endpoint (default: `http://localhost:4001/query`, or `KNOWHOW_SERVER_URL`) |
+| `-l, --labels` | Comma-separated labels to apply |
+| `--source` | Document source tag (default: `cp`) |
+| `--api-url` | REST API base URL (default: `http://localhost:4001`, or `KNOWHOW_SERVER_URL`) |
 | `--token` | API bearer token (or `KNOWHOW_TOKEN`) |
 
 ## Templates

@@ -121,7 +121,7 @@ The WebDAV server at `/dav/{vaultName}/` allows editing documents with any WebDA
 ### Project Structure
 
 ```
-cmd/knowhow/            # Single binary: CLI (scrape, config, ui, dev seed) + server (serve)
+cmd/knowhow/            # Single binary: CLI (cp, config, ui, dev seed) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -152,7 +152,7 @@ internal/
 - **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
 - **REST API**: JSON endpoints at `/api/`, auth via `Authorization: Bearer` header
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
-- **CLI uses REST API**: `scrape`/`config`/`ui` commands communicate via REST
+- **CLI uses REST API**: `cp`/`config`/`ui` commands communicate via REST
 - **`serve` connects directly to DB**: starts the HTTP server (REST API, WebDAV, MCP, SSH)
 - **`dev` commands connect directly to DB**: `dev seed` bootstraps schema + user/vault/token
 
@@ -168,8 +168,8 @@ just bootstrap
 # 3. Start server with live-reload
 just dev
 
-# 4. Scrape documents (KNOWHOW_TOKEN is set by justfile)
-just run scrape ./docs --vault vault:default
+# 4. Copy documents (KNOWHOW_TOKEN is set by justfile)
+just run cp ./docs / --vault default
 
 # 5. Launch TUI
 just run ui
