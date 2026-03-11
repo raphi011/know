@@ -13,6 +13,7 @@ import (
 )
 
 var (
+	cpAPI       *apiFlags
 	cpVaultID   string
 	cpLabels    []string
 	cpDryRun    bool
@@ -43,6 +44,7 @@ Examples:
 }
 
 func init() {
+	cpAPI = addAPIFlags(cpCmd)
 	cpCmd.Flags().StringVar(&cpVaultID, "vault", "", "vault ID (required)")
 	cpCmd.Flags().StringSliceVarP(&cpLabels, "labels", "l", nil, "labels to include in document path metadata")
 	cpCmd.Flags().BoolVar(&cpDryRun, "dry-run", false, "show what would be copied without changes")
@@ -115,7 +117,7 @@ func runCp(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	client := apiclient.New(apiURL, apiToken)
+	client := cpAPI.newClient()
 	meta := apiclient.BulkMeta{
 		VaultID: cpVaultID,
 		Source:  cpSource,

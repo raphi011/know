@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
 var (
-	lsVaultID   string
+	lsAPI       *apiFlags
+	lsVaultID   *string
 	lsRecursive bool
 )
 
@@ -33,7 +33,8 @@ Examples:
 }
 
 func init() {
-	lsCmd.Flags().StringVar(&lsVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
+	lsAPI = addAPIFlags(lsCmd)
+	lsVaultID = addVaultFlag(lsCmd)
 	lsCmd.Flags().BoolVarP(&lsRecursive, "recursive", "R", false, "list files recursively")
 }
 
@@ -43,8 +44,8 @@ func runLs(_ *cobra.Command, args []string) error {
 		path = args[0]
 	}
 
-	client := apiclient.New(apiURL, apiToken)
-	entries, err := client.ListFiles(context.Background(), lsVaultID, path, lsRecursive)
+	client := lsAPI.newClient()
+	entries, err := client.ListFiles(context.Background(), *lsVaultID, path, lsRecursive)
 	if err != nil {
 		return fmt.Errorf("ls: %w", err)
 	}

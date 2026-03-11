@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
 var (
-	labelsVaultID string
+	labelsAPI     *apiFlags
+	labelsVaultID *string
 	labelsCounts  bool
 )
 
@@ -29,16 +29,17 @@ Examples:
 }
 
 func init() {
-	labelsCmd.Flags().StringVar(&labelsVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
+	labelsAPI = addAPIFlags(labelsCmd)
+	labelsVaultID = addVaultFlag(labelsCmd)
 	labelsCmd.Flags().BoolVar(&labelsCounts, "count", false, "show document count per label")
 }
 
 func runLabels(_ *cobra.Command, _ []string) error {
-	client := apiclient.New(apiURL, apiToken)
+	client := labelsAPI.newClient()
 	ctx := context.Background()
 
 	if labelsCounts {
-		counts, err := client.ListLabelsWithCounts(ctx, labelsVaultID)
+		counts, err := client.ListLabelsWithCounts(ctx, *labelsVaultID)
 		if err != nil {
 			return fmt.Errorf("labels: %w", err)
 		}
@@ -48,7 +49,7 @@ func runLabels(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	labels, err := client.ListLabels(ctx, labelsVaultID)
+	labels, err := client.ListLabels(ctx, *labelsVaultID)
 	if err != nil {
 		return fmt.Errorf("labels: %w", err)
 	}

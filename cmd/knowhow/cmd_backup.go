@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/spf13/cobra"
 )
 
 var (
-	backupVaultID string
+	backupAPI     *apiFlags
+	backupVaultID *string
 	backupOutput  string
 )
 
@@ -27,19 +27,20 @@ Examples:
 }
 
 func init() {
-	backupCmd.Flags().StringVar(&backupVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
+	backupAPI = addAPIFlags(backupCmd)
+	backupVaultID = addVaultFlag(backupCmd)
 	backupCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "output file path (default: knowhow-backup-{vault}.tar.gz)")
 }
 
 func runBackup(cmd *cobra.Command, args []string) error {
 	if backupOutput == "" {
-		bareVault := strings.ReplaceAll(models.BareID("vault", backupVaultID), "/", "_")
+		bareVault := strings.ReplaceAll(models.BareID("vault", *backupVaultID), "/", "_")
 		backupOutput = fmt.Sprintf("knowhow-backup-%s.tar.gz", bareVault)
 	}
 
-	client := apiclient.New(apiURL, apiToken)
+	client := backupAPI.newClient()
 
-	n, err := client.DownloadBackup(cmd.Context(), backupVaultID, backupOutput)
+	n, err := client.DownloadBackup(cmd.Context(), *backupVaultID, backupOutput)
 	if err != nil {
 		return fmt.Errorf("backup: %w", err)
 	}

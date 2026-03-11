@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
-var configJSON bool
+var (
+	configAPI  *apiFlags
+	configJSON bool
+)
 
 var configCmd = &cobra.Command{
 	Use:   "config",
@@ -19,6 +21,7 @@ var configCmd = &cobra.Command{
 }
 
 func init() {
+	configAPI = addAPIFlags(configCmd)
 	configCmd.Flags().BoolVar(&configJSON, "json", false, "output as JSON")
 }
 
@@ -41,7 +44,7 @@ type serverConfig struct {
 }
 
 func runConfig(_ *cobra.Command, _ []string) error {
-	client := apiclient.New(apiURL, apiToken)
+	client := configAPI.newClient()
 
 	var cfg serverConfig
 	if err := client.Get(context.Background(), "/api/config", &cfg); err != nil {
@@ -60,7 +63,7 @@ func runConfig(_ *cobra.Command, _ []string) error {
 	type row struct{ label, value string }
 	groups := [][]row{
 		{
-			{"Server URL", apiURL},
+			{"Server URL", configAPI.URL},
 			{"SurrealDB URL", cfg.SurrealDBURL},
 			{"Auth Enabled", strconv.FormatBool(cfg.AuthEnabled)},
 		},
