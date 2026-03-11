@@ -160,18 +160,36 @@ func (c *Client) GetDocumentByID(ctx context.Context, id string) (*models.Docume
 	return &(*results)[0].Result[0], nil
 }
 
+// DocumentOrderBy defines allowed ORDER BY clauses for document queries.
+type DocumentOrderBy string
+
+const (
+	OrderByPathAsc       DocumentOrderBy = "path ASC"
+	OrderByUpdatedAtDesc DocumentOrderBy = "updated_at DESC"
+	OrderByUpdatedAtAsc  DocumentOrderBy = "updated_at ASC"
+	OrderByCreatedAtDesc DocumentOrderBy = "created_at DESC"
+)
+
+var validOrderBy = map[DocumentOrderBy]bool{
+	OrderByPathAsc:       true,
+	OrderByUpdatedAtDesc: true,
+	OrderByUpdatedAtAsc:  true,
+	OrderByCreatedAtDesc: true,
+}
+
 type ListDocumentsFilter struct {
 	VaultID string
 	Folder  *string
 	Labels  []string
 	DocType *string
+	OrderBy DocumentOrderBy // defaults to OrderByPathAsc
 	Limit   int
 	Offset  int
 }
 
 // buildDocumentFilter constructs the WHERE clause, variables, and pagination
 // suffix shared by ListDocuments and ListDocumentMetas.
-func buildDocumentFilter(filter ListDocumentsFilter) (whereClause string, vars map[string]any, suffix string) {
+func buildDocumentFilter(filter ListDocumentsFilter) (whereClause string, vars map[string]any, suffix string, err error) {
 	var conditions []string
 	vars = map[string]any{
 		"vault_id": bareID("vault", filter.VaultID),
@@ -197,13 +215,24 @@ func buildDocumentFilter(filter ListDocumentsFilter) (whereClause string, vars m
 		limit = filter.Limit
 	}
 
+	orderBy := OrderByPathAsc
+	if filter.OrderBy != "" {
+		if !validOrderBy[filter.OrderBy] {
+			return "", nil, "", fmt.Errorf("unsupported order by: %q", string(filter.OrderBy))
+		}
+		orderBy = filter.OrderBy
+	}
+
 	whereClause = strings.Join(conditions, " AND ")
-	suffix = fmt.Sprintf("ORDER BY path ASC LIMIT %d START %d", limit, filter.Offset)
+	suffix = fmt.Sprintf("ORDER BY %s LIMIT %d START %d", string(orderBy), limit, filter.Offset)
 	return
 }
 
 func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) ([]models.Document, error) {
-	where, vars, suffix := buildDocumentFilter(filter)
+	where, vars, suffix, err := buildDocumentFilter(filter)
+	if err != nil {
+		return nil, fmt.Errorf("list documents: %w", err)
+	}
 	sql := fmt.Sprintf("SELECT * FROM document WHERE %s %s", where, suffix)
 
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, vars)
@@ -408,7 +437,10 @@ func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string
 
 // ListDocumentMetas returns lightweight metadata (no content) for documents matching the filter.
 func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilter) ([]models.DocumentMeta, error) {
-	where, vars, suffix := buildDocumentFilter(filter)
+	where, vars, suffix, err := buildDocumentFilter(filter)
+	if err != nil {
+		return nil, fmt.Errorf("list document metas: %w", err)
+	}
 	sql := fmt.Sprintf("SELECT path, content_length, content_hash ?? null AS content_hash, updated_at FROM document WHERE %s %s", where, suffix)
 
 	results, err := surrealdb.Query[[]models.DocumentMeta](ctx, c.DB(), sql, vars)
