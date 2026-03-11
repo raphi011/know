@@ -31,17 +31,19 @@ type FS struct {
 	docService   *document.Service
 	assetSvc     *asset.Service
 	vaultSvc     *vault.Service
+	pending      *pendingSet
 	virtualFiles []VirtualFile
 }
 
 // NewFS creates a WebDAV filesystem for the given vault.
-func NewFS(vaultID string, db *db.Client, docService *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service) *FS {
+func NewFS(vaultID string, db *db.Client, docService *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service, pending *pendingSet) *FS {
 	return &FS{
 		vaultID:      vaultID,
 		db:           db,
 		docService:   docService,
 		assetSvc:     assetSvc,
 		vaultSvc:     vaultSvc,
+		pending:      pending,
 		virtualFiles: defaultVirtualFiles(db),
 	}
 }
@@ -101,7 +103,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 				return nil, errNotMarkdown
 			}
 			// Open for writing — PUT is a full replacement, don't pre-load existing content
-			return newWriteFile(name, f.vaultID, f.docService, nil, doc.UpdatedAt), nil
+			return newWriteFile(name, f.vaultID, f.docService, nil, doc.UpdatedAt, false, f.pending), nil
 		}
 		return newReadFile(name, doc), nil
 	}
@@ -114,7 +116,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			return nil, fmt.Errorf("open %s: %w", name, err)
 		}
 		if assetMeta != nil {
-			return newAssetWriteFile(name, f.vaultID, f.assetSvc, assetMeta.UpdatedAt), nil
+			return newAssetWriteFile(name, f.vaultID, f.assetSvc, assetMeta.UpdatedAt, false, f.pending), nil
 		}
 	} else {
 		assetObj, err := f.assetSvc.Get(ctx, f.vaultID, name)
@@ -135,15 +137,28 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 		return f.openDir(ctx, name, folder.CreatedAt)
 	}
 
+	// Check pending set before creating — file may have been claimed already
+	if f.pending.Has(name) {
+		if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE) != 0 {
+			// Subsequent write to a pending file (the real content PUT)
+			if models.IsImageFile(name) {
+				return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now(), false, f.pending), nil
+			}
+			return newWriteFile(name, f.vaultID, f.docService, nil, time.Now(), false, f.pending), nil
+		}
+		// Read-only open on a pending path — return empty read file
+		return newEmptyReadFile(name), nil
+	}
+
 	// Not found — if creating, open for write
 	if flag&os.O_CREATE != 0 {
 		if models.IsImageFile(name) {
-			return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now()), nil
+			return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now(), true, f.pending), nil
 		}
 		if !isMarkdownFile(name) {
 			return nil, errNotMarkdown
 		}
-		return newWriteFile(name, f.vaultID, f.docService, nil, time.Now()), nil
+		return newWriteFile(name, f.vaultID, f.docService, nil, time.Now(), true, f.pending), nil
 	}
 
 	return nil, os.ErrNotExist
@@ -160,6 +175,9 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 	if isOSMetadataFile(name) {
 		return nil
 	}
+
+	// Clean up pending entry if present
+	wasPending := f.pending.Remove(name)
 
 	// Virtual files are read-only
 	if f.isVirtualFilePath(name) {
@@ -199,6 +217,11 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		if err := f.vaultSvc.DeleteFolder(ctx, f.vaultID, name); err != nil {
 			return fmt.Errorf("remove folder %s: %w", name, err)
 		}
+		return nil
+	}
+
+	// File was only in the pending set (not yet persisted to DB)
+	if wasPending {
 		return nil
 	}
 
@@ -260,6 +283,11 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 			return fmt.Errorf("rename folder %s to %s: %w", oldName, newName, err)
 		}
 		return nil
+	}
+
+	// Pending file exists in memory but not in DB — cannot rename
+	if f.pending.Has(oldName) {
+		return fmt.Errorf("rename %s: %w", oldName, os.ErrPermission)
 	}
 
 	return os.ErrNotExist
@@ -334,6 +362,20 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 			isDir:   true,
 			modTime: folder.CreatedAt,
 		}, nil
+	}
+
+	// Check pending set — file was claimed but not yet persisted to DB
+	if f.pending.Has(name) {
+		fi := &fileInfo{
+			name:    path.Base(name),
+			modTime: time.Now(),
+		}
+		if isMarkdownFile(name) {
+			fi.contentType = markdownContentType
+		} else if models.IsImageFile(name) {
+			fi.contentType = models.MimeTypeFromExt(name)
+		}
+		return fi, nil
 	}
 
 	return nil, os.ErrNotExist

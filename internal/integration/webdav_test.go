@@ -61,7 +61,7 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	assetSvc := asset.NewService(testDB, nil)
-	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
+	handler := knowhowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -443,7 +443,7 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 	assetSvc := asset.NewService(testDB, nil)
-	handler := knowhowdav.NewHandler("/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
+	handler := knowhowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -1145,6 +1145,128 @@ func TestWebDAV_AssetFinderTwoPhasePut(t *testing.T) {
 	ct := resp.Header.Get("Content-Type")
 	if ct != "image/png" {
 		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+}
+
+func TestWebDAV_FinderTwoPhasePutComplete(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "finder-2phase-complete")
+	vaultName := vaultNameFromID(vaultID)
+	url := davURL(srv, vaultName, "/finder-doc.md")
+
+	// Phase 1: LOCK (x/net/webdav creates file via OpenFile with O_CREATE)
+	lockBody := `<?xml version="1.0" encoding="utf-8"?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+  <D:owner><D:href>finder</D:href></D:owner>
+</D:lockinfo>`
+	req := mustNewRequest(t, "LOCK", url, strings.NewReader(lockBody))
+	req.Header.Set("Content-Type", "application/xml")
+	req.Header.Set("Timeout", "Second-60")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("LOCK: %v", err)
+	}
+	lockToken := resp.Header.Get("Lock-Token")
+	resp.Body.Close()
+	requireStatus(t, resp, "LOCK", http.StatusOK, http.StatusCreated)
+	if lockToken == "" {
+		t.Fatal("LOCK response missing Lock-Token header")
+	}
+
+	// Phase 2: PUT with empty body (Finder "claim")
+	req = mustNewRequest(t, http.MethodPut, url, strings.NewReader(""))
+	req.Header.Set("If", "("+lockToken+")")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT empty: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT empty", http.StatusCreated, http.StatusNoContent)
+
+	// Phase 3: PROPFIND to verify file exists (should return 207 even though
+	// the file is only in the pending set, not yet in DB)
+	req = mustNewRequest(t, "PROPFIND", url, nil)
+	req.Header.Set("Depth", "0")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PROPFIND: %v", err)
+	}
+	propBody := string(mustReadAll(t, resp.Body))
+	resp.Body.Close()
+	requireStatus(t, resp, "PROPFIND", http.StatusMultiStatus)
+	if !strings.Contains(propBody, "finder-doc.md") {
+		t.Errorf("PROPFIND missing filename in response:\n%s", propBody)
+	}
+
+	// Phase 4: PUT with real content
+	realContent := "# Finder Document\n\nWritten by Finder.\n"
+	req = mustNewRequest(t, http.MethodPut, url, strings.NewReader(realContent))
+	req.Header.Set("If", "("+lockToken+")")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT real: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT real", http.StatusCreated, http.StatusNoContent)
+
+	// Phase 5: UNLOCK
+	req = mustNewRequest(t, "UNLOCK", url, nil)
+	req.Header.Set("Lock-Token", lockToken)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("UNLOCK: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "UNLOCK", http.StatusNoContent)
+
+	// Verify: GET returns the real content
+	resp, err = http.Get(url)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	requireStatus(t, resp, "GET", http.StatusOK)
+	body := string(mustReadAll(t, resp.Body))
+	if body != realContent {
+		t.Errorf("GET body = %q, want %q", body, realContent)
+	}
+}
+
+func TestWebDAV_FinderTwoPhasePutAborted(t *testing.T) {
+	srv, vaultID := setupWebDAV(t, "finder-2phase-abort")
+	vaultName := vaultNameFromID(vaultID)
+	url := davURL(srv, vaultName, "/aborted.md")
+
+	// Phase 1: PUT with empty body (claim the file)
+	req := mustNewRequest(t, http.MethodPut, url, strings.NewReader(""))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT empty: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PUT empty", http.StatusCreated, http.StatusNoContent)
+
+	// PROPFIND should succeed (file is in pending set)
+	req = mustNewRequest(t, "PROPFIND", url, nil)
+	req.Header.Set("Depth", "0")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PROPFIND: %v", err)
+	}
+	resp.Body.Close()
+	requireStatus(t, resp, "PROPFIND (pending)", http.StatusMultiStatus)
+
+	// Simulate abort: no real PUT follows. The pending entry should be
+	// cleaned up by the sweep goroutine. We can't easily wait for the sweep
+	// in a test, so instead verify that the document was NOT written to DB.
+	ctx := context.Background()
+	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/aborted.md")
+	if err != nil {
+		t.Fatalf("GetDocumentByPath: %v", err)
+	}
+	if doc != nil {
+		t.Error("expected no document in DB for aborted two-phase PUT, but found one")
 	}
 }
 

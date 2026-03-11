@@ -32,6 +32,16 @@ func newReadFile(name string, doc *models.Document) *readFile {
 	}
 }
 
+// newEmptyReadFile returns a read file with no content. Used for pending paths
+// that have been claimed but not yet written — allows PROPFIND and GET to succeed.
+func newEmptyReadFile(name string) *readFile {
+	return &readFile{
+		name:   name,
+		doc:    &models.Document{Content: "", UpdatedAt: time.Now()},
+		reader: bytes.NewReader(nil),
+	}
+}
+
 func (f *readFile) Read(p []byte) (int, error) { return f.reader.Read(p) }
 func (f *readFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
 func (f *readFile) Seek(offset int64, whence int) (int64, error) {
@@ -59,15 +69,19 @@ type writeFile struct {
 	name       string
 	vaultID    string
 	docService *document.Service
-	buf     bytes.Buffer
-	modTime time.Time
+	pending    *pendingSet
+	isNew      bool
+	buf        bytes.Buffer
+	modTime    time.Time
 }
 
-func newWriteFile(name, vaultID string, docService *document.Service, initial []byte, modTime time.Time) *writeFile {
+func newWriteFile(name, vaultID string, docService *document.Service, initial []byte, modTime time.Time, isNew bool, pending *pendingSet) *writeFile {
 	wf := &writeFile{
 		name:       name,
 		vaultID:    vaultID,
 		docService: docService,
+		pending:    pending,
+		isNew:      isNew,
 		modTime:    modTime,
 	}
 	if initial != nil {
@@ -87,10 +101,23 @@ func (f *writeFile) Write(p []byte) (int, error) {
 
 // Close persists the document. Finder sends an initial PUT with
 // Content-Length=0 to "claim" the file, then verifies with PROPFIND.
-// We must create the document even when empty, otherwise PROPFIND → 404
-// triggers Finder error -43.
+// To avoid ghost empty documents when the copy is aborted mid-way,
+// empty content on new files is deferred to the pending set instead of
+// being written to the DB. Non-empty content always persists immediately.
 func (f *writeFile) Close() error {
 	content := f.buf.String()
+
+	// New file with empty content — add to pending set, skip DB write.
+	// Finder will send the real content in a subsequent PUT.
+	if content == "" && f.isNew {
+		f.pending.Add(f.name)
+		slog.Debug("webdav: document deferred to pending set", "path", f.name, "vault", f.vaultID)
+		return nil
+	}
+
+	// Real content arrived — remove from pending and persist to DB.
+	f.pending.Remove(f.name)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -227,15 +254,19 @@ type assetWriteFile struct {
 	name     string
 	vaultID  string
 	assetSvc *asset.Service
+	pending  *pendingSet
+	isNew    bool
 	buf      bytes.Buffer
 	modTime  time.Time
 }
 
-func newAssetWriteFile(name, vaultID string, assetSvc *asset.Service, modTime time.Time) *assetWriteFile {
+func newAssetWriteFile(name, vaultID string, assetSvc *asset.Service, modTime time.Time, isNew bool, pending *pendingSet) *assetWriteFile {
 	return &assetWriteFile{
 		name:     name,
 		vaultID:  vaultID,
 		assetSvc: assetSvc,
+		pending:  pending,
+		isNew:    isNew,
 		modTime:  modTime,
 	}
 }
@@ -250,6 +281,17 @@ func (f *assetWriteFile) Write(p []byte) (int, error) {
 
 func (f *assetWriteFile) Close() error {
 	data := f.buf.Bytes()
+
+	// New asset with empty content — add to pending set, skip DB write.
+	if len(data) == 0 && f.isNew {
+		f.pending.Add(f.name)
+		slog.Debug("webdav: asset deferred to pending set", "path", f.name, "vault", f.vaultID)
+		return nil
+	}
+
+	// Real content arrived — remove from pending and persist to DB.
+	f.pending.Remove(f.name)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
