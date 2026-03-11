@@ -28,6 +28,8 @@ import (
 
 // ServerConfig holds the server's effective configuration for display.
 type ServerConfig struct {
+	SurrealDBURL           string `json:"surrealdbURL"`
+	AuthEnabled            bool   `json:"authEnabled"`
 	LLMProvider            string `json:"llmProvider"`
 	LLMModel               string `json:"llmModel"`
 	EmbedProvider          string `json:"embedProvider"`
@@ -176,6 +178,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		workerDone:           embeddingWorkerDone,
 		processingWorkerDone: processingWorkerDone,
 		serverConfig: ServerConfig{
+			SurrealDBURL:           cfg.SurrealDBURL,
+			AuthEnabled:            !cfg.NoAuth,
 			LLMProvider:            string(cfg.LLMProvider),
 			LLMModel:               cfg.LLMModel,
 			EmbedProvider:          string(cfg.EmbedProvider),

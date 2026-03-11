@@ -5,6 +5,8 @@ import "net/http"
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.app.Config()
 	writeJSON(w, http.StatusOK, ServerConfig{
+		SurrealDBURL:           cfg.SurrealDBURL,
+		AuthEnabled:            cfg.AuthEnabled,
 		LLMProvider:            cfg.LLMProvider,
 		LLMModel:               cfg.LLMModel,
 		EmbedProvider:          cfg.EmbedProvider,
