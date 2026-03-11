@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
@@ -56,15 +58,19 @@ func runCat(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return viewWithCommand(catViewer, filepath.Base(path), doc.Content)
+	return viewWithCommand(catViewer, filepath.Ext(path), doc.Content)
 }
 
-func viewWithCommand(viewer, filename, content string) error {
-	tmpFile, err := os.CreateTemp("", "knowhow-*-"+filename)
+func viewWithCommand(viewer, ext, content string) error {
+	tmpFile, err := os.CreateTemp("", "knowhow-*"+ext)
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			slog.Warn("failed to remove temp file", "path", tmpFile.Name(), "error", err)
+		}
+	}()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		tmpFile.Close()
@@ -88,14 +94,5 @@ func viewWithCommand(viewer, filename, content string) error {
 
 // shellQuote wraps a string in single quotes, escaping any embedded single quotes.
 func shellQuote(s string) string {
-	// Replace each ' with '\'' (end quote, escaped quote, start quote)
-	escaped := ""
-	for _, c := range s {
-		if c == '\'' {
-			escaped += `'\''`
-		} else {
-			escaped += string(c)
-		}
-	}
-	return "'" + escaped + "'"
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

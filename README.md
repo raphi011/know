@@ -144,6 +144,20 @@ knowhow delete "old-notes"
 knowhow delete "old-notes" --force
 ```
 
+### View Document Content
+
+```bash
+# Print a document to stdout
+knowhow cat /docs/readme.md
+
+# From a specific vault
+knowhow cat /docs/readme.md --vault my-vault
+
+# Pipe through a viewer (bat, glow, etc.)
+knowhow cat /docs/readme.md --viewer "bat -l md"
+KNOWHOW_VIEWER=glow knowhow cat /notes/todo.md
+```
+
 ### List & Explore
 
 ```bash
