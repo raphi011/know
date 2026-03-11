@@ -45,6 +45,7 @@ Examples:
 
 func init() {
 	cpAPI = addAPIFlags(cpCmd)
+	// cp requires an explicit vault (no default) unlike other commands that use addVaultFlag.
 	cpCmd.Flags().StringVar(&cpVaultID, "vault", "", "vault ID (required)")
 	cpCmd.Flags().StringSliceVarP(&cpLabels, "labels", "l", nil, "labels to include in document path metadata")
 	cpCmd.Flags().BoolVar(&cpDryRun, "dry-run", false, "show what would be copied without changes")

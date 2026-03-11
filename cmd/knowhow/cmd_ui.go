@@ -30,7 +30,7 @@ environment variables or flags:
 Examples:
   knowhow ui
   knowhow ui --vault default
-  knowhow ui --server-url http://localhost:4001 --token kh_...`,
+  knowhow ui --api-url http://localhost:4001 --token kh_...`,
 	RunE: runUI,
 }
 

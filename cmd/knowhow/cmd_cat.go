@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
 var (
-	catVaultID string
+	catAPI     *apiFlags
+	catVaultID *string
 	catViewer  string
 )
 
@@ -40,15 +40,16 @@ Examples:
 }
 
 func init() {
-	catCmd.Flags().StringVar(&catVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name (env: KNOWHOW_VAULT)")
+	catAPI = addAPIFlags(catCmd)
+	catVaultID = addVaultFlag(catCmd)
 	catCmd.Flags().StringVar(&catViewer, "viewer", os.Getenv("KNOWHOW_VIEWER"), "viewer command (env: KNOWHOW_VIEWER)")
 }
 
 func runCat(_ *cobra.Command, args []string) error {
 	path := args[0]
 
-	client := apiclient.New(apiURL, apiToken)
-	doc, err := client.GetDocument(context.Background(), catVaultID, path)
+	client := catAPI.newClient()
+	doc, err := client.GetDocument(context.Background(), *catVaultID, path)
 	if err != nil {
 		return fmt.Errorf("cat: %w", err)
 	}
