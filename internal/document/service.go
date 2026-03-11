@@ -267,12 +267,17 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 		return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
 	}
 
-	// 5. Mark as processed
+	// 5. Sync label graph (has_label edges)
+	if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
+		return fmt.Errorf("sync labels for %s: %w", doc.Path, err)
+	}
+
+	// 6. Mark as processed
 	if err := s.db.MarkDocumentProcessed(ctx, docID); err != nil {
 		return fmt.Errorf("mark processed: %w", err)
 	}
 
-	// 6. Publish processed event
+	// 7. Publish processed event
 	s.publishDocEvent("document.processed", vaultID, doc)
 
 	return nil
@@ -499,14 +504,20 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 
 	// Synchronous cleanup — async cascade events are a safety net, not primary.
 	if err := s.db.DeleteWikiLinks(ctx, docID); err != nil {
-		return fmt.Errorf("delete: %w", err)
+		return fmt.Errorf("delete wiki links: %w", err)
+	}
+	if _, err := s.db.UnresolveWikiLinksToDoc(ctx, docID); err != nil {
+		return fmt.Errorf("unresolve incoming wiki links: %w", err)
+	}
+	if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, nil); err != nil {
+		return fmt.Errorf("delete label edges: %w", err)
 	}
 	if err := s.db.DeleteChunks(ctx, docID); err != nil {
-		return fmt.Errorf("delete: %w", err)
+		return fmt.Errorf("delete chunks: %w", err)
 	}
 
 	if err := s.db.DeleteDocument(ctx, docID); err != nil {
-		return fmt.Errorf("delete: %w", err)
+		return fmt.Errorf("delete document: %w", err)
 	}
 
 	s.publishDocDeleteEvent(vaultID, docID, path, contentHash)
@@ -545,7 +556,8 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 // replacing oldPrefix with newPrefix. Returns the number of moved documents.
 // Both prefixes are normalized and ensured to end with "/" to avoid partial matches.
 //
-// Does not update wiki-links or relations referencing the old paths.
+// Updates wiki-link raw_targets referencing paths under the old prefix.
+// Does not update doc_relations referencing the old paths.
 func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
 	oldNorm := models.NormalizePath(oldPrefix)
 	if !strings.HasSuffix(oldNorm, "/") {
@@ -564,6 +576,11 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	count, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
 	if err != nil {
 		return 0, fmt.Errorf("move by prefix: %w", err)
+	}
+
+	// Update raw_targets in wiki_links referencing paths under the old prefix
+	if _, err := s.db.UpdateWikiLinkRawTargetsByPrefix(ctx, vaultID, oldNorm, newNorm); err != nil {
+		return count, fmt.Errorf("update wiki link raw targets by prefix: %w", err)
 	}
 
 	// Move folder records to match
@@ -598,6 +615,19 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 	doc, err = s.db.MoveDocument(ctx, docID, normalizedNew)
 	if err != nil {
 		return nil, fmt.Errorf("move document: %w", err)
+	}
+
+	// Update raw_targets in wiki_links referencing the old path
+	if _, err := s.db.UpdateWikiLinkRawTargets(ctx, vaultID, oldPath, normalizedNew); err != nil {
+		return nil, fmt.Errorf("update wiki link raw targets for path: %w", err)
+	}
+	// Update raw_targets referencing the old title (if filename-derived title changed)
+	oldTitle := filenameTitle(oldPath)
+	newTitle := filenameTitle(normalizedNew)
+	if oldTitle != newTitle {
+		if _, err := s.db.UpdateWikiLinkRawTargets(ctx, vaultID, oldTitle, newTitle); err != nil {
+			return nil, fmt.Errorf("update wiki link raw targets for title: %w", err)
+		}
 	}
 
 	// Ensure destination folders exist
@@ -764,6 +794,11 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 }
 
 func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, frontmatter map[string]any) error {
+	// Delete existing frontmatter-derived relations before recreating
+	if err := s.db.DeleteRelationsBySource(ctx, docID, string(models.RelSourceFrontmatter)); err != nil {
+		return fmt.Errorf("delete old frontmatter relations: %w", err)
+	}
+
 	relatesTo, ok := frontmatter["relates_to"]
 	if !ok {
 		return nil

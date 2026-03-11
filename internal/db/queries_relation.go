@@ -61,6 +61,19 @@ func (c *Client) GetRelationByID(ctx context.Context, id string) (*models.DocRel
 	return &(*results)[0].Result[0], nil
 }
 
+// DeleteRelationsBySource removes all doc_relations originating from a document with the given source.
+// Used to implement delete-then-recreate for frontmatter-derived relations.
+func (c *Client) DeleteRelationsBySource(ctx context.Context, docID, source string) error {
+	sql := `DELETE FROM doc_relation WHERE in = type::record("document", $doc_id) AND source = $source`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"doc_id": bareID("document", docID),
+		"source": source,
+	}); err != nil {
+		return fmt.Errorf("delete relations by source: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) DeleteRelation(ctx context.Context, id string) error {
 	sql := `DELETE type::record("doc_relation", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
