@@ -9,27 +9,15 @@ var (
 	accentColor    = lipgloss.Color("#10B981") // green
 	errorColor     = lipgloss.Color("#EF4444") // red
 	mutedColor     = lipgloss.Color("#9CA3AF") // light gray
-	borderColor    = lipgloss.Color("#374151") // dark gray
 
-	// Pane styles
-	activePaneBorder = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(primaryColor)
-
-	inactivePaneBorder = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(borderColor)
-
-	// Title styles
-	titleStyle = lipgloss.NewStyle().
+	// Header style (startup banner)
+	headerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(primaryColor).
-			Padding(0, 1)
+			Foreground(primaryColor)
 
 	// Status bar
 	statusStyle = lipgloss.NewStyle().
-			Foreground(mutedColor).
-			Padding(0, 1)
+			Foreground(mutedColor)
 
 	// Chat styles
 	userMsgStyle = lipgloss.NewStyle().
@@ -53,10 +41,6 @@ var (
 	inputPromptStyle = lipgloss.NewStyle().
 				Foreground(primaryColor).
 				Bold(true)
-
-	// Help style
-	helpStyle = lipgloss.NewStyle().
-			Foreground(mutedColor)
 
 	// Approval styles
 	approvalBoxStyle = lipgloss.NewStyle().

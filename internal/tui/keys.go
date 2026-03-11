@@ -3,14 +3,11 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	Quit       key.Binding
-	Tab        key.Binding
-	Escape     key.Binding
-	NewConv    key.Binding
-	DeleteConv key.Binding
-	Send       key.Binding
-	Approve    key.Binding
-	Reject     key.Binding
+	Quit    key.Binding
+	Escape  key.Binding
+	Send    key.Binding
+	Approve key.Binding
+	Reject  key.Binding
 }
 
 var keys = keyMap{
@@ -18,21 +15,9 @@ var keys = keyMap{
 		key.WithKeys("ctrl+c"),
 		key.WithHelp("ctrl+c", "quit"),
 	),
-	Tab: key.NewBinding(
-		key.WithKeys("tab"),
-		key.WithHelp("tab", "switch pane"),
-	),
 	Escape: key.NewBinding(
 		key.WithKeys("escape"),
-		key.WithHelp("esc", "clear/back"),
-	),
-	NewConv: key.NewBinding(
-		key.WithKeys("n"),
-		key.WithHelp("n", "new conversation"),
-	),
-	DeleteConv: key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", "delete conversation"),
+		key.WithHelp("esc", "clear"),
 	),
 	Send: key.NewBinding(
 		key.WithKeys("enter"),

@@ -415,6 +415,83 @@ if end < len(options) {
 }
 ```
 
+## Inline Mode (Non-Alt-Screen)
+
+When `View.AltScreen` is `false` (the default), bubbletea uses **inline mode** with a dynamically-sized managed region.
+
+### How It Works
+
+- `View()` content height **defines** the managed region size — it resizes every frame
+- The managed region repaints in-place at the bottom of the terminal
+- `tea.Println(...)` returns a `tea.Cmd` that prints text **above** the managed region into permanent terminal scrollback
+- On quit, scrollback is preserved — user can scroll up to see everything
+
+### `tea.Println` / `tea.Printf`
+
+```go
+// Both return tea.Cmd — usable with tea.Sequence, tea.Batch
+tea.Println("message")
+tea.Printf("hello %s", name)
+
+// Silent in alt-screen mode — no output produced
+// Always prints on its own line with trailing \r\n
+```
+
+There are also program-level methods for use from outside the event loop:
+```go
+p.Println(...)  // blocks until message accepted
+p.Printf(...)
+```
+
+### Scrollback Chat Pattern
+
+Used for Claude-Code-style inline chat UIs:
+
+```go
+// 1. Completed messages → scrollback (permanent)
+func (m Model) sendMessage() tea.Cmd {
+    return tea.Sequence(
+        tea.Println(renderUserMessage(content)),  // user msg to scrollback
+        startStreamCmd,                            // begin SSE stream
+    )
+}
+
+// 2. Active streaming → View() managed region (repaints in-place)
+func (m Model) View() tea.View {
+    var content strings.Builder
+    if m.streaming {
+        content.WriteString(renderStreamParts(m.streamParts))
+    }
+    content.WriteString(m.input.View())
+    return tea.NewView(content.String())
+}
+
+// 3. When stream completes → commit to scrollback
+func (m *Model) finalizeStream() tea.Cmd {
+    rendered := renderAssistantMessage(m.streamParts)
+    m.streamParts = nil
+    return tea.Println(rendered)  // View() shrinks back to just input
+}
+```
+
+No viewport component needed — terminal scrollback handles history.
+
+### Key Differences from Alt-Screen
+
+| Behavior | Inline | Alt-Screen |
+|---|---|---|
+| Terminal scrollback | Preserved | Replaced (separate buffer) |
+| `tea.Println` | Works | No-op |
+| Region height | Dynamic (= content height) | Fixed (= terminal height) |
+| On quit | Cursor moves to bottom, scrollback preserved | Exits alt buffer, restores main screen |
+| Frame > terminal height | Top lines dropped | Should not happen |
+
+### Gotchas
+
+- `WindowSizeMsg` arrives automatically at startup and on SIGWINCH — no need to request it
+- Very long streaming responses grow the managed region toward terminal height; top lines are dropped if it exceeds
+- Inline mode cursor sits at end of managed region by default; set `View.Cursor` explicitly for text input positioning
+
 ## Performance Notes
 
 - **Cursed Renderer (v2):** Based on ncurses algorithms, much faster than v1. Handles synchronized output automatically.

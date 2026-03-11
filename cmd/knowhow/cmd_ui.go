@@ -36,6 +36,7 @@ func init() {
 func runUI(_ *cobra.Command, _ []string) error {
 	client := tui.NewClient(apiURL, apiToken)
 	model := tui.NewModel(client, uiVaultID)
+	defer model.Close()
 
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
