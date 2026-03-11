@@ -40,6 +40,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("GET /api/assets/meta", authMw(http.HandlerFunc(s.getAssetMeta)))
 	mux.Handle("DELETE /api/assets", authMw(http.HandlerFunc(s.deleteAsset)))
 
+	// Bulk upload
+	mux.Handle("POST /api/bulk", authMw(http.HandlerFunc(s.bulkUpload)))
+
 	// Labels
 	mux.Handle("GET /api/labels", authMw(http.HandlerFunc(s.listLabels)))
 

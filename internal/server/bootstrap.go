@@ -241,6 +241,17 @@ func (a *App) AssetService() *asset.Service {
 	return a.assetService
 }
 
+// NewForTest creates a minimal App for integration tests — no background workers,
+// no embedder, no LLM. Only the services needed for handler tests are wired up.
+func NewForTest(dbClient *db.Client, docSvc *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service) *App {
+	return &App{
+		db:              dbClient,
+		documentService: docSvc,
+		assetService:    assetSvc,
+		vaultService:    vaultSvc,
+	}
+}
+
 // Config returns the server configuration.
 func (a *App) Config() ServerConfig {
 	return a.serverConfig
