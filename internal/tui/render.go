@@ -126,6 +126,28 @@ func renderAssistantMessage(renderer *glamour.TermRenderer, parts []ContentPart)
 	return sb.String()
 }
 
+// formatTokens formats a token count for display (e.g. 1234 → "1.2k", 1500000 → "1.5M").
+func formatTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// renderStatusBar renders the inline status bar below the prompt.
+func renderStatusBar(tokenInput, tokenOutput int64, vaultID string) string {
+	if tokenInput == 0 && tokenOutput == 0 {
+		return statusBarDetailStyle.Render(" vault: " + vaultID)
+	}
+	return statusBarDetailStyle.Render(
+		fmt.Sprintf(" tokens: %s in / %s out │ vault: %s", formatTokens(tokenInput), formatTokens(tokenOutput), vaultID),
+	)
+}
+
 // renderApproval renders the tool approval prompt box.
 func renderApproval(event *StreamEvent, width int) string {
 	var sb strings.Builder

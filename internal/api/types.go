@@ -28,12 +28,14 @@ type Document struct {
 
 // Conversation is the JSON representation of a conversation.
 type Conversation struct {
-	ID        string         `json:"id"`
-	VaultID   string         `json:"vaultId"`
-	Title     string         `json:"title"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	Messages  []*ChatMessage `json:"messages,omitempty"`
+	ID          string         `json:"id"`
+	VaultID     string         `json:"vaultId"`
+	Title       string         `json:"title"`
+	TokenInput  int64          `json:"tokenInput"`
+	TokenOutput int64          `json:"tokenOutput"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
+	Messages    []*ChatMessage `json:"messages,omitempty"`
 }
 
 // ChatMessage is the JSON representation of a chat message.

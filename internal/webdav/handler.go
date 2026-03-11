@@ -209,8 +209,44 @@ func NewHandler(
 			},
 		}
 
-		davHandler.ServeHTTP(w, r)
+		davHandler.ServeHTTP(&singleWriteResponseWriter{ResponseWriter: w}, r)
 	})
+}
+
+// singleWriteResponseWriter wraps an http.ResponseWriter to suppress duplicate
+// WriteHeader calls. The x/net/webdav library internally calls WriteHeader twice
+// in some error paths (known issue), which spams server logs with
+// "superfluous response.WriteHeader call" warnings.
+type singleWriteResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+	statusCode  int
+}
+
+func (w *singleWriteResponseWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		if code != w.statusCode {
+			slog.Debug("webdav: suppressed duplicate WriteHeader", "first", w.statusCode, "suppressed", code)
+		}
+		return
+	}
+	w.wroteHeader = true
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *singleWriteResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		w.ResponseWriter.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap returns the underlying ResponseWriter so http.Flusher and other
+// interfaces can be discovered via ResponseController.
+func (w *singleWriteResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // isWriteMethod returns true for HTTP methods that modify resources.

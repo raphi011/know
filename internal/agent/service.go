@@ -23,15 +23,17 @@ import (
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type     string              `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
-	Content  string              `json:"content,omitempty"`
-	ConvID   string              `json:"convId,omitempty"`
-	MsgID    string              `json:"msgId,omitempty"`
-	CallID   string              `json:"callId,omitempty"`
-	Tool     string              `json:"tool,omitempty"`
-	Input    map[string]any      `json:"input,omitempty"`
-	Meta     *tools.ToolResultMeta `json:"meta,omitempty"`
-	Approval *ApprovalRequest    `json:"approval,omitempty"`
+	Type         string                `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Content      string                `json:"content,omitempty"`
+	ConvID       string                `json:"convId,omitempty"`
+	MsgID        string                `json:"msgId,omitempty"`
+	CallID       string                `json:"callId,omitempty"`
+	Tool         string                `json:"tool,omitempty"`
+	Input        map[string]any        `json:"input,omitempty"`
+	Meta         *tools.ToolResultMeta `json:"meta,omitempty"`
+	Approval     *ApprovalRequest      `json:"approval,omitempty"`
+	InputTokens  int64                 `json:"inputTokens,omitempty"`
+	OutputTokens int64                 `json:"outputTokens,omitempty"`
 }
 
 // Service orchestrates the agent loop: native tool calling → streaming answer.
@@ -413,7 +415,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	tools := s.buildTools()
 
 	// 6. Call GenerateStreamWithTools
-	err = model.GenerateStreamWithTools(ctx, messages, tools,
+	usage, err := model.GenerateStreamWithTools(ctx, messages, tools,
 		func(token string) error {
 			answer.WriteString(token)
 			emit(StreamEvent{Type: "text", Content: token})
@@ -505,10 +507,17 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			return result, nil
 		},
 	)
+	// Persist cumulative token usage on the conversation (even on error — tokens were consumed).
+	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
+		if tokenErr := s.db.UpdateConversationTokens(ctx, req.ConversationID, usage.InputTokens, usage.OutputTokens); tokenErr != nil {
+			slog.Warn("failed to update conversation tokens", "conversation_id", req.ConversationID, "error", tokenErr)
+		}
+	}
+
 	if err != nil {
 		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
-		emit(StreamEvent{Type: "msg_end"})
+		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 		return fmt.Errorf("generate stream: %w", err)
 	}
 
@@ -558,16 +567,17 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		}
 	}
 
-	// 9. Emit msg_end with assistant message ID
+	// 9. Emit msg_end with assistant message ID and token usage
 	if assistantMsg != nil {
 		assistantMsgID, idErr := models.RecordIDString(assistantMsg.ID)
 		if idErr != nil {
 			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", idErr)
+			emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 		} else {
-			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID})
+			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 		}
 	} else {
-		emit(StreamEvent{Type: "msg_end"})
+		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
 	}
 
 	// 10. Auto-title if first message

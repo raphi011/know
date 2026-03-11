@@ -279,8 +279,10 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS vault      ON conversation TYPE record<vault>;
     DEFINE FIELD IF NOT EXISTS user       ON conversation TYPE record<user>;
     DEFINE FIELD IF NOT EXISTS title      ON conversation TYPE string DEFAULT "New conversation";
-    DEFINE FIELD IF NOT EXISTS created_at ON conversation TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at ON conversation TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS created_at    ON conversation TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at    ON conversation TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS token_input   ON conversation TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS token_output  ON conversation TYPE int DEFAULT 0;
 
     DEFINE INDEX IF NOT EXISTS idx_conversation_vault ON conversation FIELDS vault;
     DEFINE INDEX IF NOT EXISTS idx_conversation_user  ON conversation FIELDS user;

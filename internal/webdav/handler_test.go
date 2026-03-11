@@ -7,6 +7,63 @@ import (
 	"testing"
 )
 
+func TestSingleWriteResponseWriter_WriteHeader(t *testing.T) {
+	t.Run("first WriteHeader passes through", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w := &singleWriteResponseWriter{ResponseWriter: rec}
+		w.WriteHeader(http.StatusNotFound)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("got %d, want %d", rec.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("second WriteHeader is suppressed", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w := &singleWriteResponseWriter{ResponseWriter: rec}
+		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusInternalServerError) // should be suppressed
+		if rec.Code != http.StatusOK {
+			t.Errorf("got %d, want %d (second call should be suppressed)", rec.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("Write without WriteHeader sends 200", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w := &singleWriteResponseWriter{ResponseWriter: rec}
+		_, err := w.Write([]byte("hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusOK {
+			t.Errorf("got %d, want %d", rec.Code, http.StatusOK)
+		}
+		if !w.wroteHeader {
+			t.Error("expected wroteHeader to be true after Write")
+		}
+	})
+
+	t.Run("WriteHeader then Write does not override status", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w := &singleWriteResponseWriter{ResponseWriter: rec}
+		w.WriteHeader(http.StatusCreated)
+		_, err := w.Write([]byte("body"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusCreated {
+			t.Errorf("got %d, want %d", rec.Code, http.StatusCreated)
+		}
+	})
+
+	t.Run("Unwrap returns underlying writer", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w := &singleWriteResponseWriter{ResponseWriter: rec}
+		if w.Unwrap() != rec {
+			t.Error("Unwrap did not return the underlying ResponseWriter")
+		}
+	})
+}
+
 func TestHandler_NonStoredFileFastPath(t *testing.T) {
 	// Handler with nil dependencies — if the fast path works,
 	// these are never touched and we don't panic.
