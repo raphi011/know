@@ -183,8 +183,6 @@ The TUI at `internal/tui/` provides agent chat via `knowhow ui`. Use the `bubble
 
 ```go
 import (
-    "charm.land/bubbles/v2/list"
-    "charm.land/bubbles/v2/viewport"
     "charm.land/bubbles/v2/textinput"
     tea "charm.land/bubbletea/v2"
     lipgloss "charm.land/lipgloss/v2"
@@ -202,9 +200,8 @@ import (
 
 ### TUI Package Structure
 
-- `app.go` — Root model with split-pane layout
-- `conversations.go` — Left pane: conversation list (bubbles/v2 list)
-- `chat.go` — Right pane: viewport + text input + glamour rendering
+- `app.go` — Root model: inline chat with tea.Println scrollback
+- `render.go` — Markdown rendering, stream parts, message formatting
 - `client.go` — REST client wrapper with SSE stream reader
 - `styles.go` — Lipgloss v2 styles
 - `keys.go` — Key binding definitions

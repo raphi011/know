@@ -1,45 +1,109 @@
-// Package tui provides a bubbletea v2 terminal UI for Knowhow.
+// Package tui provides a bubbletea v2 inline terminal UI for Knowhow.
 package tui
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/glamour"
+	"github.com/raphi011/knowhow/internal/api"
 )
 
-// pane identifies which pane is focused.
-type pane int
-
-const (
-	paneConversations pane = iota
-	paneChat
-)
-
-// Model is the root bubbletea model.
+// Model is the root bubbletea model for inline chat.
 type Model struct {
-	conversations conversationList
-	chat          chatPane
-	activePane    pane
+	client         *Client
+	vaultID        string
+	conversationID string
+
+	// Input
+	input   textinput.Model
+	spinner spinner.Model
+
+	// Streaming state
+	streaming       bool
+	streamParts     []ContentPart
+	pendingApproval *StreamEvent
+	errMsg          string
+
+	// Rendering
+	renderer      *glamour.TermRenderer
+	rendererWidth int
+	glamourStyle  string // "dark" or "light" — detected before p.Run()
 	width         int
-	height        int
-	vaultID       string
-	ctx           context.Context
-	cancel        context.CancelFunc
+
+	// Lifecycle
+	ctx       context.Context
+	cancel    context.CancelFunc
+	termReady bool // true after first WindowSizeMsg (terminal setup done)
+	ready     bool // true after conversation created
 }
 
-// NewModel creates a new TUI model. The caller should defer model.Close()
-// to cancel in-flight requests on quit.
-func NewModel(client *Client, vaultID string) Model {
+// conversationCreatedMsg is sent when a new conversation is created on startup.
+type conversationCreatedMsg struct {
+	conv *api.Conversation
+	err  error
+}
+
+// streamEventMsg wraps SSE events from the chat stream.
+// ch carries the channel for chaining listenForEvents after each event.
+type streamEventMsg struct {
+	event StreamEvent
+	ch    <-chan StreamEvent
+	done  bool
+}
+
+// approvalSentMsg is sent after an approval/rejection is processed.
+type approvalSentMsg struct {
+	err error
+}
+
+// NewModel creates a new TUI model. isDark should be detected before bubbletea
+// starts (e.g. via lipgloss.HasDarkBackground) to avoid racing with bubbletea's
+// terminal reader. The caller should defer model.Close().
+func NewModel(client *Client, vaultID string, isDark bool) Model {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	ti := textinput.New()
+	ti.Placeholder = "Type a message..."
+	ti.CharLimit = 4096
+	ti.Prompt = inputPromptStyle.Render("> ")
+
+	styles := ti.Styles()
+	styles.Cursor.Blink = false
+	ti.SetStyles(styles)
+
+	glamourStyle := "light"
+	if isDark {
+		glamourStyle = "dark"
+	}
+
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle(glamourStyle),
+		glamour.WithWordWrap(maxTextWidth),
+	)
+	if err != nil {
+		slog.Warn("glamour renderer init failed, markdown will render as plain text", "error", err)
+	}
+
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+	)
+
 	return Model{
-		conversations: newConversationList(ctx, client, vaultID),
-		chat:          newChatPane(ctx, client, vaultID),
-		activePane:    paneConversations,
-		vaultID:       vaultID,
-		ctx:           ctx,
-		cancel:        cancel,
+		client:       client,
+		vaultID:      vaultID,
+		input:        ti,
+		spinner:      sp,
+		renderer:     r,
+		glamourStyle: glamourStyle,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
@@ -49,131 +113,332 @@ func (m *Model) Close() {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.conversations.fetchConversations()
+	return m.createConversation()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height
-		m.layoutPanes()
+		m.updateRenderer()
+		m.input.SetWidth(msg.Width - 4)
+		if !m.termReady {
+			m.termReady = true
+			return m, m.tryFocus()
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// Global keys
-		if key.Matches(msg, keys.Quit) {
-			m.cancel()
-			return m, tea.Quit
+		return m.handleKey(msg)
+
+	case conversationCreatedMsg:
+		if msg.err != nil {
+			m.errMsg = fmt.Sprintf("Failed to create conversation: %v", msg.err)
+			slog.Warn("failed to create conversation", "error", msg.err)
+			return m, nil
 		}
+		m.conversationID = msg.conv.ID
+		m.ready = true
+		banner := headerStyle.Render("knowhow") + " " +
+			statusStyle.Render("vault:"+m.vaultID)
+		return m, tea.Batch(tea.Println(banner), m.tryFocus())
 
-		if key.Matches(msg, keys.Tab) {
-			cmd := m.switchPane()
-			return m, cmd
+	case streamEventMsg:
+		return m.handleStreamEvent(msg)
+
+	case approvalSentMsg:
+		if msg.err != nil {
+			m.errMsg = fmt.Sprintf("Approval failed: %v", msg.err)
+			slog.Warn("approval failed", "conversationID", m.conversationID, "error", msg.err)
 		}
+		return m, nil
 
-		// Delegate to active pane
-		switch m.activePane {
-		case paneConversations:
-			if cmd, handled := m.conversations.handleKey(msg); handled {
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-
-			// Enter selects conversation
-			if key.Matches(msg, keys.Send) {
-				item := m.conversations.selectedItem()
-				if item != nil {
-					cmd := m.chat.loadConversation(item.conv.ID)
-					m.activePane = paneChat
-					cmds = append(cmds, cmd, m.chat.focus())
-					return m, tea.Batch(cmds...)
-				}
-			}
-
-		case paneChat:
-			if cmd, handled := m.chat.handleKey(msg); handled {
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-
-			// ESC with empty input: switch back to conversations pane
-			if key.Matches(msg, keys.Escape) {
-				m.activePane = paneConversations
-				m.chat.blur()
-				return m, nil
-			}
-		}
-
-		// Route unhandled key presses only to the active pane
-		switch m.activePane {
-		case paneConversations:
-			cmd := m.conversations.update(msg)
-			return m, cmd
-		case paneChat:
-			cmd := m.chat.update(msg)
+	case spinner.TickMsg:
+		if m.streaming {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
 		return m, nil
 	}
 
-	// Route non-key messages to both panes (WindowSizeMsg, custom messages, etc.)
-	cmd := m.conversations.update(msg)
-	if cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-
-	cmd = m.chat.update(msg)
-	if cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-
-	return m, tea.Batch(cmds...)
+	// Pass other messages to text input (cursor blink, etc.)
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
 }
 
 func (m Model) View() tea.View {
-	var v tea.View
-	v.AltScreen = true
+	var content strings.Builder
 
-	if m.width == 0 {
-		v = tea.NewView("Loading...")
-		v.AltScreen = true
-		return v
+	if !m.ready {
+		if m.errMsg != "" {
+			content.WriteString(errorMsgStyle.Render(m.errMsg))
+		} else {
+			content.WriteString(statusStyle.Render("Creating conversation..."))
+		}
+		return tea.NewView(content.String())
 	}
 
-	left := m.conversations.view(m.activePane == paneConversations)
-	right := m.chat.view(m.activePane == paneChat)
+	// Streaming content
+	if m.streaming && len(m.streamParts) > 0 {
+		content.WriteString(renderStreamParts(m.renderer, m.streamParts, m.pendingApproval, m.width))
+	}
 
-	layout := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	// Error line
+	if m.errMsg != "" {
+		content.WriteString(errorMsgStyle.Render(m.errMsg))
+		content.WriteString("\n")
+	}
 
-	v = tea.NewView(layout)
-	v.AltScreen = true
-	return v
+	// Blank line before prompt
+	content.WriteString("\n")
+
+	// Spinner (only during streaming)
+	if m.streaming {
+		content.WriteString(statusStyle.Render(m.spinner.View() + " Thinking..."))
+		content.WriteString("\n\n")
+	}
+
+	// Input always visible
+	content.WriteString(m.input.View())
+
+	return tea.NewView(content.String())
 }
 
-func (m *Model) layoutPanes() {
-	// Left pane: ~30% width, right pane: ~70%
-	leftW := m.width * 3 / 10
-	if leftW < 20 {
-		leftW = 20
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Global quit
+	if key.Matches(msg, keys.Quit) {
+		m.cancel()
+		return m, tea.Quit
 	}
-	if leftW > 40 {
-		leftW = 40
-	}
-	rightW := m.width - leftW
 
-	m.conversations.setSize(leftW, m.height)
-	m.chat.setSize(rightW, m.height)
+	// Approval keys when pending
+	if m.pendingApproval != nil {
+		switch {
+		case key.Matches(msg, keys.Approve):
+			return m, m.sendApproval("approve_all")
+		case key.Matches(msg, keys.Reject):
+			return m, m.sendApproval("reject")
+		}
+	}
+
+	// ESC clears input text; no-op if already empty
+	if key.Matches(msg, keys.Escape) {
+		if m.input.Value() != "" {
+			m.input.SetValue("")
+		}
+		return m, nil
+	}
+
+	// Send message
+	if key.Matches(msg, keys.Send) {
+		m.errMsg = ""
+		return m, m.sendMessage()
+	}
+
+	// Pass to text input
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
 }
 
-func (m *Model) switchPane() tea.Cmd {
-	if m.activePane == paneConversations {
-		m.activePane = paneChat
-		return m.chat.focus()
+func (m *Model) createConversation() tea.Cmd {
+	client := m.client
+	ctx := m.ctx
+	vaultID := m.vaultID
+	return func() tea.Msg {
+		conv, err := client.CreateConversation(ctx, vaultID)
+		return conversationCreatedMsg{conv: conv, err: err}
 	}
-	m.activePane = paneConversations
-	m.chat.blur()
+}
+
+func (m *Model) sendMessage() tea.Cmd {
+	content := m.input.Value()
+	if content == "" || m.streaming || !m.ready {
+		return nil
+	}
+
+	m.input.SetValue("")
+	m.streaming = true
+	m.streamParts = nil
+
+	client := m.client
+	ctx := m.ctx
+	convID := m.conversationID
+	vaultID := m.vaultID
+
+	startStreamCmd := func() tea.Msg {
+		ch, err := client.Chat(ctx, convID, vaultID, content, false)
+		if err != nil {
+			return streamEventMsg{event: StreamEvent{Type: "error", Content: err.Error()}, done: true}
+		}
+
+		event, ok := <-ch
+		if !ok {
+			return streamEventMsg{done: true}
+		}
+
+		return streamEventMsg{event: event, ch: ch}
+	}
+
+	// Print user message to scrollback, then start streaming + spinner
+	return tea.Sequence(
+		tea.Println(renderUserMessage(content)),
+		tea.Batch(startStreamCmd, m.spinner.Tick),
+	)
+}
+
+func (m *Model) listenForEvents(ch <-chan StreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		event, ok := <-ch
+		if !ok {
+			return streamEventMsg{done: true}
+		}
+		return streamEventMsg{event: event, ch: ch}
+	}
+}
+
+func (m *Model) sendApproval(action string) tea.Cmd {
+	if m.pendingApproval == nil {
+		return nil
+	}
+
+	client := m.client
+	ctx := m.ctx
+	convID := m.conversationID
+	callID := m.pendingApproval.CallID
+
+	m.pendingApproval = nil
+
+	return func() tea.Msg {
+		err := client.Approve(ctx, convID, callID, action)
+		return approvalSentMsg{err: err}
+	}
+}
+
+func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
+	// Handle error events before checking done — when Chat() fails,
+	// the message has both an error and done=true.
+	if msg.event.Type == "error" {
+		slog.Warn("stream error", "conversationID", m.conversationID, "error", msg.event.Content)
+	}
+
+	if msg.done {
+		cmd := m.finalizeStream()
+		return m, cmd
+	}
+
+	// Chain the next event read for all non-terminal events
+	var nextCmd tea.Cmd
+	if msg.ch != nil {
+		nextCmd = m.listenForEvents(msg.ch)
+	}
+
+	switch msg.event.Type {
+	case "text":
+		m.appendText(msg.event.Content)
+	case "tool_start":
+		m.streamParts = append(m.streamParts, ContentPart{
+			Type:     PartToolCall,
+			ToolName: msg.event.Tool,
+			CallID:   msg.event.CallID,
+			Status:   ToolRunning,
+		})
+	case "tool_end":
+		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete)
+	case "tool_approval_required":
+		m.pendingApproval = &msg.event
+	case "conv_id":
+		m.conversationID = msg.event.ConvID
+	case "error":
+		m.streamParts = append(m.streamParts, ContentPart{
+			Type:    PartError,
+			Content: msg.event.Content,
+		})
+		cmd := m.finalizeStream()
+		return m, tea.Batch(cmd, nextCmd)
+	case "msg_end":
+		cmd := m.finalizeStream()
+		return m, tea.Batch(cmd, nextCmd)
+	}
+
+	return m, nextCmd
+}
+
+// appendText adds text to the last PartText or creates a new one.
+// This naturally coalesces consecutive text events while keeping
+// tool calls as separate interleaved parts.
+func (m *Model) appendText(s string) {
+	if n := len(m.streamParts); n > 0 && m.streamParts[n-1].Type == PartText {
+		m.streamParts[n-1].Content += s
+		return
+	}
+	m.streamParts = append(m.streamParts, ContentPart{Type: PartText, Content: s})
+}
+
+// updateToolStatus finds a tool call part by CallID and updates its status.
+// Falls back to matching by tool name if CallID is empty (older servers).
+func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus) {
+	for i := len(m.streamParts) - 1; i >= 0; i-- {
+		p := &m.streamParts[i]
+		if p.Type != PartToolCall {
+			continue
+		}
+		if callID != "" && p.CallID == callID {
+			p.Status = status
+			return
+		}
+		if callID == "" && p.ToolName == toolName && p.Status == ToolRunning {
+			p.Status = status
+			return
+		}
+	}
+	slog.Warn("tool_end event had no matching tool_start", "callID", callID, "tool", toolName)
+}
+
+// finalizeStream commits the streaming response to terminal scrollback
+// via tea.Println and resets streaming state.
+func (m *Model) finalizeStream() tea.Cmd {
+	if !m.streaming {
+		return nil
+	}
+	m.streaming = false
+
+	rendered := renderAssistantMessage(m.renderer, m.streamParts)
+	m.streamParts = nil
+	m.pendingApproval = nil
+
+	if rendered == "" {
+		return nil
+	}
+	return tea.Println(rendered)
+}
+
+// tryFocus focuses the text input once both terminal setup and conversation
+// creation are done. This avoids capturing terminal query responses as input.
+func (m *Model) tryFocus() tea.Cmd {
+	if m.termReady && m.ready {
+		return m.input.Focus()
+	}
 	return nil
+}
+
+// updateRenderer recreates the glamour renderer when terminal width changes.
+// Uses the pre-detected glamourStyle to avoid direct TTY reads that would
+// race with bubbletea's TerminalReader.
+func (m *Model) updateRenderer() {
+	wrapWidth := min(m.width-4, maxTextWidth)
+	if wrapWidth > 0 && wrapWidth != m.rendererWidth {
+		r, err := glamour.NewTermRenderer(
+			glamour.WithStandardStyle(m.glamourStyle),
+			glamour.WithWordWrap(wrapWidth),
+		)
+		if err != nil {
+			slog.Warn("glamour renderer re-creation failed on resize", "width", wrapWidth, "error", err)
+		} else {
+			m.renderer = r
+			m.rendererWidth = wrapWidth
+		}
+	}
 }

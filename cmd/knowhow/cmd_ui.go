@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/raphi011/knowhow/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -34,8 +36,15 @@ func init() {
 }
 
 func runUI(_ *cobra.Command, _ []string) error {
+	// Detect dark/light background BEFORE bubbletea starts, so we don't race
+	// with its TerminalReader on the TTY fd. glamour.WithAutoStyle() calls
+	// termenv.HasDarkBackground() which does a direct TTY read — unsafe once
+	// bubbletea is running.
+	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+
 	client := tui.NewClient(apiURL, apiToken)
-	model := tui.NewModel(client, uiVaultID)
+	model := tui.NewModel(client, uiVaultID, isDark)
+	defer model.Close()
 
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {

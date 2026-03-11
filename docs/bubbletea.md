@@ -263,31 +263,92 @@ case tea.KeyPressMsg:
 
 `air` doesn't support TTY programs. Use `watchexec` with separate build/run scripts instead.
 
-### 6. Focus Cmd Must Be Returned
+### 6. Focus Must Be Deferred Until Terminal Setup Completes
+
+`textinput.Focus()` is a **pointer receiver** that sets `m.focus = true` and returns a cursor blink `tea.Cmd`. When not focused, `textinput.Update()` silently drops all messages — the input appears frozen.
+
+Two issues with early focus:
+
+**Problem 1 — `Init()` value copy**: `Init()` operates on a copy of the model, so `Focus()` mutations are lost.
+
+**Problem 2 — Terminal query responses**: Bubbletea v2 sends DECRQM and OSC queries on startup. If the textinput is focused before these responses are consumed, the escape sequences can appear as typed garbage (e.g. `]11;rgb:3030/3434/4646[?2026;2$y`).
+
+**Fix:** Defer focus until `WindowSizeMsg` arrives (indicates terminal setup is done) AND any other readiness conditions are met:
 
 ```go
-// textinput.Focus() returns a tea.Cmd (for cursor blink)
-// You MUST return it or the cursor won't blink
-cmd := m.input.Focus()
-return m, cmd
+func NewModel() Model {
+    ti := textinput.New()
+    // Do NOT focus here — terminal queries haven't been sent yet
+    return Model{input: ti}
+}
 
-// Blur() does NOT return a Cmd
-m.input.Blur()
+func (m Model) Init() tea.Cmd {
+    return m.loadData() // no focus cmd
+}
+
+case tea.WindowSizeMsg:
+    if !m.termReady {
+        m.termReady = true
+        return m, m.tryFocus()
+    }
+
+func (m *Model) tryFocus() tea.Cmd {
+    if m.termReady && m.ready {
+        return m.input.Focus() // safe — terminal queries consumed
+    }
+    return nil
+}
 ```
 
-### 7. Viewport Content Accumulation
+Also remember: `Blur()` does NOT return a Cmd — just call it directly.
+
+### 7. Never Use `glamour.WithAutoStyle()` or `termenv.HasDarkBackground()` Inside Update()
+
+`glamour.WithAutoStyle()` calls `termenv.HasDarkBackground()` which reads **directly from `/dev/tty`** — the same fd bubbletea's `TerminalReader` is reading. This causes a data race that can split escape sequences, producing garbage in the textinput.
+
+The race: termenv steals bytes meant for `TerminalReader`, causing it to timeout mid-sequence and emit partial escape codes as individual `KeyPressMsg` characters.
+
+**Fix:** Detect dark/light background **before** `p.Run()` starts, then use `glamour.WithStandardStyle()`:
+
+```go
+// cmd_ui.go — BEFORE bubbletea starts
+isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+model := NewModel(client, vaultID, isDark)
+
+// model constructor
+glamourStyle := "light"
+if isDark {
+    glamourStyle = "dark"
+}
+r, _ := glamour.NewTermRenderer(
+    glamour.WithStandardStyle(glamourStyle), // NOT WithAutoStyle()
+    glamour.WithWordWrap(width),
+)
+
+// updateRenderer() — reuses pre-detected style, no TTY read
+func (m *Model) updateRenderer() {
+    r, err := glamour.NewTermRenderer(
+        glamour.WithStandardStyle(m.glamourStyle), // safe
+        glamour.WithWordWrap(m.width - 4),
+    )
+}
+```
+
+Ref: [bubbletea#1590](https://github.com/charmbracelet/bubbletea/issues/1590)
+
+### 8. Viewport Content Accumulation
 
 Viewports store all content in memory. For long-running sessions (chat apps), content can grow unbounded.
 
-**Fix:** Implement pagination or a sliding window for message history.
+**Fix:** Implement pagination or a sliding window for message history. Or use inline mode with `tea.Println` scrollback instead of a viewport.
 
-### 8. Glamour Renderer and Window Resize
+### 9. Glamour Renderer and Window Resize
 
-`glamour.NewTermRenderer()` is expensive. Don't recreate on every `WindowSizeMsg`.
+`glamour.NewTermRenderer()` is moderately expensive. Don't recreate on every `WindowSizeMsg`.
 
 **Fix:** Cache the renderer and only recreate when width actually changes.
 
-### 9. Two-Phase ESC Pattern
+### 10. Two-Phase ESC Pattern
 
 Better UX: first ESC clears input, second ESC cancels/quits.
 
@@ -302,7 +363,7 @@ case tea.KeyPressMsg:
     }
 ```
 
-### 10. AdaptiveColor Removed in v2
+### 11. AdaptiveColor Removed in v2
 
 `lipgloss.AdaptiveColor` is gone. Use `tea.BackgroundColorMsg` to detect dark/light and select styles accordingly.
 
@@ -414,6 +475,83 @@ if end < len(options) {
     sb.WriteString("  ↓ more below\n")
 }
 ```
+
+## Inline Mode (Non-Alt-Screen)
+
+When `View.AltScreen` is `false` (the default), bubbletea uses **inline mode** with a dynamically-sized managed region.
+
+### How It Works
+
+- `View()` content height **defines** the managed region size — it resizes every frame
+- The managed region repaints in-place at the bottom of the terminal
+- `tea.Println(...)` returns a `tea.Cmd` that prints text **above** the managed region into permanent terminal scrollback
+- On quit, scrollback is preserved — user can scroll up to see everything
+
+### `tea.Println` / `tea.Printf`
+
+```go
+// Both return tea.Cmd — usable with tea.Sequence, tea.Batch
+tea.Println("message")
+tea.Printf("hello %s", name)
+
+// Silent in alt-screen mode — no output produced
+// Always prints on its own line with trailing \r\n
+```
+
+There are also program-level methods for use from outside the event loop:
+```go
+p.Println(...)  // blocks until message accepted
+p.Printf(...)
+```
+
+### Scrollback Chat Pattern
+
+Used for Claude-Code-style inline chat UIs:
+
+```go
+// 1. Completed messages → scrollback (permanent)
+func (m *Model) sendMessage() tea.Cmd {
+    return tea.Sequence(
+        tea.Println(renderUserMessage(content)),  // user msg to scrollback
+        startStreamCmd,                            // begin SSE stream
+    )
+}
+
+// 2. Active streaming → View() managed region (repaints in-place)
+func (m Model) View() tea.View {
+    var content strings.Builder
+    if m.streaming {
+        content.WriteString(renderStreamParts(m.renderer, m.streamParts, m.pendingApproval, m.width))
+    }
+    content.WriteString(m.input.View())
+    return tea.NewView(content.String())
+}
+
+// 3. When stream completes → commit to scrollback
+func (m *Model) finalizeStream() tea.Cmd {
+    rendered := renderAssistantMessage(m.renderer, m.streamParts)
+    m.streamParts = nil
+    return tea.Println(rendered)  // View() shrinks back to just input
+}
+```
+
+No viewport component needed — terminal scrollback handles history.
+
+### Key Differences from Alt-Screen
+
+| Behavior | Inline | Alt-Screen |
+|---|---|---|
+| Terminal scrollback | Preserved | Replaced (separate buffer) |
+| `tea.Println` | Works | No-op |
+| Region height | Dynamic (= content height) | Fixed (= terminal height) |
+| On quit | Cursor moves to bottom, scrollback preserved | Exits alt buffer, restores main screen |
+| Frame > terminal height | Top lines dropped | Should not happen |
+
+### Gotchas
+
+- `WindowSizeMsg` arrives automatically at startup and on SIGWINCH — no need to request it
+- Very long streaming responses grow the managed region toward terminal height; top lines are dropped if it exceeds
+- Inline mode cursor sits at end of managed region by default; set `View.Cursor` explicitly for text input positioning
 
 ## Performance Notes
 
