@@ -9,7 +9,10 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"time"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Client is a REST API client for the Knowhow server.
@@ -106,6 +109,24 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	}
 
 	return c.handleResponse(req, target)
+}
+
+// ListLabels returns all distinct labels in the given vault.
+func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
+	var labels []string
+	if err := c.Get(ctx, "/api/labels?vault="+url.QueryEscape(vaultID), &labels); err != nil {
+		return nil, fmt.Errorf("list labels: %w", err)
+	}
+	return labels, nil
+}
+
+// ListLabelsWithCounts returns labels with their document counts for the given vault.
+func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]models.LabelCount, error) {
+	var counts []models.LabelCount
+	if err := c.Get(ctx, "/api/labels?vault="+url.QueryEscape(vaultID)+"&counts=true", &counts); err != nil {
+		return nil, fmt.Errorf("list labels with counts: %w", err)
+	}
+	return counts, nil
 }
 
 // handleResponse executes the request and processes the response.

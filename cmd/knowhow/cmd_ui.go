@@ -24,13 +24,13 @@ environment variables or flags:
 
 Examples:
   knowhow ui
-  knowhow ui --vault vault:default
+  knowhow ui --vault default
   knowhow ui --server-url http://localhost:4001 --token kh_...`,
 	RunE: runUI,
 }
 
 func init() {
-	uiCmd.Flags().StringVar(&uiVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "vault:default"), "vault ID to use")
+	uiCmd.Flags().StringVar(&uiVaultID, "vault", envOrDefault("KNOWHOW_VAULT", "default"), "vault name to use")
 }
 
 func runUI(_ *cobra.Command, _ []string) error {

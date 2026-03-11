@@ -370,6 +370,25 @@ func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, erro
 	return labels, nil
 }
 
+// ListLabelsWithCounts returns labels with their document counts for the given vault.
+func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]models.LabelCount, error) {
+	sql := `SELECT label, count() AS count FROM (SELECT labels AS label FROM document WHERE vault = type::record("vault", $vault_id) SPLIT labels) GROUP BY label ORDER BY count DESC`
+	results, err := surrealdb.Query[[]models.LabelCount](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list labels with counts: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return []models.LabelCount{}, nil
+	}
+	counts := (*results)[0].Result
+	if counts == nil {
+		return []models.LabelCount{}, nil
+	}
+	return counts, nil
+}
+
 // GetDocumentMetaByPath returns lightweight metadata for a document (no content).
 // Returns nil if the document doesn't exist.
 func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string) (*models.DocumentMeta, error) {

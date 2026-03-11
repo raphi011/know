@@ -365,6 +365,21 @@ RETURN array::distinct(array::flatten(...))
 
 Bracket-based negative indexing (`[-1]`) is unreliable — returns NONE. Use `array::last()` or `array::at()` instead.
 
+### `SPLIT` and `GROUP BY` Are Mutually Exclusive
+
+In v3.0, `SPLIT` and `GROUP BY` cannot appear in the same query — they have opposing semantics (SPLIT multiplies rows, GROUP collapses them). This was allowed in v2.
+
+```sql
+-- FAILS: "SPLIT and GROUP are mutually exclusive"
+SELECT labels, count() AS count FROM document SPLIT labels GROUP BY labels
+
+-- WORKS: subquery — SPLIT first, then GROUP in the outer query
+SELECT label, count() AS count
+FROM (SELECT labels AS label FROM document SPLIT labels)
+GROUP BY label
+ORDER BY count DESC
+```
+
 ### `STARTS WITH` vs `string::starts_with()`
 
 The `STARTS WITH` operator can fail in compound WHERE clauses. Use `string::starts_with()` function instead.
