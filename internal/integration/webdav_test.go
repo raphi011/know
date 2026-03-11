@@ -267,19 +267,27 @@ func TestWebDAV_Move(t *testing.T) {
 	}
 }
 
-func TestWebDAV_NonMarkdownRejected(t *testing.T) {
+func TestWebDAV_UnsupportedFileSilentlyDiscarded(t *testing.T) {
 	srv, vaultID := setupWebDAV(t, "nonmd")
 	vaultName := vaultNameFromID(vaultID)
 
+	// PUT .txt should be silently accepted (prevents Finder batch-copy abort)
 	req := mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/file.txt"), strings.NewReader("hello"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("PUT .txt: %v", err)
 	}
 	resp.Body.Close()
-	// The webdav library translates os.ErrPermission from OpenFile into a 404 on PUT.
-	if resp.StatusCode < 400 {
-		t.Errorf("PUT .txt status = %d, want error status", resp.StatusCode)
+	requireStatus(t, resp, "PUT .txt", http.StatusCreated)
+
+	// GET .txt should 404 (not stored)
+	resp, err = http.Get(davURL(srv, vaultName, "/file.txt"))
+	if err != nil {
+		t.Fatalf("GET .txt: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET .txt status = %d, want 404", resp.StatusCode)
 	}
 }
 
@@ -1270,22 +1278,20 @@ func TestWebDAV_FinderTwoPhasePutAborted(t *testing.T) {
 	}
 }
 
-func TestWebDAV_NonImageNonMarkdownRejected(t *testing.T) {
+func TestWebDAV_UnsupportedVsImageFiles(t *testing.T) {
 	srv, vaultID := setupWebDAV(t, "reject-nonimage")
 	vaultName := vaultNameFromID(vaultID)
 
-	// PUT a .txt file should be rejected
+	// PUT a .txt file should be silently accepted but discarded
 	req := mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/file.txt"), strings.NewReader("hello"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("PUT: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode < 400 {
-		t.Errorf("PUT .txt status = %d, want error", resp.StatusCode)
-	}
+	requireStatus(t, resp, "PUT .txt", http.StatusCreated)
 
-	// PUT a .png file should be accepted
+	// PUT a .png file should be accepted and stored
 	req = mustNewRequest(t, http.MethodPut, davURL(srv, vaultName, "/ok.png"), bytes.NewReader(testPNG))
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {

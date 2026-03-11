@@ -196,7 +196,8 @@ func (d *dirFile) Stat() (fs.FileInfo, error) {
 }
 
 // nopFile silently accepts and discards writes. Used for macOS metadata
-// files (._*, .DS_Store) so Finder doesn't abort the whole drag-and-drop.
+// files (._*, .DS_Store) and unsupported file types (.pdf, .txt, .docx, etc.)
+// so Finder doesn't abort batch drag-and-drop operations.
 type nopFile struct {
 	name    string
 	modTime time.Time
@@ -209,7 +210,11 @@ func (f *nopFile) Read([]byte) (int, error)       { return 0, io.EOF }
 func (f *nopFile) Write(p []byte) (int, error)    { return len(p), nil }
 func (f *nopFile) Seek(int64, int) (int64, error) { return 0, nil }
 func (f *nopFile) Close() error {
-	slog.Debug("webdav: discarded OS metadata file", "path", f.name)
+	if isOSMetadataFile(f.name) {
+		slog.Debug("webdav: discarded OS metadata file", "path", f.name)
+	} else {
+		slog.Info("webdav: discarded unsupported file", "path", f.name)
+	}
 	return nil
 }
 func (f *nopFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
