@@ -31,6 +31,10 @@ type Model struct {
 	pendingApproval *StreamEvent
 	errMsg          string
 
+	// Token usage (cumulative across messages)
+	tokenInput  int64
+	tokenOutput int64
+
 	// Rendering
 	renderer      *glamour.TermRenderer
 	rendererWidth int
@@ -139,8 +143,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.conversationID = msg.conv.ID
 		m.ready = true
-		banner := headerStyle.Render("knowhow") + " " +
-			statusStyle.Render("vault:"+m.vaultID)
+		banner := headerStyle.Render("knowhow")
 		return m, tea.Batch(tea.Println(banner), m.tryFocus())
 
 	case streamEventMsg:
@@ -177,6 +180,9 @@ func (m Model) View() tea.View {
 		} else {
 			content.WriteString(statusStyle.Render("Creating conversation..."))
 		}
+		// Pad to same height as the ready view so the managed region
+		// doesn't grow on transition and eat previous terminal output.
+		content.WriteString("\n\n")
 		return tea.NewView(content.String())
 	}
 
@@ -202,6 +208,8 @@ func (m Model) View() tea.View {
 
 	// Input always visible
 	content.WriteString(m.input.View())
+	content.WriteString("\n\n")
+	content.WriteString(renderStatusBar(m.tokenInput, m.tokenOutput, m.vaultID, m.width))
 
 	return tea.NewView(content.String())
 }
@@ -359,6 +367,8 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		cmd := m.finalizeStream()
 		return m, tea.Batch(cmd, nextCmd)
 	case "msg_end":
+		m.tokenInput += msg.event.InputTokens
+		m.tokenOutput += msg.event.OutputTokens
 		cmd := m.finalizeStream()
 		return m, tea.Batch(cmd, nextCmd)
 	}

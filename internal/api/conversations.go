@@ -222,11 +222,13 @@ func conversationFromModel(c *models.Conversation) Conversation {
 		vaultID = fmt.Sprintf("%v", c.Vault.ID)
 	}
 	return Conversation{
-		ID:        id,
-		VaultID:   vaultID,
-		Title:     c.Title,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		ID:          id,
+		VaultID:     vaultID,
+		Title:       c.Title,
+		TokenInput:  c.TokenInput,
+		TokenOutput: c.TokenOutput,
+		CreatedAt:   c.CreatedAt,
+		UpdatedAt:   c.UpdatedAt,
 	}
 }
 

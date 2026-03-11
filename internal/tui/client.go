@@ -39,12 +39,14 @@ func (c *Client) CreateConversation(ctx context.Context, vaultID string) (*api.C
 // StreamEvent represents a server-sent event from the agent chat endpoint.
 // Field names and types must match the server's agent.StreamEvent JSON output.
 type StreamEvent struct {
-	Type    string `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_end" | "conv_id" | "error"
-	Content string `json:"content,omitempty"`
-	ConvID  string `json:"convId,omitempty"`
-	Tool    string `json:"tool,omitempty"`
-	CallID  string `json:"callId,omitempty"`
-	Diff    string `json:"diff,omitempty"`
+	Type         string `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_end" | "conv_id" | "error"
+	Content      string `json:"content,omitempty"`
+	ConvID       string `json:"convId,omitempty"`
+	Tool         string `json:"tool,omitempty"`
+	CallID       string `json:"callId,omitempty"`
+	Diff         string `json:"diff,omitempty"`
+	InputTokens  int64  `json:"inputTokens,omitempty"`
+	OutputTokens int64  `json:"outputTokens,omitempty"`
 }
 
 // Chat sends a message and returns a channel of SSE events.

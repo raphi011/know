@@ -36,7 +36,7 @@ func TestGenerateStreamWithTools_TextOnly(t *testing.T) {
 	m := &Model{chatModel: mock, modelName: "test"}
 
 	var got []string
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "hi"}},
 		nil,
@@ -92,7 +92,7 @@ func TestGenerateStreamWithTools_WithToolCall(t *testing.T) {
 	var tokens []string
 	var toolCallNames []string
 
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "search golang"}},
 		[]*schema.ToolInfo{{Name: "search"}},
@@ -207,7 +207,7 @@ func TestGenerateStreamWithTools_WithFragmentedToolCall(t *testing.T) {
 	var tokens []string
 	var toolCalls []schema.ToolCall
 
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "search and list"}},
 		[]*schema.ToolInfo{{Name: "search"}, {Name: "list_folders"}},
@@ -290,7 +290,7 @@ func TestGenerateStreamWithTools_EmptyStream(t *testing.T) {
 
 	m := &Model{chatModel: mock, modelName: "test"}
 
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "hi"}},
 		nil,
@@ -318,7 +318,7 @@ func TestGenerateStreamWithTools_MergeError(t *testing.T) {
 
 	m := &Model{chatModel: mock, modelName: "test"}
 
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "hi"}},
 		nil,
@@ -372,7 +372,7 @@ func TestGenerateStreamWithTools_ToolErrorUseMergedID(t *testing.T) {
 
 	m := &Model{chatModel: mock, modelName: "test"}
 
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "test"}},
 		[]*schema.ToolInfo{{Name: "search"}},
@@ -445,7 +445,7 @@ func TestGenerateStreamWithTools_InterleavedTextAndToolCalls(t *testing.T) {
 	var tokens []string
 	var toolCalls []schema.ToolCall
 
-	err := m.GenerateStreamWithTools(
+	_, err := m.GenerateStreamWithTools(
 		context.Background(),
 		[]*schema.Message{{Role: schema.User, Content: "search"}},
 		[]*schema.ToolInfo{{Name: "search"}},

@@ -526,19 +526,27 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	return nil
 }
 
+// TokenUsage holds cumulative token counts from an agentic generation run.
+type TokenUsage struct {
+	InputTokens  int64
+	OutputTokens int64
+}
+
 // GenerateStreamWithTools runs an agentic loop: stream LLM output, invoke tools when requested,
 // and continue until the model produces a final text response or the iteration limit is reached.
 //
 // onToken is called for each streamed text chunk. onToolCall is called for each tool invocation
 // and must return the tool result string. If onToolCall is nil and a tool call is received, an
 // error is returned.
+//
+// Returns cumulative token usage across all iterations.
 func (m *Model) GenerateStreamWithTools(
 	ctx context.Context,
 	messages []*schema.Message,
 	tools []*schema.ToolInfo,
 	onToken func(token string) error,
 	onToolCall func(call schema.ToolCall) (string, error),
-) error {
+) (TokenUsage, error) {
 	opts := []model.Option{model.WithMaxTokens(8192)}
 	if len(tools) > 0 {
 		opts = append(opts, model.WithTools(tools))
@@ -548,11 +556,13 @@ func (m *Model) GenerateStreamWithTools(
 	msgs := make([]*schema.Message, len(messages))
 	copy(msgs, messages)
 
+	var usage TokenUsage
+
 	const maxIterations = 10
 	for i := range maxIterations {
 		sr, err := m.chatModel.Stream(ctx, msgs, opts...)
 		if err != nil {
-			return wrapFatalError(fmt.Errorf("generate stream with tools (iteration %d): %w", i, err))
+			return usage, wrapFatalError(fmt.Errorf("generate stream with tools (iteration %d): %w", i, err))
 		}
 
 		var allMsgs []*schema.Message
@@ -564,12 +574,12 @@ func (m *Model) GenerateStreamWithTools(
 			}
 			if recvErr != nil {
 				sr.Close()
-				return wrapFatalError(fmt.Errorf("generate stream with tools recv (iteration %d): %w", i, recvErr))
+				return usage, wrapFatalError(fmt.Errorf("generate stream with tools recv (iteration %d): %w", i, recvErr))
 			}
 			if msg.Content != "" {
 				if tokenErr := onToken(msg.Content); tokenErr != nil {
 					sr.Close()
-					return fmt.Errorf("streaming token callback: %w", tokenErr)
+					return usage, fmt.Errorf("streaming token callback: %w", tokenErr)
 				}
 			}
 			allMsgs = append(allMsgs, msg)
@@ -577,7 +587,7 @@ func (m *Model) GenerateStreamWithTools(
 		sr.Close()
 
 		if len(allMsgs) == 0 {
-			return fmt.Errorf("generate stream with tools (iteration %d): model returned empty stream", i)
+			return usage, fmt.Errorf("generate stream with tools (iteration %d): model returned empty stream", i)
 		}
 
 		// Merge all streaming fragments into a single message.
@@ -586,16 +596,25 @@ func (m *Model) GenerateStreamWithTools(
 		// (partial JSON args). ConcatMessages merges these by ToolCall.Index.
 		merged, mergeErr := schema.ConcatMessages(allMsgs)
 		if mergeErr != nil {
-			return fmt.Errorf("generate stream with tools merge (iteration %d): %w", i, mergeErr)
+			return usage, fmt.Errorf("generate stream with tools merge (iteration %d): %w", i, mergeErr)
+		}
+
+		// Extract token usage from the last streamed message (carries ResponseMeta).
+		if last := allMsgs[len(allMsgs)-1]; last.ResponseMeta != nil && last.ResponseMeta.Usage != nil {
+			usage.InputTokens += int64(last.ResponseMeta.Usage.PromptTokens)
+			usage.OutputTokens += int64(last.ResponseMeta.Usage.CompletionTokens)
 		}
 
 		// No tool calls — model produced a final answer.
 		if len(merged.ToolCalls) == 0 {
-			return nil
+			if m.metrics != nil {
+				m.metrics.RecordLLMUsage(metrics.OpLLMStream, 0, usage.InputTokens, usage.OutputTokens)
+			}
+			return usage, nil
 		}
 
 		if onToolCall == nil {
-			return fmt.Errorf("model requested tool call but onToolCall is nil")
+			return usage, fmt.Errorf("model requested tool call but onToolCall is nil")
 		}
 
 		// Append assistant turn with the tool calls.
@@ -615,7 +634,7 @@ func (m *Model) GenerateStreamWithTools(
 		}
 	}
 
-	return fmt.Errorf("generate stream with tools: exceeded maximum iterations (%d)", maxIterations)
+	return usage, fmt.Errorf("generate stream with tools: exceeded maximum iterations (%d)", maxIterations)
 }
 
 // ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).

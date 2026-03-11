@@ -56,6 +56,10 @@ var (
 			Foreground(errorColor).
 			Bold(true)
 
+	// Status bar detail style (below prompt)
+	statusBarDetailStyle = lipgloss.NewStyle().
+				Foreground(mutedColor)
+
 	// Error message style
 	errorMsgStyle = lipgloss.NewStyle().
 			Foreground(errorColor)

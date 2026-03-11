@@ -80,6 +80,19 @@ func (c *Client) DeleteConversation(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *Client) UpdateConversationTokens(ctx context.Context, id string, inputTokens, outputTokens int64) error {
+	sql := `UPDATE type::record("conversation", $id) SET token_input += $input, token_output += $output`
+	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
+		"id":     bareID("conversation", id),
+		"input":  inputTokens,
+		"output": outputTokens,
+	})
+	if err != nil {
+		return fmt.Errorf("update conversation tokens: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput, toolMeta, toolCallID, toolCalls *string) (*models.Message, error) {
 	if docRefs == nil {
 		docRefs = []string{}

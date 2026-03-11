@@ -18,12 +18,14 @@ const (
 
 // Conversation represents a multi-turn agent chat session.
 type Conversation struct {
-	ID        surrealmodels.RecordID `json:"id"`
-	Vault     surrealmodels.RecordID `json:"vault"`
-	User      surrealmodels.RecordID `json:"user"`
-	Title     string                 `json:"title"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	ID          surrealmodels.RecordID `json:"id"`
+	Vault       surrealmodels.RecordID `json:"vault"`
+	User        surrealmodels.RecordID `json:"user"`
+	Title       string                 `json:"title"`
+	TokenInput  int64                  `json:"token_input"`
+	TokenOutput int64                  `json:"token_output"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 // Message represents a single message in a conversation.
