@@ -1,14 +1,19 @@
 package webdav
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/net/webdav"
 
 	"github.com/raphi011/knowhow/internal/asset"
@@ -19,11 +24,36 @@ import (
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
+// vaultMap is a lazily-initialized, concurrent-safe per-vault store.
+type vaultMap[T any] struct {
+	m     sync.Map
+	newFn func() T
+}
+
+func newVaultMap[T any](newFn func() T) *vaultMap[T] {
+	return &vaultMap[T]{newFn: newFn}
+}
+
+func (vm *vaultMap[T]) Get(vaultID string) T {
+	if v, ok := vm.m.Load(vaultID); ok {
+		return v.(T)
+	}
+	v, _ := vm.m.LoadOrStore(vaultID, vm.newFn())
+	return v.(T)
+}
+
+func (vm *vaultMap[T]) Range(fn func(vaultID string, v T) bool) {
+	vm.m.Range(func(key, value any) bool {
+		return fn(key.(string), value.(T))
+	})
+}
+
 // NewHandler creates an http.Handler that serves WebDAV for vault documents.
 // The path prefix is stripped from incoming requests (e.g. "/dav/default/").
 // Auth uses HTTP Basic Auth where the password is a knowhow API token.
 // maxPutBytes limits the size of PUT request bodies (0 = no limit).
 func NewHandler(
+	ctx context.Context,
 	pathPrefix string,
 	dbClient *db.Client,
 	docService *document.Service,
@@ -33,15 +63,29 @@ func NewHandler(
 	maxPutBytes int64,
 ) http.Handler {
 	// Per-vault lock systems to isolate WebDAV locks across vaults.
-	var lockSystems sync.Map // vaultID → webdav.LockSystem
+	lockSystems := newVaultMap(func() webdav.LockSystem { return webdav.NewMemLS() })
 
-	getLockSystem := func(vaultID string) webdav.LockSystem {
-		if ls, ok := lockSystems.Load(vaultID); ok {
-			return ls.(webdav.LockSystem)
+	// Per-vault pending sets track files claimed by Finder's two-phase PUT
+	// but not yet written with real content. Prevents ghost empty documents.
+	pendingSets := newVaultMap(func() *pendingSet { return newPendingSet() })
+
+	// Background goroutine sweeps expired pending entries every 30s.
+	// Stops when ctx is cancelled (server shutdown).
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pendingSets.Range(func(_ string, ps *pendingSet) bool {
+					ps.Sweep(60 * time.Second)
+					return true
+				})
+			}
 		}
-		ls, _ := lockSystems.LoadOrStore(vaultID, webdav.NewMemLS())
-		return ls.(webdav.LockSystem)
-	}
+	}()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always advertise WebDAV compliance so clients (e.g. macOS Finder)
@@ -73,9 +117,7 @@ func NewHandler(
 				_, _ = io.Copy(io.Discard, r.Body)
 				w.WriteHeader(http.StatusCreated)
 			case "LOCK":
-				// Reject lock on metadata files — returning 423 tells clients
-				// locking is not available, which they handle gracefully.
-				w.WriteHeader(http.StatusLocked)
+				writeOSMetadataLockResponse(w, filePath)
 			case "UNLOCK", http.MethodDelete:
 				w.WriteHeader(http.StatusNoContent)
 			default:
@@ -139,10 +181,10 @@ func NewHandler(
 		}
 
 		// Create per-request WebDAV handler with the resolved vault
-		davFS := NewFS(vaultID, dbClient, docService, assetSvc, vaultSvc)
+		davFS := NewFS(vaultID, dbClient, docService, assetSvc, vaultSvc, pendingSets.Get(vaultID))
 		davHandler := &webdav.Handler{
 			FileSystem: davFS,
-			LockSystem: getLockSystem(vaultID),
+			LockSystem: lockSystems.Get(vaultID),
 			Prefix:     pathPrefix + vaultName,
 			Logger: func(r *http.Request, err error) {
 				if err == nil {
@@ -173,4 +215,31 @@ func isWriteMethod(method string) bool {
 		return true
 	}
 	return false
+}
+
+// writeOSMetadataLockResponse writes a valid 200 LOCK response with a fake lock
+// token for OS metadata files. This prevents macOS Finder from aborting the entire
+// copy operation with an "item is in use" error when it tries to LOCK .DS_Store.
+func writeOSMetadataLockResponse(w http.ResponseWriter, filePath string) {
+	token := "opaquelocktoken:" + uuid.NewString()
+	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+<D:prop xmlns:D="DAV:">
+  <D:lockdiscovery>
+    <D:activelock>
+      <D:locktype><D:write/></D:locktype>
+      <D:lockscope><D:exclusive/></D:lockscope>
+      <D:depth>0</D:depth>
+      <D:owner><D:href>finder</D:href></D:owner>
+      <D:timeout>Second-60</D:timeout>
+      <D:locktoken><D:href>%s</D:href></D:locktoken>
+      <D:lockroot><D:href>%s</D:href></D:lockroot>
+    </D:activelock>
+  </D:lockdiscovery>
+</D:prop>`, token, html.EscapeString(filePath))
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Lock-Token", "<"+token+">")
+	w.WriteHeader(http.StatusOK)
+	// Write error is harmless: response is best-effort for OS metadata files.
+	_, _ = io.WriteString(w, body)
 }

@@ -91,6 +91,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}
 	}()
 
+	// serverCtx is cancelled on shutdown to stop background goroutines
+	// (e.g. WebDAV pending sweep).
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+
 	// Listen for SIGHUP to reload LLM config from .env
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)
@@ -147,6 +152,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// WebDAV endpoint for document editing with any editor
 	var davHandler http.Handler = knowhowdav.NewHandler(
+		serverCtx,
 		"/dav/",
 		app.DBClient(),
 		app.DocumentService(),
@@ -208,7 +214,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 

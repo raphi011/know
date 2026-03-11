@@ -1,6 +1,7 @@
 package webdav
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,7 +10,7 @@ import (
 func TestHandler_OSMetadataFastPath(t *testing.T) {
 	// Handler with nil dependencies — if the fast path works,
 	// these are never touched and we don't panic.
-	handler := NewHandler("/dav/", nil, nil, nil, nil, true, 0)
+	handler := NewHandler(context.Background(), "/dav/", nil, nil, nil, nil, true, 0)
 
 	tests := []struct {
 		method string
@@ -25,8 +26,8 @@ func TestHandler_OSMetadataFastPath(t *testing.T) {
 		// PUT on ._ files should return 201 (accepted, discarded)
 		{"PUT", "/dav/somevault/._file.md", http.StatusCreated},
 		{"PUT", "/dav/somevault/.DS_Store", http.StatusCreated},
-		// LOCK on ._ files should return 423 (rejected)
-		{"LOCK", "/dav/somevault/._file.md", http.StatusLocked},
+		// LOCK on ._ files should return 200 with fake lock token
+		{"LOCK", "/dav/somevault/._file.md", http.StatusOK},
 		// UNLOCK on ._ files should return 204
 		{"UNLOCK", "/dav/somevault/._file.md", http.StatusNoContent},
 		// DELETE on ._ files should return 204
@@ -43,12 +44,25 @@ func TestHandler_OSMetadataFastPath(t *testing.T) {
 			}
 		})
 	}
+
+	// Verify LOCK returns Lock-Token header
+	t.Run("LOCK Lock-Token header", func(t *testing.T) {
+		req := httptest.NewRequest("LOCK", "/dav/somevault/.DS_Store", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d, want 200", rec.Code)
+		}
+		if rec.Header().Get("Lock-Token") == "" {
+			t.Error("expected Lock-Token header in LOCK response")
+		}
+	})
 }
 
 func TestHandler_RealFilesNotShortCircuited(t *testing.T) {
 	// A request for a real .md file with nil deps should panic,
 	// proving the fast path did NOT intercept it.
-	handler := NewHandler("/dav/", nil, nil, nil, nil, true, 0)
+	handler := NewHandler(context.Background(), "/dav/", nil, nil, nil, nil, true, 0)
 	req := httptest.NewRequest("PROPFIND", "/dav/somevault/readme.md", nil)
 	rec := httptest.NewRecorder()
 
