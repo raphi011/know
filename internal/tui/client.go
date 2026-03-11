@@ -29,44 +29,11 @@ func NewClient(baseURL, token string) *Client {
 	}
 }
 
-// ListConversations fetches conversations for a vault.
-func (c *Client) ListConversations(ctx context.Context, vaultID string) ([]api.Conversation, error) {
-	var convs []api.Conversation
-	err := c.rest.Get(ctx, "/api/conversations?vault="+vaultID, &convs)
-	return convs, err
-}
-
-// GetConversation fetches a conversation with messages.
-func (c *Client) GetConversation(ctx context.Context, id string) (*api.Conversation, error) {
-	var conv api.Conversation
-	err := c.rest.Get(ctx, "/api/conversations/"+id, &conv)
-	return &conv, err
-}
-
 // CreateConversation creates a new conversation in a vault.
 func (c *Client) CreateConversation(ctx context.Context, vaultID string) (*api.Conversation, error) {
 	var conv api.Conversation
 	err := c.rest.Post(ctx, "/api/conversations", map[string]string{"vaultId": vaultID}, &conv)
 	return &conv, err
-}
-
-// DeleteConversation deletes a conversation.
-func (c *Client) DeleteConversation(ctx context.Context, id string) error {
-	return c.rest.Delete(ctx, "/api/conversations/"+id)
-}
-
-// RenameConversation renames a conversation.
-func (c *Client) RenameConversation(ctx context.Context, id, title string) (*api.Conversation, error) {
-	var conv api.Conversation
-	err := c.rest.Patch(ctx, "/api/conversations/"+id, map[string]string{"title": title}, &conv)
-	return &conv, err
-}
-
-// ListVaults fetches accessible vaults.
-func (c *Client) ListVaults(ctx context.Context) ([]api.Vault, error) {
-	var vaults []api.Vault
-	err := c.rest.Get(ctx, "/api/vaults", &vaults)
-	return vaults, err
 }
 
 // StreamEvent represents a server-sent event from the agent chat endpoint.

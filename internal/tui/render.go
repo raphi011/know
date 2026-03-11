@@ -23,7 +23,7 @@ type ToolStatus int
 const (
 	ToolRunning  ToolStatus = iota // Tool is currently executing
 	ToolComplete                   // Tool finished successfully
-	ToolFailed                     // Tool execution failed
+	ToolFailed                     // Tool execution failed (reserved — not yet emitted by server)
 )
 
 // ContentPart represents one segment of a streaming response.
@@ -45,7 +45,7 @@ func renderMarkdown(renderer *glamour.TermRenderer, content string) string {
 	}
 	rendered, err := renderer.Render(content)
 	if err != nil {
-		slog.Debug("markdown render failed, using raw content", "error", err)
+		slog.Debug("markdown render failed, using raw content", "error", err, "contentLen", len(content))
 		return content
 	}
 	return strings.TrimSpace(rendered)
@@ -65,20 +65,8 @@ func renderToolStatus(p ContentPart) string {
 	}
 }
 
-// renderStreamParts renders the current streaming content (text + tool calls + errors)
-// plus the approval prompt if pending. Used for the live managed region during streaming.
-func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, pending *StreamEvent, width int) string {
-	if len(parts) == 0 && pending == nil {
-		return ""
-	}
-
-	var sb strings.Builder
-
-	if len(parts) > 0 {
-		sb.WriteString(assistantRoleStyle.Render("assistant"))
-		sb.WriteString("\n")
-	}
-
+// renderParts renders a sequence of content parts (text, tool calls, errors).
+func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []ContentPart) {
 	for _, p := range parts {
 		switch p.Type {
 		case PartText:
@@ -91,6 +79,22 @@ func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, pend
 			sb.WriteString(errorMsgStyle.Render("Error: " + p.Content))
 			sb.WriteString("\n")
 		}
+	}
+}
+
+// renderStreamParts renders the current streaming content (text + tool calls + errors)
+// plus the approval prompt if pending. Used for the live managed region during streaming.
+func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, pending *StreamEvent, width int) string {
+	if len(parts) == 0 && pending == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	if len(parts) > 0 {
+		sb.WriteString(assistantRoleStyle.Render("assistant"))
+		sb.WriteString("\n")
+		renderParts(&sb, renderer, parts)
 	}
 
 	if pending != nil {
@@ -116,21 +120,7 @@ func renderAssistantMessage(renderer *glamour.TermRenderer, parts []ContentPart)
 	var sb strings.Builder
 	sb.WriteString(assistantRoleStyle.Render("assistant"))
 	sb.WriteString("\n")
-
-	for _, p := range parts {
-		switch p.Type {
-		case PartText:
-			rendered := renderMarkdown(renderer, p.Content)
-			sb.WriteString(assistantMsgStyle.Render(rendered))
-		case PartToolCall:
-			sb.WriteString(renderToolStatus(p))
-			sb.WriteString("\n")
-		case PartError:
-			sb.WriteString(errorMsgStyle.Render("Error: " + p.Content))
-			sb.WriteString("\n")
-		}
-	}
-
+	renderParts(&sb, renderer, parts)
 	return sb.String()
 }
 

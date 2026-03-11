@@ -32,13 +32,14 @@ type Model struct {
 	// Rendering
 	renderer      *glamour.TermRenderer
 	rendererWidth int
+	glamourStyle  string // "dark" or "light" — detected before p.Run()
 	width         int
 
 	// Lifecycle
-	ctx      context.Context
-	cancel   context.CancelFunc
-	focusCmd tea.Cmd // cursor blink cmd from textinput.Focus()
-	ready    bool    // true after conversation created
+	ctx       context.Context
+	cancel    context.CancelFunc
+	termReady bool // true after first WindowSizeMsg (terminal setup done)
+	ready     bool // true after conversation created
 }
 
 // conversationCreatedMsg is sent when a new conversation is created on startup.
@@ -60,19 +61,24 @@ type approvalSentMsg struct {
 	err error
 }
 
-// NewModel creates a new TUI model. The caller should defer model.Close()
-// to cancel in-flight requests on quit.
-func NewModel(client *Client, vaultID string) Model {
+// NewModel creates a new TUI model. isDark should be detected before bubbletea
+// starts (e.g. via lipgloss.HasDarkBackground) to avoid racing with bubbletea's
+// terminal reader. The caller should defer model.Close().
+func NewModel(client *Client, vaultID string, isDark bool) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ti := textinput.New()
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
 	ti.Prompt = inputPromptStyle.Render("> ")
-	focusCmd := ti.Focus()
+
+	glamourStyle := "light"
+	if isDark {
+		glamourStyle = "dark"
+	}
 
 	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(glamourStyle),
 		glamour.WithWordWrap(0),
 	)
 	if err != nil {
@@ -80,13 +86,13 @@ func NewModel(client *Client, vaultID string) Model {
 	}
 
 	return Model{
-		client:   client,
-		vaultID:  vaultID,
-		input:    ti,
-		renderer: r,
-		ctx:      ctx,
-		cancel:   cancel,
-		focusCmd: focusCmd,
+		client:       client,
+		vaultID:      vaultID,
+		input:        ti,
+		renderer:     r,
+		glamourStyle: glamourStyle,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
@@ -96,10 +102,7 @@ func (m *Model) Close() {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		m.createConversation(),
-		m.focusCmd,
-	)
+	return m.createConversation()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -108,6 +111,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.updateRenderer()
 		m.input.SetWidth(msg.Width - 4)
+		if !m.termReady {
+			m.termReady = true
+			return m, m.tryFocus()
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -123,7 +130,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		banner := headerStyle.Render("knowhow") + " " +
 			statusStyle.Render("vault:"+m.vaultID)
-		return m, tea.Println(banner)
+		return m, tea.Batch(tea.Println(banner), m.tryFocus())
 
 	case streamEventMsg:
 		return m.handleStreamEvent(msg)
@@ -131,6 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approvalSentMsg:
 		if msg.err != nil {
 			m.errMsg = fmt.Sprintf("Approval failed: %v", msg.err)
+			slog.Warn("approval failed", "conversationID", m.conversationID, "error", msg.err)
 		}
 		return m, nil
 	}
@@ -145,7 +153,11 @@ func (m Model) View() tea.View {
 	var content strings.Builder
 
 	if !m.ready {
-		content.WriteString(statusStyle.Render("Creating conversation..."))
+		if m.errMsg != "" {
+			content.WriteString(errorMsgStyle.Render(m.errMsg))
+		} else {
+			content.WriteString(statusStyle.Render("Creating conversation..."))
+		}
 		return tea.NewView(content.String())
 	}
 
@@ -172,11 +184,6 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// Clear error on any keypress
-	if m.errMsg != "" {
-		m.errMsg = ""
-	}
-
 	// Global quit
 	if key.Matches(msg, keys.Quit) {
 		m.cancel()
@@ -193,21 +200,18 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Two-phase ESC: clear input first
+	// ESC clears input text; no-op if already empty
 	if key.Matches(msg, keys.Escape) {
 		if m.input.Value() != "" {
 			m.input.SetValue("")
-			return m, nil
 		}
 		return m, nil
 	}
 
 	// Send message
 	if key.Matches(msg, keys.Send) {
-		if cmd := m.sendMessage(); cmd != nil {
-			return m, cmd
-		}
-		return m, nil
+		m.errMsg = ""
+		return m, m.sendMessage()
 	}
 
 	// Pass to text input
@@ -294,7 +298,7 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	// Handle error events before checking done — when Chat() fails,
 	// the message has both an error and done=true.
 	if msg.event.Type == "error" {
-		m.errMsg = msg.event.Content
+		slog.Warn("stream error", "conversationID", m.conversationID, "error", msg.event.Content)
 	}
 
 	if msg.done {
@@ -388,16 +392,27 @@ func (m *Model) finalizeStream() tea.Cmd {
 	return tea.Println(rendered)
 }
 
+// tryFocus focuses the text input once both terminal setup and conversation
+// creation are done. This avoids capturing terminal query responses as input.
+func (m *Model) tryFocus() tea.Cmd {
+	if m.termReady && m.ready {
+		return m.input.Focus()
+	}
+	return nil
+}
+
 // updateRenderer recreates the glamour renderer when terminal width changes.
+// Uses the pre-detected glamourStyle to avoid direct TTY reads that would
+// race with bubbletea's TerminalReader.
 func (m *Model) updateRenderer() {
 	wrapWidth := m.width - 4
 	if wrapWidth > 0 && wrapWidth != m.rendererWidth {
 		r, err := glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			glamour.WithStandardStyle(m.glamourStyle),
 			glamour.WithWordWrap(wrapWidth),
 		)
 		if err != nil {
-			slog.Debug("glamour renderer re-creation failed on resize", "error", err)
+			slog.Warn("glamour renderer re-creation failed on resize", "width", wrapWidth, "error", err)
 		} else {
 			m.renderer = r
 			m.rendererWidth = wrapWidth
