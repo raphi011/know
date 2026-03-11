@@ -141,6 +141,35 @@ func TestIsUnsupportedFile(t *testing.T) {
 	}
 }
 
+func TestIsNonStoredFile(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		// OS metadata — non-stored
+		{"/notes/._file.md", true},
+		{"/.DS_Store", true},
+		// Unsupported file types — non-stored
+		{"/docs/document.pdf", true},
+		{"/docs/readme.txt", true},
+		// Markdown files — stored
+		{"/notes/readme.md", false},
+		// Image files — stored
+		{"/images/photo.png", false},
+		// No extension — likely a directory, stored
+		{"/notes", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isNonStoredFile(tt.name)
+			if got != tt.want {
+				t.Errorf("isNonStoredFile(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNopFile(t *testing.T) {
 	f := newNopFile("/notes/._foo.md")
 

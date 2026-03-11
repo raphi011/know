@@ -555,10 +555,7 @@ func (m *Model) GenerateStreamWithTools(
 			return wrapFatalError(fmt.Errorf("generate stream with tools (iteration %d): %w", i, err))
 		}
 
-		var (
-			textBuilder strings.Builder
-			toolCalls   []schema.ToolCall
-		)
+		var allMsgs []*schema.Message
 
 		for {
 			msg, recvErr := sr.Recv()
@@ -570,18 +567,30 @@ func (m *Model) GenerateStreamWithTools(
 				return wrapFatalError(fmt.Errorf("generate stream with tools recv (iteration %d): %w", i, recvErr))
 			}
 			if msg.Content != "" {
-				textBuilder.WriteString(msg.Content)
 				if tokenErr := onToken(msg.Content); tokenErr != nil {
 					sr.Close()
 					return fmt.Errorf("streaming token callback: %w", tokenErr)
 				}
 			}
-			toolCalls = append(toolCalls, msg.ToolCalls...)
+			allMsgs = append(allMsgs, msg)
 		}
 		sr.Close()
 
+		if len(allMsgs) == 0 {
+			return fmt.Errorf("generate stream with tools (iteration %d): model returned empty stream", i)
+		}
+
+		// Merge all streaming fragments into a single message.
+		// The eino claude adapter emits tool calls as separate chunks:
+		// ContentBlockStart (ID + name) followed by ContentBlockDeltas
+		// (partial JSON args). ConcatMessages merges these by ToolCall.Index.
+		merged, mergeErr := schema.ConcatMessages(allMsgs)
+		if mergeErr != nil {
+			return fmt.Errorf("generate stream with tools merge (iteration %d): %w", i, mergeErr)
+		}
+
 		// No tool calls — model produced a final answer.
-		if len(toolCalls) == 0 {
+		if len(merged.ToolCalls) == 0 {
 			return nil
 		}
 
@@ -590,10 +599,10 @@ func (m *Model) GenerateStreamWithTools(
 		}
 
 		// Append assistant turn with the tool calls.
-		msgs = append(msgs, schema.AssistantMessage(textBuilder.String(), toolCalls))
+		msgs = append(msgs, schema.AssistantMessage(merged.Content, merged.ToolCalls))
 
 		// Execute each tool and append results.
-		for _, tc := range toolCalls {
+		for _, tc := range merged.ToolCalls {
 			result, toolErr := onToolCall(tc)
 			if toolErr != nil {
 				msgs = append(msgs, schema.ToolMessage(fmt.Sprintf("error: %v", toolErr), tc.ID))
