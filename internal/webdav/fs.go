@@ -156,7 +156,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now(), true, f.pending), nil
 		}
 		if !isMarkdownFile(name) {
-			return nil, errNotMarkdown
+			return newNopFile(name), nil
 		}
 		return newWriteFile(name, f.vaultID, f.docService, nil, time.Now(), true, f.pending), nil
 	}
@@ -171,8 +171,8 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		return fmt.Errorf("cannot remove root directory")
 	}
 
-	// macOS metadata files are never stored — nothing to remove
-	if isOSMetadataFile(name) {
+	// OS metadata and unsupported file types are never stored — nothing to remove
+	if isOSMetadataFile(name) || isUnsupportedFile(name) {
 		return nil
 	}
 
@@ -233,8 +233,10 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 	oldName = normalizeName(oldName)
 	newName = normalizeName(newName)
 
-	// macOS metadata files are never stored — nothing to rename
-	if isOSMetadataFile(oldName) {
+	// OS metadata and unsupported file types are never stored — nothing to rename.
+	// Note: only oldName is checked. Renaming a supported file *to* an unsupported
+	// extension is caught later by errNotMarkdown, protecting data integrity.
+	if isOSMetadataFile(oldName) || isUnsupportedFile(oldName) {
 		return nil
 	}
 
@@ -301,8 +303,8 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 		return &fileInfo{name: "/", isDir: true, modTime: time.Now()}, nil
 	}
 
-	// macOS metadata files are never stored — always report not found
-	if isOSMetadataFile(name) {
+	// OS metadata and unsupported file types are never stored — always report not found
+	if isOSMetadataFile(name) || isUnsupportedFile(name) {
 		return nil, os.ErrNotExist
 	}
 
@@ -503,6 +505,15 @@ func isOSMetadataFile(name string) bool {
 
 // errNotMarkdown is returned when a non-markdown, non-image file is created or renamed to.
 var errNotMarkdown = fmt.Errorf("only markdown (.md) and image files are allowed: %w", os.ErrPermission)
+
+// isUnsupportedFile returns true for files that are neither markdown, image,
+// nor OS metadata. Extensionless paths are excluded (likely directories).
+func isUnsupportedFile(name string) bool {
+	if path.Ext(name) == "" {
+		return false
+	}
+	return !isMarkdownFile(name) && !models.IsImageFile(name) && !isOSMetadataFile(name)
+}
 
 // normalizeName cleans up a WebDAV path to match our internal path format.
 func normalizeName(name string) string {

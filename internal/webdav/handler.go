@@ -101,13 +101,14 @@ func NewHandler(
 		}
 		vaultName := parts[0]
 
-		// Fast-path: short-circuit OS metadata files (._*, .DS_Store) before auth.
-		// The majority of Finder's requests are OS metadata files that never touch real data.
+		// Fast-path: short-circuit OS metadata files (._*, .DS_Store) and unsupported
+		// file types (.pdf, .txt, .docx, etc.) before auth. These files are never stored,
+		// so we return canned responses to prevent macOS Finder from aborting batch copies.
 		filePath := ""
 		if len(parts) > 1 {
 			filePath = "/" + parts[1]
 		}
-		if filePath != "" && isOSMetadataFile(filePath) {
+		if filePath != "" && (isOSMetadataFile(filePath) || isUnsupportedFile(filePath)) {
 			switch r.Method {
 			case "PROPFIND", http.MethodGet, http.MethodHead:
 				http.Error(w, "not found", http.StatusNotFound)
@@ -115,9 +116,12 @@ func NewHandler(
 				// Drain body so connection stays clean for keep-alive.
 				// Error is harmless: body is discarded and connection may just close.
 				_, _ = io.Copy(io.Discard, r.Body)
+				if isUnsupportedFile(filePath) {
+					slog.Info("webdav: discarded unsupported file", "path", filePath)
+				}
 				w.WriteHeader(http.StatusCreated)
 			case "LOCK":
-				writeOSMetadataLockResponse(w, filePath)
+				writeFakeLockResponse(w, filePath)
 			case "UNLOCK", http.MethodDelete:
 				w.WriteHeader(http.StatusNoContent)
 			default:
@@ -217,10 +221,10 @@ func isWriteMethod(method string) bool {
 	return false
 }
 
-// writeOSMetadataLockResponse writes a valid 200 LOCK response with a fake lock
-// token for OS metadata files. This prevents macOS Finder from aborting the entire
-// copy operation with an "item is in use" error when it tries to LOCK .DS_Store.
-func writeOSMetadataLockResponse(w http.ResponseWriter, filePath string) {
+// writeFakeLockResponse writes a valid 200 LOCK response with a fake lock token
+// for files that are silently discarded (OS metadata, unsupported file types).
+// This prevents macOS Finder from aborting the entire copy operation.
+func writeFakeLockResponse(w http.ResponseWriter, filePath string) {
 	token := "opaquelocktoken:" + uuid.NewString()
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <D:prop xmlns:D="DAV:">
@@ -240,6 +244,6 @@ func writeOSMetadataLockResponse(w http.ResponseWriter, filePath string) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Header().Set("Lock-Token", "<"+token+">")
 	w.WriteHeader(http.StatusOK)
-	// Write error is harmless: response is best-effort for OS metadata files.
+	// Write error is harmless: response is best-effort for discarded files.
 	_, _ = io.WriteString(w, body)
 }

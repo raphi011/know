@@ -106,6 +106,41 @@ func TestIsOSMetadataFile(t *testing.T) {
 	}
 }
 
+func TestIsUnsupportedFile(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		// Unsupported file types
+		{"/docs/document.pdf", true},
+		{"/docs/readme.txt", true},
+		{"/docs/report.docx", true},
+		{"/docs/archive.zip", true},
+		// Markdown files — supported
+		{"/notes/readme.md", false},
+		{"/notes/README.MD", false},
+		// Image files — supported
+		{"/images/photo.png", false},
+		{"/images/photo.jpg", false},
+		{"/images/photo.webp", false},
+		// OS metadata files — handled separately
+		{"/notes/._file.md", false},
+		{"/.DS_Store", false},
+		// No extension — likely a directory
+		{"/notes", false},
+		{"/", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isUnsupportedFile(tt.name)
+			if got != tt.want {
+				t.Errorf("isUnsupportedFile(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNopFile(t *testing.T) {
 	f := newNopFile("/notes/._foo.md")
 
