@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -29,6 +29,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger := logutil.FromCtx(ctx)
 	dbClient := s.app.DBClient()
 
 	// Phase 1: Build manifest — collect all paths without content.
@@ -77,7 +78,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if doc == nil {
-			slog.Warn("document deleted since manifest", "path", meta.Path)
+			logger.Warn("document deleted since manifest", "path", meta.Path)
 			continue
 		}
 		if err := writeTarEntry(tw, doc.Path, []byte(doc.Content), doc.UpdatedAt); err != nil {
@@ -93,7 +94,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if asset == nil {
-			slog.Warn("asset deleted since manifest", "path", meta.Path)
+			logger.Warn("asset deleted since manifest", "path", meta.Path)
 			continue
 		}
 		if err := writeTarEntry(tw, asset.Path, asset.Data, asset.UpdatedAt); err != nil {

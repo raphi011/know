@@ -129,6 +129,7 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `GET /api/ls?vault={id}&path={path}&recursive=true` — list files and folders
 - `GET /api/documents?vault={id}&path={path}` — get document by vault+path
 - `POST /api/documents` — create/update document
+- `DELETE /api/documents?vault={id}&path={path}&recursive=true&dry-run=true` — delete document or folder
 - `GET /api/config` — server configuration
 
 Agent endpoints (SSE streaming):
@@ -216,12 +217,12 @@ just dev
 just run cp ./docs / --vault default
 
 # 5. Launch TUI
-just run ui
+just run agent
 ```
 
 ## Bubbletea v2 TUI
 
-The TUI at `internal/tui/` provides agent chat via `knowhow ui`. Use the `bubbletea` subagent for TUI implementation.
+The TUI at `internal/tui/` provides agent chat via `knowhow agent`. Use the `bubbletea` subagent for TUI implementation.
 
 ### Import Paths (v2)
 

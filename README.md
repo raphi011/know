@@ -144,6 +144,25 @@ knowhow delete "old-notes"
 knowhow delete "old-notes" --force
 ```
 
+### Remove Documents
+
+```bash
+# Remove a single document
+knowhow rm /docs/readme.md
+
+# Remove from a specific vault
+knowhow rm /docs/readme.md --vault my-vault
+
+# Preview what would be deleted (dry run)
+knowhow rm /docs/readme.md --dry-run
+
+# Recursively remove a folder and all its contents
+knowhow rm /docs -r
+
+# Dry run recursive delete
+knowhow rm /docs -r --dry-run
+```
+
 ### View Document Content
 
 ```bash

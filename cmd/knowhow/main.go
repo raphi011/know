@@ -63,12 +63,13 @@ func main() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(devCmd)
 	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(uiCmd)
+	rootCmd.AddCommand(agentCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(labelsCmd)
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(catCmd)
+	rootCmd.AddCommand(rmCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
