@@ -238,6 +238,7 @@ func (w *singleWriteResponseWriter) WriteHeader(code int) {
 func (w *singleWriteResponseWriter) Write(b []byte) (int, error) {
 	if !w.wroteHeader {
 		w.wroteHeader = true
+		w.statusCode = http.StatusOK
 		w.ResponseWriter.WriteHeader(http.StatusOK)
 	}
 	return w.ResponseWriter.Write(b)
