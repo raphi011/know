@@ -26,21 +26,23 @@ const markdownContentType = "text/markdown; charset=utf-8"
 
 // FS implements webdav.FileSystem backed by document, asset, and vault services.
 type FS struct {
-	vaultID    string
-	db         *db.Client
-	docService *document.Service
-	assetSvc   *asset.Service
-	vaultSvc   *vault.Service
+	vaultID      string
+	db           *db.Client
+	docService   *document.Service
+	assetSvc     *asset.Service
+	vaultSvc     *vault.Service
+	virtualFiles []VirtualFile
 }
 
 // NewFS creates a WebDAV filesystem for the given vault.
 func NewFS(vaultID string, db *db.Client, docService *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service) *FS {
 	return &FS{
-		vaultID:    vaultID,
-		db:         db,
-		docService: docService,
-		assetSvc:   assetSvc,
-		vaultSvc:   vaultSvc,
+		vaultID:      vaultID,
+		db:           db,
+		docService:   docService,
+		assetSvc:     assetSvc,
+		vaultSvc:     vaultSvc,
+		virtualFiles: defaultVirtualFiles(db),
 	}
 }
 
@@ -72,6 +74,18 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			return newNopFile(name), nil
 		}
 		return nil, os.ErrNotExist
+	}
+
+	// Virtual files are read-only computed views
+	if vf := f.findVirtualFile(name); f.isVirtualFilePath(name) && vf != nil {
+		if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE) != 0 {
+			return nil, os.ErrPermission
+		}
+		content, err := vf.Generate(ctx, f.vaultID)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", name, err)
+		}
+		return newVirtualReadFile(name, content), nil
 	}
 
 	// Try as document
@@ -147,6 +161,11 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		return nil
 	}
 
+	// Virtual files are read-only
+	if f.isVirtualFilePath(name) {
+		return os.ErrPermission
+	}
+
 	// Try as document first
 	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, name)
 	if err != nil {
@@ -194,6 +213,11 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 	// macOS metadata files are never stored — nothing to rename
 	if isOSMetadataFile(oldName) {
 		return nil
+	}
+
+	// Virtual files are read-only
+	if f.isVirtualFilePath(oldName) || f.isVirtualFilePath(newName) {
+		return os.ErrPermission
 	}
 
 	// Try as document first
@@ -252,6 +276,16 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 	// macOS metadata files are never stored — always report not found
 	if isOSMetadataFile(name) {
 		return nil, os.ErrNotExist
+	}
+
+	// Virtual files report size 0 in stat to avoid expensive content generation.
+	// The actual Content-Length is set when the file is opened for reading.
+	if f.isVirtualFilePath(name) {
+		return &fileInfo{
+			name:        path.Base(name),
+			modTime:     time.Now(),
+			contentType: markdownContentType,
+		}, nil
 	}
 
 	// Try as document (lightweight meta query — no content loaded)
@@ -398,6 +432,17 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 			contentType: am.MimeType,
 			etag:        `"` + am.ContentHash + `"`,
 		})
+	}
+
+	// Append virtual files to root directory listing
+	if dirPath == "/" {
+		for _, vf := range f.virtualFiles {
+			entries = append(entries, &fileInfo{
+				name:        vf.Name(),
+				modTime:     time.Now(),
+				contentType: markdownContentType,
+			})
+		}
 	}
 
 	return entries, nil
