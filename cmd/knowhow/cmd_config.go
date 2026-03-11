@@ -23,6 +23,8 @@ func init() {
 }
 
 type serverConfig struct {
+	SurrealDBURL           string `json:"surrealdbURL"`
+	AuthEnabled            bool   `json:"authEnabled"`
 	LLMProvider            string `json:"llmProvider"`
 	LLMModel               string `json:"llmModel"`
 	EmbedProvider          string `json:"embedProvider"`
@@ -55,24 +57,45 @@ func runConfig(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	rows := []struct{ label, value string }{
-		{"LLM Provider", cfg.LLMProvider},
-		{"LLM Model", cfg.LLMModel},
-		{"Embed Provider", cfg.EmbedProvider},
-		{"Embed Model", cfg.EmbedModel},
-		{"Embed Dimension", strconv.Itoa(cfg.EmbedDimension)},
-		{"Semantic Search", strconv.FormatBool(cfg.SemanticSearchEnabled)},
-		{"Agent Chat", strconv.FormatBool(cfg.AgentChatEnabled)},
-		{"Web Search", strconv.FormatBool(cfg.WebSearchEnabled)},
-		{"Chunk Threshold", strconv.Itoa(cfg.ChunkThreshold)},
-		{"Chunk Target Size", strconv.Itoa(cfg.ChunkTargetSize)},
-		{"Chunk Max Size", strconv.Itoa(cfg.ChunkMaxSize)},
-		{"Version Coalesce (min)", strconv.Itoa(cfg.VersionCoalesceMinutes)},
-		{"Version Retention", strconv.Itoa(cfg.VersionRetentionCount)},
+	type row struct{ label, value string }
+	groups := [][]row{
+		{
+			{"Server URL", apiURL},
+			{"SurrealDB URL", cfg.SurrealDBURL},
+			{"Auth Enabled", strconv.FormatBool(cfg.AuthEnabled)},
+		},
+		{
+			{"LLM Provider", cfg.LLMProvider},
+			{"LLM Model", cfg.LLMModel},
+		},
+		{
+			{"Embed Provider", cfg.EmbedProvider},
+			{"Embed Model", cfg.EmbedModel},
+			{"Embed Dimension", strconv.Itoa(cfg.EmbedDimension)},
+			{"Semantic Search", strconv.FormatBool(cfg.SemanticSearchEnabled)},
+		},
+		{
+			{"Agent Chat", strconv.FormatBool(cfg.AgentChatEnabled)},
+			{"Web Search", strconv.FormatBool(cfg.WebSearchEnabled)},
+		},
+		{
+			{"Chunk Threshold", strconv.Itoa(cfg.ChunkThreshold)},
+			{"Chunk Target Size", strconv.Itoa(cfg.ChunkTargetSize)},
+			{"Chunk Max Size", strconv.Itoa(cfg.ChunkMaxSize)},
+		},
+		{
+			{"Version Coalesce (min)", strconv.Itoa(cfg.VersionCoalesceMinutes)},
+			{"Version Retention", strconv.Itoa(cfg.VersionRetentionCount)},
+		},
 	}
 
-	for _, r := range rows {
-		fmt.Printf("%-25s %s\n", r.label+":", r.value)
+	for i, group := range groups {
+		if i > 0 {
+			fmt.Println()
+		}
+		for _, r := range group {
+			fmt.Printf("%-25s %s\n", r.label+":", r.value)
+		}
 	}
 	return nil
 }

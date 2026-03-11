@@ -507,9 +507,17 @@ func isOSMetadataFile(name string) bool {
 var errNotMarkdown = fmt.Errorf("only markdown (.md) and image files are allowed: %w", os.ErrPermission)
 
 // isUnsupportedFile returns true for files that are neither markdown, image,
-// nor OS metadata. Extensionless paths are excluded (likely directories).
+// nor OS metadata. Extensionless paths and dotfiles (e.g. ".claude", ".foam")
+// are excluded — path.Ext treats dotfiles as having an extension equal to
+// the entire name, but they are really extensionless hidden files/folders.
 func isUnsupportedFile(name string) bool {
-	if path.Ext(name) == "" {
+	ext := path.Ext(name)
+	if ext == "" {
+		return false
+	}
+	base := path.Base(name)
+	if base == ext {
+		// Dotfile: ".claude", ".foam" — path.Ext sees the whole name as extension.
 		return false
 	}
 	return !isMarkdownFile(name) && !models.IsImageFile(name) && !isOSMetadataFile(name)

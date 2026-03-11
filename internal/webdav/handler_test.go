@@ -40,6 +40,9 @@ func TestSingleWriteResponseWriter_WriteHeader(t *testing.T) {
 		if !w.wroteHeader {
 			t.Error("expected wroteHeader to be true after Write")
 		}
+		if w.statusCode != http.StatusOK {
+			t.Errorf("statusCode got %d, want %d", w.statusCode, http.StatusOK)
+		}
 	})
 
 	t.Run("WriteHeader then Write does not override status", func(t *testing.T) {

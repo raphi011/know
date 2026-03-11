@@ -64,6 +64,8 @@ type AssetMeta struct {
 
 // ServerConfig holds the server's effective configuration.
 type ServerConfig struct {
+	SurrealDBURL           string `json:"surrealdbURL"`
+	AuthEnabled            bool   `json:"authEnabled"`
 	LLMProvider            string `json:"llmProvider"`
 	LLMModel               string `json:"llmModel"`
 	EmbedProvider          string `json:"embedProvider"`

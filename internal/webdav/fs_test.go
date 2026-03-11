@@ -129,6 +129,11 @@ func TestIsUnsupportedFile(t *testing.T) {
 		// No extension — likely a directory
 		{"/notes", false},
 		{"/", false},
+		// Dotfiles — hidden files/folders, not unsupported
+		{"/.claude", false},
+		{"/.foam", false},
+		{"/.hidden", false},
+		{"/notes/.config", false},
 	}
 
 	for _, tt := range tests {
@@ -158,6 +163,9 @@ func TestIsNonStoredFile(t *testing.T) {
 		{"/images/photo.png", false},
 		// No extension — likely a directory, stored
 		{"/notes", false},
+		// Dotfiles — hidden files/folders, stored
+		{"/.claude", false},
+		{"/.foam", false},
 	}
 
 	for _, tt := range tests {
