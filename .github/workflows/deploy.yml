@@ -8,7 +8,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "Dockerfile"
-      - "deploy/helm/**"
+      - "helm/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -34,7 +34,7 @@ jobs:
               - 'go.sum'
               - 'Dockerfile'
             helm:
-              - 'deploy/helm/**'
+              - 'helm/**'
 
   build-backend:
     needs: changes
@@ -58,7 +58,13 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(grep '^appVersion' deploy/helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '"')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Failed to extract appVersion from Chart.yaml"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build backend image
         run: docker build -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest .
@@ -93,5 +99,5 @@ jobs:
 
       - name: Package and push Helm chart
         run: |
-          helm package deploy/helm/knowhow/
+          helm package helm/knowhow/
           helm push knowhow-*.tgz oci://${{ env.REGISTRY }}

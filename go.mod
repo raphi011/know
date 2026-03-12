@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.1
 	github.com/charmbracelet/glamour v1.0.0
-	github.com/cloudwego/eino v0.8.0
+	github.com/cloudwego/eino v0.8.1
 	github.com/cloudwego/eino-ext/components/embedding/gemini v0.0.0-20260306073537-008f82264d85
 	github.com/cloudwego/eino-ext/components/embedding/ollama v0.0.0-20260306073537-008f82264d85
 	github.com/cloudwego/eino-ext/components/embedding/openai v0.0.0-20260306073537-008f82264d85

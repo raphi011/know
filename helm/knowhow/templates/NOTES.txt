@@ -19,9 +19,8 @@ Knowhow has been deployed!
 {{- else if contains "ClusterIP" .Values.service.type }}
   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "knowhow.fullname" . }} 8484:{{ .Values.service.port }}
   Then visit:
-    Web UI:  http://localhost:8484/login
-    GraphQL: http://localhost:8484/query
-    WebDAV:  http://localhost:8484/dav/<vaultName>/
+    API:    http://localhost:8484/api/
+    WebDAV: http://localhost:8484/dav/<vaultName>/
 {{- end }}
 
 2. SurrealDB connection:
