@@ -347,6 +347,20 @@ func SchemaSQL(dimension int) string {
     };
 
     -- ==========================================================================
+    -- REMOTE TABLE (federation: connections to other knowhow servers)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS remote SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS name       ON remote TYPE string;
+    DEFINE FIELD IF NOT EXISTS url        ON remote TYPE string;
+    DEFINE FIELD IF NOT EXISTS token      ON remote TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_by ON remote TYPE record<user>;
+    DEFINE FIELD IF NOT EXISTS created_at ON remote TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at ON remote TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_remote_name ON remote FIELDS name UNIQUE;
+
+    -- ==========================================================================
     -- ASSET TABLE (binary image storage)
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS asset SCHEMAFULL;

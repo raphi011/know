@@ -5,21 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/knowhow/internal/remote"
 	"github.com/raphi011/knowhow/internal/tools"
 	"github.com/raphi011/knowhow/internal/vault"
 )
 
 type mcpTools struct {
-	executor     *tools.Executor
-	db           *db.Client
-	vaultService *vault.Service
-	cache        *cache
+	executor      tools.ToolExecutor
+	db            *db.Client
+	vaultService  *vault.Service
+	remoteService *remote.Service
+	cache         *cache
 }
 
 func (t *mcpTools) register(server *mcp.Server) {
@@ -117,7 +119,7 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 		return errorResult("limit must be positive"), nil, nil
 	}
 
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+	refs, err := t.resolveAllVaults(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search documents: %w", err)
 	}
@@ -128,13 +130,16 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	var sb strings.Builder
-	for _, vaultID := range vaultIDs {
-		result, _, execErr := t.executor.ExecuteTool(ctx, vaultID, "search", string(argsJSON))
+	for _, ref := range refs {
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "search", string(argsJSON))
 		if execErr != nil {
-			slog.Warn("search failed", "vault", vaultID, "error", execErr)
+			logutil.FromCtx(ctx).Warn("search failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
 			continue
 		}
 		if result != "" && result != "No results found." {
+			if ref.IsRemote {
+				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
+			}
 			sb.WriteString(result)
 		}
 	}
@@ -155,7 +160,7 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 		return errorResult("path is required"), nil, nil
 	}
 
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+	refs, err := t.resolveAllVaults(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get document: %w", err)
 	}
@@ -165,13 +170,16 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, nil, fmt.Errorf("marshal args: %w", err)
 	}
 
-	for _, vaultID := range vaultIDs {
-		result, _, execErr := t.executor.ExecuteTool(ctx, vaultID, "read_document", string(argsJSON))
+	for _, ref := range refs {
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "read_document", string(argsJSON))
 		if execErr != nil {
-			slog.Warn("get document failed", "vault", vaultID, "path", input.Path, "error", execErr)
+			logutil.FromCtx(ctx).Warn("get document failed", "vault", ref.VaultID, "namespace", ref.Namespace, "path", input.Path, "error", execErr)
 			continue
 		}
 		if !strings.HasPrefix(result, "Document not found:") {
+			if ref.IsRemote {
+				result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
+			}
 			return textResult(result), nil, nil
 		}
 	}
@@ -182,19 +190,20 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 type listLabelsInput struct{}
 
 func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, input listLabelsInput) (*mcp.CallToolResult, any, error) {
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+	refs, err := t.resolveAllVaults(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list labels: %w", err)
 	}
 
 	labelSet := map[string]bool{}
-	for _, vaultID := range vaultIDs {
-		result, err := t.cache.GetOrFetch("list_labels:"+vaultID, func() (string, error) {
-			r, _, execErr := t.executor.ExecuteTool(ctx, vaultID, "list_labels", "{}")
+	for _, ref := range refs {
+		cacheKey := "list_labels:" + ref.Namespace + ":" + ref.VaultID
+		result, err := t.cache.GetOrFetch(cacheKey, func() (string, error) {
+			r, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_labels", "{}")
 			return r, execErr
 		})
 		if err != nil {
-			slog.Warn("list labels failed", "vault", vaultID, "error", err)
+			logutil.FromCtx(ctx).Warn("list labels failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", err)
 			continue
 		}
 		if result != "No labels found." {
@@ -219,22 +228,26 @@ func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, inp
 type listFoldersInput struct{}
 
 func (t *mcpTools) listFolders(ctx context.Context, req *mcp.CallToolRequest, input listFoldersInput) (*mcp.CallToolResult, any, error) {
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+	refs, err := t.resolveAllVaults(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list folders: %w", err)
 	}
 
 	var sb strings.Builder
-	for _, vaultID := range vaultIDs {
-		result, err := t.cache.GetOrFetch("list_folders:"+vaultID, func() (string, error) {
-			r, _, execErr := t.executor.ExecuteTool(ctx, vaultID, "list_folders", "{}")
+	for _, ref := range refs {
+		cacheKey := "list_folders:" + ref.Namespace + ":" + ref.VaultID
+		result, err := t.cache.GetOrFetch(cacheKey, func() (string, error) {
+			r, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_folders", "{}")
 			return r, execErr
 		})
 		if err != nil {
-			slog.Warn("list folders failed", "vault", vaultID, "error", err)
+			logutil.FromCtx(ctx).Warn("list folders failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", err)
 			continue
 		}
 		if result != "No folders found." {
+			if ref.IsRemote {
+				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
+			}
 			sb.WriteString(result)
 		}
 	}
@@ -254,7 +267,7 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 		return errorResult("folder is required"), nil, nil
 	}
 
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+	refs, err := t.resolveAllVaults(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list folder contents: %w", err)
 	}
@@ -265,13 +278,16 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 	}
 
 	var sb strings.Builder
-	for _, vaultID := range vaultIDs {
-		result, _, execErr := t.executor.ExecuteTool(ctx, vaultID, "list_folder_contents", string(argsJSON))
+	for _, ref := range refs {
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_folder_contents", string(argsJSON))
 		if execErr != nil {
-			slog.Warn("list folder contents failed", "vault", vaultID, "error", execErr)
+			logutil.FromCtx(ctx).Warn("list folder contents failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
 			continue
 		}
 		if !strings.HasPrefix(result, "No contents found") {
+			if ref.IsRemote {
+				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
+			}
 			sb.WriteString(result)
 		}
 	}
@@ -295,7 +311,7 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 		return errorResult("limit must be positive"), nil, nil
 	}
 
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+	refs, err := t.resolveAllVaults(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get document versions: %w", err)
 	}
@@ -305,13 +321,16 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("marshal args: %w", err)
 	}
 
-	for _, vaultID := range vaultIDs {
-		result, _, execErr := t.executor.ExecuteTool(ctx, vaultID, "get_document_versions", string(argsJSON))
+	for _, ref := range refs {
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "get_document_versions", string(argsJSON))
 		if execErr != nil {
-			slog.Warn("get document versions failed", "vault", vaultID, "path", input.Path, "error", execErr)
+			logutil.FromCtx(ctx).Warn("get document versions failed", "vault", ref.VaultID, "namespace", ref.Namespace, "path", input.Path, "error", execErr)
 			continue
 		}
 		if !strings.HasPrefix(result, "Document not found:") {
+			if ref.IsRemote {
+				result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
+			}
 			return textResult(result), nil, nil
 		}
 	}
@@ -322,14 +341,12 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 // ---------- Write tool handlers (use first vault) ----------
 
 // executeWriteTool resolves vault access, marshals input, and executes a
-// write tool on the first accessible vault.
-func (t *mcpTools) executeWriteTool(ctx context.Context, toolName string, input any) (*mcp.CallToolResult, any, error) {
-	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
+// write tool on the target vault. If vaultName contains "/" it routes to
+// a remote vault; otherwise it uses the first local vault.
+func (t *mcpTools) executeWriteTool(ctx context.Context, toolName, vaultName string, input any) (*mcp.CallToolResult, any, error) {
+	ref, err := t.resolveWriteVault(ctx, vaultName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("execute write tool %s: %w", toolName, err)
-	}
-	if len(vaultIDs) == 0 {
-		return nil, nil, fmt.Errorf("no vaults accessible")
 	}
 
 	argsJSON, err := json.Marshal(input)
@@ -337,12 +354,15 @@ func (t *mcpTools) executeWriteTool(ctx context.Context, toolName string, input 
 		return nil, nil, fmt.Errorf("marshal args: %w", err)
 	}
 
-	result, _, execErr := t.executor.ExecuteTool(ctx, vaultIDs[0], toolName, string(argsJSON))
+	result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, toolName, string(argsJSON))
 	if execErr != nil {
 		if isToolLevelError(execErr) {
 			return errorResult(execErr.Error()), nil, nil
 		}
 		return nil, nil, fmt.Errorf("execute write tool %s: %w", toolName, execErr)
+	}
+	if ref.IsRemote {
+		result = fmt.Sprintf("[%s] %s", ref.Namespace, result)
 	}
 	return textResult(result), nil, nil
 }
@@ -351,6 +371,7 @@ type createMemoryInput struct {
 	Title   string   `json:"title" jsonschema:"Memory title"`
 	Content string   `json:"content" jsonschema:"Memory content (markdown)"`
 	Labels  []string `json:"labels,omitempty" jsonschema:"Additional labels (memory label is always added)"`
+	Vault   string   `json:"vault,omitempty" jsonschema:"Target vault (e.g. home/default for remote). Defaults to first local vault."`
 }
 
 func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, input createMemoryInput) (*mcp.CallToolResult, any, error) {
@@ -360,12 +381,13 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 	if strings.TrimSpace(input.Content) == "" {
 		return errorResult("content is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "create_memory", input)
+	return t.executeWriteTool(ctx, "create_memory", input.Vault, input)
 }
 
 type createDocumentInput struct {
 	Path    string `json:"path" jsonschema:"Document path (e.g. /guides/new-guide.md)"`
 	Content string `json:"content" jsonschema:"Full markdown content"`
+	Vault   string `json:"vault,omitempty" jsonschema:"Target vault (e.g. home/default for remote). Defaults to first local vault."`
 }
 
 func (t *mcpTools) createDocument(ctx context.Context, req *mcp.CallToolRequest, input createDocumentInput) (*mcp.CallToolResult, any, error) {
@@ -375,13 +397,14 @@ func (t *mcpTools) createDocument(ctx context.Context, req *mcp.CallToolRequest,
 	if strings.TrimSpace(input.Content) == "" {
 		return errorResult("content is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "create_document", input)
+	return t.executeWriteTool(ctx, "create_document", input.Vault, input)
 }
 
 type editDocumentInput struct {
 	Path         string  `json:"path" jsonschema:"Document path of the existing document"`
 	Content      string  `json:"content" jsonschema:"Complete new markdown content (replaces existing)"`
 	ExpectedHash *string `json:"expected_hash,omitempty" jsonschema:"Content hash from get_document for optimistic concurrency check"`
+	Vault        string  `json:"vault,omitempty" jsonschema:"Target vault (e.g. home/default for remote). Defaults to first local vault."`
 }
 
 func (t *mcpTools) editDocument(ctx context.Context, req *mcp.CallToolRequest, input editDocumentInput) (*mcp.CallToolResult, any, error) {
@@ -391,7 +414,7 @@ func (t *mcpTools) editDocument(ctx context.Context, req *mcp.CallToolRequest, i
 	if strings.TrimSpace(input.Content) == "" {
 		return errorResult("content is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "edit_document", input)
+	return t.executeWriteTool(ctx, "edit_document", input.Vault, input)
 }
 
 type editDocumentSectionInput struct {
@@ -403,6 +426,7 @@ type editDocumentSectionInput struct {
 	NewHeading   *string `json:"new_heading,omitempty" jsonschema:"Heading text for insert/append operations"`
 	NewLevel     *int    `json:"new_level,omitempty" jsonschema:"Heading level 1-6 for insert/append operations"`
 	ExpectedHash *string `json:"expected_hash,omitempty" jsonschema:"Content hash from get_document for optimistic concurrency check"`
+	Vault        string  `json:"vault,omitempty" jsonschema:"Target vault (e.g. home/default for remote). Defaults to first local vault."`
 }
 
 func (t *mcpTools) editDocumentSection(ctx context.Context, req *mcp.CallToolRequest, input editDocumentSectionInput) (*mcp.CallToolResult, any, error) {
@@ -412,7 +436,7 @@ func (t *mcpTools) editDocumentSection(ctx context.Context, req *mcp.CallToolReq
 	if strings.TrimSpace(input.Operation) == "" {
 		return errorResult("operation is required. Use one of: replace, insert_after, insert_before, delete, append"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "edit_document_section", input)
+	return t.executeWriteTool(ctx, "edit_document_section", input.Vault, input)
 }
 
 // ---------- helpers ----------
@@ -429,9 +453,6 @@ func errorResult(text string) *mcp.CallToolResult {
 		IsError: true,
 	}
 }
-
-//go:fix inline
-func boolPtr(b bool) *bool { return new(b) }
 
 // isToolLevelError returns true for executor errors that are user-correctable
 // and should be returned as MCP tool errors (IsError=true) rather than

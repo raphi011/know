@@ -71,6 +71,7 @@ func main() {
 	rootCmd.AddCommand(catCmd)
 	rootCmd.AddCommand(rmCmd)
 	rootCmd.AddCommand(vaultCmd)
+	rootCmd.AddCommand(remoteCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

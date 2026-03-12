@@ -24,43 +24,63 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var result []Vault
+
 	// System admin or wildcard → return all vaults
 	if ac.IsSystemAdmin {
-		result := make([]Vault, len(all))
+		result = make([]Vault, len(all))
 		for i := range all {
 			result[i] = vaultFromModel(&all[i])
 		}
-		writeJSON(w, http.StatusOK, result)
-		return
-	}
+	} else {
+		// Filter to vaults the user has access to
+		accessSet := make(map[string]bool, len(ac.Vaults))
+		hasWildcard := false
+		for _, vp := range ac.Vaults {
+			if vp.VaultID == auth.WildcardVaultAccess {
+				hasWildcard = true
+				break
+			}
+			accessSet[vp.VaultID] = true
+		}
 
-	// Filter to vaults the user has access to
-	accessSet := make(map[string]bool, len(ac.Vaults))
-	for _, vp := range ac.Vaults {
-		if vp.VaultID == auth.WildcardVaultAccess {
-			result := make([]Vault, len(all))
+		if hasWildcard {
+			result = make([]Vault, len(all))
 			for i := range all {
 				result[i] = vaultFromModel(&all[i])
 			}
-			writeJSON(w, http.StatusOK, result)
-			return
+		} else {
+			logger := logutil.FromCtx(r.Context())
+			for i := range all {
+				id, err := models.RecordIDString(all[i].ID)
+				if err != nil {
+					logger.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
+					continue
+				}
+				if accessSet[id] {
+					result = append(result, vaultFromModel(&all[i]))
+				}
+			}
 		}
-		accessSet[vp.VaultID] = true
 	}
 
-	logger := logutil.FromCtx(r.Context())
-
-	var result []Vault
-	for i := range all {
-		id, err := models.RecordIDString(all[i].ID)
+	// Append remote vaults if remote service is configured
+	if remoteSvc := s.app.RemoteService(); remoteSvc != nil {
+		remoteVaults, err := remoteSvc.ListRemoteVaults(r.Context())
 		if err != nil {
-			logger.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
-			continue
-		}
-		if accessSet[id] {
-			result = append(result, vaultFromModel(&all[i]))
+			logutil.FromCtx(r.Context()).Warn("failed to list remote vaults", "error", err)
+		} else {
+			for _, rv := range remoteVaults {
+				remoteName := rv.RemoteName
+				result = append(result, Vault{
+					ID:     rv.VaultID,
+					Name:   rv.Namespace,
+					Remote: &remoteName,
+				})
+			}
 		}
 	}
+
 	if result == nil {
 		result = []Vault{}
 	}
