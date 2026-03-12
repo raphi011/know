@@ -570,7 +570,9 @@ EOF
 | `edit_document` | Edit an existing document by replacing its content |
 | `edit_document_section` | Edit a specific section by heading without sending full content |
 | `list_labels` | List all labels used across documents |
-| `create_memory` | Create a quick memory note under `/memories/` |
+| `create_memory` | Create a project-scoped memory with decay scoring |
+| `retrieve_memories` | Retrieve project memories sorted by relevance (with auto-archive and consolidation) |
+| `delete_memory` | Delete a specific project memory |
 | `list_folders` | Browse the folder structure of a vault |
 | `list_folder_contents` | List documents and subfolders in a specific folder |
 | `get_document_versions` | List version history of a document |
@@ -610,11 +612,17 @@ EOF
 # View document history
 "Show me the version history of /docs/api-guide.md"
 
-# Save a quick note
+# Save a project-scoped memory (persists across sessions)
 "Remember that the deploy pipeline requires manual approval for production"
 
 # Create a memory with labels
 "Save a note about today's meeting decisions, label it 'meetings' and 'project-x'"
+
+# Retrieve all memories for the current project
+"Load my project memories for this repository"
+
+# Delete an outdated memory
+"Delete the memory about the old API endpoint format"
 ```
 
 ### Multi-Instance Config

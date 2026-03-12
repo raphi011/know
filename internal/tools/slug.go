@@ -1,19 +1,9 @@
 package tools
 
-import (
-	"regexp"
-	"strings"
-)
-
-var nonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)
+import "github.com/raphi011/knowhow/internal/pathutil"
 
 // Slugify converts a title to a URL-friendly slug.
+// Delegates to pathutil.Slugify to avoid import cycles.
 func Slugify(title string) string {
-	s := strings.ToLower(title)
-	s = nonAlphaNum.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	if s == "" {
-		s = "untitled"
-	}
-	return s
+	return pathutil.Slugify(title)
 }

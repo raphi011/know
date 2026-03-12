@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/knowhow/internal/memory"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/pathutil"
@@ -137,7 +138,7 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 	if input.Sections {
 		parsed, parseErr := parser.ParseMarkdown(doc.ContentBody)
 		if parseErr != nil {
-			slog.Warn("failed to parse markdown for section outline", "path", input.Path, "error", parseErr)
+			logutil.FromCtx(ctx).Warn("parse markdown for section outline", "path", input.Path, "error", parseErr)
 			fmt.Fprintf(&sb, "**Warning**: could not parse sections: %v\n\n", parseErr)
 		} else if len(parsed.Sections) > 0 {
 			outline := parser.SectionOutline(parsed)
@@ -464,38 +465,17 @@ func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, argumen
 	return fmt.Sprintf("Section %s: %q in %s (%s)", opDesc, headingDesc, doc.Title, doc.Path), meta, nil
 }
 
-// BuildMemoryDocument builds a memory document's path and full content (with frontmatter)
-// from a title, body content, and optional labels. The "memory" label is always included.
-func BuildMemoryDocument(title, content string, labels []string) (path, fullContent string) {
-	// Deduplicate and always include "memory"
-	deduped := []string{"memory"}
-	for _, l := range labels {
-		if l != "memory" {
-			deduped = append(deduped, l)
-		}
-	}
-
-	// Build frontmatter
-	var sb strings.Builder
-	sb.WriteString("---\nlabels:\n")
-	for _, l := range deduped {
-		fmt.Fprintf(&sb, "  - %q\n", l)
-	}
-	sb.WriteString("---\n\n")
-	sb.WriteString(content)
-
-	// Generate date-prefixed path
-	slug := Slugify(title)
-	date := time.Now().Format("2006-01-02")
-	path = fmt.Sprintf("/memories/%s-%s.md", date, slug)
-
-	return path, sb.String()
+// BuildMemoryDocument delegates to memory.BuildMemoryDocument.
+// Kept as an alias to avoid breaking remote.Executor imports.
+func BuildMemoryDocument(project, title, content string, labels []string, settings models.VaultSettings) (path, fullContent string) {
+	return memory.BuildMemoryDocument(project, title, content, labels, settings)
 }
 
 func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
 	var input struct {
 		Title   string   `json:"title"`
 		Content string   `json:"content"`
+		Project string   `json:"project"`
 		Labels  []string `json:"labels"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
@@ -508,7 +488,17 @@ func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments stri
 		return "", nil, fmt.Errorf("content is required")
 	}
 
-	path, fullContent := BuildMemoryDocument(input.Title, input.Content, input.Labels)
+	// Load vault settings for memory path config
+	vault, err := e.DB.GetVault(ctx, vaultID)
+	if err != nil {
+		return "", nil, fmt.Errorf("create memory: load vault: %w", err)
+	}
+	if vault == nil {
+		return "", nil, fmt.Errorf("create memory: vault not found: %s", vaultID)
+	}
+	settings := vault.MemoryDefaults()
+
+	path, fullContent := BuildMemoryDocument(input.Project, input.Title, input.Content, input.Labels, settings)
 
 	start := time.Now()
 	doc, err := e.DocService.Create(ctx, models.DocumentInput{

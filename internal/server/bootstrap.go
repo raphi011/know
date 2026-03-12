@@ -20,6 +20,7 @@ import (
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/memory"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/remote"
 	"github.com/raphi011/knowhow/internal/search"
@@ -58,6 +59,7 @@ type App struct {
 	templateService          *template.Service
 	agentService             *agent.Service
 	remoteService            *remote.Service
+	memoryService            *memory.Service
 	bus                      *event.Bus
 	workerCancel             context.CancelFunc // guarded by mu
 	workerDone               chan struct{}      // guarded by mu
@@ -167,11 +169,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	assetSvc := asset.NewService(dbClient, bus)
 
 	remoteSvc := remote.NewService(dbClient)
+	memorySvc := memory.NewService(dbClient, docService, model)
 
 	app := &App{
 		db:                       dbClient,
 		vaultService:             vault.NewService(dbClient),
 		remoteService:            remoteSvc,
+		memoryService:            memorySvc,
 		assetService:             assetSvc,
 		processingWorkerInterval: time.Duration(cfg.ProcessingWorkerInterval) * time.Second,
 		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
@@ -253,6 +257,11 @@ func (a *App) AssetService() *asset.Service {
 // RemoteService returns the remote federation service.
 func (a *App) RemoteService() *remote.Service {
 	return a.remoteService
+}
+
+// MemoryService returns the memory service.
+func (a *App) MemoryService() *memory.Service {
+	return a.memoryService
 }
 
 // NewForTest creates a minimal App for integration tests — no background workers,

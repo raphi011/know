@@ -1,6 +1,11 @@
 package pathutil
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var nonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)
 
 // NormalizeFolderPath ensures the path has a leading and trailing slash.
 func NormalizeFolderPath(path string) string {
@@ -28,4 +33,15 @@ func IsImmediateChildFolder(parentPath, folderChildPath string) bool {
 	}
 	rel := strings.TrimPrefix(folderChildPath, parentPath)
 	return rel != "" && !strings.Contains(strings.TrimSuffix(rel, "/"), "/")
+}
+
+// Slugify converts a title to a URL-friendly slug.
+func Slugify(title string) string {
+	s := strings.ToLower(title)
+	s = nonAlphaNum.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "untitled"
+	}
+	return s
 }

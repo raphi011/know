@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/raphi011/knowhow/internal/apiclient"
+	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/tools"
 )
 
@@ -268,13 +269,15 @@ func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments stri
 	var input struct {
 		Title   string   `json:"title"`
 		Content string   `json:"content"`
+		Project string   `json:"project"`
 		Labels  []string `json:"labels"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
 		return "", nil, fmt.Errorf("parse create_memory input: %w", err)
 	}
 
-	path, fullContent := tools.BuildMemoryDocument(input.Title, input.Content, input.Labels)
+	// Remote executor uses default settings since vault settings aren't available remotely
+	path, fullContent := tools.BuildMemoryDocument(input.Project, input.Title, input.Content, input.Labels, models.VaultSettings{})
 
 	start := time.Now()
 	doc, err := e.client.CreateDocument(ctx, apiclient.CreateDocumentRequest{

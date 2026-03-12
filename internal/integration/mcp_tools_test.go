@@ -593,12 +593,12 @@ func TestToolsExecutor_CreateMemory(t *testing.T) {
 	ctx := context.Background()
 
 	result, meta, err := exec.ExecuteTool(ctx, vaultID, "create_memory",
-		`{"title":"My Test Memory","content":"Remember this.","labels":["test"]}`)
+		`{"title":"My Test Memory","content":"Remember this.","labels":["test"],"project":"test-project"}`)
 	if err != nil {
 		t.Fatalf("create_memory: %v", err)
 	}
-	if !strings.Contains(result, "/memories/") {
-		t.Errorf("expected /memories/ path in result: %s", result)
+	if !strings.Contains(result, "/memories/test-project/") {
+		t.Errorf("expected /memories/test-project/ path in result: %s", result)
 	}
 	today := time.Now().Format("2006-01-02")
 	if !strings.Contains(result, today) {

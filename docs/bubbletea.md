@@ -261,7 +261,7 @@ case tea.KeyPressMsg:
 
 ### 5. Hot Reload Tools Don't Support TTY
 
-`air` doesn't support TTY programs. Use `watchexec` with separate build/run scripts instead.
+Live-reload tools like `air` don't support TTY programs. Use `watchexec` with separate build/run scripts instead, or just rebuild manually with `just dev`.
 
 ### 6. Focus Must Be Deferred Until Terminal Setup Completes
 
