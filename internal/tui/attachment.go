@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // FileType classifies an attachment by content kind.
@@ -32,14 +35,17 @@ func (ft FileType) String() string {
 	}
 }
 
-// 1MB per file. Server-side request limit is 5MB total (see agent/handler.go).
+// 1MB per text file. Server-side request limit is 50MB total (see agent/handler.go).
 const maxAttachmentSize = 1 << 20
+
+// 10MB per image file. Vision APIs accept larger payloads than text.
+const maxImageAttachmentSize = 10 << 20
 
 // Attachment holds a resolved @-reference with its file content.
 type Attachment struct {
 	Path     string   // original path from @-reference
 	AbsPath  string   // resolved absolute path
-	Content  string   // file text content (only for text files)
+	Content  string   // file text (for text files) or base64-encoded data (for images)
 	MimeType string
 	Language string   // code fence language hint (e.g. "go", "python")
 	Type     FileType
@@ -140,24 +146,29 @@ func resolveOne(ref string) Attachment {
 		att.Error = fmt.Sprintf("binary file not supported: %s", ref)
 		return att
 	}
-	if fileType == FileTypeImage {
-		att.Error = fmt.Sprintf("image attachments not yet supported: %s", ref)
-		return att
-	}
-
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		att.Error = fmt.Sprintf("read file: %v", err)
 		return att
 	}
 
-	if int64(len(data)) > maxAttachmentSize {
-		att.Error = fmt.Sprintf("file too large (%d bytes, max %d): %s", len(data), maxAttachmentSize, ref)
+	if len(data) == 0 {
+		att.Error = fmt.Sprintf("file is empty: %s", ref)
 		return att
 	}
 
-	if len(data) == 0 {
-		att.Error = fmt.Sprintf("file is empty: %s", ref)
+	if fileType == FileTypeImage {
+		if int64(len(data)) > maxImageAttachmentSize {
+			att.Error = fmt.Sprintf("file too large (%s, max %s): %s", formatSize(int64(len(data))), formatSize(maxImageAttachmentSize), ref)
+			return att
+		}
+		att.Content = base64.StdEncoding.EncodeToString(data)
+		att.MimeType = mimeForExt(ext)
+		return att
+	}
+
+	if int64(len(data)) > maxAttachmentSize {
+		att.Error = fmt.Sprintf("file too large (%s, max %s): %s", formatSize(int64(len(data))), formatSize(maxAttachmentSize), ref)
 		return att
 	}
 
@@ -198,7 +209,7 @@ func classifyFile(ext string) FileType {
 		".gitignore", ".gitattributes", ".editorconfig",
 		".mod", ".sum", ".lock":
 		return FileTypeText
-	case ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
 		return FileTypeImage
 	default:
 		return FileTypeBinary
@@ -260,7 +271,7 @@ func langForExt(ext string) string {
 	return ""
 }
 
-// mimeForExt returns a MIME type for the given extension, defaulting to text/plain.
+// mimeForExt returns a MIME type for the given extension.
 func mimeForExt(ext string) string {
 	switch ext {
 	case ".json":
@@ -275,8 +286,40 @@ func mimeForExt(ext string) string {
 		return "text/javascript"
 	case ".md":
 		return "text/markdown"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
 	default:
 		return "text/plain"
+	}
+}
+
+// formatSize returns a human-readable file size (e.g. "1.2 MB", "450 KB").
+func formatSize(bytes int64) string {
+	switch {
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+// toAttachmentType converts a TUI FileType to a wire-format AttachmentType.
+func toAttachmentType(ft FileType) models.AttachmentType {
+	switch ft {
+	case FileTypeImage:
+		return models.AttachmentTypeImage
+	case FileTypeText:
+		return models.AttachmentTypeText
+	default:
+		return models.AttachmentTypeText
 	}
 }
 

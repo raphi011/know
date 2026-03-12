@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -35,9 +36,14 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			return
 		}
 
-		r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024) // 5MB max (text file attachments)
+		r.Body = http.MaxBytesReader(w, r.Body, 50*1024*1024) // 50MB max (base64-encoded image attachments)
 		var body chatRequestBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large (max 50MB)", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
@@ -62,6 +68,15 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			if att.Type != models.AttachmentTypeText && att.Type != models.AttachmentTypeImage {
 				http.Error(w, fmt.Sprintf("unsupported attachment type: %q", att.Type), http.StatusBadRequest)
 				return
+			}
+			if att.Type == models.AttachmentTypeImage {
+				switch att.MimeType {
+				case "image/png", "image/jpeg", "image/gif", "image/webp":
+					// valid
+				default:
+					http.Error(w, fmt.Sprintf("invalid mime type %q for image attachment %s", att.MimeType, att.Path), http.StatusBadRequest)
+					return
+				}
 			}
 		}
 
