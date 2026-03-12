@@ -553,6 +553,38 @@ No viewport component needed — terminal scrollback handles history.
 - Very long streaming responses grow the managed region toward terminal height; top lines are dropped if it exceeds
 - Inline mode cursor sits at end of managed region by default; set `View.Cursor` explicitly for text input positioning
 
+### `tea.Println` Clears Previous Terminal Output
+
+**Critical**: `tea.Println` wipes all terminal content above the managed region on its first call. This means any startup banner or welcome message printed via `tea.Println` will destroy the user's previous terminal scrollback.
+
+**Rule**: Never use `tea.Println` during initialization (Init or early Cmd results). Print any startup content with `fmt.Println` **before** calling `p.Run()`.
+
+```go
+// BAD — tea.Println in Init or early handler eats all previous output
+func (m model) Init() tea.Cmd {
+    return tea.Println("Welcome!")  // wipes terminal
+}
+
+// BAD — tea.Println in async init result also eats everything
+case initDoneMsg:
+    return m, tea.Println("Ready!")  // wipes terminal
+
+// GOOD — print before bubbletea starts
+func main() {
+    fmt.Println(banner())           // safe: before p.Run()
+    p := tea.NewProgram(model{})
+    p.Run()
+}
+```
+
+`tea.Println` is safe to use **during interaction** (e.g. committing chat messages to scrollback) — at that point the scrollback is TUI content, not previous terminal output.
+
+### Multi-Line Views Eat Terminal Lines
+
+Each line in `View()` output costs one line of previous terminal scrollback on startup — bubbletea scrolls the terminal to make room. A 3-line view eats 2 lines. Keep the base managed region compact: avoid decorative blank lines, use `\n` not `\n\n`.
+
+All `View()` code paths that transition between each other (e.g. loading → ready) should produce the **same height** to avoid additional eating during state changes.
+
 ## Performance Notes
 
 - **Cursed Renderer (v2):** Based on ncurses algorithms, much faster than v1. Handles synchronized output automatically.

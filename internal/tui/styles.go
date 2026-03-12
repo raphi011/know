@@ -14,6 +14,14 @@ var (
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(primaryColor)
+)
+
+// Banner returns the styled startup banner for printing before bubbletea starts.
+func Banner() string {
+	return headerStyle.Render("knowhow")
+}
+
+var (
 
 	// Status bar
 	statusStyle = lipgloss.NewStyle().

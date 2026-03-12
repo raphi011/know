@@ -2,8 +2,8 @@ apiVersion: v2
 name: knowhow
 description: Knowhow - Personal Knowledge RAG Database with REST API and WebDAV
 type: application
-version: 0.4.0
-appVersion: "0.4.0"
+version: 0.4.1
+appVersion: "0.4.1"
 keywords:
   - knowhow
   - knowledge-graph
