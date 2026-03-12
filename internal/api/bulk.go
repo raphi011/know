@@ -35,6 +35,7 @@ type bulkResponse struct {
 }
 
 func (s *Server) bulkUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 50*1024*1024) // 50 MB
 	// Use streaming multipart reader to avoid buffering the entire request in memory.
 	reader, err := r.MultipartReader()
 	if err != nil {

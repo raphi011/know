@@ -2,13 +2,24 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
+)
+
+var (
+	// ErrInvalidToken indicates the token was not found in the database.
+	ErrInvalidToken = errors.New("invalid token")
+	// ErrTokenExpired indicates the token was found but has expired.
+	ErrTokenExpired = errors.New("token expired")
+	// ErrInvalidShareLink indicates the share link was not found in the database.
+	ErrInvalidShareLink = errors.New("invalid share link")
+	// ErrShareLinkExpired indicates the share link was found but has expired.
+	ErrShareLinkExpired = errors.New("share link expired")
 )
 
 // Authenticate validates a raw API token and returns an AuthContext.
@@ -46,7 +57,7 @@ func Authenticate(ctx context.Context, dbClient *db.Client, rawToken string, noA
 
 	// Only fall through to share link if the token was genuinely not found.
 	// DB errors (connectivity, timeouts) should propagate immediately.
-	if !isNotFoundError(err) {
+	if !shouldFallThrough(err) {
 		return AuthContext{}, err
 	}
 
@@ -62,7 +73,12 @@ func Authenticate(ctx context.Context, dbClient *db.Client, rawToken string, noA
 		}, nil
 	}
 
-	// Return the original token error (more informative than share link error)
+	// If the share link was found but expired, that error is more actionable
+	// than the generic "invalid token" from the token lookup path.
+	if errors.Is(shareErr, ErrShareLinkExpired) {
+		return AuthContext{}, shareErr
+	}
+
 	return AuthContext{}, err
 }
 
@@ -85,11 +101,11 @@ func ValidateToken(ctx context.Context, dbClient *db.Client, rawToken string) (*
 		return nil, fmt.Errorf("token lookup: %w", err)
 	}
 	if token == nil {
-		return nil, fmt.Errorf("invalid token")
+		return nil, ErrInvalidToken
 	}
 
 	if token.IsExpired() {
-		return nil, fmt.Errorf("token expired")
+		return nil, ErrTokenExpired
 	}
 
 	tokenID, err := models.RecordIDString(token.ID)
@@ -160,11 +176,11 @@ func ValidateShareLink(ctx context.Context, dbClient *db.Client, rawToken string
 		return nil, fmt.Errorf("share link lookup: %w", err)
 	}
 	if link == nil {
-		return nil, fmt.Errorf("invalid share link")
+		return nil, ErrInvalidShareLink
 	}
 
 	if link.IsExpired() {
-		return nil, fmt.Errorf("share link expired")
+		return nil, ErrShareLinkExpired
 	}
 
 	vaultID, err := models.RecordIDString(link.Vault)
@@ -179,12 +195,10 @@ func ValidateShareLink(ctx context.Context, dbClient *db.Client, rawToken string
 	}, nil
 }
 
-// isNotFoundError returns true if the error indicates a token/link was not found
-// (as opposed to a DB infrastructure error).
-func isNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "invalid token") || strings.Contains(msg, "token expired")
+// shouldFallThrough returns true if the token error indicates the token was
+// not found (as opposed to a DB infrastructure error). Used to decide
+// whether to fall through to share link lookup. Expired tokens are a hard
+// failure — the user should re-authenticate, not silently get share link access.
+func shouldFallThrough(err error) bool {
+	return errors.Is(err, ErrInvalidToken)
 }
