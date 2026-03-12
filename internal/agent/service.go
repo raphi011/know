@@ -15,6 +15,7 @@ import (
 	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/parser"
 	"github.com/raphi011/knowhow/internal/search"
@@ -402,26 +403,34 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		}
 	}
 
-	// Inject local file attachments as context
-	if len(req.Attachments) > 0 {
-		var fileContext strings.Builder
-		for _, att := range req.Attachments {
-			switch att.Type {
-			case models.AttachmentTypeText:
-				fmt.Fprintf(&fileContext, "\n--- File: %s ---\n```%s\n%s\n```\n", att.Path, att.Language, att.Content)
-			default:
-				slog.Warn("unsupported attachment type, skipping", "path", att.Path, "type", att.Type)
-			}
-		}
-		if fileContext.Len() > 0 {
-			messages = append(messages,
-				&schema.Message{Role: schema.User, Content: "Attached local files:\n" + fileContext.String()},
-				&schema.Message{Role: schema.Assistant, Content: "I'll use these attached files to help answer your question."},
-			)
+	// Separate text and image attachments
+	var textAtts, imageAtts []models.ChatAttachment
+	for _, att := range req.Attachments {
+		switch att.Type {
+		case models.AttachmentTypeText:
+			textAtts = append(textAtts, att)
+		case models.AttachmentTypeImage:
+			imageAtts = append(imageAtts, att)
+		default:
+			logutil.FromCtx(ctx).Warn("unsupported attachment type, skipping", "path", att.Path, "type", att.Type)
+			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("unsupported attachment type %q for %s, skipping", att.Type, att.Path)})
 		}
 	}
 
-	messages = append(messages, &schema.Message{Role: schema.User, Content: req.Content})
+	// Inject text file attachments as fenced code blocks
+	if len(textAtts) > 0 {
+		var fileContext strings.Builder
+		for _, att := range textAtts {
+			fmt.Fprintf(&fileContext, "\n--- File: %s ---\n```%s\n%s\n```\n", att.Path, att.Language, att.Content)
+		}
+		messages = append(messages,
+			&schema.Message{Role: schema.User, Content: "Attached local files:\n" + fileContext.String()},
+			&schema.Message{Role: schema.Assistant, Content: "I'll use these attached files to help answer your question."},
+		)
+	}
+
+	// Build the final user message — multimodal if image attachments present
+	messages = append(messages, buildUserMessage(req.Content, imageAtts))
 
 	// Track tool calls and results for storage
 	type toolCallRecord struct {
@@ -606,6 +615,36 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	return nil
+}
+
+// buildUserMessage constructs the final user message. If image attachments are
+// present, it returns a multimodal message with text + image parts; otherwise a
+// plain text message.
+func buildUserMessage(content string, imageAtts []models.ChatAttachment) *schema.Message {
+	if len(imageAtts) == 0 {
+		return &schema.Message{Role: schema.User, Content: content}
+	}
+
+	parts := []schema.MessageInputPart{
+		{Type: schema.ChatMessagePartTypeText, Text: content},
+	}
+	for _, img := range imageAtts {
+		// Copy to a loop-local variable so each part gets its own pointer.
+		b64 := img.Content
+		parts = append(parts, schema.MessageInputPart{
+			Type: schema.ChatMessagePartTypeImageURL,
+			Image: &schema.MessageInputImage{
+				MessagePartCommon: schema.MessagePartCommon{
+					Base64Data: &b64,
+					MIMEType:   img.MimeType,
+				},
+			},
+		})
+	}
+	return &schema.Message{
+		Role:                  schema.User,
+		UserInputMultiContent: parts,
+	}
 }
 
 // agentToolToCanonical maps agent-specific tool names to canonical executor names.

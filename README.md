@@ -451,8 +451,16 @@ Attach local files to your chat messages using `@` followed by a file path. The 
 "What does @main.go do?"
 ```
 
-**Supported**: Text files up to 1MB (source code, markdown, config files, etc.)
-**Not yet supported**: Images, binary files, extensionless filenames (use `@./Makefile` instead of `@Makefile`)
+```bash
+# Attach an image for vision analysis
+"What's shown in this image? @./screenshot.png"
+
+# Mix text and image attachments
+"Explain the architecture in the diagram using the notes @./diagram.png @./notes.md"
+```
+
+**Supported**: Text files up to 1MB (source code, markdown, config files, etc.), images up to 10MB (PNG, JPG, GIF, WebP)
+**Not supported**: Binary files, extensionless filenames (use `@./Makefile` instead of `@Makefile`)
 
 ## Agent Tool Approval (Human-in-the-Loop)
 

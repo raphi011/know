@@ -295,7 +295,7 @@ func (m *Model) sendMessage() tea.Cmd {
 				Content:  att.Content,
 				MimeType: att.MimeType,
 				Language: att.Language,
-				Type:     models.AttachmentTypeText,
+				Type:     toAttachmentType(att.Type),
 			})
 		}
 

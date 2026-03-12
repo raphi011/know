@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +89,10 @@ func TestClassifyFile(t *testing.T) {
 		{".jpg", FileTypeImage},
 		{".jpeg", FileTypeImage},
 		{".gif", FileTypeImage},
-		{".svg", FileTypeImage},
+		{".webp", FileTypeImage},
+		{".svg", FileTypeBinary},
+		{".bmp", FileTypeBinary},
+		{".ico", FileTypeBinary},
 		{".exe", FileTypeBinary},
 		{".zip", FileTypeBinary},
 		{".pdf", FileTypeBinary},
@@ -280,7 +285,8 @@ func TestResolveAttachments(t *testing.T) {
 	t.Run("image file", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "photo.png")
-		if err := os.WriteFile(path, []byte("\x89PNG"), 0o644); err != nil {
+		imgData := []byte("\x89PNG\r\n\x1a\nfakedata")
+		if err := os.WriteFile(path, imgData, 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -288,17 +294,71 @@ func TestResolveAttachments(t *testing.T) {
 		if len(atts) != 1 {
 			t.Fatalf("got %d attachments, want 1", len(atts))
 		}
-		if !strings.Contains(atts[0].Error, "image attachments not yet supported") {
-			t.Errorf("expected image error, got: %s", atts[0].Error)
+		att := atts[0]
+		if att.Error != "" {
+			t.Fatalf("unexpected error: %s", att.Error)
 		}
-		if atts[0].Content != "" {
-			t.Error("expected empty content for image file")
+		if att.Content == "" {
+			t.Fatal("expected base64 content for image file")
+		}
+		// Verify base64 round-trip
+		decoded, err := base64.StdEncoding.DecodeString(att.Content)
+		if err != nil {
+			t.Fatalf("Content is not valid base64: %v", err)
+		}
+		if !bytes.Equal(decoded, imgData) {
+			t.Error("base64 decoded content does not match original image data")
+		}
+		if att.MimeType != "image/png" {
+			t.Errorf("MimeType = %q, want %q", att.MimeType, "image/png")
+		}
+		if att.Type != FileTypeImage {
+			t.Errorf("type = %v, want %v", att.Type, FileTypeImage)
+		}
+		if att.Size != int64(len(imgData)) {
+			t.Errorf("Size = %d, want %d", att.Size, len(imgData))
+		}
+	})
+
+	t.Run("oversized image file", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "huge.png")
+		data := make([]byte, maxImageAttachmentSize+1)
+		for i := range data {
+			data[i] = 0xFF
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		atts := resolveAttachments([]string{path})
+		if len(atts) != 1 {
+			t.Fatalf("got %d attachments, want 1", len(atts))
+		}
+		if !strings.Contains(atts[0].Error, "too large") {
+			t.Errorf("expected size error, got: %s", atts[0].Error)
 		}
 	})
 
 	t.Run("empty file", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "empty.go")
+		if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		atts := resolveAttachments([]string{path})
+		if len(atts) != 1 {
+			t.Fatalf("got %d attachments, want 1", len(atts))
+		}
+		if !strings.Contains(atts[0].Error, "empty") {
+			t.Errorf("expected empty file error, got: %s", atts[0].Error)
+		}
+	})
+
+	t.Run("empty image file", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "empty.png")
 		if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -339,4 +399,50 @@ func TestResolveAttachments(t *testing.T) {
 			t.Errorf("LineCount() = %d, want 3", atts[0].LineCount())
 		}
 	})
+}
+
+func TestMimeForExt_Images(t *testing.T) {
+	tests := []struct {
+		ext  string
+		want string
+	}{
+		{".png", "image/png"},
+		{".jpg", "image/jpeg"},
+		{".jpeg", "image/jpeg"},
+		{".gif", "image/gif"},
+		{".webp", "image/webp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ext, func(t *testing.T) {
+			got := mimeForExt(tt.ext)
+			if got != tt.want {
+				t.Errorf("mimeForExt(%q) = %q, want %q", tt.ext, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatSize(t *testing.T) {
+	tests := []struct {
+		bytes int64
+		want  string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1048576, "1.0 MB"},
+		{10485760, "10.0 MB"},
+		{1572864, "1.5 MB"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := formatSize(tt.bytes)
+			if got != tt.want {
+				t.Errorf("formatSize(%d) = %q, want %q", tt.bytes, got, tt.want)
+			}
+		})
+	}
 }
