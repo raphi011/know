@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,10 +44,8 @@ func mustReadAll(t *testing.T, r io.Reader) []byte {
 // requireStatus fails the test if resp status doesn't match expected.
 func requireStatus(t *testing.T, resp *http.Response, label string, expected ...int) {
 	t.Helper()
-	for _, code := range expected {
-		if resp.StatusCode == code {
-			return
-		}
+	if slices.Contains(expected, resp.StatusCode) {
+		return
 	}
 	t.Fatalf("%s status = %d, want one of %v", label, resp.StatusCode, expected)
 }

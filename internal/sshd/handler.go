@@ -475,12 +475,17 @@ type fileInfo struct {
 	isDir   bool
 }
 
-func (fi *fileInfo) Name() string      { return fi.name }
-func (fi *fileInfo) Size() int64       { return fi.size }
-func (fi *fileInfo) Mode() fs.FileMode { if fi.isDir { return fs.ModeDir | 0755 }; return 0644 }
+func (fi *fileInfo) Name() string { return fi.name }
+func (fi *fileInfo) Size() int64  { return fi.size }
+func (fi *fileInfo) Mode() fs.FileMode {
+	if fi.isDir {
+		return fs.ModeDir | 0755
+	}
+	return 0644
+}
 func (fi *fileInfo) ModTime() time.Time { return fi.modTime }
-func (fi *fileInfo) IsDir() bool       { return fi.isDir }
-func (fi *fileInfo) Sys() any          { return nil }
+func (fi *fileInfo) IsDir() bool        { return fi.isDir }
+func (fi *fileInfo) Sys() any           { return nil }
 
 // isMarkdownFile returns true if the file has a .md extension (case-insensitive).
 func isMarkdownFile(name string) bool {

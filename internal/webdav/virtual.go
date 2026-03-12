@@ -19,7 +19,7 @@ import (
 // VirtualFile generates dynamic markdown content from DB state.
 // Virtual files appear as read-only entries in the root directory listing.
 type VirtualFile interface {
-	Name() string                                              // e.g. ".labels.md"
+	Name() string                                                 // e.g. ".labels.md"
 	Generate(ctx context.Context, vaultID string) (string, error) // returns markdown content
 }
 
@@ -54,13 +54,13 @@ func newVirtualReadFile(name, content string) *virtualReadFile {
 	}
 }
 
-func (f *virtualReadFile) Read(p []byte) (int, error)             { return f.reader.Read(p) }
-func (f *virtualReadFile) Write([]byte) (int, error)              { return 0, os.ErrPermission }
+func (f *virtualReadFile) Read(p []byte) (int, error) { return f.reader.Read(p) }
+func (f *virtualReadFile) Write([]byte) (int, error)  { return 0, os.ErrPermission }
 func (f *virtualReadFile) Seek(offset int64, whence int) (int64, error) {
 	return f.reader.Seek(offset, whence)
 }
-func (f *virtualReadFile) Close() error                           { return nil }
-func (f *virtualReadFile) Readdir(int) ([]fs.FileInfo, error)     { return nil, os.ErrInvalid }
+func (f *virtualReadFile) Close() error                       { return nil }
+func (f *virtualReadFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
 func (f *virtualReadFile) Stat() (fs.FileInfo, error) {
 	return &fileInfo{
 		name:        path.Base(f.name),

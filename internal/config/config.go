@@ -163,11 +163,11 @@ func Load() Config {
 		LLMModel:    getEnv("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514"),
 
 		// Provider hosts/keys
-		OllamaHost:           getEnv("OLLAMA_HOST", "http://localhost:11434"),
-		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
-		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
-		GoogleAIAPIKey:       getEnv("GOOGLE_AI_API_KEY", ""),
-		TavilyAPIKey: getEnv("TAVILY_API_KEY", ""),
+		OllamaHost:      getEnv("OLLAMA_HOST", "http://localhost:11434"),
+		OpenAIAPIKey:    getEnv("OPENAI_API_KEY", ""),
+		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
+		GoogleAIAPIKey:  getEnv("GOOGLE_AI_API_KEY", ""),
+		TavilyAPIKey:    getEnv("TAVILY_API_KEY", ""),
 
 		// Logging
 		LogFile:  getEnv("KNOWHOW_LOG_FILE", "/tmp/knowhow.log"),

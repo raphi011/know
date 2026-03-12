@@ -48,22 +48,22 @@ type ServerConfig struct {
 // App holds all application services and dependencies.
 // mu protects serverConfig, workerCancel, and workerDone.
 type App struct {
-	mu                      sync.RWMutex
-	db                      *db.Client
-	vaultService            *vault.Service
-	documentService         *document.Service
-	assetService            *asset.Service
-	searchService           *search.Service
-	templateService         *template.Service
-	agentService            *agent.Service
-	bus                     *event.Bus
-	workerCancel            context.CancelFunc // guarded by mu
-	workerDone              chan struct{}       // guarded by mu
-	processingWorkerCancel    context.CancelFunc // guarded by mu
-	processingWorkerDone      chan struct{}       // guarded by mu
-	processingWorkerInterval  time.Duration
-	processingWorkerBatch     int
-	serverConfig              ServerConfig // guarded by mu
+	mu                       sync.RWMutex
+	db                       *db.Client
+	vaultService             *vault.Service
+	documentService          *document.Service
+	assetService             *asset.Service
+	searchService            *search.Service
+	templateService          *template.Service
+	agentService             *agent.Service
+	bus                      *event.Bus
+	workerCancel             context.CancelFunc // guarded by mu
+	workerDone               chan struct{}      // guarded by mu
+	processingWorkerCancel   context.CancelFunc // guarded by mu
+	processingWorkerDone     chan struct{}      // guarded by mu
+	processingWorkerInterval time.Duration
+	processingWorkerBatch    int
+	serverConfig             ServerConfig // guarded by mu
 }
 
 // New creates a new App with all dependencies initialized.
@@ -170,13 +170,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		assetService:             assetSvc,
 		processingWorkerInterval: time.Duration(cfg.ProcessingWorkerInterval) * time.Second,
 		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
-		documentService:      docService,
-		searchService:        searchSvc,
-		templateService:      template.NewService(dbClient),
-		agentService:         agentSvc,
-		bus:                  bus,
-		workerDone:           embeddingWorkerDone,
-		processingWorkerDone: processingWorkerDone,
+		documentService:          docService,
+		searchService:            searchSvc,
+		templateService:          template.NewService(dbClient),
+		agentService:             agentSvc,
+		bus:                      bus,
+		workerDone:               embeddingWorkerDone,
+		processingWorkerDone:     processingWorkerDone,
 		serverConfig: ServerConfig{
 			SurrealDBURL:           cfg.SurrealDBURL,
 			AuthEnabled:            !cfg.NoAuth,

@@ -15,6 +15,8 @@ func TestFormatBytes(t *testing.T) {
 		{1048575, "1024.0 KB"},
 		{1048576, "1.0 MB"},
 		{10485760, "10.0 MB"},
+		{1073741824, "1.0 GB"},
+		{1610612736, "1.5 GB"},
 	}
 	for _, tt := range tests {
 		got := formatBytes(tt.input)

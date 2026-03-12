@@ -94,9 +94,9 @@ func TestDelete_RecursiveFolder(t *testing.T) {
 		"vaultId": vaultID,
 		"force":   true,
 	}, map[string][]byte{
-		"/docs/a.md":      []byte("# A"),
-		"/docs/sub/b.md":  []byte("# B"),
-		"/other/c.md":     []byte("# C"),
+		"/docs/a.md":     []byte("# A"),
+		"/docs/sub/b.md": []byte("# B"),
+		"/other/c.md":    []byte("# C"),
 	})
 
 	resp, result := deleteRequest(t, srv, vaultID, "/docs", true, false)

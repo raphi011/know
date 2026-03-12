@@ -94,8 +94,8 @@ func (e *Executor) execSearch(ctx context.Context, vaultID, arguments string) (s
 
 	meta := &ToolResultMeta{
 		DurationMs:  durationMs,
-		ResultCount: IntPtr(len(results)),
-		ChunkCount:  IntPtr(totalChunks),
+		ResultCount: new(len(results)),
+		ChunkCount:  new(totalChunks),
 		MatchedDocs: matchedDocs,
 	}
 	return result, meta, nil
@@ -175,7 +175,7 @@ func (e *Executor) execListLabels(ctx context.Context, vaultID string) (string, 
 	}
 	meta := &ToolResultMeta{
 		DurationMs:  durationMs,
-		ResultCount: IntPtr(len(labels)),
+		ResultCount: new(len(labels)),
 	}
 	return result, meta, nil
 }
@@ -216,7 +216,7 @@ func (e *Executor) execListFolders(ctx context.Context, vaultID, arguments strin
 	}
 	meta := &ToolResultMeta{
 		DurationMs:  durationMs,
-		ResultCount: IntPtr(len(folders)),
+		ResultCount: new(len(folders)),
 	}
 	return result, meta, nil
 }
@@ -276,7 +276,7 @@ func (e *Executor) execListFolderContents(ctx context.Context, vaultID, argument
 	}
 	meta := &ToolResultMeta{
 		DurationMs:  durationMs,
-		ResultCount: IntPtr(count),
+		ResultCount: new(count),
 	}
 	return result, meta, nil
 }
@@ -583,7 +583,7 @@ func (e *Executor) execGetDocumentVersions(ctx context.Context, vaultID, argumen
 
 	meta := &ToolResultMeta{
 		DurationMs:  durationMs,
-		ResultCount: IntPtr(totalCount),
+		ResultCount: new(totalCount),
 	}
 	return sb.String(), meta, nil
 }

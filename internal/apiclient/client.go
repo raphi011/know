@@ -264,10 +264,10 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]mo
 
 // VaultInfo holds comprehensive stats about a vault.
 type VaultInfo struct {
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 
 	DocumentCount      int `json:"documentCount"`
 	UnprocessedDocs    int `json:"unprocessedDocs"`
@@ -275,10 +275,10 @@ type VaultInfo struct {
 	ChunkWithEmbedding int `json:"chunkWithEmbedding"`
 	ChunkPending       int `json:"chunkPending"`
 
-	LabelCount int         `json:"labelCount"`
-	TopLabels  []LabelStat `json:"topLabels"`
+	LabelCount int                `json:"labelCount"`
+	TopLabels  []models.LabelStat `json:"topLabels"`
 
-	Members []MemberStat `json:"members"`
+	Members []models.MemberStat `json:"members"`
 
 	AssetCount     int   `json:"assetCount"`
 	AssetTotalSize int64 `json:"assetTotalSize"`
@@ -291,18 +291,6 @@ type VaultInfo struct {
 	ConversationCount int   `json:"conversationCount"`
 	TokenInput        int64 `json:"tokenInput"`
 	TokenOutput       int64 `json:"tokenOutput"`
-}
-
-// LabelStat represents a label with its document count.
-type LabelStat struct {
-	Name  string `json:"name"`
-	Count int    `json:"count"`
-}
-
-// MemberStat represents a vault member with their role.
-type MemberStat struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
 }
 
 // GetVaultInfo fetches comprehensive stats about a vault.

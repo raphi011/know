@@ -1,7 +1,11 @@
 // Package api provides REST API handlers for Knowhow.
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/raphi011/knowhow/internal/models"
+)
 
 // Vault is the JSON representation of a vault.
 type Vault struct {
@@ -77,11 +81,11 @@ type VaultInfo struct {
 	ChunkPending       int `json:"chunkPending"`
 
 	// Labels
-	LabelCount int         `json:"labelCount"`
-	TopLabels  []LabelStat `json:"topLabels"`
+	LabelCount int                `json:"labelCount"`
+	TopLabels  []models.LabelStat `json:"topLabels"`
 
 	// Members
-	Members []MemberStat `json:"members"`
+	Members []models.MemberStat `json:"members"`
 
 	// Assets
 	AssetCount     int   `json:"assetCount"`
@@ -97,18 +101,6 @@ type VaultInfo struct {
 	ConversationCount int   `json:"conversationCount"`
 	TokenInput        int64 `json:"tokenInput"`
 	TokenOutput       int64 `json:"tokenOutput"`
-}
-
-// LabelStat represents a label with its document count.
-type LabelStat struct {
-	Name  string `json:"name"`
-	Count int    `json:"count"`
-}
-
-// MemberStat represents a vault member with their role.
-type MemberStat struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
 }
 
 // ServerConfig holds the server's effective configuration.

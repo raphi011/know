@@ -6,10 +6,10 @@ import (
 
 func TestEffectiveChunkConfig(t *testing.T) {
 	tests := []struct {
-		name          string
-		cfg           Config
-		wantThreshold int
-		wantMaxSize   int
+		name           string
+		cfg            Config
+		wantThreshold  int
+		wantMaxSize    int
 		wantTargetSize int
 	}{
 		{

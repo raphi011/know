@@ -24,7 +24,7 @@ type bulkMeta struct {
 type bulkFileResult struct {
 	Path   string `json:"path"`
 	Status string `json:"status"`           // "created", "updated", "skipped", "error"
-	Reason string `json:"reason,omitempty"`  // e.g. "hash_match", "exists"
+	Reason string `json:"reason,omitempty"` // e.g. "hash_match", "exists"
 	Error  string `json:"error,omitempty"`
 }
 

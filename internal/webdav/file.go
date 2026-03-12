@@ -174,10 +174,7 @@ func (d *dirFile) Readdir(count int) ([]fs.FileInfo, error) {
 		return nil, io.EOF
 	}
 
-	end := d.pos + count
-	if end > len(d.entries) {
-		end = len(d.entries)
-	}
+	end := min(d.pos+count, len(d.entries))
 	entries := d.entries[d.pos:end]
 	d.pos = end
 
@@ -238,7 +235,7 @@ func (f *assetReadFile) Write([]byte) (int, error)  { return 0, os.ErrPermission
 func (f *assetReadFile) Seek(offset int64, whence int) (int64, error) {
 	return f.reader.Seek(offset, whence)
 }
-func (f *assetReadFile) Close() error                           { return nil }
+func (f *assetReadFile) Close() error                       { return nil }
 func (f *assetReadFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
 func (f *assetReadFile) Stat() (fs.FileInfo, error) {
 	return &fileInfo{

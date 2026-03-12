@@ -23,7 +23,7 @@ func runDBWipe(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	defer dbClient.Close(ctx)
+	defer dbClient.Close(ctx) //nolint:errcheck // process exits immediately; close failure is benign
 
 	if err := dbClient.WipeData(ctx); err != nil {
 		return fmt.Errorf("wipe data: %w", err)

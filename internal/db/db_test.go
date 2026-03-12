@@ -104,4 +104,3 @@ func createTestVault(t *testing.T, ctx context.Context, userID string) *models.V
 	}
 	return vault
 }
-

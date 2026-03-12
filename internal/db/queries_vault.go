@@ -166,8 +166,8 @@ type VaultInfoStats struct {
 	ChunkWithEmbedding int
 	ChunkPending       int
 	LabelCount         int
-	TopLabels          []VaultLabelStat
-	Members            []VaultMemberStat
+	TopLabels          []models.LabelStat
+	Members            []models.MemberStat
 	AssetCount         int
 	AssetTotalSize     int64
 	WikiLinkTotal      int
@@ -177,18 +177,6 @@ type VaultInfoStats struct {
 	ConversationCount  int
 	TokenInput         int64
 	TokenOutput        int64
-}
-
-// VaultLabelStat is a label name with its document count.
-type VaultLabelStat struct {
-	Name  string `json:"name"`
-	Count int    `json:"count"`
-}
-
-// VaultMemberStat is a vault member with their role.
-type VaultMemberStat struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
 }
 
 // GetVaultInfo retrieves comprehensive stats about a vault in a single batch query.
@@ -245,7 +233,10 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	if err != nil {
 		return nil, fmt.Errorf("get vault info: %w", err)
 	}
-	if results == nil || len(*results) < 10 {
+	if results == nil {
+		return nil, fmt.Errorf("get vault info: nil results")
+	}
+	if len(*results) < 10 {
 		return nil, fmt.Errorf("get vault info: expected 10 results, got %d", len(*results))
 	}
 
@@ -257,7 +248,10 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		if err != nil {
 			return fmt.Errorf("marshal result %d: %w", idx, err)
 		}
-		return json.Unmarshal(raw, target)
+		if err := json.Unmarshal(raw, target); err != nil {
+			return fmt.Errorf("unmarshal result %d: %w", idx, err)
+		}
+		return nil
 	}
 
 	// 0: documents
@@ -300,16 +294,22 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	}
 
 	// 3: top labels
-	var topLabels []VaultLabelStat
+	var topLabels []models.LabelStat
 	if err := decodeResult(3, &topLabels); err != nil {
 		return nil, fmt.Errorf("decode top labels: %w", err)
+	}
+	if topLabels == nil {
+		topLabels = []models.LabelStat{}
 	}
 	stats.TopLabels = topLabels
 
 	// 4: members
-	var members []VaultMemberStat
+	var members []models.MemberStat
 	if err := decodeResult(4, &members); err != nil {
 		return nil, fmt.Errorf("decode members: %w", err)
+	}
+	if members == nil {
+		members = []models.MemberStat{}
 	}
 	stats.Members = members
 

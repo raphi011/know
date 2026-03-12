@@ -228,10 +228,10 @@ func TestMiddlewareMissingHeader(t *testing.T) {
 
 func TestCheckSharePath(t *testing.T) {
 	tests := []struct {
-		name     string
-		share    ShareContext
-		docPath  string
-		wantErr  bool
+		name    string
+		share   ShareContext
+		docPath string
+		wantErr bool
 	}{
 		{
 			name:    "exact doc match",
@@ -316,7 +316,7 @@ func TestRequireDocAccess(t *testing.T) {
 
 	t.Run("share link with matching path", func(t *testing.T) {
 		ctx := WithAuth(t.Context(), AuthContext{
-			Share: &ShareContext{VaultID: "v1", Path: "/docs/shared.md", IsFolder: false},
+			Share:  &ShareContext{VaultID: "v1", Path: "/docs/shared.md", IsFolder: false},
 			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
 		})
 		if err := RequireDocAccess(ctx, "v1", "/docs/shared.md"); err != nil {
@@ -326,7 +326,7 @@ func TestRequireDocAccess(t *testing.T) {
 
 	t.Run("share link with wrong vault", func(t *testing.T) {
 		ctx := WithAuth(t.Context(), AuthContext{
-			Share: &ShareContext{VaultID: "v1", Path: "/docs/shared.md", IsFolder: false},
+			Share:  &ShareContext{VaultID: "v1", Path: "/docs/shared.md", IsFolder: false},
 			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
 		})
 		if err := RequireDocAccess(ctx, "v2", "/docs/shared.md"); err == nil {
@@ -336,7 +336,7 @@ func TestRequireDocAccess(t *testing.T) {
 
 	t.Run("share link with out-of-scope path", func(t *testing.T) {
 		ctx := WithAuth(t.Context(), AuthContext{
-			Share: &ShareContext{VaultID: "v1", Path: "/docs/folder", IsFolder: true},
+			Share:  &ShareContext{VaultID: "v1", Path: "/docs/folder", IsFolder: true},
 			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
 		})
 		if err := RequireDocAccess(ctx, "v1", "/docs/other/file.md"); err == nil {
@@ -415,7 +415,7 @@ func TestVaultRoleMethod(t *testing.T) {
 
 func TestShareLinkReadOnly(t *testing.T) {
 	ac := AuthContext{
-		Share: &ShareContext{VaultID: "v1", Path: "/docs/file.md", IsFolder: false},
+		Share:  &ShareContext{VaultID: "v1", Path: "/docs/file.md", IsFolder: false},
 		Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
 	}
 

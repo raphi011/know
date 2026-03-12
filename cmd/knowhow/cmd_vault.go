@@ -54,8 +54,8 @@ func runVault(_ *cobra.Command, args []string) error {
 	if info.Description != nil {
 		fmt.Printf("Description: %s\n", *info.Description)
 	}
-	fmt.Printf("Created: %s\n", info.CreatedAt)
-	fmt.Printf("Updated: %s\n", info.UpdatedAt)
+	fmt.Printf("Created: %s\n", info.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Updated: %s\n", info.UpdatedAt.Format("2006-01-02 15:04:05"))
 
 	fmt.Println()
 	fmt.Println("Documents")
@@ -107,11 +107,17 @@ func runVault(_ *cobra.Command, args []string) error {
 }
 
 func formatNumber(n int64) string {
-	if n < 1000 {
+	if n < 0 {
+		return "-" + formatNumber(-n)
+	}
+	switch {
+	case n < 1000:
 		return fmt.Sprintf("%d", n)
-	}
-	if n < 1_000_000 {
+	case n < 1_000_000:
 		return fmt.Sprintf("%d,%03d", n/1000, n%1000)
+	case n < 1_000_000_000:
+		return fmt.Sprintf("%d,%03d,%03d", n/1_000_000, (n/1000)%1000, n%1000)
+	default:
+		return fmt.Sprintf("%d,%03d,%03d,%03d", n/1_000_000_000, (n/1_000_000)%1000, (n/1000)%1000, n%1000)
 	}
-	return fmt.Sprintf("%d,%03d,%03d", n/1_000_000, (n/1000)%1000, n%1000)
 }

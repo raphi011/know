@@ -134,7 +134,7 @@ func TestProcessAllPending_ProcessesMultipleDocuments(t *testing.T) {
 	vaultID, docSvc := setupProcessingTest(t, ctx)
 
 	// Create several documents
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, err := docSvc.Create(ctx, models.DocumentInput{
 			VaultID: vaultID,
 			Path:    fmt.Sprintf("/multi-%d.md", i),

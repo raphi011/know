@@ -106,15 +106,6 @@ func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	topLabels := make([]LabelStat, len(stats.TopLabels))
-	for i, l := range stats.TopLabels {
-		topLabels[i] = LabelStat{Name: l.Name, Count: l.Count}
-	}
-	members := make([]MemberStat, len(stats.Members))
-	for i, m := range stats.Members {
-		members[i] = MemberStat{Name: m.Name, Role: m.Role}
-	}
-
 	info := VaultInfo{
 		Name:               v.Name,
 		Description:        v.Description,
@@ -126,8 +117,8 @@ func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
 		ChunkWithEmbedding: stats.ChunkWithEmbedding,
 		ChunkPending:       stats.ChunkPending,
 		LabelCount:         stats.LabelCount,
-		TopLabels:          topLabels,
-		Members:            members,
+		TopLabels:          stats.TopLabels,
+		Members:            stats.Members,
 		AssetCount:         stats.AssetCount,
 		AssetTotalSize:     stats.AssetTotalSize,
 		WikiLinkTotal:      stats.WikiLinkTotal,

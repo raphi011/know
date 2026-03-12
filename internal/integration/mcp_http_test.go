@@ -81,15 +81,15 @@ func TestMCP_ListTools(t *testing.T) {
 	}
 
 	expectedTools := map[string]bool{
-		"search_documents":     false,
-		"get_document":         false,
-		"list_labels":          false,
-		"list_folders":         false,
-		"list_folder_contents": false,
+		"search_documents":      false,
+		"get_document":          false,
+		"list_labels":           false,
+		"list_folders":          false,
+		"list_folder_contents":  false,
 		"get_document_versions": false,
-		"create_memory":        false,
-		"create_document":      false,
-		"edit_document":        false,
+		"create_memory":         false,
+		"create_document":       false,
+		"edit_document":         false,
 		"edit_document_section": false,
 	}
 
@@ -303,4 +303,3 @@ func contentText(result *mcp.CallToolResult) string {
 	}
 	return strings.Join(parts, "\n")
 }
-

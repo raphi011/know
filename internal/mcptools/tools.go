@@ -25,17 +25,17 @@ type mcpTools struct {
 func (t *mcpTools) register(server *mcp.Server) {
 	readOnly := &mcp.ToolAnnotations{
 		ReadOnlyHint:    true,
-		DestructiveHint: boolPtr(false),
-		OpenWorldHint:   boolPtr(false),
+		DestructiveHint: new(false),
+		OpenWorldHint:   new(false),
 	}
 	writeNonDestructive := &mcp.ToolAnnotations{
-		DestructiveHint: boolPtr(false),
-		OpenWorldHint:   boolPtr(false),
+		DestructiveHint: new(false),
+		OpenWorldHint:   new(false),
 	}
 	writeIdempotent := &mcp.ToolAnnotations{
-		DestructiveHint: boolPtr(false),
+		DestructiveHint: new(false),
 		IdempotentHint:  true,
-		OpenWorldHint:   boolPtr(false),
+		OpenWorldHint:   new(false),
 	}
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -198,7 +198,7 @@ func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, inp
 			continue
 		}
 		if result != "No labels found." {
-			for _, l := range strings.Split(result, ", ") {
+			for l := range strings.SplitSeq(result, ", ") {
 				labelSet[l] = true
 			}
 		}
@@ -430,7 +430,8 @@ func errorResult(text string) *mcp.CallToolResult {
 	}
 }
 
-func boolPtr(b bool) *bool { return &b }
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
 
 // isToolLevelError returns true for executor errors that are user-correctable
 // and should be returned as MCP tool errors (IsError=true) rather than

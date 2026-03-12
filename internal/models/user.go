@@ -7,11 +7,11 @@ import (
 )
 
 type User struct {
-	ID             surrealmodels.RecordID `json:"id"`
-	Name           string                 `json:"name"`
-	Email          *string                `json:"email,omitempty"`
-	IsSystemAdmin  bool                   `json:"is_system_admin"`
-	CreatedAt      time.Time              `json:"created_at"`
+	ID            surrealmodels.RecordID `json:"id"`
+	Name          string                 `json:"name"`
+	Email         *string                `json:"email,omitempty"`
+	IsSystemAdmin bool                   `json:"is_system_admin"`
+	CreatedAt     time.Time              `json:"created_at"`
 }
 
 type UserInput struct {

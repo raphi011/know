@@ -300,8 +300,8 @@ func TestBulkUpload_MixedDocumentsAndAssets(t *testing.T) {
 		"vaultId": vaultID,
 		"force":   true,
 	}, map[string][]byte{
-		"/docs/readme.md":    []byte("# Readme"),
-		"/images/logo.png":   pngData,
+		"/docs/readme.md":  []byte("# Readme"),
+		"/images/logo.png": pngData,
 	})
 
 	if len(resp.Results) != 2 {
