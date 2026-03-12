@@ -33,8 +33,10 @@ type StreamEvent struct {
 	Input        map[string]any        `json:"input,omitempty"`
 	Meta         *tools.ToolResultMeta `json:"meta,omitempty"`
 	Approval     *ApprovalRequest      `json:"approval,omitempty"`
-	InputTokens  int64                 `json:"inputTokens,omitempty"`
-	OutputTokens int64                 `json:"outputTokens,omitempty"`
+	InputTokens       int64                 `json:"inputTokens,omitempty"`
+	OutputTokens      int64                 `json:"outputTokens,omitempty"`
+	ContextWindowMax  int                   `json:"contextWindowMax,omitempty"`
+	ContextWindowUsed int64                 `json:"contextWindowUsed,omitempty"`
 }
 
 // Service orchestrates the agent loop: native tool calling → streaming answer.
@@ -546,7 +548,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	if err != nil {
 		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
-		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
+		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
 		return fmt.Errorf("generate stream: %w", err)
 	}
 
@@ -601,12 +603,12 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		assistantMsgID, idErr := models.RecordIDString(assistantMsg.ID)
 		if idErr != nil {
 			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", idErr)
-			emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
+			emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
 		} else {
-			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
+			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
 		}
 	} else {
-		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
+		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
 	}
 
 	// 10. Auto-title if first message

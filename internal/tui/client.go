@@ -46,8 +46,10 @@ type StreamEvent struct {
 	Tool         string `json:"tool,omitempty"`
 	CallID       string `json:"callId,omitempty"`
 	Diff         string `json:"diff,omitempty"`
-	InputTokens  int64  `json:"inputTokens,omitempty"`
-	OutputTokens int64  `json:"outputTokens,omitempty"`
+	InputTokens       int64  `json:"inputTokens,omitempty"`
+	OutputTokens      int64  `json:"outputTokens,omitempty"`
+	ContextWindowMax  int    `json:"contextWindowMax,omitempty"`
+	ContextWindowUsed int64  `json:"contextWindowUsed,omitempty"`
 }
 
 // Chat sends a message and returns a channel of SSE events.
@@ -102,6 +104,11 @@ func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content stri
 			var event StreamEvent
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
 				slog.Warn("SSE event unmarshal failed", "data", data, "error", err)
+				select {
+				case ch <- StreamEvent{Type: "error", Content: fmt.Sprintf("failed to parse server event: %v", err)}:
+				case <-ctx.Done():
+					return
+				}
 				continue
 			}
 			select {

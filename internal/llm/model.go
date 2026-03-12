@@ -184,9 +184,10 @@ const charsPerToken = 4
 
 // Model wraps eino chat models for text generation.
 type Model struct {
-	chatModel model.BaseChatModel
-	modelName string
-	metrics   *metrics.Collector
+	chatModel     model.BaseChatModel
+	modelName     string
+	contextWindow int
+	metrics       *metrics.Collector
 }
 
 // NewModel creates an LLM model based on configuration.
@@ -262,9 +263,10 @@ func NewModel(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*M
 	}
 
 	return &Model{
-		chatModel: chatModel,
-		modelName: cfg.LLMModel,
-		metrics:   mc,
+		chatModel:     chatModel,
+		modelName:     cfg.LLMModel,
+		contextWindow: ContextWindowSize(cfg.LLMModel, cfg.LLMContextWindow),
+		metrics:       mc,
 	}, nil
 }
 
@@ -329,6 +331,11 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 // Model returns the LLM model name.
 func (m *Model) Model() string {
 	return m.modelName
+}
+
+// ContextWindow returns the context window size in tokens.
+func (m *Model) ContextWindow() int {
+	return m.contextWindow
 }
 
 // SynthesizeAnswer generates an answer from context and query.
@@ -533,8 +540,9 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 
 // TokenUsage holds cumulative token counts from an agentic generation run.
 type TokenUsage struct {
-	InputTokens  int64
-	OutputTokens int64
+	InputTokens     int64
+	OutputTokens    int64
+	FinalPromptTokens int64 // prompt tokens from the final iteration (context fill level)
 }
 
 // GenerateStreamWithTools runs an agentic loop: stream LLM output, invoke tools when requested,
@@ -615,8 +623,11 @@ func (m *Model) GenerateStreamWithTools(
 		// MessageDeltaEvent carries CompletionTokens. ConcatMessages keeps the
 		// max of each field, so the merged result has both.
 		if merged.ResponseMeta != nil && merged.ResponseMeta.Usage != nil {
-			usage.InputTokens += int64(merged.ResponseMeta.Usage.PromptTokens)
+			promptTokens := int64(merged.ResponseMeta.Usage.PromptTokens)
+			usage.InputTokens += promptTokens
 			usage.OutputTokens += int64(merged.ResponseMeta.Usage.CompletionTokens)
+			// Overwrite each iteration — the final value reflects the actual context fill level.
+			usage.FinalPromptTokens = promptTokens
 		}
 
 		// No tool calls — model produced a final answer.

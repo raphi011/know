@@ -44,8 +44,9 @@ type Config struct {
 	BedrockEmbedModelProvider string // e.g., "amazon" for Titan, "cohere" for Cohere
 
 	// LLM configuration (for ask, extract-graph, render)
-	LLMProvider LLMProvider
-	LLMModel    string
+	LLMProvider      LLMProvider
+	LLMModel         string
+	LLMContextWindow int // override context window size, takes priority over registry (0 = use registry)
 
 	// Provider-specific settings
 	OllamaHost      string
@@ -143,6 +144,13 @@ func Load() Config {
 		embedMaxInputChars = 0
 	}
 
+	llmContextWindow := getEnvInt("KNOWHOW_LLM_CONTEXT_WINDOW", 0)
+	if llmContextWindow < 0 {
+		slog.Warn("KNOWHOW_LLM_CONTEXT_WINDOW is negative, treating as 0 (use registry default)",
+			"configured", llmContextWindow)
+		llmContextWindow = 0
+	}
+
 	return Config{
 		// SurrealDB
 		SurrealDBURL:       getEnv("SURREALDB_URL", "ws://localhost:4002/rpc"),
@@ -160,7 +168,8 @@ func Load() Config {
 
 		// LLM (default to Anthropic)
 		LLMProvider: LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "anthropic")),
-		LLMModel:    getEnv("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514"),
+		LLMModel:         getEnv("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514"),
+		LLMContextWindow: llmContextWindow,
 
 		// Provider hosts/keys
 		OllamaHost:      getEnv("OLLAMA_HOST", "http://localhost:11434"),
