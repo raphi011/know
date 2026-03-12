@@ -49,13 +49,25 @@ type StreamEvent struct {
 	OutputTokens int64  `json:"outputTokens,omitempty"`
 }
 
+// ChatAttachment is the wire format for file attachments sent to the agent.
+type ChatAttachment struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	MimeType string `json:"mimeType"`
+	Language string `json:"language,omitempty"`
+	Type     string `json:"type"` // "text" or "image"
+}
+
 // Chat sends a message and returns a channel of SSE events.
-func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content string, autoApprove bool) (<-chan StreamEvent, error) {
+func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content string, attachments []ChatAttachment, autoApprove bool) (<-chan StreamEvent, error) {
 	body := map[string]any{
 		"conversationId": conversationID,
 		"vaultId":        vaultID,
 		"content":        content,
 		"autoApprove":    autoApprove,
+	}
+	if len(attachments) > 0 {
+		body["attachments"] = attachments
 	}
 
 	data, err := json.Marshal(body)
