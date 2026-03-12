@@ -41,8 +41,18 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// Unwrap returns the underlying ResponseWriter so http.Flusher and other
-// interfaces can be discovered via ResponseController.
+// Flush implements http.Flusher by delegating to the underlying writer.
+// This is required for SSE streaming — direct type assertions like
+// w.(http.Flusher) don't use Unwrap(), so the wrapper must implement
+// the interface explicitly.
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap returns the underlying ResponseWriter so other optional
+// interfaces (e.g. http.Hijacker) can be discovered via ResponseController.
 func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }

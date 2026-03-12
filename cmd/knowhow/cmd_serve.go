@@ -236,8 +236,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 		Addr:              ":" + port,
 		Handler:           api.RequestLogMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		// WriteTimeout intentionally omitted: SSE endpoints are long-lived.
+		// Each handler manages its own lifecycle via context cancellation and
+		// write error checks.
 	}
 
 	quit := make(chan os.Signal, 1)
@@ -255,7 +257,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	slog.Info("shutting down server...")
 
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	if sshSrv != nil {

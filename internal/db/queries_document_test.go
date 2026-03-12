@@ -483,6 +483,8 @@ func TestListLabelsWithCounts(t *testing.T) {
 		{"/lc-" + suffix + "/a.md", []string{"go", "project"}},
 		{"/lc-" + suffix + "/b.md", []string{"go", "tutorial"}},
 		{"/lc-" + suffix + "/c.md", []string{"rust"}},
+		{"/lc-" + suffix + "/d.md", nil},   // no labels — must not produce phantom entries
+		{"/lc-" + suffix + "/e.md", []string{}}, // empty labels — must not produce phantom entries
 	} {
 		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
 			VaultID:     vaultID,
@@ -504,8 +506,9 @@ func TestListLabelsWithCounts(t *testing.T) {
 	}
 
 	// Should be sorted by count desc: go(2), then project/tutorial/rust(1 each)
+	// Documents with nil or empty labels must NOT produce phantom entries
 	if len(counts) != 4 {
-		t.Fatalf("expected 4 label counts, got %d", len(counts))
+		t.Fatalf("expected 4 label counts, got %d: %v", len(counts), counts)
 	}
 	if counts[0].Label != "go" || counts[0].Count != 2 {
 		t.Errorf("expected first label to be go(2), got %s(%d)", counts[0].Label, counts[0].Count)

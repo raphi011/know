@@ -416,7 +416,7 @@ func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, erro
 // ListLabelsWithCounts returns labels with their document counts for the given vault.
 func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]models.LabelCount, error) {
 	defer c.logOp(ctx, "document.list_labels_with_counts", time.Now())
-	sql := `SELECT label, count() AS count FROM (SELECT labels AS label FROM document WHERE vault = type::record("vault", $vault_id) SPLIT labels) GROUP BY label ORDER BY count DESC`
+	sql := `SELECT label, count() AS count FROM (SELECT labels AS label FROM document WHERE vault = type::record("vault", $vault_id) AND array::len(labels) > 0 SPLIT labels) GROUP BY label ORDER BY count DESC`
 	results, err := surrealdb.Query[[]models.LabelCount](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
 	})

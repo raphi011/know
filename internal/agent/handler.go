@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
@@ -69,10 +68,12 @@ func (s *Service) HandleChat() http.HandlerFunc {
 		emit := func(event StreamEvent) {
 			data, err := json.Marshal(event)
 			if err != nil {
-				slog.Warn("failed to marshal SSE event", "error", err)
+				logutil.FromCtx(r.Context()).Warn("failed to marshal SSE event", "error", err)
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				return // client disconnected
+			}
 			flusher.Flush()
 		}
 
