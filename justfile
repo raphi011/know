@@ -65,9 +65,9 @@ install:
 snapshot:
     goreleaser release --snapshot --clean
 
-# Start dev environment with live-reload
-dev:
-    air
+# Build and start dev server (no auth for local dev)
+dev: build
+    "{{build_dir}}/{{binary}}" serve --no-auth
 
 # Bootstrap DB (wipe + create user/vault/token from env vars)
 bootstrap: build

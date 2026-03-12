@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/knowhow/internal/memory"
 	"github.com/raphi011/knowhow/internal/remote"
 	"github.com/raphi011/knowhow/internal/tools"
 	"github.com/raphi011/knowhow/internal/vault"
@@ -21,6 +22,7 @@ type mcpTools struct {
 	db            *db.Client
 	vaultService  *vault.Service
 	remoteService *remote.Service
+	memoryService *memory.Service
 	cache         *cache
 }
 
@@ -76,11 +78,28 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Annotations: readOnly,
 	}, t.getDocumentVersions)
 
+	writeDestructive := &mcp.ToolAnnotations{
+		DestructiveHint: new(true),
+		OpenWorldHint:   new(false),
+	}
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_memory",
-		Description: "Create a new memory document. Memories are short notes stored under /memories/ with a date-prefixed path. Always adds the 'memory' label.",
+		Description: "Create a memory, optionally scoped to a project. Automatically labels with 'memory' (and 'project/{project}' if project is set). For project memories, use a stable identifier (git remote URL or repo folder name). For global memories (e.g. Go patterns, Docker tips), omit project and add descriptive labels for categorization. Always call list_labels first to discover existing labels and reuse them for consistency.",
 		Annotations: writeNonDestructive,
 	}, t.createMemory)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "retrieve_memories",
+		Description: "Retrieve memories sorted by relevance. Supports three modes: project-scoped (set project), label-filtered (set labels, e.g. 'golang'), or both. Uses decay scoring (recency + access frequency) to rank memories. Stale memories are auto-archived. Similar memories may be consolidated. Call at session start to load project context and relevant global memories.",
+		Annotations: writeNonDestructive,
+	}, t.retrieveMemories)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_memory",
+		Description: "Delete a memory by path. Use when a memory is known to be outdated or incorrect.",
+		Annotations: writeDestructive,
+	}, t.deleteMemory)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_document",
@@ -368,9 +387,10 @@ func (t *mcpTools) executeWriteTool(ctx context.Context, toolName, vaultName str
 }
 
 type createMemoryInput struct {
-	Title   string   `json:"title" jsonschema:"Memory title"`
+	Project string   `json:"project,omitempty" jsonschema:"Optional project identifier. Use the git remote origin URL or repository folder name for project-scoped memories. Omit for global memories (e.g. general Go patterns)."`
+	Title   string   `json:"title" jsonschema:"Memory title (used for filename)"`
 	Content string   `json:"content" jsonschema:"Memory content (markdown)"`
-	Labels  []string `json:"labels,omitempty" jsonschema:"Additional labels (memory label is always added)"`
+	Labels  []string `json:"labels,omitempty" jsonschema:"Additional labels for categorization (e.g. golang, docker, debugging). Call list_labels first to reuse existing labels. Especially important for global (non-project) memories."`
 	Vault   string   `json:"vault,omitempty" jsonschema:"Target vault (e.g. home/default for remote). Defaults to first local vault."`
 }
 
@@ -382,6 +402,84 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 		return errorResult("content is required"), nil, nil
 	}
 	return t.executeWriteTool(ctx, "create_memory", input.Vault, input)
+}
+
+type retrieveMemoriesInput struct {
+	Project         string   `json:"project,omitempty" jsonschema:"Project identifier (same value used when creating memories). Omit to retrieve all memories or filter by labels only."`
+	Labels          []string `json:"labels,omitempty" jsonschema:"Filter by additional labels (e.g. golang, docker). Combined with project filter using AND logic."`
+	IncludeArchived bool     `json:"include_archived,omitempty" jsonschema:"Include archived (low-scoring) memories. Default false."`
+	Vault           string   `json:"vault,omitempty" jsonschema:"Target vault. Defaults to first local vault."`
+}
+
+func (t *mcpTools) retrieveMemories(ctx context.Context, req *mcp.CallToolRequest, input retrieveMemoriesInput) (*mcp.CallToolResult, any, error) {
+	if t.memoryService == nil {
+		return errorResult("memory service not configured"), nil, nil
+	}
+
+	ref, err := t.resolveWriteVault(ctx, input.Vault)
+	if err != nil {
+		return nil, nil, fmt.Errorf("retrieve memories: %w", err)
+	}
+
+	// Load vault for settings
+	v, err := t.db.GetVault(ctx, ref.VaultID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("retrieve memories: load vault: %w", err)
+	}
+	if v == nil {
+		return errorResult("vault not found"), nil, nil
+	}
+	settings := v.MemoryDefaults()
+
+	memories, err := t.memoryService.Retrieve(ctx, ref.VaultID, input.Project, input.Labels, input.IncludeArchived, settings)
+	if err != nil {
+		return nil, nil, fmt.Errorf("retrieve memories: %w", err)
+	}
+
+	if len(memories) == 0 {
+		scope := "project: " + input.Project
+		if input.Project == "" {
+			scope = "all memories"
+			if len(input.Labels) > 0 {
+				scope = "labels: " + strings.Join(input.Labels, ", ")
+			}
+		}
+		return textResult("No memories found for " + scope), nil, nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Found %d memories:\n\n", len(memories))
+	for _, m := range memories {
+		fmt.Fprintf(&sb, "--- %s (score: %.2f) ---\n", m.Document.Path, m.Score)
+		fmt.Fprintf(&sb, "%s\n\n", m.Document.ContentBody)
+	}
+	return textResult(sb.String()), nil, nil
+}
+
+type deleteMemoryInput struct {
+	Path  string `json:"path" jsonschema:"Full path of the memory to delete"`
+	Vault string `json:"vault,omitempty" jsonschema:"Target vault. Defaults to first local vault."`
+}
+
+func (t *mcpTools) deleteMemory(ctx context.Context, req *mcp.CallToolRequest, input deleteMemoryInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Path) == "" {
+		return errorResult("path is required"), nil, nil
+	}
+
+	if t.memoryService == nil {
+		return errorResult("memory service not configured"), nil, nil
+	}
+
+	ref, err := t.resolveWriteVault(ctx, input.Vault)
+	if err != nil {
+		return nil, nil, fmt.Errorf("delete memory: %w", err)
+	}
+
+	if err := t.memoryService.Delete(ctx, ref.VaultID, input.Path); err != nil {
+		return nil, nil, fmt.Errorf("delete memory: %w", err)
+	}
+
+	return textResult(fmt.Sprintf("Memory deleted: %s", input.Path)), nil, nil
 }
 
 type createDocumentInput struct {

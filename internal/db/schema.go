@@ -32,6 +32,7 @@ func SchemaSQL(dimension int) string {
 
     DEFINE FIELD IF NOT EXISTS name        ON vault TYPE string;
     DEFINE FIELD IF NOT EXISTS description ON vault TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS settings    ON vault TYPE option<object> FLEXIBLE;
     DEFINE FIELD IF NOT EXISTS created_by  ON vault TYPE record<user>;
     DEFINE FIELD IF NOT EXISTS created_at  ON vault TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS updated_at  ON vault TYPE datetime VALUE time::now();
@@ -55,9 +56,11 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS source_path  ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
-    DEFINE FIELD IF NOT EXISTS processed ON document TYPE bool DEFAULT false;
-    DEFINE FIELD IF NOT EXISTS created_at ON document TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at ON document TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS processed       ON document TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS last_accessed_at ON document TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS access_count     ON document TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS created_at       ON document TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at       ON document TYPE datetime VALUE time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_document_vault_path    ON document FIELDS vault, path UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_document_labels        ON document FIELDS labels;

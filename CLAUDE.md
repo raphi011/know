@@ -23,7 +23,7 @@ just build           # Single binary (CLI + server)
 
 # Run
 just bootstrap       # Wipe DB + create user/vault/token (requires running DB)
-just dev             # Start Go dev environment (air, requires running DB)
+just dev             # Build and start dev server (requires running DB)
 just run serve       # Build and run server
 
 # Test

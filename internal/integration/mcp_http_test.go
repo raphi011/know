@@ -34,7 +34,7 @@ func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *doc
 		DocService: docSvc,
 	}
 
-	handler := mcptools.NewHandler(executor, testDB, vaultSvc, nil)
+	handler := mcptools.NewHandler(executor, testDB, vaultSvc, nil, nil)
 	wrappedHandler := auth.NoAuthMiddleware(handler)
 
 	srv := httptest.NewServer(wrappedHandler)

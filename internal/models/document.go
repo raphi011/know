@@ -40,9 +40,11 @@ type Document struct {
 	SourcePath    *string                `json:"source_path,omitempty"`
 	ContentHash   *string                `json:"content_hash,omitempty"`
 	Metadata      map[string]any         `json:"metadata,omitempty"`
-	Processed     bool                   `json:"processed"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
+	Processed      bool                   `json:"processed"`
+	LastAccessedAt *time.Time             `json:"last_accessed_at,omitempty"`
+	AccessCount    int                    `json:"access_count"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
 }
 
 type DocumentInput struct {

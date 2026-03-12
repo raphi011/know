@@ -515,3 +515,55 @@ func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput)
 	// Should not be reached — the loop always returns or continues
 	return nil, false, nil, fmt.Errorf("upsert exhausted %d retries due to concurrent writes", maxRetries)
 }
+
+// UpdateDocumentAccess increments access_count and sets last_accessed_at to now.
+func (c *Client) UpdateDocumentAccess(ctx context.Context, docID string) error {
+	defer c.logOp(ctx, "document.update_access", time.Now())
+	sql := `UPDATE type::record("document", $id) SET last_accessed_at = time::now(), access_count += 1`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": docID}); err != nil {
+		return fmt.Errorf("update document access: %w", err)
+	}
+	return nil
+}
+
+// SetDocumentAccessCount sets access_count to a specific value and updates last_accessed_at.
+func (c *Client) SetDocumentAccessCount(ctx context.Context, docID string, count int) error {
+	defer c.logOp(ctx, "document.set_access_count", time.Now())
+	sql := `UPDATE type::record("document", $id) SET last_accessed_at = time::now(), access_count = $count`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": docID, "count": count}); err != nil {
+		return fmt.Errorf("set document access count: %w", err)
+	}
+	return nil
+}
+
+// GetDocumentsByAllLabels returns documents in a vault that have ALL of the specified labels
+// (AND filter). Uses graph traversal through has_label edges.
+func (c *Client) GetDocumentsByAllLabels(ctx context.Context, vaultID string, labels []string) ([]models.Document, error) {
+	defer c.logOp(ctx, "document.get_by_all_labels", time.Now())
+	if len(labels) == 0 {
+		return nil, nil
+	}
+
+	// Build conditions for each label: count(->has_label->label[WHERE name = $l0]) > 0 AND ...
+	var conditions []string
+	vars := map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	}
+	for i, l := range labels {
+		paramName := fmt.Sprintf("l%d", i)
+		conditions = append(conditions, fmt.Sprintf(`count(->has_label->label[WHERE name = $%s]) > 0`, paramName))
+		vars[paramName] = strings.ToLower(strings.TrimSpace(l))
+	}
+
+	sql := fmt.Sprintf(`SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND %s`,
+		strings.Join(conditions, " AND "))
+
+	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("get documents by all labels: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return nil, nil
+	}
+	return (*results)[0].Result, nil
+}
