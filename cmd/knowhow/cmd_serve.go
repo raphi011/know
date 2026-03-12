@@ -51,16 +51,31 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveNoAuth, "no-auth", envOrDefaultBool("KNOWHOW_NO_AUTH", false), "disable token authentication")
 	serveCmd.Flags().BoolVar(&serveSSH, "ssh", envOrDefaultBool("KNOWHOW_SSH_ENABLED", false), "enable SSH/SFTP server")
 	serveCmd.Flags().IntVar(&serveSSHPort, "ssh-port", envOrDefaultInt("KNOWHOW_SSH_PORT", 2222), "SSH server port")
-	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
+	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("KNOWHOW_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
 }
 
 func runServe(_ *cobra.Command, _ []string) error {
-	// Initialize logging
+	// Initialize logging with dynamic level
+	var levelVar slog.LevelVar
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(serveLogLevel)); err != nil {
 		return fmt.Errorf("invalid log level %q: %w", serveLogLevel, err)
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	levelVar.Set(level)
+
+	logFile := os.Getenv("KNOWHOW_LOG_FILE")
+	if logFile == "" {
+		logFile = "knowhow.log"
+	}
+	logger, logCleanup, err := config.SetupLogger(logFile, &levelVar)
+	if err != nil {
+		return fmt.Errorf("setup logger: %w", err)
+	}
+	defer func() {
+		if err := logCleanup(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close log file: %v\n", err)
+		}
+	}()
 	slog.SetDefault(logger)
 
 	port := fmt.Sprintf("%d", servePort)
@@ -107,9 +122,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 						slog.Error("ReloadLLM panicked", "error", p)
 					}
 				}()
-				slog.Info("SIGHUP received, reloading LLM config")
+				slog.Info("SIGHUP received, reloading config")
 				if err := app.ReloadLLM(); err != nil {
 					slog.Warn("LLM reload failed", "error", err)
+				}
+				// Reload log level from environment
+				if newLevel := os.Getenv("KNOWHOW_LOG_LEVEL"); newLevel != "" {
+					var parsed slog.Level
+					if err := parsed.UnmarshalText([]byte(newLevel)); err != nil {
+						slog.Warn("invalid KNOWHOW_LOG_LEVEL after reload", "value", newLevel, "error", err)
+					} else if parsed != levelVar.Level() {
+						old := levelVar.Level()
+						levelVar.Set(parsed)
+						slog.Info("log level changed", "old", old, "new", parsed)
+					}
 				}
 			}()
 		}
@@ -208,7 +234,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           api.RequestLogMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,

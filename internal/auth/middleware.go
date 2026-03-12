@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/logutil"
 )
 
 // NoAuthMiddleware injects an admin AuthContext with access to all vaults,
@@ -18,7 +19,10 @@ func NoAuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(WithAuth(r.Context(), ac)))
+		ctx := WithAuth(r.Context(), ac)
+		logger := logutil.FromCtx(ctx).With("user_id", ac.UserID)
+		ctx = logutil.WithLogger(ctx, logger)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -40,7 +44,10 @@ func Middleware(dbClient *db.Client) func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, r.WithContext(WithAuth(r.Context(), ac)))
+			ctx := WithAuth(r.Context(), ac)
+			logger := logutil.FromCtx(ctx).With("user_id", ac.UserID)
+			ctx = logutil.WithLogger(ctx, logger)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

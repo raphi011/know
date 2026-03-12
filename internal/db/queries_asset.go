@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -16,6 +17,7 @@ import (
 // Uses check-then-create/update to work around SurrealDB v3's UPSERT ... WHERE
 // not creating new records when no match exists.
 func (c *Client) UpsertAsset(ctx context.Context, input models.AssetInput) (*models.Asset, error) {
+	defer c.logOp(ctx, "asset.upsert", time.Now())
 	// Normalize nil to empty slice — SurrealDB rejects NULL for bytes fields.
 	if input.Data == nil {
 		input.Data = []byte{}
@@ -110,6 +112,7 @@ func (c *Client) updateAsset(ctx context.Context, input models.AssetInput, conte
 
 // GetAssetByPath returns the full asset (including data) by vault+path.
 func (c *Client) GetAssetByPath(ctx context.Context, vaultID, path string) (*models.Asset, error) {
+	defer c.logOp(ctx, "asset.get_by_path", time.Now())
 	sql := `SELECT * FROM asset WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.Asset](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -126,6 +129,7 @@ func (c *Client) GetAssetByPath(ctx context.Context, vaultID, path string) (*mod
 
 // GetAssetMetaByPath returns lightweight asset metadata (no data bytes).
 func (c *Client) GetAssetMetaByPath(ctx context.Context, vaultID, path string) (*models.AssetMeta, error) {
+	defer c.logOp(ctx, "asset.get_meta_by_path", time.Now())
 	sql := `SELECT path, mime_type, size, content_hash, created_at, updated_at FROM asset WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.AssetMeta](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -142,6 +146,7 @@ func (c *Client) GetAssetMetaByPath(ctx context.Context, vaultID, path string) (
 
 // ListAssetMetas returns lightweight metadata for assets in a vault, optionally filtered by folder prefix.
 func (c *Client) ListAssetMetas(ctx context.Context, vaultID string, folder *string) ([]models.AssetMeta, error) {
+	defer c.logOp(ctx, "asset.list_metas", time.Now())
 	vars := map[string]any{
 		"vault_id": bareID("vault", vaultID),
 	}
@@ -169,6 +174,7 @@ func (c *Client) ListAssetMetas(ctx context.Context, vaultID string, folder *str
 
 // DeleteAsset deletes an asset by vault+path.
 func (c *Client) DeleteAsset(ctx context.Context, vaultID, path string) error {
+	defer c.logOp(ctx, "asset.delete", time.Now())
 	sql := `DELETE FROM asset WHERE vault = type::record("vault", $vault_id) AND path = $path`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -182,6 +188,7 @@ func (c *Client) DeleteAsset(ctx context.Context, vaultID, path string) error {
 // DeleteAssetsByPrefix deletes all assets in a vault whose path starts with the given prefix.
 // Returns the number of deleted assets.
 func (c *Client) DeleteAssetsByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
+	defer c.logOp(ctx, "asset.delete_by_prefix", time.Now())
 	sql := `DELETE FROM asset WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) RETURN BEFORE`
 	results, err := surrealdb.Query[[]models.Asset](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -198,6 +205,7 @@ func (c *Client) DeleteAssetsByPrefix(ctx context.Context, vaultID, pathPrefix s
 
 // MoveAsset updates an asset's path and mime_type.
 func (c *Client) MoveAsset(ctx context.Context, vaultID, oldPath, newPath string) error {
+	defer c.logOp(ctx, "asset.move", time.Now())
 	newMime := models.MimeTypeFromExt(newPath)
 	sql := `UPDATE asset SET path = $new_path, mime_type = $mime_type WHERE vault = type::record("vault", $vault_id) AND path = $old_path`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
@@ -214,6 +222,7 @@ func (c *Client) MoveAsset(ctx context.Context, vaultID, oldPath, newPath string
 // MoveAssetsByPrefix updates all assets whose path starts with oldPrefix to use newPrefix.
 // Returns the number of moved assets.
 func (c *Client) MoveAssetsByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
+	defer c.logOp(ctx, "asset.move_by_prefix", time.Now())
 	sql := `
 		UPDATE asset
 		SET path = string::concat($new_prefix, string::slice(path, string::len($old_prefix))),

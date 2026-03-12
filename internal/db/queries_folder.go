@@ -13,6 +13,7 @@ import (
 
 // CreateFolder creates a single folder record. Returns the created folder.
 func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
+	defer c.logOp(ctx, "folder.create", time.Now())
 	name := path.Base(folderPath)
 
 	sql := `
@@ -41,6 +42,7 @@ func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (
 // caching recent calls to skip redundant DB round-trips (60s TTL).
 // For example, given "/guides/sub/file.md", it creates "/guides" and "/guides/sub".
 func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) error {
+	defer c.logOp(ctx, "folder.ensure", time.Now())
 	docPath = models.NormalizePath(docPath)
 	dir := path.Dir(docPath)
 	if dir == "/" || dir == "." {
@@ -69,6 +71,7 @@ func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) err
 // For example, given "/guides/sub", it creates "/guides" and "/guides/sub".
 // All folders are inserted in a single batched query to avoid N+1 round-trips.
 func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath string) error {
+	defer c.logOp(ctx, "folder.ensure_path", time.Now())
 	folderPath = models.NormalizePath(folderPath)
 	if folderPath == "/" || folderPath == "." {
 		return nil
@@ -103,6 +106,7 @@ func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath strin
 
 // ListFolders returns all folders in a vault, ordered by path.
 func (c *Client) ListFolders(ctx context.Context, vaultID string) ([]models.Folder, error) {
+	defer c.logOp(ctx, "folder.list", time.Now())
 	sql := `SELECT * FROM folder WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC`
 	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -120,6 +124,7 @@ func (c *Client) ListFolders(ctx context.Context, vaultID string) ([]models.Fold
 // Only folders whose path starts with parentPath+"/" are fetched from the DB,
 // then filtered in Go to exclude nested descendants (much faster than loading all folders).
 func (c *Client) ListChildFolders(ctx context.Context, vaultID, parentPath string) ([]models.Folder, error) {
+	defer c.logOp(ctx, "folder.list_children", time.Now())
 	prefix := parentPath
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
@@ -150,6 +155,7 @@ func (c *Client) ListChildFolders(ctx context.Context, vaultID, parentPath strin
 
 // GetFolderByPath returns a single folder by vault and path, or nil if not found.
 func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
+	defer c.logOp(ctx, "folder.get_by_path", time.Now())
 	sql := `SELECT * FROM folder WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.Folder](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -166,6 +172,7 @@ func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string
 
 // DeleteFolder deletes a single folder and all its children (paths starting with folderPath + "/").
 func (c *Client) DeleteFolder(ctx context.Context, vaultID, folderPath string) error {
+	defer c.logOp(ctx, "folder.delete", time.Now())
 	if _, err := c.deleteFolderTree(ctx, vaultID, folderPath); err != nil {
 		return fmt.Errorf("delete folder: %w", err)
 	}
@@ -175,6 +182,7 @@ func (c *Client) DeleteFolder(ctx context.Context, vaultID, folderPath string) e
 // DeleteFoldersByPrefix deletes all folders whose path starts with the given prefix
 // or matches the prefix itself (without trailing slash). Returns the number of deleted folders.
 func (c *Client) DeleteFoldersByPrefix(ctx context.Context, vaultID, prefix string) (int, error) {
+	defer c.logOp(ctx, "folder.delete_by_prefix", time.Now())
 	folderPath := strings.TrimSuffix(prefix, "/")
 	return c.deleteFolderTree(ctx, vaultID, folderPath)
 }
@@ -199,6 +207,7 @@ func (c *Client) InvalidateFolderCache(vaultID, folderPath string) {
 // Two statements are needed because SurrealDB v3 doesn't support parenthesized OR in WHERE.
 // Returns the total number of deleted folders.
 func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath string) (int, error) {
+	defer c.logOp(ctx, "folder.delete_tree", time.Now())
 	c.InvalidateFolderCache(vaultID, folderPath)
 	prefix := folderPath + "/"
 	vars := map[string]any{
@@ -236,6 +245,7 @@ func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath strin
 // Accepts folder paths (e.g. "/guides", "/docs") — trailing slashes are handled internally.
 // Returns the number of moved folders.
 func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newPath string) (int, error) {
+	defer c.logOp(ctx, "folder.move_by_prefix", time.Now())
 	oldFolderPath := strings.TrimSuffix(oldPath, "/")
 	newFolderPath := strings.TrimSuffix(newPath, "/")
 

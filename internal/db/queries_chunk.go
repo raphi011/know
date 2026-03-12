@@ -11,6 +11,7 @@ import (
 )
 
 func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) error {
+	defer c.logOp(ctx, "chunk.create", time.Now())
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -77,6 +78,7 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 }
 
 func (c *Client) GetChunks(ctx context.Context, documentID string) ([]models.Chunk, error) {
+	defer c.logOp(ctx, "chunk.get", time.Now())
 	sql := `SELECT * FROM chunk WHERE document = type::record("document", $doc_id) ORDER BY position ASC`
 	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
 		"doc_id": documentID,
@@ -91,6 +93,7 @@ func (c *Client) GetChunks(ctx context.Context, documentID string) ([]models.Chu
 }
 
 func (c *Client) DeleteChunks(ctx context.Context, documentID string) error {
+	defer c.logOp(ctx, "chunk.delete", time.Now())
 	sql := `DELETE FROM chunk WHERE document = type::record("document", $doc_id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"doc_id": documentID,
@@ -102,6 +105,7 @@ func (c *Client) DeleteChunks(ctx context.Context, documentID string) error {
 
 // DeleteChunkByID deletes a single chunk by its ID.
 func (c *Client) DeleteChunkByID(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "chunk.delete_by_id", time.Now())
 	sql := `DELETE type::record("chunk", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id": id,
@@ -113,6 +117,7 @@ func (c *Client) DeleteChunkByID(ctx context.Context, id string) error {
 
 // UpdateChunkPosition updates only the position field of a chunk.
 func (c *Client) UpdateChunkPosition(ctx context.Context, id string, position int) error {
+	defer c.logOp(ctx, "chunk.update_position", time.Now())
 	sql := `UPDATE type::record("chunk", $id) SET position = $position`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id":       id,
@@ -128,6 +133,7 @@ func (c *Client) UpdateChunkPosition(ctx context.Context, id string, position in
 // those specific records — clearing embed_at and returning the BEFORE state so the
 // caller gets the content to embed. This prevents double-processing.
 func (c *Client) ClaimChunksForEmbedding(ctx context.Context, limit int) ([]models.Chunk, error) {
+	defer c.logOp(ctx, "chunk.claim_for_embedding", time.Now())
 	sql := `
 		UPDATE (
 			SELECT id, embed_at FROM chunk
@@ -152,6 +158,7 @@ func (c *Client) ClaimChunksForEmbedding(ctx context.Context, limit int) ([]mode
 
 // UpdateChunkEmbedding sets the embedding vector on a chunk after the worker embeds it.
 func (c *Client) UpdateChunkEmbedding(ctx context.Context, id string, embedding []float32) error {
+	defer c.logOp(ctx, "chunk.update_embedding", time.Now())
 	sql := `UPDATE type::record("chunk", $id) SET embedding = $embedding`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id":        id,
@@ -165,6 +172,7 @@ func (c *Client) UpdateChunkEmbedding(ctx context.Context, id string, embedding 
 // RescheduleChunkEmbedding re-schedules a chunk for embedding after a failure.
 // Uses a 30s backoff to avoid tight retry storms during provider outages.
 func (c *Client) RescheduleChunkEmbedding(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "chunk.reschedule_embedding", time.Now())
 	retryAt := time.Now().UTC().Add(30 * time.Second)
 	sql := `UPDATE type::record("chunk", $id) SET embed_at = $embed_at`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{

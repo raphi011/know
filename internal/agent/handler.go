@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -75,6 +76,13 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			flusher.Flush()
 		}
 
+		// Enrich context logger with conversation and vault info
+		chatLogger := logutil.FromCtx(r.Context()).With(
+			"conversation_id", body.ConversationID,
+			"vault_id", body.VaultID,
+		)
+		ctx := logutil.WithLogger(r.Context(), chatLogger)
+
 		req := ChatRequest{
 			ConversationID: body.ConversationID,
 			VaultID:        body.VaultID,
@@ -84,8 +92,8 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			AutoApprove:    body.AutoApprove,
 		}
 
-		if err := s.Chat(r.Context(), req, emit); err != nil {
-			slog.Error("agent chat error", "error", err, "vault_id", req.VaultID, "user_id", req.UserID)
+		if err := s.Chat(ctx, req, emit); err != nil {
+			logutil.FromCtx(ctx).Error("agent chat error", "error", err)
 			emit(StreamEvent{Type: "error", Content: "Failed to process chat request. Please try again."})
 		}
 	}

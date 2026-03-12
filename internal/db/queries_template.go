@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -10,6 +11,7 @@ import (
 )
 
 func (c *Client) CreateTemplate(ctx context.Context, input models.TemplateInput) (*models.Template, error) {
+	defer c.logOp(ctx, "template.create", time.Now())
 	var vaultVal any
 	if input.VaultID != nil {
 		vaultVal = newRecordID("vault", *input.VaultID)
@@ -43,6 +45,7 @@ func (c *Client) CreateTemplate(ctx context.Context, input models.TemplateInput)
 }
 
 func (c *Client) GetTemplate(ctx context.Context, id string) (*models.Template, error) {
+	defer c.logOp(ctx, "template.get", time.Now())
 	sql := `SELECT * FROM type::record("template", $id)`
 	results, err := surrealdb.Query[[]models.Template](ctx, c.DB(), sql, map[string]any{
 		"id": id,
@@ -57,6 +60,7 @@ func (c *Client) GetTemplate(ctx context.Context, id string) (*models.Template, 
 }
 
 func (c *Client) ListTemplates(ctx context.Context, vaultID *string) ([]models.Template, error) {
+	defer c.logOp(ctx, "template.list", time.Now())
 	var sql string
 	vars := map[string]any{}
 
@@ -78,6 +82,7 @@ func (c *Client) ListTemplates(ctx context.Context, vaultID *string) ([]models.T
 }
 
 func (c *Client) DeleteTemplate(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "template.delete", time.Now())
 	sql := `DELETE type::record("template", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
 		return fmt.Errorf("delete template: %w", err)

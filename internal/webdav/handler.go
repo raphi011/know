@@ -20,6 +20,7 @@ import (
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/vault"
 )
@@ -145,7 +146,7 @@ func NewHandler(
 
 		ac, err := auth.Authenticate(r.Context(), dbClient, rawToken, noAuth)
 		if err != nil {
-			slog.Warn("webdav: auth failed", "error", err)
+			logutil.FromCtx(r.Context()).Warn("webdav: auth failed", "error", err)
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
@@ -153,7 +154,7 @@ func NewHandler(
 		// Resolve vault + check access
 		vaultID, err := auth.ResolveVault(r.Context(), ac, vaultSvc, vaultName)
 		if err != nil {
-			slog.Warn("webdav: vault resolution failed", "vault", vaultName, "error", err)
+			logutil.FromCtx(r.Context()).Warn("webdav: vault resolution failed", "vault", vaultName, "error", err)
 			http.Error(w, "vault not found or access denied", http.StatusForbidden)
 			return
 		}
@@ -187,6 +188,7 @@ func NewHandler(
 
 		// Create per-request WebDAV handler with the resolved vault
 		davFS := NewFS(vaultID, dbClient, docService, assetSvc, vaultSvc, pendingSets.Get(vaultID))
+		reqLogger := logutil.FromCtx(r.Context())
 		davHandler := &webdav.Handler{
 			FileSystem: davFS,
 			LockSystem: lockSystems.Get(vaultID),
@@ -196,12 +198,12 @@ func NewHandler(
 					return
 				}
 				if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
-					slog.Debug("webdav request",
+					reqLogger.Debug("webdav request",
 						"method", r.Method,
 						"path", r.URL.Path,
 						"error", err)
 				} else {
-					slog.Warn("webdav request failed",
+					reqLogger.Warn("webdav request failed",
 						"method", r.Method,
 						"path", r.URL.Path,
 						"error", err)
@@ -209,7 +211,12 @@ func NewHandler(
 			},
 		}
 
-		davHandler.ServeHTTP(&singleWriteResponseWriter{ResponseWriter: w}, r)
+		davStart := time.Now()
+		wrec := &singleWriteResponseWriter{ResponseWriter: w}
+		davHandler.ServeHTTP(wrec, r)
+		reqLogger.Debug("webdav request",
+			"method", r.Method, "vault", vaultName, "path", filePath,
+			"status", wrec.statusCode, "duration_ms", time.Since(davStart).Milliseconds())
 	})
 }
 
