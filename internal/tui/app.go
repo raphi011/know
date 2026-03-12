@@ -36,6 +36,10 @@ type Model struct {
 	tokenInput  int64
 	tokenOutput int64
 
+	// Context window tracking (from latest msg_end)
+	contextWindowMax  int
+	contextWindowUsed int64
+
 	// Rendering
 	renderer      *glamour.TermRenderer
 	rendererWidth int
@@ -210,7 +214,7 @@ func (m Model) View() tea.View {
 	// Input always visible
 	content.WriteString(m.input.View())
 	content.WriteString("\n\n")
-	content.WriteString(renderStatusBar(m.tokenInput, m.tokenOutput, m.vaultID))
+	content.WriteString(renderStatusBar(m.tokenInput, m.tokenOutput, m.vaultID, m.contextWindowMax, m.contextWindowUsed))
 
 	return tea.NewView(content.String())
 }
@@ -409,6 +413,8 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case "msg_end":
 		m.tokenInput += msg.event.InputTokens
 		m.tokenOutput += msg.event.OutputTokens
+		m.contextWindowMax = msg.event.ContextWindowMax
+		m.contextWindowUsed = msg.event.ContextWindowUsed
 		cmd := m.finalizeStream()
 		return m, tea.Batch(cmd, nextCmd)
 	}

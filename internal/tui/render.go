@@ -5,7 +5,10 @@ import (
 	"log/slog"
 	"strings"
 
+	imgcolor "image/color"
+
 	"github.com/charmbracelet/glamour"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 const maxTextWidth = 120
@@ -156,14 +159,57 @@ func formatTokens(n int64) string {
 	}
 }
 
-// renderStatusBar renders the inline status bar below the prompt.
-func renderStatusBar(tokenInput, tokenOutput int64, vaultID string) string {
-	if tokenInput == 0 && tokenOutput == 0 {
-		return statusBarDetailStyle.Render(" vault: " + vaultID)
+// renderContextBar renders a progress bar (12 block characters + percentage) showing context window usage.
+// Color thresholds: green < 60%, yellow 60-85%, red > 85%.
+// Returns empty string if context data is unavailable.
+func renderContextBar(contextMax int, contextUsed int64) string {
+	if contextMax <= 0 || contextUsed <= 0 {
+		return ""
 	}
-	return statusBarDetailStyle.Render(
-		fmt.Sprintf(" tokens: %s in / %s out │ vault: %s", formatTokens(tokenInput), formatTokens(tokenOutput), vaultID),
-	)
+
+	const barWidth = 12
+	ratio := float64(contextUsed) / float64(contextMax)
+	if ratio > 1 {
+		ratio = 1
+	}
+	filled := int(ratio*barWidth + 0.5)
+	if filled > barWidth {
+		filled = barWidth
+	}
+	pct := int(ratio * 100)
+
+	var clr imgcolor.Color
+	switch {
+	case ratio > 0.85:
+		clr = lipgloss.Color("#EF4444") // red
+	case ratio >= 0.60:
+		clr = lipgloss.Color("#F59E0B") // yellow
+	default:
+		clr = lipgloss.Color("#10B981") // green
+	}
+
+	filledStyle := lipgloss.NewStyle().Foreground(clr)
+	emptyStyle := lipgloss.NewStyle().Foreground(mutedColor)
+
+	bar := filledStyle.Render(strings.Repeat("█", filled)) +
+		emptyStyle.Render(strings.Repeat("░", barWidth-filled))
+
+	return fmt.Sprintf("%s %d%%", bar, pct)
+}
+
+// renderStatusBar renders the inline status bar below the prompt.
+func renderStatusBar(tokenInput, tokenOutput int64, vaultID string, contextMax int, contextUsed int64) string {
+	var parts []string
+
+	if ctxBar := renderContextBar(contextMax, contextUsed); ctxBar != "" {
+		parts = append(parts, ctxBar)
+	}
+	if tokenInput > 0 || tokenOutput > 0 {
+		parts = append(parts, fmt.Sprintf("tokens: %s in / %s out", formatTokens(tokenInput), formatTokens(tokenOutput)))
+	}
+	parts = append(parts, "vault: "+vaultID)
+
+	return statusBarDetailStyle.Render(" " + strings.Join(parts, " │ "))
 }
 
 // renderApproval renders the tool approval prompt box.
