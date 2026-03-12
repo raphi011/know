@@ -68,4 +68,8 @@ var (
 	attachmentStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
 			PaddingLeft(2)
+
+	// File list styles (drag-and-drop attachments above input)
+	fileListItemStyle     = lipgloss.NewStyle().Foreground(mutedColor).PaddingLeft(2)
+	fileListSelectedStyle = lipgloss.NewStyle().Foreground(primaryColor).Bold(true).PaddingLeft(2)
 )

@@ -23,8 +23,9 @@ type Model struct {
 	conversationID string
 
 	// Input
-	input   textinput.Model
-	spinner spinner.Model
+	input    textinput.Model
+	fileList FileList
+	spinner  spinner.Model
 
 	// Streaming state
 	streaming       bool
@@ -136,6 +137,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case tea.PasteMsg:
+		return m.handlePaste(msg)
+
 	case conversationCreatedMsg:
 		if msg.err != nil {
 			m.errMsg = fmt.Sprintf("Failed to create conversation: %v", msg.err)
@@ -207,6 +211,11 @@ func (m Model) View() tea.View {
 		content.WriteString("\n\n")
 	}
 
+	// File list (above input, only when files are attached)
+	if fl := m.fileList.View(m.width); fl != "" {
+		content.WriteString(fl)
+	}
+
 	// Input always visible
 	content.WriteString(m.input.View())
 	content.WriteString("\n\n")
@@ -232,6 +241,41 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// File list focused — handle navigation and deletion
+	if m.fileList.Focused() {
+		switch msg.String() {
+		case "up":
+			m.fileList.Up()
+			return m, nil
+		case "down":
+			if m.fileList.AtBottom() {
+				m.fileList.Blur()
+				return m, m.input.Focus()
+			}
+			m.fileList.Down()
+			return m, nil
+		case "backspace":
+			m.fileList.RemoveSelected()
+			if !m.fileList.Focused() {
+				// Last item was removed, return to input
+				return m, m.input.Focus()
+			}
+			return m, nil
+		case "escape":
+			m.fileList.Blur()
+			return m, m.input.Focus()
+		default:
+			return m, nil
+		}
+	}
+
+	// Up arrow with files attached → focus file list
+	if msg.String() == "up" && m.fileList.Len() > 0 {
+		m.input.Blur()
+		m.fileList.Focus()
+		return m, nil
+	}
+
 	// ESC clears input text; no-op if already empty
 	if key.Matches(msg, keys.Escape) {
 		if m.input.Value() != "" {
@@ -252,6 +296,23 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// handlePaste adds file paths to the file list or delegates to textinput for normal text.
+func (m Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	content := strings.TrimSpace(msg.Content)
+
+	if looksLikeFilePath(content) {
+		if reason := m.fileList.Add(content); reason != "" {
+			m.errMsg = reason
+		}
+		return m, nil
+	}
+
+	// Normal paste — delegate to textinput
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
 func (m *Model) createConversation() tea.Cmd {
 	client := m.client
 	ctx := m.ctx
@@ -264,46 +325,43 @@ func (m *Model) createConversation() tea.Cmd {
 
 func (m *Model) sendMessage() tea.Cmd {
 	content := m.input.Value()
-	if content == "" || m.streaming || !m.ready {
+
+	if content == "" && m.fileList.Len() == 0 {
+		return nil
+	}
+	if content == "" {
+		m.errMsg = "message is empty"
+		return nil
+	}
+	if m.streaming || !m.ready {
 		return nil
 	}
 
-	// Parse @-references and resolve local files
-	refs := parseAtRefs(content)
+	// Check for resolution errors before clearing
+	var errs []string
+	for _, att := range m.fileList.files {
+		if att.Error != "" {
+			errs = append(errs, att.Error)
+		}
+	}
+	if len(errs) > 0 {
+		m.errMsg = strings.Join(errs, "; ")
+		return nil
+	}
+
+	// Past the point of no return — clear file list and input
+	files := m.fileList.Clear()
+
+	// Build wire-format attachments
 	var chatAttachments []models.ChatAttachment
-	var resolved []Attachment
-
-	if len(refs) > 0 {
-		resolved = resolveAttachments(refs)
-
-		// Check for errors
-		var errs []string
-		for _, att := range resolved {
-			if att.Error != "" {
-				errs = append(errs, att.Error)
-			}
-		}
-		if len(errs) > 0 {
-			m.errMsg = strings.Join(errs, "; ")
-			return nil
-		}
-
-		// Build wire-format attachments
-		for _, att := range resolved {
-			chatAttachments = append(chatAttachments, models.ChatAttachment{
-				Path:     att.Path,
-				Content:  att.Content,
-				MimeType: att.MimeType,
-				Language: att.Language,
-				Type:     toAttachmentType(att.Type),
-			})
-		}
-
-		content = stripAtRefs(content, refs)
-		if content == "" {
-			m.errMsg = "message is empty after removing @-references"
-			return nil
-		}
+	for _, att := range files {
+		chatAttachments = append(chatAttachments, models.ChatAttachment{
+			Path:     att.Path,
+			Content:  att.Content,
+			MimeType: att.MimeType,
+			Language: att.Language,
+			Type:     toAttachmentType(att.Type),
+		})
 	}
 
 	m.input.SetValue("")
@@ -315,6 +373,7 @@ func (m *Model) sendMessage() tea.Cmd {
 	convID := m.conversationID
 	vaultID := m.vaultID
 	attachments := chatAttachments
+	resolved := files
 
 	startStreamCmd := func() tea.Msg {
 		ch, err := client.Chat(ctx, convID, vaultID, content, attachments, false)
