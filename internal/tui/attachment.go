@@ -12,18 +12,33 @@ import (
 type FileType int
 
 const (
-	FileTypeText   FileType = iota
+	FileTypeUnknown FileType = iota
+	FileTypeText
 	FileTypeImage
 	FileTypeBinary
 )
 
-const maxAttachmentSize = 1 << 20 // 1MB
+// String returns a human-readable representation of the file type.
+func (ft FileType) String() string {
+	switch ft {
+	case FileTypeText:
+		return "text"
+	case FileTypeImage:
+		return "image"
+	case FileTypeBinary:
+		return "binary"
+	default:
+		return "unknown"
+	}
+}
+
+// 1MB per file. Server-side request limit is 5MB total (see agent/handler.go).
+const maxAttachmentSize = 1 << 20
 
 // Attachment holds a resolved @-reference with its file content.
 type Attachment struct {
 	Path     string   // original path from @-reference
 	AbsPath  string   // resolved absolute path
-	Name     string   // basename
 	Content  string   // file text content (only for text files)
 	MimeType string
 	Language string   // code fence language hint (e.g. "go", "python")
@@ -32,12 +47,22 @@ type Attachment struct {
 	Error    string   // non-empty if file couldn't be read
 }
 
+// Name returns the basename of the resolved path.
+func (a Attachment) Name() string {
+	return filepath.Base(a.AbsPath)
+}
+
 // LineCount returns the number of lines in the attachment content.
+// A trailing newline does not count as an extra line.
 func (a Attachment) LineCount() int {
 	if a.Content == "" {
 		return 0
 	}
-	return strings.Count(a.Content, "\n") + 1
+	n := strings.Count(a.Content, "\n")
+	if !strings.HasSuffix(a.Content, "\n") {
+		n++
+	}
+	return n
 }
 
 // atRefRegex matches @-prefixed file paths. Supports:
@@ -45,7 +70,14 @@ func (a Attachment) LineCount() int {
 // - absolute: @/usr/local/file.txt
 // - tilde: @~/Documents/notes.md
 // - bare: @file.go (must contain a dot to avoid matching @mentions)
-var atRefRegex = regexp.MustCompile(`@((?:\.\.?/[\w./_\-]+)|(?:~/[\w./_\-]+)|(?:/[\w./_\-]+)|(?:[\w.\-]+\.[\w]+))`)
+//
+// Paths with spaces or unicode are not matched; use a relative path
+// like @./path\ with\ spaces. Extensionless filenames (e.g. @Makefile)
+// are not matched; use @./Makefile instead.
+//
+// The regex requires @ to be preceded by start-of-string or whitespace
+// to avoid matching email-like patterns (e.g. user@config.yaml).
+var atRefRegex = regexp.MustCompile(`(?:^|\s)@((?:\.\.?/[\w./_\-]+)|(?:~/[\w./_\-]+)|(?:/[\w./_\-]+)|(?:[\w.\-]+\.[\w]+))`)
 
 // parseAtRefs extracts @-prefixed file paths from input text.
 func parseAtRefs(input string) []string {
@@ -74,7 +106,10 @@ func resolveAttachments(refs []string) []Attachment {
 }
 
 func resolveOne(ref string) Attachment {
-	expanded := expandPath(ref)
+	expanded, err := expandPath(ref)
+	if err != nil {
+		return Attachment{Path: ref, Error: err.Error()}
+	}
 
 	abs, err := filepath.Abs(expanded)
 	if err != nil {
@@ -83,7 +118,10 @@ func resolveOne(ref string) Attachment {
 
 	info, err := os.Stat(abs)
 	if err != nil {
-		return Attachment{Path: ref, AbsPath: abs, Error: fmt.Sprintf("file not found: %s", ref)}
+		if os.IsNotExist(err) {
+			return Attachment{Path: ref, AbsPath: abs, Error: fmt.Sprintf("file not found: %s", ref)}
+		}
+		return Attachment{Path: ref, AbsPath: abs, Error: fmt.Sprintf("cannot access %s: %v", ref, err)}
 	}
 	if info.IsDir() {
 		return Attachment{Path: ref, AbsPath: abs, Error: fmt.Sprintf("path is a directory: %s", ref)}
@@ -94,7 +132,6 @@ func resolveOne(ref string) Attachment {
 	att := Attachment{
 		Path:    ref,
 		AbsPath: abs,
-		Name:    filepath.Base(abs),
 		Type:    fileType,
 		Size:    info.Size(),
 	}
@@ -108,14 +145,19 @@ func resolveOne(ref string) Attachment {
 		return att
 	}
 
-	if info.Size() > maxAttachmentSize {
-		att.Error = fmt.Sprintf("file too large (%d bytes, max %d): %s", info.Size(), maxAttachmentSize, ref)
-		return att
-	}
-
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		att.Error = fmt.Sprintf("read file: %v", err)
+		return att
+	}
+
+	if int64(len(data)) > maxAttachmentSize {
+		att.Error = fmt.Sprintf("file too large (%d bytes, max %d): %s", len(data), maxAttachmentSize, ref)
+		return att
+	}
+
+	if len(data) == 0 {
+		att.Error = fmt.Sprintf("file is empty: %s", ref)
 		return att
 	}
 
@@ -125,16 +167,16 @@ func resolveOne(ref string) Attachment {
 	return att
 }
 
-// expandPath expands ~ to the user's home directory.
-func expandPath(p string) string {
+// expandPath expands ~/... paths to the user's home directory.
+func expandPath(p string) (string, error) {
 	if strings.HasPrefix(p, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return p
+			return "", fmt.Errorf("expand home directory: %w", err)
 		}
-		return filepath.Join(home, p[2:])
+		return filepath.Join(home, p[2:]), nil
 	}
-	return p
+	return p, nil
 }
 
 // classifyFile returns the file type based on extension.
@@ -218,7 +260,7 @@ func langForExt(ext string) string {
 	return ""
 }
 
-// mimeForExt returns a MIME type for known text extensions.
+// mimeForExt returns a MIME type for the given extension, defaulting to text/plain.
 func mimeForExt(ext string) string {
 	switch ext {
 	case ".json":

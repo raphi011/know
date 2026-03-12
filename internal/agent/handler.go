@@ -10,22 +10,15 @@ import (
 	"github.com/raphi011/knowhow/internal/models"
 )
 
-// ChatAttachment represents a local file attached to a chat message.
-type ChatAttachment struct {
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	MimeType string `json:"mimeType"`
-	Language string `json:"language,omitempty"`
-	Type     string `json:"type"` // "text" or "image"
-}
+const maxAttachments = 20
 
 type chatRequestBody struct {
-	ConversationID string           `json:"conversationId"`
-	VaultID        string           `json:"vaultId"`
-	Content        string           `json:"content"`
-	DocRefs        []string         `json:"docRefs"`
-	Attachments    []ChatAttachment `json:"attachments,omitempty"`
-	AutoApprove    bool             `json:"autoApprove"`
+	ConversationID string               `json:"conversationId"`
+	VaultID        string               `json:"vaultId"`
+	Content        string               `json:"content"`
+	DocRefs        []string             `json:"docRefs"`
+	Attachments    []models.ChatAttachment `json:"attachments,omitempty"`
+	AutoApprove    bool                 `json:"autoApprove"`
 }
 
 // HandleChat returns an HTTP handler for POST /agent/chat that streams SSE events back to the client.
@@ -56,6 +49,20 @@ func (s *Service) HandleChat() http.HandlerFunc {
 		if body.Content == "" {
 			http.Error(w, "content is required", http.StatusBadRequest)
 			return
+		}
+		if len(body.Attachments) > maxAttachments {
+			http.Error(w, fmt.Sprintf("too many attachments (max %d)", maxAttachments), http.StatusBadRequest)
+			return
+		}
+		for _, att := range body.Attachments {
+			if att.Path == "" || att.Content == "" {
+				http.Error(w, "attachments must have non-empty path and content", http.StatusBadRequest)
+				return
+			}
+			if att.Type != models.AttachmentTypeText && att.Type != models.AttachmentTypeImage {
+				http.Error(w, fmt.Sprintf("unsupported attachment type: %q", att.Type), http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {

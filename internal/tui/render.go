@@ -117,7 +117,7 @@ func renderUserMessage(content string, attachments []Attachment) string {
 	sb.WriteString("\n")
 
 	for _, att := range attachments {
-		line := fmt.Sprintf("  %s (%s, %d lines)", att.Name, att.Path, att.LineCount())
+		line := fmt.Sprintf("  %s (%s, %d lines)", att.Name(), att.Path, att.LineCount())
 		sb.WriteString(attachmentStyle.Render(line))
 		sb.WriteString("\n")
 	}

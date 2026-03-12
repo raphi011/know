@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/raphi011/knowhow/internal/api"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Model is the root bubbletea model for inline chat.
@@ -269,7 +270,7 @@ func (m *Model) sendMessage() tea.Cmd {
 
 	// Parse @-references and resolve local files
 	refs := parseAtRefs(content)
-	var chatAttachments []ChatAttachment
+	var chatAttachments []models.ChatAttachment
 	var resolved []Attachment
 
 	if len(refs) > 0 {
@@ -289,12 +290,12 @@ func (m *Model) sendMessage() tea.Cmd {
 
 		// Build wire-format attachments
 		for _, att := range resolved {
-			chatAttachments = append(chatAttachments, ChatAttachment{
+			chatAttachments = append(chatAttachments, models.ChatAttachment{
 				Path:     att.Path,
 				Content:  att.Content,
 				MimeType: att.MimeType,
 				Language: att.Language,
-				Type:     "text",
+				Type:     models.AttachmentTypeText,
 			})
 		}
 

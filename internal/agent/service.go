@@ -316,7 +316,7 @@ type ChatRequest struct {
 	UserID         string
 	Content        string
 	DocRefs        []string
-	Attachments    []ChatAttachment
+	Attachments    []models.ChatAttachment
 	AutoApprove    bool              // true = skip approval for write tools
 	Approvals      *approvalRegistry // nil if auto-approve
 }
@@ -406,8 +406,11 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	if len(req.Attachments) > 0 {
 		var fileContext strings.Builder
 		for _, att := range req.Attachments {
-			if att.Type == "text" {
+			switch att.Type {
+			case models.AttachmentTypeText:
 				fmt.Fprintf(&fileContext, "\n--- File: %s ---\n```%s\n%s\n```\n", att.Path, att.Language, att.Content)
+			default:
+				slog.Warn("unsupported attachment type, skipping", "path", att.Path, "type", att.Type)
 			}
 		}
 		if fileContext.Len() > 0 {
