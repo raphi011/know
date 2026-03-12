@@ -3,11 +3,11 @@ package event
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -51,6 +51,8 @@ func HandleEvents(bus *Bus) http.HandlerFunc {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
+		logger := logutil.FromCtx(r.Context())
+
 		for {
 			select {
 			case evt, ok := <-ch:
@@ -59,13 +61,17 @@ func HandleEvents(bus *Bus) http.HandlerFunc {
 				}
 				data, err := json.Marshal(evt)
 				if err != nil {
-					slog.Warn("failed to marshal change event", "error", err)
+					logger.Warn("failed to marshal change event", "error", err)
 					continue
 				}
-				fmt.Fprintf(w, "data: %s\n\n", data)
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+					return // client disconnected
+				}
 				flusher.Flush()
 			case <-ticker.C:
-				fmt.Fprintf(w, ": ping\n\n")
+				if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
+					return // client disconnected
+				}
 				flusher.Flush()
 			case <-r.Context().Done():
 				return
