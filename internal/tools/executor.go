@@ -16,6 +16,12 @@ import (
 	"github.com/raphi011/knowhow/internal/search"
 )
 
+// ToolExecutor defines the interface for executing tools against a vault.
+// Both the local Executor and the remote proxy implement this.
+type ToolExecutor interface {
+	ExecuteTool(ctx context.Context, vaultID, toolName, arguments string) (string, *ToolResultMeta, error)
+}
+
 // Executor runs named tools against a single vault. It is the shared
 // implementation used by both the agent chat and the embedded MCP server.
 type Executor struct {
@@ -458,6 +464,34 @@ func (e *Executor) execEditDocumentSection(ctx context.Context, vaultID, argumen
 	return fmt.Sprintf("Section %s: %q in %s (%s)", opDesc, headingDesc, doc.Title, doc.Path), meta, nil
 }
 
+// BuildMemoryDocument builds a memory document's path and full content (with frontmatter)
+// from a title, body content, and optional labels. The "memory" label is always included.
+func BuildMemoryDocument(title, content string, labels []string) (path, fullContent string) {
+	// Deduplicate and always include "memory"
+	deduped := []string{"memory"}
+	for _, l := range labels {
+		if l != "memory" {
+			deduped = append(deduped, l)
+		}
+	}
+
+	// Build frontmatter
+	var sb strings.Builder
+	sb.WriteString("---\nlabels:\n")
+	for _, l := range deduped {
+		fmt.Fprintf(&sb, "  - %q\n", l)
+	}
+	sb.WriteString("---\n\n")
+	sb.WriteString(content)
+
+	// Generate date-prefixed path
+	slug := Slugify(title)
+	date := time.Now().Format("2006-01-02")
+	path = fmt.Sprintf("/memories/%s-%s.md", date, slug)
+
+	return path, sb.String()
+}
+
 func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments string) (string, *ToolResultMeta, error) {
 	var input struct {
 		Title   string   `json:"title"`
@@ -474,33 +508,13 @@ func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments stri
 		return "", nil, fmt.Errorf("content is required")
 	}
 
-	// Build labels — always include "memory"
-	labels := []string{"memory"}
-	for _, l := range input.Labels {
-		if l != "memory" {
-			labels = append(labels, l)
-		}
-	}
-
-	// Build frontmatter
-	var content strings.Builder
-	content.WriteString("---\nlabels:\n")
-	for _, l := range labels {
-		fmt.Fprintf(&content, "  - %q\n", l)
-	}
-	content.WriteString("---\n\n")
-	content.WriteString(input.Content)
-
-	// Generate date-prefixed path
-	slug := Slugify(input.Title)
-	date := time.Now().Format("2006-01-02")
-	path := fmt.Sprintf("/memories/%s-%s.md", date, slug)
+	path, fullContent := BuildMemoryDocument(input.Title, input.Content, input.Labels)
 
 	start := time.Now()
 	doc, err := e.DocService.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
 		Path:    path,
-		Content: content.String(),
+		Content: fullContent,
 		Source:  models.SourceMCP,
 	})
 	durationMs := time.Since(start).Milliseconds()

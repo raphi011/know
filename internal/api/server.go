@@ -46,8 +46,22 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	// Bulk upload
 	mux.Handle("POST /api/bulk", authMw(http.HandlerFunc(s.bulkUpload)))
 
+	// Search
+	mux.Handle("GET /api/search", authMw(http.HandlerFunc(s.searchDocuments)))
+
+	// Folders
+	mux.Handle("GET /api/folders", authMw(http.HandlerFunc(s.listFolders)))
+
+	// Versions
+	mux.Handle("GET /api/versions", authMw(http.HandlerFunc(s.listVersions)))
+
 	// Labels
 	mux.Handle("GET /api/labels", authMw(http.HandlerFunc(s.listLabels)))
+
+	// Remotes (federation)
+	mux.Handle("GET /api/remotes", authMw(http.HandlerFunc(s.listRemotes)))
+	mux.Handle("POST /api/remotes", authMw(http.HandlerFunc(s.addRemote)))
+	mux.Handle("DELETE /api/remotes/{name}", authMw(http.HandlerFunc(s.removeRemote)))
 
 	// Backup
 	mux.Handle("GET /api/backup", authMw(http.HandlerFunc(s.backup)))

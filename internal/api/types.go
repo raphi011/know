@@ -15,6 +15,7 @@ type Vault struct {
 	CreatedBy   string    `json:"createdBy"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+	Remote      *string   `json:"remote,omitempty"`
 }
 
 // Document is the JSON representation of a document.
@@ -101,6 +102,37 @@ type VaultInfo struct {
 	ConversationCount int   `json:"conversationCount"`
 	TokenInput        int64 `json:"tokenInput"`
 	TokenOutput       int64 `json:"tokenOutput"`
+}
+
+// SearchResultResponse is the JSON representation of a search result.
+type SearchResultResponse struct {
+	Path          string               `json:"path"`
+	Title         string               `json:"title"`
+	Score         float64              `json:"score"`
+	MatchedChunks []ChunkMatchResponse `json:"matchedChunks"`
+}
+
+// ChunkMatchResponse is the JSON representation of a matched chunk.
+type ChunkMatchResponse struct {
+	Snippet     string  `json:"snippet"`
+	HeadingPath *string `json:"headingPath,omitempty"`
+	Position    int     `json:"position"`
+	Score       float64 `json:"score"`
+}
+
+// FolderResponse is the JSON representation of a folder.
+type FolderResponse struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+// VersionResponse is the JSON representation of a document version.
+type VersionResponse struct {
+	Version     int       `json:"version"`
+	Title       string    `json:"title"`
+	Source      string    `json:"source"`
+	ContentHash string    `json:"contentHash"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // ServerConfig holds the server's effective configuration.

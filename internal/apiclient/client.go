@@ -17,6 +17,16 @@ import (
 	"github.com/raphi011/knowhow/internal/models"
 )
 
+// HTTPError is returned when the server responds with a 4xx/5xx status code.
+type HTTPError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Message)
+}
+
 // Client is a REST API client for the Knowhow server.
 type Client struct {
 	baseURL string
@@ -187,6 +197,123 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// Vault is the JSON representation of a vault from the REST API.
+type Vault struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Remote      *string `json:"remote,omitempty"`
+}
+
+// ListVaults returns all accessible vaults.
+func (c *Client) ListVaults(ctx context.Context) ([]Vault, error) {
+	var vaults []Vault
+	if err := c.Get(ctx, "/api/vaults", &vaults); err != nil {
+		return nil, fmt.Errorf("list vaults: %w", err)
+	}
+	return vaults, nil
+}
+
+// SearchResult is the JSON representation of a search result from the REST API.
+type SearchResult struct {
+	Path          string       `json:"path"`
+	Title         string       `json:"title"`
+	Score         float64      `json:"score"`
+	MatchedChunks []ChunkMatch `json:"matchedChunks"`
+}
+
+// ChunkMatch is a matched chunk within a search result.
+type ChunkMatch struct {
+	Snippet     string  `json:"snippet"`
+	HeadingPath *string `json:"headingPath,omitempty"`
+	Position    int     `json:"position"`
+	Score       float64 `json:"score"`
+}
+
+// SearchDocuments searches documents on the remote server.
+func (c *Client) SearchDocuments(ctx context.Context, vaultID, query string, limit int) ([]SearchResult, error) {
+	q := url.Values{"vault": {vaultID}, "query": {query}}
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	var results []SearchResult
+	if err := c.Get(ctx, "/api/search?"+q.Encode(), &results); err != nil {
+		return nil, fmt.Errorf("search documents: %w", err)
+	}
+	return results, nil
+}
+
+// Folder is the JSON representation of a folder from the REST API.
+type Folder struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+// ListFolders lists folders in a vault, optionally under a parent path.
+func (c *Client) ListFolders(ctx context.Context, vaultID string, parent *string) ([]Folder, error) {
+	q := url.Values{"vault": {vaultID}}
+	if parent != nil {
+		q.Set("parent", *parent)
+	}
+	var folders []Folder
+	if err := c.Get(ctx, "/api/folders?"+q.Encode(), &folders); err != nil {
+		return nil, fmt.Errorf("list folders: %w", err)
+	}
+	return folders, nil
+}
+
+// CreateDocumentRequest is the body for creating a document via REST API.
+type CreateDocumentRequest struct {
+	VaultID string `json:"vaultId"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Source  string `json:"source"`
+}
+
+// CreateDocument creates a new document on the remote server.
+func (c *Client) CreateDocument(ctx context.Context, req CreateDocumentRequest) (*Document, error) {
+	var doc Document
+	if err := c.Post(ctx, "/api/documents", req, &doc); err != nil {
+		return nil, fmt.Errorf("create document: %w", err)
+	}
+	return &doc, nil
+}
+
+// EditDocumentRequest is the body for editing a document via REST API.
+// Uses the same endpoint as create (upsert semantics).
+type EditDocumentRequest = CreateDocumentRequest
+
+// EditDocument updates an existing document on the remote server.
+func (c *Client) EditDocument(ctx context.Context, req EditDocumentRequest) (*Document, error) {
+	var doc Document
+	if err := c.Post(ctx, "/api/documents", req, &doc); err != nil {
+		return nil, fmt.Errorf("edit document: %w", err)
+	}
+	return &doc, nil
+}
+
+// Version is the JSON representation of a document version from the REST API.
+type Version struct {
+	Version     int       `json:"version"`
+	Title       string    `json:"title"`
+	Source      string    `json:"source"`
+	ContentHash string    `json:"contentHash"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+// ListVersions returns version history for a document.
+func (c *Client) ListVersions(ctx context.Context, vaultID, path string, limit int) ([]Version, error) {
+	q := url.Values{"vault": {vaultID}, "path": {path}}
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	var versions []Version
+	if err := c.Get(ctx, "/api/versions?"+q.Encode(), &versions); err != nil {
+		return nil, fmt.Errorf("list versions: %w", err)
+	}
+	return versions, nil
+}
+
 // Document is the JSON representation of a document returned by the REST API.
 type Document struct {
 	ID          string  `json:"id"`
@@ -331,9 +458,9 @@ func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string)
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
-			return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, errResp.Error)
+			return 0, &HTTPError{StatusCode: resp.StatusCode, Message: errResp.Error}
 		}
-		return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		return 0, &HTTPError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	f, err := os.Create(outputPath)
@@ -373,9 +500,9 @@ func (c *Client) handleResponse(req *http.Request, target any) error {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
-			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, errResp.Error)
+			return &HTTPError{StatusCode: resp.StatusCode, Message: errResp.Error}
 		}
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+		return &HTTPError{StatusCode: resp.StatusCode, Message: string(respBody)}
 	}
 
 	if target != nil && len(respBody) > 0 {
