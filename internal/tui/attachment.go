@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/raphi011/knowhow/internal/models"
@@ -41,9 +40,9 @@ const maxAttachmentSize = 1 << 20
 // 10MB per image file. Vision APIs accept larger payloads than text.
 const maxImageAttachmentSize = 10 << 20
 
-// Attachment holds a resolved @-reference with its file content.
+// Attachment holds a resolved file reference with its content.
 type Attachment struct {
-	Path     string   // original path from @-reference
+	Path     string   // original path as provided (before resolution)
 	AbsPath  string   // resolved absolute path
 	Content  string   // file text (for text files) or base64-encoded data (for images)
 	MimeType string
@@ -69,36 +68,6 @@ func (a Attachment) LineCount() int {
 		n++
 	}
 	return n
-}
-
-// atRefRegex matches @-prefixed file paths. Supports:
-// - relative: @./foo.go, @../bar/baz.py
-// - absolute: @/usr/local/file.txt
-// - tilde: @~/Documents/notes.md
-// - bare: @file.go (must contain a dot to avoid matching @mentions)
-//
-// Paths with spaces or unicode are not matched; use a relative path
-// like @./path\ with\ spaces. Extensionless filenames (e.g. @Makefile)
-// are not matched; use @./Makefile instead.
-//
-// The regex requires @ to be preceded by start-of-string or whitespace
-// to avoid matching email-like patterns (e.g. user@config.yaml).
-var atRefRegex = regexp.MustCompile(`(?:^|\s)@((?:\.\.?/[\w./_\-]+)|(?:~/[\w./_\-]+)|(?:/[\w./_\-]+)|(?:[\w.\-]+\.[\w]+))`)
-
-// parseAtRefs extracts @-prefixed file paths from input text.
-func parseAtRefs(input string) []string {
-	matches := atRefRegex.FindAllStringSubmatch(input, -1)
-	seen := make(map[string]struct{}, len(matches))
-	var refs []string
-	for _, m := range matches {
-		ref := m[1]
-		if _, ok := seen[ref]; ok {
-			continue
-		}
-		seen[ref] = struct{}{}
-		refs = append(refs, ref)
-	}
-	return refs
 }
 
 // resolveAttachments expands paths, reads files, and classifies them.
@@ -323,13 +292,15 @@ func toAttachmentType(ft FileType) models.AttachmentType {
 	}
 }
 
-// stripAtRefs removes @path tokens from input, cleaning up extra whitespace.
-func stripAtRefs(input string, refs []string) string {
-	result := input
-	for _, ref := range refs {
-		result = strings.ReplaceAll(result, "@"+ref, "")
+// looksLikeFilePath returns true if the string appears to be a filesystem path
+// (single-line, starts with /, ~/, ./, or ../).
+func looksLikeFilePath(s string) bool {
+	if strings.Contains(s, "\n") {
+		return false
 	}
-	// Collapse multiple spaces into one and trim
-	result = strings.Join(strings.Fields(result), " ")
-	return result
+	return strings.HasPrefix(s, "/") ||
+		strings.HasPrefix(s, "~/") ||
+		strings.HasPrefix(s, "./") ||
+		strings.HasPrefix(s, "../")
 }
+

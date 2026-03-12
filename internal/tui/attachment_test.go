@@ -9,63 +9,29 @@ import (
 	"testing"
 )
 
-func TestParseAtRefs(t *testing.T) {
+func TestLooksLikeFilePath(t *testing.T) {
 	tests := []struct {
-		name  string
 		input string
-		want  []string
+		want  bool
 	}{
-		{"no refs", "hello world", nil},
-		{"single relative", "explain @./main.go", []string{"./main.go"}},
-		{"single absolute", "read @/etc/hosts please", []string{"/etc/hosts"}},
-		{"tilde path", "check @~/Documents/notes.md", []string{"~/Documents/notes.md"}},
-		{"multiple refs", "@./a.go @./b.go compare", []string{"./a.go", "./b.go"}},
-		{"duplicate refs", "@./a.go @./a.go", []string{"./a.go"}},
-		{"bare file with dot", "review @main.go", []string{"main.go"}},
-		{"path with hyphens", "@./my-file.ts ok", []string{"./my-file.ts"}},
-		{"path with dots", "@./dir.name/file.ext", []string{"./dir.name/file.ext"}},
-		{"nested path", "@./internal/tui/app.go", []string{"./internal/tui/app.go"}},
-		{"parent path", "@../other/file.py", []string{"../other/file.py"}},
-		{"no match for @mention", "hey @john how are you", nil},
-		{"no match for email", "email admin@config.yaml", nil},
-		{"path with space stops at space", "check @./my file.go", []string{"./my"}},
+		{"/Users/me/file.md", true},
+		{"~/Documents/notes.md", true},
+		{"./relative/path.md", true},
+		{"../parent/path.md", true},
+		{"/", true},
+		{"~/", true},
+		{"some random text", false},
+		{"main.go", false},
+		{"", false},
+		{"/path/one\n/path/two", false},
+		{"http://example.com", false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseAtRefs(tt.input)
-			if len(got) != len(tt.want) {
-				t.Fatalf("parseAtRefs(%q) = %v, want %v", tt.input, got, tt.want)
-			}
-			for i, g := range got {
-				if g != tt.want[i] {
-					t.Errorf("parseAtRefs(%q)[%d] = %q, want %q", tt.input, i, g, tt.want[i])
-				}
-			}
-		})
-	}
-}
-
-func TestStripAtRefs(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		refs  []string
-		want  string
-	}{
-		{"single ref", "explain @./main.go please", []string{"./main.go"}, "explain please"},
-		{"multiple refs", "@./a.go @./b.go compare these", []string{"./a.go", "./b.go"}, "compare these"},
-		{"no refs", "hello world", nil, "hello world"},
-		{"ref at end", "review @./file.go", []string{"./file.go"}, "review"},
-		{"ref at start", "@./file.go explain", []string{"./file.go"}, "explain"},
-		{"only refs", "@./file.go", []string{"./file.go"}, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := stripAtRefs(tt.input, tt.refs)
+		t.Run(tt.input, func(t *testing.T) {
+			got := looksLikeFilePath(tt.input)
 			if got != tt.want {
-				t.Errorf("stripAtRefs(%q, %v) = %q, want %q", tt.input, tt.refs, got, tt.want)
+				t.Errorf("looksLikeFilePath(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
