@@ -8,7 +8,6 @@ on:
       - "go.mod"
       - "go.sum"
       - "Dockerfile"
-      - "web/**"
       - "helm/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
@@ -16,14 +15,12 @@ on:
 env:
   REGISTRY: zot.manx-turtle.ts.net
   BACKEND_IMAGE: knowhow-server
-  FRONTEND_IMAGE: knowhow-web
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
       helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +33,6 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Dockerfile'
-            frontend:
-              - 'web/**'
             helm:
               - 'helm/**'
 
@@ -63,7 +58,13 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '"')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Failed to extract appVersion from Chart.yaml"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build backend image
         run: docker build -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest .
@@ -72,38 +73,6 @@ jobs:
         run: |
           docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }}
           docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
-
-  build-frontend:
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.helm == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-          args: --accept-dns=false
-
-      - name: Add Zot registry to /etc/hosts
-        run: |
-          ZOT_IP=$(tailscale ip -4 zot)
-          echo "$ZOT_IP ${{ env.REGISTRY }}" | sudo tee -a /etc/hosts
-
-      - name: Get version
-        id: version
-        run: echo "version=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
-
-      - name: Build frontend image
-        run: docker build -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest web/
-
-      - name: Push frontend image
-        run: |
-          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.version }}
-          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
   push-helm:
     needs: changes
