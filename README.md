@@ -428,6 +428,32 @@ sftp -P 2222 user@localhost <<< "get -r default/"
 
 Mounting vaults as local directories via `sshfs` would enable opening them in any editor (VS Code, Zed, etc.). This requires [macFUSE](https://osxfuse.github.io/) and `sshfs` (`brew install macfuse sshfs`). Not yet tested with this server.
 
+## TUI Chat
+
+The `knowhow agent` command launches a terminal chat UI powered by Bubbletea v2.
+
+### @-Reference File Attachments
+
+Attach local files to your chat messages using `@` followed by a file path. The file content is sent as context to the LLM alongside your message.
+
+```bash
+# Attach a file with a relative path
+"Explain this code @./internal/tui/app.go"
+
+# Attach multiple files
+"Compare @./old.go and @./new.go"
+
+# Absolute and home-relative paths
+"Review @/etc/nginx/nginx.conf"
+"Check @~/Documents/notes.md"
+
+# Bare filename (must contain a dot)
+"What does @main.go do?"
+```
+
+**Supported**: Text files up to 1MB (source code, markdown, config files, etc.)
+**Not yet supported**: Images, binary files, extensionless filenames (use `@./Makefile` instead of `@Makefile`)
+
 ## Agent Tool Approval (Human-in-the-Loop)
 
 When AI agents create or edit documents, changes are shown inline in the chat UI as a diff for review before being applied. This works like `git add -p` — you can approve all changes, select specific hunks, or reject entirely.

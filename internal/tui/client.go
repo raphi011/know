@@ -11,6 +11,7 @@ import (
 
 	"github.com/raphi011/knowhow/internal/api"
 	"github.com/raphi011/knowhow/internal/apiclient"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Client wraps apiclient.Client with TUI-specific methods.
@@ -50,12 +51,15 @@ type StreamEvent struct {
 }
 
 // Chat sends a message and returns a channel of SSE events.
-func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content string, autoApprove bool) (<-chan StreamEvent, error) {
+func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content string, attachments []models.ChatAttachment, autoApprove bool) (<-chan StreamEvent, error) {
 	body := map[string]any{
 		"conversationId": conversationID,
 		"vaultId":        vaultID,
 		"content":        content,
 		"autoApprove":    autoApprove,
+	}
+	if len(attachments) > 0 {
+		body["attachments"] = attachments
 	}
 
 	data, err := json.Marshal(body)

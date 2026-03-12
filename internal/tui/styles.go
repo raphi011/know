@@ -63,4 +63,9 @@ var (
 	// Error message style
 	errorMsgStyle = lipgloss.NewStyle().
 			Foreground(errorColor)
+
+	// Attachment indicator style (shown below user messages)
+	attachmentStyle = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			PaddingLeft(2)
 )

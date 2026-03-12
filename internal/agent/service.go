@@ -316,6 +316,7 @@ type ChatRequest struct {
 	UserID         string
 	Content        string
 	DocRefs        []string
+	Attachments    []models.ChatAttachment
 	AutoApprove    bool              // true = skip approval for write tools
 	Approvals      *approvalRegistry // nil if auto-approve
 }
@@ -397,6 +398,25 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			messages = append(messages,
 				&schema.Message{Role: schema.User, Content: "Referenced documents:\n" + refContext.String()},
 				&schema.Message{Role: schema.Assistant, Content: "I'll use these referenced documents to help answer your question."},
+			)
+		}
+	}
+
+	// Inject local file attachments as context
+	if len(req.Attachments) > 0 {
+		var fileContext strings.Builder
+		for _, att := range req.Attachments {
+			switch att.Type {
+			case models.AttachmentTypeText:
+				fmt.Fprintf(&fileContext, "\n--- File: %s ---\n```%s\n%s\n```\n", att.Path, att.Language, att.Content)
+			default:
+				slog.Warn("unsupported attachment type, skipping", "path", att.Path, "type", att.Type)
+			}
+		}
+		if fileContext.Len() > 0 {
+			messages = append(messages,
+				&schema.Message{Role: schema.User, Content: "Attached local files:\n" + fileContext.String()},
+				&schema.Message{Role: schema.Assistant, Content: "I'll use these attached files to help answer your question."},
 			)
 		}
 	}

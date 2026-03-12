@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/raphi011/knowhow/internal/api"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Model is the root bubbletea model for inline chat.
@@ -267,6 +268,44 @@ func (m *Model) sendMessage() tea.Cmd {
 		return nil
 	}
 
+	// Parse @-references and resolve local files
+	refs := parseAtRefs(content)
+	var chatAttachments []models.ChatAttachment
+	var resolved []Attachment
+
+	if len(refs) > 0 {
+		resolved = resolveAttachments(refs)
+
+		// Check for errors
+		var errs []string
+		for _, att := range resolved {
+			if att.Error != "" {
+				errs = append(errs, att.Error)
+			}
+		}
+		if len(errs) > 0 {
+			m.errMsg = strings.Join(errs, "; ")
+			return nil
+		}
+
+		// Build wire-format attachments
+		for _, att := range resolved {
+			chatAttachments = append(chatAttachments, models.ChatAttachment{
+				Path:     att.Path,
+				Content:  att.Content,
+				MimeType: att.MimeType,
+				Language: att.Language,
+				Type:     models.AttachmentTypeText,
+			})
+		}
+
+		content = stripAtRefs(content, refs)
+		if content == "" {
+			m.errMsg = "message is empty after removing @-references"
+			return nil
+		}
+	}
+
 	m.input.SetValue("")
 	m.streaming = true
 	m.streamParts = nil
@@ -275,9 +314,10 @@ func (m *Model) sendMessage() tea.Cmd {
 	ctx := m.ctx
 	convID := m.conversationID
 	vaultID := m.vaultID
+	attachments := chatAttachments
 
 	startStreamCmd := func() tea.Msg {
-		ch, err := client.Chat(ctx, convID, vaultID, content, false)
+		ch, err := client.Chat(ctx, convID, vaultID, content, attachments, false)
 		if err != nil {
 			return streamEventMsg{event: StreamEvent{Type: "error", Content: err.Error()}, done: true}
 		}
@@ -292,7 +332,7 @@ func (m *Model) sendMessage() tea.Cmd {
 
 	// Print user message to scrollback, then start streaming + spinner
 	return tea.Sequence(
-		tea.Println(renderUserMessage(content)),
+		tea.Println(renderUserMessage(content, resolved)),
 		tea.Batch(startStreamCmd, m.spinner.Tick),
 	)
 }

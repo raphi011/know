@@ -10,12 +10,15 @@ import (
 	"github.com/raphi011/knowhow/internal/models"
 )
 
+const maxAttachments = 20
+
 type chatRequestBody struct {
-	ConversationID string   `json:"conversationId"`
-	VaultID        string   `json:"vaultId"`
-	Content        string   `json:"content"`
-	DocRefs        []string `json:"docRefs"`
-	AutoApprove    bool     `json:"autoApprove"`
+	ConversationID string               `json:"conversationId"`
+	VaultID        string               `json:"vaultId"`
+	Content        string               `json:"content"`
+	DocRefs        []string             `json:"docRefs"`
+	Attachments    []models.ChatAttachment `json:"attachments,omitempty"`
+	AutoApprove    bool                 `json:"autoApprove"`
 }
 
 // HandleChat returns an HTTP handler for POST /agent/chat that streams SSE events back to the client.
@@ -32,7 +35,7 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			return
 		}
 
-		r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB max
+		r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024) // 5MB max (text file attachments)
 		var body chatRequestBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -46,6 +49,20 @@ func (s *Service) HandleChat() http.HandlerFunc {
 		if body.Content == "" {
 			http.Error(w, "content is required", http.StatusBadRequest)
 			return
+		}
+		if len(body.Attachments) > maxAttachments {
+			http.Error(w, fmt.Sprintf("too many attachments (max %d)", maxAttachments), http.StatusBadRequest)
+			return
+		}
+		for _, att := range body.Attachments {
+			if att.Path == "" || att.Content == "" {
+				http.Error(w, "attachments must have non-empty path and content", http.StatusBadRequest)
+				return
+			}
+			if att.Type != models.AttachmentTypeText && att.Type != models.AttachmentTypeImage {
+				http.Error(w, fmt.Sprintf("unsupported attachment type: %q", att.Type), http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
@@ -90,6 +107,7 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			UserID:         ac.UserID,
 			Content:        body.Content,
 			DocRefs:        body.DocRefs,
+			Attachments:    body.Attachments,
 			AutoApprove:    body.AutoApprove,
 		}
 

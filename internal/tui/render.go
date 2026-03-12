@@ -107,9 +107,22 @@ func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, pend
 	return sb.String()
 }
 
-// renderUserMessage renders a user message with role label for scrollback output.
-func renderUserMessage(content string) string {
-	return "\n" + userRoleStyle.Render("you") + "\n" + userMsgStyle.MaxWidth(maxTextWidth).Render(content) + "\n"
+// renderUserMessage renders a user message with role label and optional attachment indicators.
+func renderUserMessage(content string, attachments []Attachment) string {
+	var sb strings.Builder
+	sb.WriteString("\n")
+	sb.WriteString(userRoleStyle.Render("you"))
+	sb.WriteString("\n")
+	sb.WriteString(userMsgStyle.MaxWidth(maxTextWidth).Render(content))
+	sb.WriteString("\n")
+
+	for _, att := range attachments {
+		line := fmt.Sprintf("  %s (%s, %d lines)", att.Name(), att.Path, att.LineCount())
+		sb.WriteString(attachmentStyle.Render(line))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
 
 // renderAssistantMessage renders a finalized assistant response for scrollback output.
