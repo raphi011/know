@@ -1,10 +1,10 @@
 package api
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -20,11 +20,13 @@ func (s *Server) listLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger := logutil.FromCtx(r.Context())
+
 	if r.URL.Query().Get("counts") == "true" {
 		counts, err := s.app.DBClient().ListLabelsWithCounts(r.Context(), vaultID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list labels")
-			slog.Error("list labels with counts", "vault_id", vaultID, "error", err)
+			logger.Error("list labels with counts", "vault_id", vaultID, "error", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, counts)
@@ -34,7 +36,7 @@ func (s *Server) listLabels(w http.ResponseWriter, r *http.Request) {
 	labels, err := s.app.DBClient().ListLabels(r.Context(), vaultID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list labels")
-		slog.Error("list labels", "vault_id", vaultID, "error", err)
+		logger.Error("list labels", "vault_id", vaultID, "error", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, labels)

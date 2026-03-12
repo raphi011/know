@@ -208,6 +208,29 @@ func (c *Client) GetDocument(ctx context.Context, vaultID, path string) (*Docume
 	return &doc, nil
 }
 
+// DeleteResult is the response from the delete documents endpoint.
+type DeleteResult struct {
+	Deleted []string `json:"deleted"`
+	Count   int      `json:"count"`
+	DryRun  bool     `json:"dryRun"`
+}
+
+// DeleteDocuments deletes a document or folder (with recursive flag) from a vault.
+func (c *Client) DeleteDocuments(ctx context.Context, vaultID, path string, recursive, dryRun bool) (*DeleteResult, error) {
+	q := url.Values{"vault": {vaultID}, "path": {path}}
+	if recursive {
+		q.Set("recursive", "true")
+	}
+	if dryRun {
+		q.Set("dry-run", "true")
+	}
+	var result DeleteResult
+	if err := c.do(ctx, http.MethodDelete, "/api/documents?"+q.Encode(), nil, &result); err != nil {
+		return nil, fmt.Errorf("delete documents: %w", err)
+	}
+	return &result, nil
+}
+
 // ListFiles lists files and folders at the given path in a vault.
 func (c *Client) ListFiles(ctx context.Context, vaultID, path string, recursive bool) ([]models.FileEntry, error) {
 	q := url.Values{"vault": {vaultID}, "path": {path}}

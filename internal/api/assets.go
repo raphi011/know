@@ -4,17 +4,19 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
 func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
+	logger := logutil.FromCtx(r.Context())
+
 	// 32 MB max memory for multipart parsing
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		slog.Warn("parse multipart form", "error", err)
+		logger.Warn("parse multipart form", "error", err)
 		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -38,7 +40,7 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		slog.Warn("form file extraction failed", "error", err)
+		logger.Warn("form file extraction failed", "error", err)
 		writeError(w, http.StatusBadRequest, "file field is required")
 		return
 	}
@@ -47,7 +49,7 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(file)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to read file")
-		slog.Error("read upload file", "error", err)
+		logger.Error("read upload file", "error", err)
 		return
 	}
 
@@ -58,7 +60,7 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to upload asset")
-		slog.Error("upload asset", "error", err)
+		logger.Error("upload asset", "error", err)
 		return
 	}
 
@@ -91,7 +93,7 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 	asset, err := s.app.AssetService().Get(r.Context(), vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get asset")
-		slog.Error("get asset", "error", err)
+		logutil.FromCtx(r.Context()).Error("get asset", "error", err)
 		return
 	}
 	if asset == nil {
@@ -122,7 +124,7 @@ func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
 	meta, err := s.app.AssetService().GetMeta(r.Context(), vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get asset metadata")
-		slog.Error("get asset meta", "error", err)
+		logutil.FromCtx(r.Context()).Error("get asset meta", "error", err)
 		return
 	}
 	if meta == nil {
@@ -156,11 +158,13 @@ func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger := logutil.FromCtx(r.Context())
+
 	// Check existence first so we return 404 instead of silent 204
 	meta, err := s.app.AssetService().GetMeta(r.Context(), vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check asset")
-		slog.Error("delete asset: check existence", "error", err)
+		logger.Error("delete asset: check existence", "error", err)
 		return
 	}
 	if meta == nil {
@@ -170,7 +174,7 @@ func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.app.AssetService().Delete(r.Context(), vaultID, path); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete asset")
-		slog.Error("delete asset", "error", err)
+		logger.Error("delete asset", "error", err)
 		return
 	}
 

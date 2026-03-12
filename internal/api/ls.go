@@ -1,13 +1,13 @@
 package api
 
 import (
-	"log/slog"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -37,6 +37,8 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		prefix += "/"
 	}
 
+	logger := logutil.FromCtx(r.Context())
+
 	// Pass prefix (with trailing slash) to the DB so that "/docs" doesn't match "/docs-other".
 	// For root ("/"), starts_with(path, "/") correctly matches all documents.
 	docs, err := s.app.DBClient().ListDocumentMetas(r.Context(), db.ListDocumentsFilter{
@@ -46,7 +48,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list documents")
-		slog.Error("ls documents", "vault_id", vaultID, "path", folder, "error", err)
+		logger.Error("ls documents", "vault_id", vaultID, "path", folder, "error", err)
 		return
 	}
 
@@ -58,7 +60,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		allFolders, err := s.app.VaultService().ListFolders(r.Context(), vaultID, nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list folders")
-			slog.Error("ls folders", "vault_id", vaultID, "path", folder, "error", err)
+			logger.Error("ls folders", "vault_id", vaultID, "path", folder, "error", err)
 			return
 		}
 		for _, f := range allFolders {
@@ -82,7 +84,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		childFolders, err := s.app.DBClient().ListChildFolders(r.Context(), vaultID, folder)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list folders")
-			slog.Error("ls child folders", "vault_id", vaultID, "path", folder, "error", err)
+			logger.Error("ls child folders", "vault_id", vaultID, "path", folder, "error", err)
 			return
 		}
 		for _, f := range childFolders {

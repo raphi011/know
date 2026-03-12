@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -87,7 +87,7 @@ func (s *Server) bulkUpload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
-			slog.Error("bulk upload: read part", "vault", meta.VaultID, "error", err)
+			logutil.FromCtx(r.Context()).Error("bulk upload: read part", "vault", meta.VaultID, "error", err)
 			loopErr = err
 			break
 		}
@@ -127,11 +127,12 @@ func (s *Server) processBulkPart(r *http.Request, part *multipart.Part, meta bul
 }
 
 func (s *Server) processBulkDocument(r *http.Request, path, content string, meta bulkMeta, src models.DocumentSource) bulkFileResult {
+	logger := logutil.FromCtx(r.Context())
 	hash := models.ContentHash(content)
 
 	existing, err := s.app.DBClient().GetDocumentByPath(r.Context(), meta.VaultID, path)
 	if err != nil {
-		slog.Error("bulk: check existing document", "vault", meta.VaultID, "path", path, "error", err)
+		logger.Error("bulk: check existing document", "vault", meta.VaultID, "path", path, "error", err)
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("check existing document: %v", err)}
 	}
 
@@ -158,7 +159,7 @@ func (s *Server) processBulkDocument(r *http.Request, path, content string, meta
 		Source:  src,
 	})
 	if err != nil {
-		slog.Error("bulk: upsert document", "vault", meta.VaultID, "path", path, "error", err)
+		logger.Error("bulk: upsert document", "vault", meta.VaultID, "path", path, "error", err)
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("create/update document: %v", err)}
 	}
 
@@ -169,11 +170,12 @@ func (s *Server) processBulkDocument(r *http.Request, path, content string, meta
 }
 
 func (s *Server) processBulkAsset(r *http.Request, path string, data []byte, meta bulkMeta) bulkFileResult {
+	logger := logutil.FromCtx(r.Context())
 	hash := models.ContentHash(string(data))
 
 	existing, err := s.app.DBClient().GetAssetMetaByPath(r.Context(), meta.VaultID, path)
 	if err != nil {
-		slog.Error("bulk: check existing asset", "vault", meta.VaultID, "path", path, "error", err)
+		logger.Error("bulk: check existing asset", "vault", meta.VaultID, "path", path, "error", err)
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("check existing asset: %v", err)}
 	}
 
@@ -199,7 +201,7 @@ func (s *Server) processBulkAsset(r *http.Request, path string, data []byte, met
 		Data:    data,
 	})
 	if err != nil {
-		slog.Error("bulk: upload asset", "vault", meta.VaultID, "path", path, "error", err)
+		logger.Error("bulk: upload asset", "vault", meta.VaultID, "path", path, "error", err)
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("upload asset: %v", err)}
 	}
 

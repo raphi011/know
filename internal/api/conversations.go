@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -31,7 +32,7 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	convs, err := s.app.DBClient().ListConversations(r.Context(), vaultID, ac.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list conversations")
-		slog.Error("list conversations", "error", err)
+		logutil.FromCtx(r.Context()).Error("list conversations", "error", err)
 		return
 	}
 
@@ -44,11 +45,12 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger := logutil.FromCtx(r.Context())
 
 	conv, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get conversation")
-		slog.Error("get conversation", "error", err)
+		logger.Error("get conversation", "error", err)
 		return
 	}
 	if conv == nil {
@@ -71,7 +73,7 @@ func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 	msgs, err := s.app.DBClient().ListMessages(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list messages")
-		slog.Error("list messages", "error", err)
+		logger.Error("list messages", "error", err)
 		return
 	}
 	result.Messages = make([]*ChatMessage, len(msgs))
@@ -111,7 +113,7 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	conv, err := s.app.DBClient().CreateConversation(r.Context(), body.VaultID, ac.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create conversation")
-		slog.Error("create conversation", "error", err)
+		logutil.FromCtx(r.Context()).Error("create conversation", "error", err)
 		return
 	}
 
@@ -122,11 +124,12 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger := logutil.FromCtx(r.Context())
 
 	conv, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get conversation")
-		slog.Error("get conversation for delete", "error", err)
+		logger.Error("get conversation for delete", "error", err)
 		return
 	}
 	if conv == nil {
@@ -146,7 +149,7 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.app.DBClient().DeleteConversation(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete conversation")
-		slog.Error("delete conversation", "error", err)
+		logger.Error("delete conversation", "error", err)
 		return
 	}
 
@@ -159,6 +162,7 @@ type renameConversationRequest struct {
 
 func (s *Server) renameConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger := logutil.FromCtx(r.Context())
 
 	var body renameConversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -173,7 +177,7 @@ func (s *Server) renameConversation(w http.ResponseWriter, r *http.Request) {
 	conv, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get conversation")
-		slog.Error("get conversation for rename", "error", err)
+		logger.Error("get conversation for rename", "error", err)
 		return
 	}
 	if conv == nil {
@@ -193,14 +197,14 @@ func (s *Server) renameConversation(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.app.DBClient().UpdateConversationTitle(r.Context(), id, body.Title); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to rename conversation")
-		slog.Error("rename conversation", "error", err)
+		logger.Error("rename conversation", "error", err)
 		return
 	}
 
 	updated, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get updated conversation")
-		slog.Error("get renamed conversation", "error", err)
+		logger.Error("get renamed conversation", "error", err)
 		return
 	}
 

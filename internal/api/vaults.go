@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 )
 
@@ -19,7 +20,7 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 	all, err := s.app.VaultService().List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list vaults")
-		slog.Error("list vaults", "error", err)
+		logutil.FromCtx(r.Context()).Error("list vaults", "error", err)
 		return
 	}
 
@@ -47,11 +48,13 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 		accessSet[vp.VaultID] = true
 	}
 
+	logger := logutil.FromCtx(r.Context())
+
 	var result []Vault
 	for i := range all {
 		id, err := models.RecordIDString(all[i].ID)
 		if err != nil {
-			slog.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
+			logger.Warn("failed to extract vault ID, skipping", "vault_name", all[i].Name, "error", err)
 			continue
 		}
 		if accessSet[id] {

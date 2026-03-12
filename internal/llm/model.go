@@ -610,10 +610,13 @@ func (m *Model) GenerateStreamWithTools(
 			return usage, fmt.Errorf("generate stream with tools merge (iteration %d): %w", i, mergeErr)
 		}
 
-		// Extract token usage from the last streamed message (carries ResponseMeta).
-		if last := allMsgs[len(allMsgs)-1]; last.ResponseMeta != nil && last.ResponseMeta.Usage != nil {
-			usage.InputTokens += int64(last.ResponseMeta.Usage.PromptTokens)
-			usage.OutputTokens += int64(last.ResponseMeta.Usage.CompletionTokens)
+		// Extract token usage from the merged message. The eino claude adapter
+		// splits usage across events: MessageStartEvent carries PromptTokens,
+		// MessageDeltaEvent carries CompletionTokens. ConcatMessages keeps the
+		// max of each field, so the merged result has both.
+		if merged.ResponseMeta != nil && merged.ResponseMeta.Usage != nil {
+			usage.InputTokens += int64(merged.ResponseMeta.Usage.PromptTokens)
+			usage.OutputTokens += int64(merged.ResponseMeta.Usage.CompletionTokens)
 		}
 
 		// No tool calls — model produced a final answer.
