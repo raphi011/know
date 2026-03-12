@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -89,8 +90,14 @@ type createConversationRequest struct {
 }
 
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64 KB
 	var body createConversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -161,11 +168,17 @@ type renameConversationRequest struct {
 }
 
 func (s *Server) renameConversation(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64 KB
 	id := r.PathValue("id")
 	logger := logutil.FromCtx(r.Context())
 
 	var body renameConversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

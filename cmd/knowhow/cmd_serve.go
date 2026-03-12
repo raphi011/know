@@ -79,10 +79,18 @@ func runServe(_ *cobra.Command, _ []string) error {
 	slog.SetDefault(logger)
 
 	port := fmt.Sprintf("%d", servePort)
-	slog.Info("starting knowhow server", "version", version, "port", port)
+
+	// In no-auth mode, bind to localhost only to prevent accidental public exposure.
+	listenHost := ""
+	if serveNoAuth {
+		listenHost = "127.0.0.1"
+		slog.Warn("no-auth mode: binding to localhost only")
+	}
+
+	slog.Info("starting knowhow server", "version", version, "port", port, "host", listenHost)
 
 	// Bind the port early so we fail fast if another instance is still running.
-	ln, err := net.Listen("tcp", ":"+port)
+	ln, err := net.Listen("tcp", listenHost+":"+port)
 	if err != nil {
 		return fmt.Errorf("bind port %s: %w", port, err)
 	}
@@ -208,7 +216,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// SSH/SFTP server (optional)
 	var sshSrv *sshd.Server
 	if cfg.SSHEnabled {
-		sshLn, listenErr := net.Listen("tcp", ":"+cfg.SSHPort)
+		sshLn, listenErr := net.Listen("tcp", listenHost+":"+cfg.SSHPort)
 		if listenErr != nil {
 			return fmt.Errorf("bind SSH port %s: %w", cfg.SSHPort, listenErr)
 		}
@@ -234,7 +242,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	})
 
 	httpServer := &http.Server{
-		Addr:              ":" + port,
+		Addr:              listenHost + ":" + port,
 		Handler:           api.RequestLogMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,

@@ -22,10 +22,19 @@ func GenerateToken() (raw string, hash string, err error) {
 	return raw, hash, nil
 }
 
+// ValidateTokenFormat checks that a raw token has the expected prefix.
+// Use this for fast-rejecting malformed tokens before DB lookups.
+func ValidateTokenFormat(raw string) error {
+	if !strings.HasPrefix(raw, tokenPrefix) {
+		return fmt.Errorf("token must start with %q", tokenPrefix)
+	}
+	return nil
+}
+
 // UseToken validates a caller-supplied raw token and returns its hash.
 func UseToken(raw string) (string, error) {
-	if !strings.HasPrefix(raw, tokenPrefix) {
-		return "", fmt.Errorf("token must start with %q", tokenPrefix)
+	if err := ValidateTokenFormat(raw); err != nil {
+		return "", err
 	}
 	return HashToken(raw), nil
 }
