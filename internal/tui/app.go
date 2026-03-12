@@ -152,8 +152,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.conversationID = msg.conv.ID
 		m.ready = true
-		banner := headerStyle.Render("knowhow")
-		return m, tea.Batch(tea.Println(banner), m.tryFocus())
+		return m, m.tryFocus()
 
 	case streamEventMsg:
 		return m.handleStreamEvent(msg)

@@ -46,6 +46,10 @@ func runAgent(_ *cobra.Command, _ []string) error {
 	// bubbletea is running.
 	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 
+	// Print banner before bubbletea starts — tea.Println inside the program
+	// would clear all previous terminal output in inline mode.
+	fmt.Println(tui.Banner())
+
 	client := tui.NewClient(agentAPI.URL, agentAPI.Token)
 	model := tui.NewModel(client, *agentVaultID, isDark)
 	defer model.Close()
