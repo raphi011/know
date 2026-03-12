@@ -73,7 +73,7 @@ func TestListTokens(t *testing.T) {
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		hash := fmt.Sprintf("list-token-hash-%d-%d", i, time.Now().UnixNano())
 		name := fmt.Sprintf("list-token-%d", i)
 		_, err := testDB.CreateToken(ctx, userID, hash, name)

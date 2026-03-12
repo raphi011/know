@@ -100,10 +100,8 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			v, err := c.GetOrFetch("key", fetch)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
@@ -111,7 +109,7 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 			if v != "value" {
 				t.Errorf("expected 'value', got %q", v)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

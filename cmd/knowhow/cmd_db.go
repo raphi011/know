@@ -20,13 +20,13 @@ var (
 	embedDim    int
 )
 
-var devCmd = &cobra.Command{
-	Use:   "dev",
-	Short: "Developer commands (direct SurrealDB access)",
+var dbCmd = &cobra.Command{
+	Use:   "db",
+	Short: "Database commands (direct SurrealDB access)",
 }
 
 func init() {
-	pf := devCmd.PersistentFlags()
+	pf := dbCmd.PersistentFlags()
 	pf.StringVar(&dbURL, "db-url", envOrDefault("SURREALDB_URL", "ws://localhost:4002/rpc"), "SurrealDB URL")
 	pf.StringVar(&dbNamespace, "db-namespace", envOrDefault("SURREALDB_NAMESPACE", "knowledge"), "SurrealDB namespace")
 	pf.StringVar(&dbDatabase, "db-database", envOrDefault("SURREALDB_DATABASE", "graph"), "SurrealDB database")
@@ -35,7 +35,8 @@ func init() {
 	pf.StringVar(&dbAuthLevel, "db-auth-level", envOrDefault("SURREALDB_AUTH_LEVEL", "root"), "SurrealDB auth level")
 	pf.IntVar(&embedDim, "embed-dimension", envOrDefaultInt("KNOWHOW_EMBED_DIMENSION", 768), "embedding vector dimension")
 
-	devCmd.AddCommand(devSeedCmd)
+	dbCmd.AddCommand(dbSeedCmd)
+	dbCmd.AddCommand(dbWipeCmd)
 }
 
 func connectDB(ctx context.Context) (*db.Client, error) {

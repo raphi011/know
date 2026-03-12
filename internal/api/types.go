@@ -1,7 +1,11 @@
 // Package api provides REST API handlers for Knowhow.
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/raphi011/knowhow/internal/models"
+)
 
 // Vault is the JSON representation of a vault.
 type Vault struct {
@@ -60,6 +64,43 @@ type AssetMeta struct {
 	ContentHash string    `json:"contentHash"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// VaultInfo holds comprehensive stats about a vault.
+type VaultInfo struct {
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+
+	// Documents & Chunks
+	DocumentCount      int `json:"documentCount"`
+	UnprocessedDocs    int `json:"unprocessedDocs"`
+	ChunkTotal         int `json:"chunkTotal"`
+	ChunkWithEmbedding int `json:"chunkWithEmbedding"`
+	ChunkPending       int `json:"chunkPending"`
+
+	// Labels
+	LabelCount int                `json:"labelCount"`
+	TopLabels  []models.LabelStat `json:"topLabels"`
+
+	// Members
+	Members []models.MemberStat `json:"members"`
+
+	// Assets
+	AssetCount     int   `json:"assetCount"`
+	AssetTotalSize int64 `json:"assetTotalSize"`
+
+	// Cross-references
+	WikiLinkTotal  int `json:"wikiLinkTotal"`
+	WikiLinkBroken int `json:"wikiLinkBroken"`
+
+	// Other
+	TemplateCount     int   `json:"templateCount"`
+	VersionCount      int   `json:"versionCount"`
+	ConversationCount int   `json:"conversationCount"`
+	TokenInput        int64 `json:"tokenInput"`
+	TokenOutput       int64 `json:"tokenOutput"`
 }
 
 // ServerConfig holds the server's effective configuration.

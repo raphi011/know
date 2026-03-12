@@ -29,6 +29,7 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 
 	// Vaults
 	mux.Handle("GET /api/vaults", authMw(http.HandlerFunc(s.listVaults)))
+	mux.Handle("GET /api/vaults/{name}/info", authMw(http.HandlerFunc(s.getVaultInfo)))
 
 	// Documents
 	mux.Handle("GET /api/ls", authMw(http.HandlerFunc(s.ls)))

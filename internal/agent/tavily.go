@@ -25,11 +25,11 @@ func newTavilyClient(apiKey string) *tavilyClient {
 }
 
 type tavilyRequest struct {
-	APIKey      string `json:"api_key"`
-	Query       string `json:"query"`
-	SearchDepth string `json:"search_depth"`
-	MaxResults  int    `json:"max_results"`
-	IncludeAnswer bool `json:"include_answer"`
+	APIKey        string `json:"api_key"`
+	Query         string `json:"query"`
+	SearchDepth   string `json:"search_depth"`
+	MaxResults    int    `json:"max_results"`
+	IncludeAnswer bool   `json:"include_answer"`
 }
 
 type tavilyResponse struct {

@@ -23,7 +23,7 @@ import (
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type         string                `json:"type"`              // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Type         string                `json:"type"` // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
 	Content      string                `json:"content,omitempty"`
 	ConvID       string                `json:"convId,omitempty"`
 	MsgID        string                `json:"msgId,omitempty"`
@@ -715,7 +715,7 @@ func (s *Service) execWebSearch(ctx context.Context, arguments string) (string, 
 
 	meta := &tools.ToolResultMeta{
 		DurationMs:     durationMs,
-		WebResultCount: tools.IntPtr(len(webResults)),
+		WebResultCount: new(len(webResults)),
 		WebSources:     webSources,
 	}
 	return result, meta, nil

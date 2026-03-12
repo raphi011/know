@@ -7,7 +7,7 @@ import (
 
 // ChangeEvent represents a change notification scoped to a vault.
 type ChangeEvent struct {
-	Type    string `json:"type"`    // "document.created", "document.updated", etc.
+	Type    string `json:"type"` // "document.created", "document.updated", etc.
 	VaultID string `json:"vaultId"`
 	Payload any    `json:"payload"`
 }
@@ -97,7 +97,7 @@ func (b *Bus) SubscribeByPath(vaultID, docPath string) (ch <-chan ChangeEvent, u
 						case filtered <- evt:
 						default:
 							slog.Debug("dropping filtered event for slow consumer",
-							"vault", vaultID, "path", docPath, "type", evt.Type)
+								"vault", vaultID, "path", docPath, "type", evt.Type)
 						}
 					}
 				}

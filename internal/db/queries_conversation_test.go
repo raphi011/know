@@ -64,7 +64,7 @@ func TestListConversations(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err := testDB.CreateConversation(ctx, vaultID, userID)
 		if err != nil {
 			t.Fatalf("CreateConversation %d failed: %v", i, err)

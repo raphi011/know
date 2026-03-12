@@ -29,4 +29,6 @@ type ToolWebRef struct {
 }
 
 // IntPtr returns a pointer to the given int value.
-func IntPtr(v int) *int { return &v }
+//
+//go:fix inline
+func IntPtr(v int) *int { return new(v) }

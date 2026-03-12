@@ -41,13 +41,13 @@ type Config struct {
 
 // Client wraps SurrealDB connection with auto-reconnect.
 type Client struct {
-	conn       *rews.Connection[*gorillaws.Connection]
-	db         *surrealdb.DB
-	cfg        Config
-	logger     logger.Logger
-	metrics    *metrics.Collector
-	folderCache sync.Map     // key: "vaultID:folderPath", value: time.Time (expiry)
-	lastActive  atomic.Int64 // Unix timestamp of last DB operation (for idle detection)
+	conn        *rews.Connection[*gorillaws.Connection]
+	db          *surrealdb.DB
+	cfg         Config
+	logger      logger.Logger
+	metrics     *metrics.Collector
+	folderCache sync.Map      // key: "vaultID:folderPath", value: time.Time (expiry)
+	lastActive  atomic.Int64  // Unix timestamp of last DB operation (for idle detection)
 	done        chan struct{} // closed on Close() to stop monitorConnection goroutine
 }
 

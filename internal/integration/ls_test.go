@@ -18,10 +18,10 @@ func TestLs_NonRecursiveRoot(t *testing.T) {
 		"vaultId": vaultID,
 		"force":   true,
 	}, map[string][]byte{
-		"/readme.md":          []byte("# Readme"),
-		"/docs/guide.md":     []byte("# Guide"),
-		"/docs/sub/deep.md":  []byte("# Deep"),
-		"/notes/todo.md":     []byte("# Todo"),
+		"/readme.md":        []byte("# Readme"),
+		"/docs/guide.md":    []byte("# Guide"),
+		"/docs/sub/deep.md": []byte("# Deep"),
+		"/notes/todo.md":    []byte("# Todo"),
 	})
 
 	entries := lsRequest(t, srv, vaultID, "/", false)

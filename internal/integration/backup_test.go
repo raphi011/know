@@ -17,9 +17,9 @@ func TestBackup_DocumentsAndAssets(t *testing.T) {
 		"vaultId": vaultID,
 		"force":   true,
 	}, map[string][]byte{
-		"/docs/readme.md":  []byte("# Hello\n\nWorld"),
+		"/docs/readme.md":   []byte("# Hello\n\nWorld"),
 		"/docs/nested/a.md": []byte("# Nested"),
-		"/images/logo.png": {0x89, 0x50, 0x4E, 0x47},
+		"/images/logo.png":  {0x89, 0x50, 0x4E, 0x47},
 	})
 
 	resp, err := http.Get(srv.URL + "/api/backup?vault=" + vaultID)

@@ -71,7 +71,8 @@ dev:
 
 # Bootstrap DB (wipe + create user/vault/token from env vars)
 bootstrap: build
-    {{build_dir}}/{{binary}} dev seed --wipe
+    {{build_dir}}/{{binary}} db wipe
+    {{build_dir}}/{{binary}} db seed
 
 # Start SurrealDB
 db-up:

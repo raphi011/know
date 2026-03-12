@@ -37,8 +37,8 @@ type Server struct {
 	vaultSvc   *vault.Service
 	noAuth     bool
 
-	wg       sync.WaitGroup
-	quit     chan struct{}
+	wg        sync.WaitGroup
+	quit      chan struct{}
 	closeOnce sync.Once
 }
 
@@ -96,11 +96,9 @@ func (s *Server) Serve() {
 			}
 		}
 
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
+		s.wg.Go(func() {
 			s.handleConnection(conn)
-		}()
+		})
 	}
 }
 
@@ -243,7 +241,7 @@ func authContextFromPermissions(perms *ssh.Permissions) auth.AuthContext {
 
 	var vaults []models.VaultPermission
 	if va := perms.Extensions["vault_access"]; va != "" {
-		for _, entry := range strings.Split(va, ",") {
+		for entry := range strings.SplitSeq(va, ",") {
 			parts := strings.SplitN(entry, ":", 2)
 			if len(parts) != 2 {
 				continue

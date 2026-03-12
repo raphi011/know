@@ -52,7 +52,7 @@ func TestPendingSet_ConcurrentAccess(t *testing.T) {
 	ps := newPendingSet()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(3)
 		path := "/file" + string(rune('a'+i%26)) + ".md"
 		go func() {

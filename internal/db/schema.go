@@ -105,6 +105,7 @@ func SchemaSQL(dimension int) string {
 
     DEFINE INDEX IF NOT EXISTS idx_version_document        ON document_version FIELDS document;
     DEFINE INDEX IF NOT EXISTS idx_version_document_version ON document_version FIELDS document, version UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_version_vault            ON document_version FIELDS vault;
 
     -- ==========================================================================
     -- FOLDER TABLE

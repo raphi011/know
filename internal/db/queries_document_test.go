@@ -483,7 +483,7 @@ func TestListLabelsWithCounts(t *testing.T) {
 		{"/lc-" + suffix + "/a.md", []string{"go", "project"}},
 		{"/lc-" + suffix + "/b.md", []string{"go", "tutorial"}},
 		{"/lc-" + suffix + "/c.md", []string{"rust"}},
-		{"/lc-" + suffix + "/d.md", nil},   // no labels — must not produce phantom entries
+		{"/lc-" + suffix + "/d.md", nil},        // no labels — must not produce phantom entries
 		{"/lc-" + suffix + "/e.md", []string{}}, // empty labels — must not produce phantom entries
 	} {
 		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
