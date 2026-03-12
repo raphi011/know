@@ -67,6 +67,81 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "vault name required")
+		return
+	}
+
+	logger := logutil.FromCtx(r.Context())
+
+	v, err := s.app.VaultService().GetByName(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to resolve vault")
+		logger.Error("get vault by name", "name", name, "error", err)
+		return
+	}
+	if v == nil {
+		writeError(w, http.StatusNotFound, "vault not found")
+		return
+	}
+
+	vaultID, err := models.RecordIDString(v.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid vault ID")
+		logger.Error("extract vault ID", "name", name, "error", err)
+		return
+	}
+
+	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	stats, err := s.app.DBClient().GetVaultInfo(r.Context(), vaultID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get vault info")
+		logger.Error("get vault info", "vault_id", vaultID, "error", err)
+		return
+	}
+
+	topLabels := make([]LabelStat, len(stats.TopLabels))
+	for i, l := range stats.TopLabels {
+		topLabels[i] = LabelStat{Name: l.Name, Count: l.Count}
+	}
+	members := make([]MemberStat, len(stats.Members))
+	for i, m := range stats.Members {
+		members[i] = MemberStat{Name: m.Name, Role: m.Role}
+	}
+
+	info := VaultInfo{
+		Name:               v.Name,
+		Description:        v.Description,
+		CreatedAt:          v.CreatedAt,
+		UpdatedAt:          v.UpdatedAt,
+		DocumentCount:      stats.DocumentCount,
+		UnprocessedDocs:    stats.UnprocessedDocs,
+		ChunkTotal:         stats.ChunkTotal,
+		ChunkWithEmbedding: stats.ChunkWithEmbedding,
+		ChunkPending:       stats.ChunkPending,
+		LabelCount:         stats.LabelCount,
+		TopLabels:          topLabels,
+		Members:            members,
+		AssetCount:         stats.AssetCount,
+		AssetTotalSize:     stats.AssetTotalSize,
+		WikiLinkTotal:      stats.WikiLinkTotal,
+		WikiLinkBroken:     stats.WikiLinkBroken,
+		TemplateCount:      stats.TemplateCount,
+		VersionCount:       stats.VersionCount,
+		ConversationCount:  stats.ConversationCount,
+		TokenInput:         stats.TokenInput,
+		TokenOutput:        stats.TokenOutput,
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
 func vaultFromModel(v *models.Vault) Vault {
 	id, err := models.RecordIDString(v.ID)
 	if err != nil {

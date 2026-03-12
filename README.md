@@ -202,6 +202,15 @@ knowhow list labels
 knowhow list types
 ```
 
+### Vault Info
+
+```bash
+# Show vault stats (documents, chunks, embeddings, labels, members, etc.)
+knowhow vault
+knowhow vault default
+knowhow vault my-vault --api-url http://localhost:4001
+```
+
 ### Templates
 
 ```bash

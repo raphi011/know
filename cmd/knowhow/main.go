@@ -1,6 +1,6 @@
 // Package main provides the CLI for Knowhow.
 // Most commands communicate with the server via REST API;
-// dev commands connect directly to SurrealDB.
+// db commands connect directly to SurrealDB.
 package main
 
 import (
@@ -61,7 +61,7 @@ var versionCmd = &cobra.Command{
 func main() {
 	rootCmd.AddCommand(cpCmd)
 	rootCmd.AddCommand(configCmd)
-	rootCmd.AddCommand(devCmd)
+	rootCmd.AddCommand(dbCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(agentCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -70,6 +70,7 @@ func main() {
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(catCmd)
 	rootCmd.AddCommand(rmCmd)
+	rootCmd.AddCommand(vaultCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

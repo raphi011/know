@@ -262,6 +262,58 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]mo
 	return counts, nil
 }
 
+// VaultInfo holds comprehensive stats about a vault.
+type VaultInfo struct {
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	CreatedAt   string  `json:"createdAt"`
+	UpdatedAt   string  `json:"updatedAt"`
+
+	DocumentCount      int `json:"documentCount"`
+	UnprocessedDocs    int `json:"unprocessedDocs"`
+	ChunkTotal         int `json:"chunkTotal"`
+	ChunkWithEmbedding int `json:"chunkWithEmbedding"`
+	ChunkPending       int `json:"chunkPending"`
+
+	LabelCount int         `json:"labelCount"`
+	TopLabels  []LabelStat `json:"topLabels"`
+
+	Members []MemberStat `json:"members"`
+
+	AssetCount     int   `json:"assetCount"`
+	AssetTotalSize int64 `json:"assetTotalSize"`
+
+	WikiLinkTotal  int `json:"wikiLinkTotal"`
+	WikiLinkBroken int `json:"wikiLinkBroken"`
+
+	TemplateCount     int   `json:"templateCount"`
+	VersionCount      int   `json:"versionCount"`
+	ConversationCount int   `json:"conversationCount"`
+	TokenInput        int64 `json:"tokenInput"`
+	TokenOutput       int64 `json:"tokenOutput"`
+}
+
+// LabelStat represents a label with its document count.
+type LabelStat struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// MemberStat represents a vault member with their role.
+type MemberStat struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// GetVaultInfo fetches comprehensive stats about a vault.
+func (c *Client) GetVaultInfo(ctx context.Context, vaultName string) (*VaultInfo, error) {
+	var info VaultInfo
+	if err := c.Get(ctx, "/api/vaults/"+url.PathEscape(vaultName)+"/info", &info); err != nil {
+		return nil, fmt.Errorf("get vault info: %w", err)
+	}
+	return &info, nil
+}
+
 // DownloadBackup downloads a vault backup archive to the given output path.
 // Returns the number of bytes written.
 func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string) (int64, error) {

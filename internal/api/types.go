@@ -62,6 +62,55 @@ type AssetMeta struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// VaultInfo holds comprehensive stats about a vault.
+type VaultInfo struct {
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+
+	// Documents & Chunks
+	DocumentCount      int `json:"documentCount"`
+	UnprocessedDocs    int `json:"unprocessedDocs"`
+	ChunkTotal         int `json:"chunkTotal"`
+	ChunkWithEmbedding int `json:"chunkWithEmbedding"`
+	ChunkPending       int `json:"chunkPending"`
+
+	// Labels
+	LabelCount int         `json:"labelCount"`
+	TopLabels  []LabelStat `json:"topLabels"`
+
+	// Members
+	Members []MemberStat `json:"members"`
+
+	// Assets
+	AssetCount     int   `json:"assetCount"`
+	AssetTotalSize int64 `json:"assetTotalSize"`
+
+	// Cross-references
+	WikiLinkTotal  int `json:"wikiLinkTotal"`
+	WikiLinkBroken int `json:"wikiLinkBroken"`
+
+	// Other
+	TemplateCount     int   `json:"templateCount"`
+	VersionCount      int   `json:"versionCount"`
+	ConversationCount int   `json:"conversationCount"`
+	TokenInput        int64 `json:"tokenInput"`
+	TokenOutput       int64 `json:"tokenOutput"`
+}
+
+// LabelStat represents a label with its document count.
+type LabelStat struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// MemberStat represents a vault member with their role.
+type MemberStat struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
 // ServerConfig holds the server's effective configuration.
 type ServerConfig struct {
 	SurrealDBURL           string `json:"surrealdbURL"`

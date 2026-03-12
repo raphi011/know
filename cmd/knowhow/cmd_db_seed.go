@@ -18,29 +18,27 @@ var (
 	seedUserID    string
 	seedVaultID   string
 	seedVaultName string
-	seedWipe      bool
 	seedNoAuth    bool
 )
 
-var devSeedCmd = &cobra.Command{
+var dbSeedCmd = &cobra.Command{
 	Use:   "seed",
 	Short: "Apply schema and create user/vault/token (bootstrap the database)",
-	RunE:  runDevSeed,
+	RunE:  runDBSeed,
 }
 
 func init() {
-	f := devSeedCmd.Flags()
+	f := dbSeedCmd.Flags()
 	f.StringVar(&seedName, "name", envOrDefault("KNOWHOW_BOOTSTRAP_USER_NAME", "admin"), "user name")
 	f.StringVar(&seedEmail, "email", os.Getenv("KNOWHOW_BOOTSTRAP_USER_EMAIL"), "user email")
 	f.StringVar(&seedToken, "new-token", os.Getenv("KNOWHOW_BOOTSTRAP_TOKEN"), "API token to reuse")
 	f.StringVar(&seedUserID, "user-id", envOrDefault("KNOWHOW_BOOTSTRAP_USER_ID", "admin"), "stable user record ID")
 	f.StringVar(&seedVaultID, "vault-id", envOrDefault("KNOWHOW_BOOTSTRAP_VAULT_ID", "default"), "stable vault record ID")
 	f.StringVar(&seedVaultName, "vault-name", envOrDefault("KNOWHOW_BOOTSTRAP_VAULT_NAME", "default"), "vault display name")
-	f.BoolVar(&seedWipe, "wipe", false, "wipe existing data before seeding")
 	f.BoolVar(&seedNoAuth, "no-auth", os.Getenv("KNOWHOW_NO_AUTH") == "true", "skip token creation")
 }
 
-func runDevSeed(_ *cobra.Command, _ []string) error {
+func runDBSeed(_ *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -52,13 +50,6 @@ func runDevSeed(_ *cobra.Command, _ []string) error {
 
 	if err := dbClient.InitSchema(ctx, embedDim); err != nil {
 		return fmt.Errorf("init schema: %w", err)
-	}
-
-	if seedWipe {
-		if err := dbClient.WipeData(ctx); err != nil {
-			return fmt.Errorf("wipe data: %w", err)
-		}
-		fmt.Fprintf(os.Stderr, "Wiped existing data\n")
 	}
 
 	// 1. Create user with stable ID

@@ -166,7 +166,7 @@ The WebDAV server at `/dav/{vaultName}/` allows editing documents with any WebDA
 ### Project Structure
 
 ```
-cmd/knowhow/            # Single binary: CLI (cp, config, ui, dev seed) + server (serve)
+cmd/knowhow/            # Single binary: CLI (cp, config, ui, db seed, db wipe) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -199,7 +199,7 @@ internal/
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
 - **CLI uses REST API**: `cp`/`config`/`ui` commands communicate via REST
 - **`serve` connects directly to DB**: starts the HTTP server (REST API, WebDAV, MCP, SSH)
-- **`dev` commands connect directly to DB**: `dev seed` bootstraps schema + user/vault/token
+- **`db` commands connect directly to DB**: `db seed` bootstraps schema + user/vault/token, `db wipe` clears all data
 
 ### Running
 
