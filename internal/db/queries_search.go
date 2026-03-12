@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -52,6 +53,7 @@ func buildChunkFilterConditions(filter SearchFilter) ([]string, map[string]any) 
 // BM25ChunkSearch performs fulltext search on chunk content via BM25,
 // filtering by the parent document's vault, labels, doc_type and folder.
 func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter SearchFilter) ([]ChunkWithScore, error) {
+	defer c.logOp(ctx, "search.bm25", time.Now())
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 20
@@ -82,6 +84,7 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 // ChunkVectorSearch performs HNSW vector similarity search on chunk embeddings,
 // applying the same filters (labels, docType, folder) as BM25 via the parent document.
 func (c *Client) ChunkVectorSearch(ctx context.Context, embedding []float32, filter SearchFilter) ([]ChunkWithScore, error) {
+	defer c.logOp(ctx, "search.vector", time.Now())
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 20
@@ -111,11 +114,10 @@ func (c *Client) ChunkVectorSearch(ctx context.Context, embedding []float32, fil
 
 // GetDocumentsByIDs fetches multiple documents by ID in a single query.
 func (c *Client) GetDocumentsByIDs(ctx context.Context, ids []string) ([]models.Document, error) {
+	defer c.logOp(ctx, "search.get_docs_by_ids", time.Now())
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	start := c.startOp()
-	defer c.recordTiming("db.get_documents_by_ids", start)
 
 	sql := `SELECT * FROM document WHERE id INSIDE $ids`
 	recordIDs := make([]surrealmodels.RecordID, len(ids))

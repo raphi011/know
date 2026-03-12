@@ -29,6 +29,7 @@ type SyncTombstone struct {
 // ListSyncMetadata returns lightweight metadata for documents in a vault,
 // optionally filtered by updated_at > since. Used for incremental sync.
 func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *string, limit, offset int) ([]SyncMeta, error) {
+	defer c.logOp(ctx, "document.list_sync_metadata", time.Now())
 	if limit <= 0 {
 		limit = 500
 	}
@@ -62,6 +63,7 @@ func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *st
 
 // ListTombstones returns tombstones for deleted documents in a vault since the given time.
 func (c *Client) ListTombstones(ctx context.Context, vaultID string, since string, limit, offset int) ([]SyncTombstone, error) {
+	defer c.logOp(ctx, "document.list_tombstones", time.Now())
 	if limit <= 0 {
 		limit = 500
 	}
@@ -86,6 +88,7 @@ func (c *Client) ListTombstones(ctx context.Context, vaultID string, since strin
 }
 
 func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
+	defer c.logOp(ctx, "document.create", time.Now())
 	labels := input.Labels
 	if labels == nil {
 		labels = []string{}
@@ -132,6 +135,7 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 }
 
 func (c *Client) GetDocumentByPath(ctx context.Context, vaultID, path string) (*models.Document, error) {
+	defer c.logOp(ctx, "document.get_by_path", time.Now())
 	sql := `SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -147,6 +151,7 @@ func (c *Client) GetDocumentByPath(ctx context.Context, vaultID, path string) (*
 }
 
 func (c *Client) GetDocumentByID(ctx context.Context, id string) (*models.Document, error) {
+	defer c.logOp(ctx, "document.get_by_id", time.Now())
 	sql := `SELECT * FROM type::record("document", $id)`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
 		"id": id,
@@ -229,6 +234,7 @@ func buildDocumentFilter(filter ListDocumentsFilter) (whereClause string, vars m
 }
 
 func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) ([]models.Document, error) {
+	defer c.logOp(ctx, "document.list", time.Now())
 	where, vars, suffix, err := buildDocumentFilter(filter)
 	if err != nil {
 		return nil, fmt.Errorf("list documents: %w", err)
@@ -246,6 +252,7 @@ func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) 
 }
 
 func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, source models.DocumentSource, labels []string, contentHash *string, metadata map[string]any) (*models.Document, error) {
+	defer c.logOp(ctx, "document.update", time.Now())
 	if labels == nil {
 		labels = []string{}
 	}
@@ -284,6 +291,7 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 }
 
 func (c *Client) DeleteDocument(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "document.delete", time.Now())
 	sql := `DELETE type::record("document", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
 		return fmt.Errorf("delete document: %w", err)
@@ -294,6 +302,7 @@ func (c *Client) DeleteDocument(ctx context.Context, id string) error {
 // DeleteDocumentsByPrefix deletes all documents in a vault whose path starts with the given prefix.
 // Returns the number of deleted documents.
 func (c *Client) DeleteDocumentsByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
+	defer c.logOp(ctx, "document.delete_by_prefix", time.Now())
 	sql := `DELETE FROM document WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) RETURN BEFORE`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -311,6 +320,7 @@ func (c *Client) DeleteDocumentsByPrefix(ctx context.Context, vaultID, pathPrefi
 // MoveDocumentsByPrefix updates all documents in a vault whose path starts with oldPrefix,
 // replacing oldPrefix with newPrefix. Returns the count of moved documents.
 func (c *Client) MoveDocumentsByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
+	defer c.logOp(ctx, "document.move_by_prefix", time.Now())
 	sql := `
 		UPDATE document
 		SET path = string::concat($new_prefix, string::slice(path, string::len($old_prefix)))
@@ -333,6 +343,7 @@ func (c *Client) MoveDocumentsByPrefix(ctx context.Context, vaultID, oldPrefix, 
 }
 
 func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.Document, error) {
+	defer c.logOp(ctx, "document.move", time.Now())
 	sql := `
 		UPDATE type::record("document", $id) SET
 			path = $new_path
@@ -353,6 +364,7 @@ func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.
 
 // ListUnprocessedDocuments returns documents that have not yet been processed by the async worker.
 func (c *Client) ListUnprocessedDocuments(ctx context.Context, limit int) ([]models.Document, error) {
+	defer c.logOp(ctx, "document.list_unprocessed", time.Now())
 	if limit <= 0 {
 		limit = 20
 	}
@@ -371,6 +383,7 @@ func (c *Client) ListUnprocessedDocuments(ctx context.Context, limit int) ([]mod
 
 // MarkDocumentProcessed sets processed = true on a document.
 func (c *Client) MarkDocumentProcessed(ctx context.Context, docID string) error {
+	defer c.logOp(ctx, "document.mark_processed", time.Now())
 	sql := `UPDATE type::record("document", $id) SET processed = true`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": docID}); err != nil {
 		return fmt.Errorf("mark processed: %w", err)
@@ -380,6 +393,7 @@ func (c *Client) MarkDocumentProcessed(ctx context.Context, docID string) error 
 
 // ListLabels returns all distinct labels used by documents in the given vault.
 func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
+	defer c.logOp(ctx, "document.list_labels", time.Now())
 	sql := `RETURN array::distinct(array::flatten(
 		(SELECT labels FROM document WHERE vault = type::record("vault", $vault_id)).labels
 	))`
@@ -401,6 +415,7 @@ func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, erro
 
 // ListLabelsWithCounts returns labels with their document counts for the given vault.
 func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]models.LabelCount, error) {
+	defer c.logOp(ctx, "document.list_labels_with_counts", time.Now())
 	sql := `SELECT label, count() AS count FROM (SELECT labels AS label FROM document WHERE vault = type::record("vault", $vault_id) SPLIT labels) GROUP BY label ORDER BY count DESC`
 	results, err := surrealdb.Query[[]models.LabelCount](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -421,6 +436,7 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]mo
 // GetDocumentMetaByPath returns lightweight metadata for a document (no content).
 // Returns nil if the document doesn't exist.
 func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string) (*models.DocumentMeta, error) {
+	defer c.logOp(ctx, "document.get_meta_by_path", time.Now())
 	sql := `SELECT path, content_length, content_hash ?? null AS content_hash, updated_at FROM document WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.DocumentMeta](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -437,6 +453,7 @@ func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string
 
 // ListDocumentMetas returns lightweight metadata (no content) for documents matching the filter.
 func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilter) ([]models.DocumentMeta, error) {
+	defer c.logOp(ctx, "document.list_metas", time.Now())
 	where, vars, suffix, err := buildDocumentFilter(filter)
 	if err != nil {
 		return nil, fmt.Errorf("list document metas: %w", err)
@@ -459,6 +476,7 @@ func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilt
 // violation (another request created the same path between our check and insert),
 // we retry as an update.
 func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput) (doc *models.Document, created bool, previousDoc *models.Document, err error) {
+	defer c.logOp(ctx, "document.upsert", time.Now())
 	const maxRetries = 3
 
 	for attempt := range maxRetries {

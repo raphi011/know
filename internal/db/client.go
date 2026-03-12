@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/metrics"
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/contrib/rews"
@@ -237,18 +238,16 @@ func (c *Client) monitorConnection() {
 	}
 }
 
-// recordTiming records operation timing if metrics are enabled.
-func (c *Client) recordTiming(op string, start time.Time) {
-	if c.metrics != nil {
-		c.metrics.RecordTiming(op, time.Since(start))
-	}
-}
-
-// startOp marks connection active and returns start time for timing.
-// Usage: start := c.startOp(); defer c.recordTiming(metrics.OpDBQuery, start)
-func (c *Client) startOp() time.Time {
+// logOp logs a database operation at Debug level with timing and records metrics.
+// It combines the responsibilities of the former logOp, startOp, and recordTiming
+// into a single deferred call.
+func (c *Client) logOp(ctx context.Context, op string, start time.Time) {
 	c.lastActive.Store(time.Now().Unix())
-	return time.Now()
+	elapsed := time.Since(start)
+	logutil.FromCtx(ctx).Debug("db query", "op", op, "duration_ms", elapsed.Milliseconds())
+	if c.metrics != nil {
+		c.metrics.RecordTiming("db."+op, elapsed)
+	}
 }
 
 // DB returns the underlying SurrealDB client for queries.

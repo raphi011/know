@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 )
 
 func (c *Client) CreateConversation(ctx context.Context, vaultID, userID string) (*models.Conversation, error) {
+	defer c.logOp(ctx, "conversation.create", time.Now())
 	sql := `
 		CREATE conversation SET
 			vault = type::record("vault", $vault_id),
@@ -29,6 +31,7 @@ func (c *Client) CreateConversation(ctx context.Context, vaultID, userID string)
 }
 
 func (c *Client) GetConversation(ctx context.Context, id string) (*models.Conversation, error) {
+	defer c.logOp(ctx, "conversation.get", time.Now())
 	sql := `SELECT * FROM type::record("conversation", $id)`
 	results, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
 		"id": bareID("conversation", id),
@@ -43,6 +46,7 @@ func (c *Client) GetConversation(ctx context.Context, id string) (*models.Conver
 }
 
 func (c *Client) ListConversations(ctx context.Context, vaultID, userID string) ([]models.Conversation, error) {
+	defer c.logOp(ctx, "conversation.list", time.Now())
 	sql := `SELECT * FROM conversation WHERE vault = type::record("vault", $vault_id) AND user = type::record("user", $user_id) ORDER BY updated_at DESC`
 	results, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -58,6 +62,7 @@ func (c *Client) ListConversations(ctx context.Context, vaultID, userID string) 
 }
 
 func (c *Client) UpdateConversationTitle(ctx context.Context, id, title string) error {
+	defer c.logOp(ctx, "conversation.update_title", time.Now())
 	sql := `UPDATE type::record("conversation", $id) SET title = $title`
 	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
 		"id":    bareID("conversation", id),
@@ -70,6 +75,7 @@ func (c *Client) UpdateConversationTitle(ctx context.Context, id, title string) 
 }
 
 func (c *Client) DeleteConversation(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "conversation.delete", time.Now())
 	sql := `DELETE type::record("conversation", $id)`
 	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
 		"id": bareID("conversation", id),
@@ -81,6 +87,7 @@ func (c *Client) DeleteConversation(ctx context.Context, id string) error {
 }
 
 func (c *Client) UpdateConversationTokens(ctx context.Context, id string, inputTokens, outputTokens int64) error {
+	defer c.logOp(ctx, "conversation.update_tokens", time.Now())
 	sql := `UPDATE type::record("conversation", $id) SET token_input += $input, token_output += $output`
 	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
 		"id":     bareID("conversation", id),
@@ -94,6 +101,7 @@ func (c *Client) UpdateConversationTokens(ctx context.Context, id string, inputT
 }
 
 func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput, toolMeta, toolCallID, toolCalls *string) (*models.Message, error) {
+	defer c.logOp(ctx, "message.create", time.Now())
 	if docRefs == nil {
 		docRefs = []string{}
 	}
@@ -131,6 +139,7 @@ func (c *Client) CreateMessage(ctx context.Context, conversationID string, role 
 }
 
 func (c *Client) ListMessages(ctx context.Context, conversationID string) ([]models.Message, error) {
+	defer c.logOp(ctx, "message.list", time.Now())
 	sql := `SELECT * FROM message WHERE conversation = type::record("conversation", $conversation_id) ORDER BY created_at ASC`
 	results, err := surrealdb.Query[[]models.Message](ctx, c.DB(), sql, map[string]any{
 		"conversation_id": bareID("conversation", conversationID),

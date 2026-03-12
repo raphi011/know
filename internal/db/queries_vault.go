@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -10,6 +11,7 @@ import (
 )
 
 func (c *Client) CreateVault(ctx context.Context, userID string, input models.VaultInput) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.create", time.Now())
 	sql := `
 		CREATE vault SET
 			name = $name,
@@ -32,6 +34,7 @@ func (c *Client) CreateVault(ctx context.Context, userID string, input models.Va
 }
 
 func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID string, input models.VaultInput) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.create_with_id", time.Now())
 	sql := `
 		CREATE type::record("vault", $vault_id) SET
 			name = $name,
@@ -55,6 +58,7 @@ func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID s
 }
 
 func (c *Client) GetVault(ctx context.Context, id string) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.get", time.Now())
 	sql := `SELECT * FROM type::record("vault", $id)`
 	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
 		"id": id,
@@ -69,6 +73,7 @@ func (c *Client) GetVault(ctx context.Context, id string) (*models.Vault, error)
 }
 
 func (c *Client) GetVaultByName(ctx context.Context, name string) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.get_by_name", time.Now())
 	sql := `SELECT * FROM vault WHERE name = $name LIMIT 1`
 	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
 		"name": name,
@@ -83,6 +88,7 @@ func (c *Client) GetVaultByName(ctx context.Context, name string) (*models.Vault
 }
 
 func (c *Client) ListVaults(ctx context.Context) ([]models.Vault, error) {
+	defer c.logOp(ctx, "vault.list", time.Now())
 	sql := `SELECT * FROM vault ORDER BY name ASC`
 	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, nil)
 	if err != nil {
@@ -95,6 +101,7 @@ func (c *Client) ListVaults(ctx context.Context) ([]models.Vault, error) {
 }
 
 func (c *Client) DeleteVault(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "vault.delete", time.Now())
 	tx, err := c.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("delete vault begin tx: %w", err)
@@ -126,6 +133,7 @@ func (c *Client) DeleteVault(ctx context.Context, id string) error {
 
 // ListDocumentPaths returns all document paths in a vault (for folder derivation).
 func (c *Client) ListDocumentPaths(ctx context.Context, vaultID string) ([]string, error) {
+	defer c.logOp(ctx, "vault.list_document_paths", time.Now())
 	sql := `SELECT path FROM document WHERE vault = type::record("vault", $vault_id)`
 	results, err := surrealdb.Query[[]struct {
 		Path string `json:"path"`

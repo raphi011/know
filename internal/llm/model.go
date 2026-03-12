@@ -21,6 +21,7 @@ import (
 	einoollama "github.com/cloudwego/eino-ext/components/model/ollama"
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/metrics"
 	"google.golang.org/genai"
 )
@@ -292,7 +293,8 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 	userLen := len(userPrompt)
 	totalLen := systemLen + userLen
 
-	slog.Debug("LLM generate starting", "model", m.modelName, "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
+	logger := logutil.FromCtx(ctx).With("model", m.modelName)
+	logger.Debug("LLM generate starting", "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
 
 	messages := []*schema.Message{
 		{Role: schema.System, Content: systemPrompt},
@@ -304,17 +306,17 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 	duration := time.Since(start)
 
 	if err != nil {
-		slog.Warn("LLM generate failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
+		logger.Warn("LLM generate failed", "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", err)
 		return "", wrapFatalError(fmt.Errorf("generate with system: %w", err))
 	}
 
 	if resp.Content == "" {
-		slog.Warn("LLM returned empty response", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds())
+		logger.Warn("LLM returned empty response", "total_len", totalLen, "duration_ms", duration.Milliseconds())
 		return "", fmt.Errorf("empty response from model")
 	}
 
 	responseLen := len(resp.Content)
-	slog.Debug("LLM generate complete", "model", m.modelName, "total_len", totalLen, "response_len", responseLen, "duration_ms", duration.Milliseconds())
+	logger.Debug("LLM generate complete", "total_len", totalLen, "response_len", responseLen, "duration_ms", duration.Milliseconds())
 
 	if m.metrics != nil {
 		inputTokens, outputTokens := extractTokenCounts(resp.ResponseMeta, totalLen, responseLen)
@@ -375,7 +377,8 @@ func (m *Model) GenerateWithSystemStream(
 	userLen := len(userPrompt)
 	totalLen := systemLen + userLen
 
-	slog.Debug("LLM streaming generate starting", "model", m.modelName, "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
+	logger := logutil.FromCtx(ctx).With("model", m.modelName)
+	logger.Debug("LLM streaming generate starting", "system_len", systemLen, "user_len", userLen, "total_len", totalLen)
 
 	messages := []*schema.Message{
 		{Role: schema.System, Content: systemPrompt},
@@ -386,7 +389,7 @@ func (m *Model) GenerateWithSystemStream(
 
 	sr, err := m.chatModel.Stream(ctx, messages, model.WithMaxTokens(8192))
 	if err != nil {
-		slog.Warn("LLM streaming generate failed to start", "model", m.modelName, "total_len", totalLen, "error", err)
+		logger.Warn("LLM streaming generate failed to start", "total_len", totalLen, "error", err)
 		return wrapFatalError(fmt.Errorf("generate with system stream: %w", err))
 	}
 	defer sr.Close()
@@ -401,7 +404,7 @@ func (m *Model) GenerateWithSystemStream(
 		}
 		if recvErr != nil {
 			duration := time.Since(start)
-			slog.Warn("LLM streaming generate failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", recvErr)
+			logger.Warn("LLM streaming generate failed", "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", recvErr)
 			return wrapFatalError(fmt.Errorf("generate with system stream: %w", recvErr))
 		}
 		if msg.Content != "" {
@@ -416,7 +419,7 @@ func (m *Model) GenerateWithSystemStream(
 	}
 
 	duration := time.Since(start)
-	slog.Debug("LLM streaming generate complete", "model", m.modelName, "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
+	logger.Debug("LLM streaming generate complete", "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
 
 	if m.metrics != nil {
 		inputTokens, outputTokens := extractTokenCounts(lastMeta, totalLen, outputLen)
@@ -461,6 +464,8 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	messages := make([]*schema.Message, 0, 2+len(history))
 	messages = append(messages, &schema.Message{Role: schema.System, Content: systemPrompt})
 
+	logger := logutil.FromCtx(ctx).With("model", m.modelName)
+
 	for i, msg := range history {
 		switch msg.Role {
 		case "user":
@@ -468,7 +473,7 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 		case "assistant":
 			messages = append(messages, &schema.Message{Role: schema.Assistant, Content: msg.Content})
 		default:
-			slog.Warn("unknown chat message role, skipping", "role", msg.Role, "index", i)
+			logger.Warn("unknown chat message role, skipping", "role", msg.Role, "index", i)
 		}
 	}
 
@@ -480,13 +485,13 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 		totalLen += len(msg.Content)
 	}
 
-	slog.Debug("LLM multi-turn streaming starting", "model", m.modelName, "history_len", len(history), "total_len", totalLen)
+	logger.Debug("LLM multi-turn streaming starting", "history_len", len(history), "total_len", totalLen)
 
 	start := time.Now()
 
 	sr, err := m.chatModel.Stream(ctx, messages, model.WithMaxTokens(8192))
 	if err != nil {
-		slog.Warn("LLM multi-turn streaming failed to start", "model", m.modelName, "total_len", totalLen, "error", err)
+		logger.Warn("LLM multi-turn streaming failed to start", "total_len", totalLen, "error", err)
 		return wrapFatalError(fmt.Errorf("generate multi-turn stream: %w", err))
 	}
 	defer sr.Close()
@@ -501,7 +506,7 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 		}
 		if recvErr != nil {
 			duration := time.Since(start)
-			slog.Warn("LLM multi-turn streaming failed", "model", m.modelName, "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", recvErr)
+			logger.Warn("LLM multi-turn streaming failed", "total_len", totalLen, "duration_ms", duration.Milliseconds(), "error", recvErr)
 			return wrapFatalError(fmt.Errorf("generate multi-turn stream: %w", recvErr))
 		}
 		if msg.Content != "" {
@@ -516,7 +521,7 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	}
 
 	duration := time.Since(start)
-	slog.Debug("LLM multi-turn streaming complete", "model", m.modelName, "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
+	logger.Debug("LLM multi-turn streaming complete", "total_len", totalLen, "output_len", outputLen, "duration_ms", duration.Milliseconds())
 
 	if m.metrics != nil {
 		inputTokens, outputTokens := extractTokenCounts(lastMeta, totalLen, outputLen)
@@ -621,8 +626,9 @@ func (m *Model) GenerateStreamWithTools(
 		}
 
 		// Append assistant turn with the tool calls.
+		logger := logutil.FromCtx(ctx)
 		for _, tc := range merged.ToolCalls {
-			slog.Info("tool call ID before sending back", "iteration", i, "id", tc.ID, "name", tc.Function.Name, "index", tc.Index)
+			logger.Debug("tool call", "iteration", i, "id", tc.ID, "name", tc.Function.Name, "index", tc.Index)
 		}
 		msgs = append(msgs, schema.AssistantMessage(merged.Content, merged.ToolCalls))
 

@@ -20,6 +20,7 @@ import (
 	ollamaembed "github.com/cloudwego/eino-ext/components/embedding/ollama"
 	openaiembed "github.com/cloudwego/eino-ext/components/embedding/openai"
 	"github.com/raphi011/knowhow/internal/config"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/metrics"
 	bedrockembed "github.com/tmc/langchaingo/embeddings/bedrock"
 	"google.golang.org/genai"
@@ -132,15 +133,16 @@ func float64sToFloat32s(in []float64) []float32 {
 
 // Embed generates an embedding vector for text.
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	logger := logutil.FromCtx(ctx).With("model", e.modelName)
 	textLen := len(text)
-	slog.Debug("embedding text", "model", e.modelName, "text_len", textLen)
+	logger.Debug("embedding text", "text_len", textLen)
 
 	start := time.Now()
 	vectors, err := e.model.EmbedStrings(ctx, []string{text})
 	duration := time.Since(start)
 
 	if err != nil {
-		slog.Warn("embedding failed", "model", e.modelName, "text_len", textLen, "duration_ms", duration.Milliseconds(), "error", err)
+		logger.Warn("embedding failed", "text_len", textLen, "duration_ms", duration.Milliseconds(), "error", err)
 		return nil, fmt.Errorf("embed: %w", err)
 	}
 
@@ -153,7 +155,7 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, fmt.Errorf("dimension mismatch: got %d, want %d", len(vec), e.dimension)
 	}
 
-	slog.Debug("embedding complete", "model", e.modelName, "text_len", textLen, "duration_ms", duration.Milliseconds())
+	logger.Debug("embedding complete", "text_len", textLen, "duration_ms", duration.Milliseconds())
 
 	if e.metrics != nil {
 		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
@@ -168,13 +170,19 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 		return [][]float32{}, nil
 	}
 
+	logger := logutil.FromCtx(ctx).With("model", e.modelName)
+	logger.Debug("embedding batch starting", "batch_size", len(texts))
+
 	start := time.Now()
 	vectors, err := e.model.EmbedStrings(ctx, texts)
 	duration := time.Since(start)
 
 	if err != nil {
+		logger.Warn("embedding batch failed", "batch_size", len(texts), "duration_ms", duration.Milliseconds(), "error", err)
 		return nil, fmt.Errorf("embed batch: %w", err)
 	}
+
+	logger.Debug("embedding batch complete", "batch_size", len(texts), "duration_ms", duration.Milliseconds())
 
 	if len(vectors) != len(texts) {
 		return nil, fmt.Errorf("count mismatch: got %d, want %d", len(vectors), len(texts))
@@ -292,12 +300,13 @@ func float32sToFloat64s(in []float32) []float64 {
 
 // EmbedStrings implements einoEmbedder.
 func (b *bedrockEmbedder) EmbedStrings(ctx context.Context, texts []string, _ ...embedding.Option) ([][]float64, error) {
+	logger := logutil.FromCtx(ctx)
 	start := time.Now()
 	totalChars := 0
 	for _, t := range texts {
 		totalChars += len(t)
 	}
-	slog.Debug("bedrock embedding starting", "provider", b.provider, "texts", len(texts), "total_chars", totalChars)
+	logger.Debug("bedrock embedding starting", "provider", b.provider, "texts", len(texts), "total_chars", totalChars)
 
 	var vecs [][]float32
 	var err error
@@ -313,10 +322,10 @@ func (b *bedrockEmbedder) EmbedStrings(ctx context.Context, texts []string, _ ..
 
 	duration := time.Since(start)
 	if err != nil {
-		slog.Warn("bedrock embedding failed", "provider", b.provider, "duration_ms", duration.Milliseconds(), "error", err)
+		logger.Warn("bedrock embedding failed", "provider", b.provider, "duration_ms", duration.Milliseconds(), "error", err)
 		return nil, fmt.Errorf("bedrock %s embedding: %w", b.provider, err)
 	}
-	slog.Debug("bedrock embedding complete", "provider", b.provider, "texts", len(texts), "duration_ms", duration.Milliseconds())
+	logger.Debug("bedrock embedding complete", "provider", b.provider, "texts", len(texts), "duration_ms", duration.Milliseconds())
 
 	// Convert float32→float64 for einoEmbedder interface. The Embedder wrapper
 	// converts back to float32 for storage. This round-trip is lossless but

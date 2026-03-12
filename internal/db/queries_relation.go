@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 )
 
 func (c *Client) CreateRelation(ctx context.Context, input models.DocRelationInput) (*models.DocRelation, error) {
+	defer c.logOp(ctx, "relation.create", time.Now())
 	sql := `
 		LET $from = type::record("document", $from_id);
 		LET $to = type::record("document", $to_id);
@@ -34,6 +36,7 @@ func (c *Client) CreateRelation(ctx context.Context, input models.DocRelationInp
 }
 
 func (c *Client) GetRelations(ctx context.Context, documentID string) ([]models.DocRelation, error) {
+	defer c.logOp(ctx, "relation.get", time.Now())
 	sql := `SELECT * FROM doc_relation WHERE in = type::record("document", $doc_id) OR out = type::record("document", $doc_id)`
 	results, err := surrealdb.Query[[]models.DocRelation](ctx, c.DB(), sql, map[string]any{
 		"doc_id": documentID,
@@ -48,6 +51,7 @@ func (c *Client) GetRelations(ctx context.Context, documentID string) ([]models.
 }
 
 func (c *Client) GetRelationByID(ctx context.Context, id string) (*models.DocRelation, error) {
+	defer c.logOp(ctx, "relation.get_by_id", time.Now())
 	sql := `SELECT * FROM type::record("doc_relation", $id)`
 	results, err := surrealdb.Query[[]models.DocRelation](ctx, c.DB(), sql, map[string]any{
 		"id": id,
@@ -64,6 +68,7 @@ func (c *Client) GetRelationByID(ctx context.Context, id string) (*models.DocRel
 // DeleteRelationsBySource removes all doc_relations originating from a document with the given source.
 // Used to implement delete-then-recreate for frontmatter-derived relations.
 func (c *Client) DeleteRelationsBySource(ctx context.Context, docID, source string) error {
+	defer c.logOp(ctx, "relation.delete_by_source", time.Now())
 	sql := `DELETE FROM doc_relation WHERE in = type::record("document", $doc_id) AND source = $source`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"doc_id": bareID("document", docID),
@@ -75,6 +80,7 @@ func (c *Client) DeleteRelationsBySource(ctx context.Context, docID, source stri
 }
 
 func (c *Client) DeleteRelation(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "relation.delete", time.Now())
 	sql := `DELETE type::record("doc_relation", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
 		return fmt.Errorf("delete relation: %w", err)

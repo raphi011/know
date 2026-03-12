@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -11,8 +12,7 @@ import (
 // LookupQueryEmbedding looks up a cached embedding for the given normalized query.
 // Returns nil if not found.
 func (c *Client) LookupQueryEmbedding(ctx context.Context, normalizedQuery string) (*models.SearchQuery, error) {
-	start := c.startOp()
-	defer c.recordTiming("db.lookup_query_embedding", start)
+	defer c.logOp(ctx, "search_query.lookup", time.Now())
 
 	sql := `SELECT * FROM search_query WHERE query = $query LIMIT 1`
 	results, err := surrealdb.Query[[]models.SearchQuery](ctx, c.DB(), sql, map[string]any{
@@ -30,8 +30,7 @@ func (c *Client) LookupQueryEmbedding(ctx context.Context, normalizedQuery strin
 // UpsertQueryEmbedding inserts a new search query cache entry or updates hit_count
 // and last_searched_at if the query already exists.
 func (c *Client) UpsertQueryEmbedding(ctx context.Context, normalizedQuery string, embedding []float32) error {
-	start := c.startOp()
-	defer c.recordTiming("db.upsert_query_embedding", start)
+	defer c.logOp(ctx, "search_query.upsert", time.Now())
 
 	sql := `
 		UPSERT search_query

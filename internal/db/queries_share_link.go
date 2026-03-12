@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -11,6 +12,7 @@ import (
 
 // CreateShareLink creates a new share link for a doc/folder path.
 func (c *Client) CreateShareLink(ctx context.Context, vaultID, tokenHash, path string, isFolder bool, createdBy string, expiresAt *string) (*models.ShareLink, error) {
+	defer c.logOp(ctx, "share_link.create", time.Now())
 	var expiry any = surrealmodels.None
 	if expiresAt != nil {
 		expiry = *expiresAt
@@ -45,6 +47,7 @@ func (c *Client) CreateShareLink(ctx context.Context, vaultID, tokenHash, path s
 
 // GetShareLinkByHash looks up a share link by its token hash.
 func (c *Client) GetShareLinkByHash(ctx context.Context, hash string) (*models.ShareLink, error) {
+	defer c.logOp(ctx, "share_link.get_by_hash", time.Now())
 	sql := `SELECT * FROM share_link WHERE token_hash = $hash LIMIT 1`
 	results, err := surrealdb.Query[[]models.ShareLink](ctx, c.DB(), sql, map[string]any{
 		"hash": hash,
@@ -60,6 +63,7 @@ func (c *Client) GetShareLinkByHash(ctx context.Context, hash string) (*models.S
 
 // GetShareLink looks up a share link by ID.
 func (c *Client) GetShareLink(ctx context.Context, id string) (*models.ShareLink, error) {
+	defer c.logOp(ctx, "share_link.get", time.Now())
 	sql := `SELECT * FROM type::record("share_link", $id)`
 	results, err := surrealdb.Query[[]models.ShareLink](ctx, c.DB(), sql, map[string]any{
 		"id": bareID("share_link", id),
@@ -75,6 +79,7 @@ func (c *Client) GetShareLink(ctx context.Context, id string) (*models.ShareLink
 
 // ListShareLinks returns all share links for a vault.
 func (c *Client) ListShareLinks(ctx context.Context, vaultID string) ([]models.ShareLink, error) {
+	defer c.logOp(ctx, "share_link.list", time.Now())
 	sql := `SELECT * FROM share_link WHERE vault = type::record("vault", $vault_id) ORDER BY created_at DESC`
 	results, err := surrealdb.Query[[]models.ShareLink](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
@@ -90,6 +95,7 @@ func (c *Client) ListShareLinks(ctx context.Context, vaultID string) ([]models.S
 
 // DeleteShareLink removes a share link by ID.
 func (c *Client) DeleteShareLink(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "share_link.delete", time.Now())
 	sql := `DELETE type::record("share_link", $id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": bareID("share_link", id)}); err != nil {
 		return fmt.Errorf("delete share link: %w", err)

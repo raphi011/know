@@ -72,6 +72,50 @@ return fmt.Errorf("create document: %w", err)
 - `fmt.Errorf("Create vault: %w", err)` — wrong
 - Proper nouns and acronyms that are normally capitalized (e.g. `KNOWHOW_BEDROCK_*`, `HTTP 500`) are fine
 
+## Structured Logging & Instrumentation
+
+All new code should use the project's structured logging patterns:
+
+### Context-carried loggers (`logutil`)
+
+Always use `logutil.FromCtx(ctx)` instead of bare `slog.Debug/Info/Warn/Error`. This ensures request-scoped fields (`request_id`, `user_id`, `vault_id`) propagate automatically:
+
+```go
+logger := logutil.FromCtx(ctx)
+logger.Debug("operation starting", "key", value)
+```
+
+When a function has a fixed attribute (e.g. model name), bake it into the logger once:
+```go
+logger := logutil.FromCtx(ctx).With("model", m.modelName)
+logger.Debug("starting", "input_len", len(input))  // model is automatic
+```
+
+### DB operations — `defer c.logOp(ctx, op, time.Now())`
+
+Every public DB query method must include `defer c.logOp(ctx, "table.operation", time.Now())` as its first line. This logs timing at Debug level AND records metrics. Do NOT also call `startOp`/`recordTiming` — `logOp` handles both.
+
+```go
+func (c *Client) GetFoo(ctx context.Context, id string) (*Foo, error) {
+    defer c.logOp(ctx, "foo.get", time.Now())
+    // ... query ...
+}
+```
+
+For parent methods that delegate to private helpers (e.g. `UpsertAsset` → `createAsset`/`updateAsset`), only instrument the parent to avoid duplicate log lines.
+
+### Middleware logger enrichment
+
+When middleware adds context (e.g. `user_id`, `conversation_id`), enrich the context logger:
+```go
+logger := logutil.FromCtx(ctx).With("user_id", userID)
+ctx = logutil.WithLogger(ctx, logger)
+```
+
+### Environment variables
+
+All env vars use the `KNOWHOW_` prefix: `KNOWHOW_LOG_LEVEL`, `KNOWHOW_LOG_FILE`, etc.
+
 ## REST API
 
 The server exposes a REST API at `/api/` for CLI and TUI communication:
