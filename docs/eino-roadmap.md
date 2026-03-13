@@ -416,9 +416,9 @@ Phase 2: Callbacks ✅ ───────┘                                 
 | `internal/agent/service.go` | ~630 | ADK agent construction, event consumption, persistence, interrupt handling | ✅ 3, 4, 5 |
 | `internal/agent/handler.go` | ~346 | REST API endpoints (HandleApproval moved to Runner) | ✅ 3, 4 |
 | `internal/agent/runner.go` | ~331 | Background execution, SSE event replay, `Resume()` for interrupt/resume | ✅ 3, 4 |
-| `internal/agent/middleware.go` | ~350 | ADK middleware + sessionDumpAgent wrapper (BeforeAgent + formatters added in Phase 5) | ✅ 3, 4, 5 |
+| `internal/agent/middleware.go` | ~284 | ADK middleware (context injection, token tracking, tool execution) | ✅ 3, 4, 5 |
 | `internal/agent/approval_tool.go` | ~149 | `approvalToolWrapper` — interrupt/resume lifecycle for write tools | ✅ 4 |
-| `internal/agent/events.go` | ~73 | Custom event types, TokenUsage, ToolRecord, AgentResult, gob registration | ✅ 3, 4 |
+| `internal/agent/events.go` | ~61 | Custom event types, TokenUsage, ToolRecord, AgentResult, gob registration | ✅ 3, 4 |
 | `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool | ✅ 3 |
 | `internal/agent/approval.go` | ~34 | Approval types (ApprovalRequest/Response/Action) | ✅ 4 |
 | `internal/agent/checkpoint.go` | ~32 | SurrealDB CheckPointStore | ✅ 4 |

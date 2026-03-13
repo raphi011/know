@@ -223,12 +223,15 @@ func (s *Service) ResumeChat(ctx context.Context, req ResumeRequest, emit func(S
 		UserID:         req.UserID,
 	}
 
-	adkRunner, err := s.buildAgent(ctx, model, chatReq, emit)
+	adkRunner, tokenMW, toolMW, err := s.buildAgent(ctx, model, chatReq, emit)
 	if err != nil {
 		return fmt.Errorf("build agent for resume: %w", err)
 	}
 
 	// Resume from checkpoint with the approval response targeting the interrupt ID
+	ctx, cancel := context.WithTimeout(ctx, defaultAgentTimeout)
+	defer cancel()
+
 	iter, err := adkRunner.ResumeWithParams(ctx, req.ConversationID, &adk.ResumeParams{
 		Targets: map[string]any{
 			req.InterruptID: &req.Response,
@@ -239,6 +242,13 @@ func (s *Service) ResumeChat(ctx context.Context, req ResumeRequest, emit func(S
 	}
 
 	result := consumeAgentEvents(ctx, iter, emit)
+
+	tokenMW.mu.Lock()
+	result.TokenUsage = tokenMW.usage
+	tokenMW.mu.Unlock()
+	toolMW.mu.Lock()
+	result.ToolRecords = toolMW.records
+	toolMW.mu.Unlock()
 
 	return s.finalizeRun(ctx, req.ConversationID, model, &result, emit)
 }

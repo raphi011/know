@@ -19,12 +19,6 @@ func init() {
 	schema.RegisterName[diff.DiffLineType]("knowhow_diff_line_type")
 }
 
-// Session value keys for accumulating state across ReAct iterations.
-const (
-	sessionKeyTokenUsage  = "token_usage"
-	sessionKeyToolRecords = "tool_records"
-)
-
 // TokenUsage holds cumulative token counts from an agentic generation run.
 type TokenUsage struct {
 	InputTokens       int64
@@ -62,12 +56,4 @@ type ToolEndEvent struct {
 	Tool   string
 	Meta   *tools.ToolResultMeta
 	Error  string // empty on success
-}
-
-// RunCompleteEvent is emitted by the sessionDumpAgent wrapper after the inner
-// agent finishes. It carries accumulated token usage and tool records extracted
-// from session values.
-type RunCompleteEvent struct {
-	TokenUsage  TokenUsage
-	ToolRecords []ToolRecord
 }

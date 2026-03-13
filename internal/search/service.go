@@ -3,7 +3,6 @@ package search
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -115,7 +114,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		if err != nil {
 			return nil, fmt.Errorf("bm25 chunk search: %w", err)
 		}
-		return assembleResults(chunks, limit, input.FullContent, false), nil
+		return assembleResults(ctx, chunks, limit, input.FullContent, false), nil
 	}
 
 	logger := logutil.FromCtx(ctx)
@@ -128,7 +127,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		if bm25Err != nil {
 			return nil, fmt.Errorf("bm25 fallback after embed failure (%v): %w", err, bm25Err)
 		}
-		return assembleResults(chunks, limit, input.FullContent, true), nil
+		return assembleResults(ctx, chunks, limit, input.FullContent, true), nil
 	}
 
 	chunks, err := s.db.HybridSearch(ctx, input.Query, queryEmbedding, filter)
@@ -138,10 +137,10 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		if bm25Err != nil {
 			return nil, fmt.Errorf("bm25 fallback after hybrid failure (%v): %w", err, bm25Err)
 		}
-		return assembleResults(chunks, limit, input.FullContent, true), nil
+		return assembleResults(ctx, chunks, limit, input.FullContent, true), nil
 	}
 
-	return assembleResults(chunks, limit, input.FullContent, false), nil
+	return assembleResults(ctx, chunks, limit, input.FullContent, false), nil
 }
 
 // embedQuery returns the embedding for a query, using the cache when available.
@@ -205,7 +204,7 @@ func chunkToMatch(ch db.ChunkWithScore, fullContent bool) ChunkMatch {
 // assembleResults groups chunks by parent document, sums chunk scores per document,
 // and returns up to limit results. Document metadata comes from the query result
 // (via record link traversal), not a separate fetch.
-func assembleResults(chunks []db.ChunkWithScore, limit int, fullContent bool, degraded bool) []SearchResult {
+func assembleResults(ctx context.Context, chunks []db.ChunkWithScore, limit int, fullContent bool, degraded bool) []SearchResult {
 	if len(chunks) == 0 {
 		return []SearchResult{}
 	}
@@ -226,7 +225,7 @@ func assembleResults(chunks []db.ChunkWithScore, limit int, fullContent bool, de
 	for _, ch := range chunks {
 		docID, err := models.RecordIDString(ch.Document)
 		if err != nil {
-			slog.Warn("failed to extract chunk document ID", "chunk_id", ch.ID, "error", err)
+			logutil.FromCtx(ctx).Warn("failed to extract chunk document ID", "chunk_id", ch.ID, "error", err)
 			continue
 		}
 		if _, ok := agg[docID]; !ok {

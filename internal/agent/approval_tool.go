@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -140,7 +139,7 @@ func wrapWriteToolsForApproval(ctx context.Context, allTools []tool.BaseTool, sv
 		}
 		info, err := inv.Info(ctx)
 		if err != nil {
-			slog.Warn("failed to get tool info for approval wrapping, leaving unwrapped", "error", err)
+			logutil.FromCtx(ctx).Warn("failed to get tool info for approval wrapping, leaving unwrapped", "error", err)
 			out[i] = t
 			continue
 		}

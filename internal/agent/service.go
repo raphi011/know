@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/compose"
@@ -40,6 +41,8 @@ type StreamEvent struct {
 	ContextWindowMax  int                   `json:"contextWindowMax,omitempty"`
 	ContextWindowUsed int64                 `json:"contextWindowUsed,omitempty"`
 }
+
+const defaultAgentTimeout = 10 * time.Minute
 
 // Service orchestrates the agent loop: native tool calling → streaming answer.
 type Service struct {
@@ -186,21 +189,32 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	messages = append(messages, buildUserMessage(req.Content, splitAttachments(req.Attachments, emit)))
 
 	// 5. Build agent + runner
-	runner, err := s.buildAgent(ctx, model, &req, emit)
+	runner, tokenMW, toolMW, err := s.buildAgent(ctx, model, &req, emit)
 	if err != nil {
 		return fmt.Errorf("build agent: %w", err)
 	}
 
 	// 6. Run + consume (pass checkpoint ID for interrupt/resume)
+	ctx, cancel := context.WithTimeout(ctx, defaultAgentTimeout)
+	defer cancel()
+
 	iter := runner.Run(ctx, messages, adk.WithCheckPointID(req.ConversationID))
 	result := consumeAgentEvents(ctx, iter, emit)
 
-	// 7. Persist, update tokens, emit msg_end (or skip if interrupted)
+	// 7. Populate result from middleware state
+	tokenMW.mu.Lock()
+	result.TokenUsage = tokenMW.usage
+	tokenMW.mu.Unlock()
+	toolMW.mu.Lock()
+	result.ToolRecords = toolMW.records
+	toolMW.mu.Unlock()
+
+	// 8. Persist, update tokens, emit msg_end (or skip if interrupted)
 	if err := s.finalizeRun(ctx, req.ConversationID, model, &result, emit); err != nil {
 		return err
 	}
 
-	// 8. Auto-title if first message
+	// 9. Auto-title if first message
 	if len(history) == 0 {
 		go s.autoTitle(context.Background(), req.ConversationID, req.Content)
 	}
@@ -248,7 +262,7 @@ func (s *Service) finalizeRun(ctx context.Context, convID string, model *llm.Mod
 }
 
 // buildAgent constructs a ChatModelAgent + Runner per request.
-func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, error) {
+func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, *tokenTrackingMiddleware, *toolExecutionMiddleware, error) {
 	// Collect tools — wrap write tools for interrupt/resume approval if needed
 	agentTools := s.executor.Tools()
 	if s.tavily != nil {
@@ -297,17 +311,14 @@ func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatReq
 		Handlers:    []adk.ChatModelAgentMiddleware{contextMW, tokenMW, toolMW},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create chat model agent: %w", err)
+		return nil, nil, nil, fmt.Errorf("create chat model agent: %w", err)
 	}
 
-	// Wrap with sessionDumpAgent to emit RunCompleteEvent after inner agent finishes
-	wrapped := &sessionDumpAgent{Agent: agent}
-
 	return adk.NewRunner(ctx, adk.RunnerConfig{
-		Agent:           wrapped,
-		EnableStreaming:  true,
+		Agent:           agent,
+		EnableStreaming: true,
 		CheckPointStore: s.checkpointStore,
-	}), nil
+	}), tokenMW, toolMW, nil
 }
 
 // consumeAgentEvents drains the AsyncIterator, translating AgentEvents to SSE
@@ -374,10 +385,6 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 						emit(StreamEvent{Type: "tool_end", CallID: e.CallID, Tool: e.Tool, Meta: e.Meta})
 					}
 				}
-
-			case *RunCompleteEvent:
-				result.TokenUsage = e.TokenUsage
-				result.ToolRecords = e.ToolRecords
 
 			default:
 				logger.Debug("unknown customized output type", "type", fmt.Sprintf("%T", e))

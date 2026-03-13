@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/logutil"
@@ -159,10 +159,12 @@ func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context
 	return ctx, state, nil
 }
 
-// --- tokenTrackingMiddleware: accumulate token usage in session values ---
+// --- tokenTrackingMiddleware: accumulate token usage across ReAct iterations ---
 
 type tokenTrackingMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
+	mu    sync.Mutex
+	usage TokenUsage
 }
 
 func (m *tokenTrackingMiddleware) AfterModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
@@ -176,19 +178,11 @@ func (m *tokenTrackingMiddleware) AfterModelRewriteState(ctx context.Context, st
 
 	u := last.ResponseMeta.Usage
 
-	// Retrieve current totals from session values
-	var usage TokenUsage
-	if v, ok := adk.GetSessionValue(ctx, sessionKeyTokenUsage); ok {
-		if existing, ok := v.(*TokenUsage); ok {
-			usage = *existing
-		}
-	}
-
-	usage.InputTokens += int64(u.PromptTokens)
-	usage.OutputTokens += int64(u.CompletionTokens)
-	usage.FinalPromptTokens = int64(u.PromptTokens)
-
-	adk.AddSessionValue(ctx, sessionKeyTokenUsage, &usage)
+	m.mu.Lock()
+	m.usage.InputTokens += int64(u.PromptTokens)
+	m.usage.OutputTokens += int64(u.CompletionTokens)
+	m.usage.FinalPromptTokens = int64(u.PromptTokens)
+	m.mu.Unlock()
 
 	return ctx, state, nil
 }
@@ -199,7 +193,8 @@ type toolExecutionMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
 	service *Service
 	req     *ChatRequest
-	mu      sync.Mutex // protects recordTool's read-modify-write on session values
+	mu      sync.Mutex
+	records []ToolRecord
 }
 
 func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, endpoint adk.InvokableToolCallEndpoint, tCtx *adk.ToolContext) (adk.InvokableToolCallEndpoint, error) {
@@ -256,8 +251,8 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 	}, nil
 }
 
-// failTool sends a ToolEndEvent with an error, records the failure in session
-// values, and returns the error as a string so the ReAct loop continues.
+// failTool sends a ToolEndEvent with an error, records the failure, and
+// returns the error as a string so the ReAct loop continues.
 func (m *toolExecutionMiddleware) failTool(ctx context.Context, call schema.ToolCall, callID, toolName, errMsg string, meta *tools.ToolResultMeta) (string, error) {
 	m.sendToolEnd(ctx, callID, toolName, errMsg, meta)
 	m.recordTool(ctx, call, errMsg, meta)
@@ -278,79 +273,10 @@ func (m *toolExecutionMiddleware) sendToolEnd(ctx context.Context, callID, toolN
 	}
 }
 
-// recordTool appends a ToolRecord to the session values.
+// recordTool appends a ToolRecord to the middleware's records slice.
 // Protected by mu because tools may execute in parallel.
-func (m *toolExecutionMiddleware) recordTool(ctx context.Context, call schema.ToolCall, result string, meta *tools.ToolResultMeta) {
+func (m *toolExecutionMiddleware) recordTool(_ context.Context, call schema.ToolCall, result string, meta *tools.ToolResultMeta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	record := ToolRecord{Call: call, Result: result, Meta: meta}
-
-	var records []ToolRecord
-	if v, ok := adk.GetSessionValue(ctx, sessionKeyToolRecords); ok {
-		if existing, ok := v.([]ToolRecord); ok {
-			records = existing
-		}
-	}
-	records = append(records, record)
-	adk.AddSessionValue(ctx, sessionKeyToolRecords, records)
-}
-
-// --- sessionDumpAgent: wraps an agent to emit RunCompleteEvent with session values ---
-
-type sessionDumpAgent struct {
-	adk.Agent
-}
-
-func (a *sessionDumpAgent) Run(ctx context.Context, input *adk.AgentInput,
-	opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
-
-	iter, gen := adk.NewAsyncIteratorPair[*adk.AgentEvent]()
-	inner := a.Agent.Run(ctx, input, opts...)
-
-	go func() {
-		defer gen.Close()
-		defer func() {
-			if r := recover(); r != nil {
-				logutil.FromCtx(ctx).Error("panic in agent run", "recover", r)
-				gen.Send(&adk.AgentEvent{Err: fmt.Errorf("agent panic: %v", r)})
-			}
-			// Always emit RunCompleteEvent so token usage and tool records are captured
-			kvs := adk.GetSessionValues(ctx)
-			gen.Send(&adk.AgentEvent{
-				Output: &adk.AgentOutput{CustomizedOutput: &RunCompleteEvent{
-					TokenUsage:  extractTokenUsage(kvs),
-					ToolRecords: extractToolRecords(kvs),
-				}},
-			})
-		}()
-
-		for {
-			event, ok := inner.Next()
-			if !ok {
-				break
-			}
-			gen.Send(event)
-		}
-	}()
-
-	return iter
-}
-
-func extractTokenUsage(kvs map[string]any) TokenUsage {
-	if v, ok := kvs[sessionKeyTokenUsage]; ok {
-		if usage, ok := v.(*TokenUsage); ok {
-			return *usage
-		}
-	}
-	return TokenUsage{}
-}
-
-func extractToolRecords(kvs map[string]any) []ToolRecord {
-	if v, ok := kvs[sessionKeyToolRecords]; ok {
-		if records, ok := v.([]ToolRecord); ok {
-			return records
-		}
-	}
-	return nil
+	m.records = append(m.records, ToolRecord{Call: call, Result: result, Meta: meta})
 }

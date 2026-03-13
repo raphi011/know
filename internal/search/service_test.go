@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -70,7 +71,7 @@ func TestAssembleResults_SingleDoc(t *testing.T) {
 		chunk("a", "Doc A content", 5.0),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -97,7 +98,7 @@ func TestAssembleResults_MultiDocRanking(t *testing.T) {
 		chunk("a", "Doc A content", 5.0),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -117,7 +118,7 @@ func TestAssembleResults_MultiChunkPerDoc(t *testing.T) {
 		chunkPos("a", "chunk 3", 2, 1.0),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -139,14 +140,14 @@ func TestAssembleResults_Limit(t *testing.T) {
 		chunk("e", "Doc E", 1.0),
 	}
 
-	results := assembleResults(chunks, 3, false, false)
+	results := assembleResults(context.Background(), chunks, 3, false, false)
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results (limit), got %d", len(results))
 	}
 }
 
 func TestAssembleResults_Empty(t *testing.T) {
-	results := assembleResults(nil, 10, false, false)
+	results := assembleResults(context.Background(), nil, 10, false, false)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for nil chunks, got %d", len(results))
 	}
@@ -158,7 +159,7 @@ func TestAssembleResults_StableOrder(t *testing.T) {
 		chunk("second", "second doc", 5.0),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -173,7 +174,7 @@ func TestAssembleResults_HeadingPathPreserved(t *testing.T) {
 		chunkWithHeading("a", "Install instructions", heading, 5.0),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -190,7 +191,7 @@ func TestAssembleResults_Labels(t *testing.T) {
 		chunkWithLabels("a", "content", 5.0, []string{"go", "test"}),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -203,7 +204,7 @@ func TestAssembleResults_NilLabelsNormalized(t *testing.T) {
 	ch := chunk("a", "content", 5.0)
 	ch.DocLabels = nil
 
-	results := assembleResults([]db.ChunkWithScore{ch}, 10, false, false)
+	results := assembleResults(context.Background(), []db.ChunkWithScore{ch}, 10, false, false)
 	if results[0].Labels == nil {
 		t.Error("expected empty slice, got nil")
 	}
@@ -214,7 +215,7 @@ func TestAssembleResults_DocType(t *testing.T) {
 		chunkWithDocType("a", "content", 5.0, "note"),
 	}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if results[0].DocType == nil || *results[0].DocType != "note" {
 		t.Errorf("expected doc_type 'note', got %v", results[0].DocType)
 	}
@@ -226,7 +227,7 @@ func TestAssembleResults_Degraded(t *testing.T) {
 		chunk("b", "content", 3.0),
 	}
 
-	results := assembleResults(chunks, 10, false, true)
+	results := assembleResults(context.Background(), chunks, 10, false, true)
 	for i, r := range results {
 		if !r.Degraded {
 			t.Errorf("result %d: expected Degraded=true", i)
@@ -260,7 +261,7 @@ func TestAssembleResults_FullContent(t *testing.T) {
 	longContent := strings.Repeat("word ", 100)
 	chunks := []db.ChunkWithScore{chunk("a", longContent, 5.0)}
 
-	results := assembleResults(chunks, 10, true, false)
+	results := assembleResults(context.Background(), chunks, 10, true, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -277,7 +278,7 @@ func TestAssembleResults_SnippetTruncation(t *testing.T) {
 
 	chunks := []db.ChunkWithScore{chunk("a", longContent.String(), 5.0)}
 
-	results := assembleResults(chunks, 10, false, false)
+	results := assembleResults(context.Background(), chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
