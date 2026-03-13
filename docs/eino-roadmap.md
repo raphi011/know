@@ -16,20 +16,23 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 
 | Package | Types / Functions |
 |---------|-------------------|
-| `schema` | `Message`, `ToolCall`, `ToolInfo`, `ParameterInfo`, `NewParamsOneOfByParams`, `TokenUsage`, `ConcatMessages`, `StreamReader`, `MessageInputPart`, `RoleType` constants |
-| `components/model` | `BaseChatModel` (Generate, Stream), `model.WithMaxTokens`, `model.WithTools` |
+| `schema` | `Message`, `ToolCall`, `ToolInfo`, `ParameterInfo`, `NewParamsOneOfByParams`, `ConcatMessages`, `StreamReader`, `MessageInputPart`, `RoleType` constants |
+| `components/model` | `BaseChatModel` (Generate, Stream), `model.WithMaxTokens` |
 | `components/embedding` | `Embedder` (EmbedStrings) |
 | `eino-ext` | `model/claude`, `model/openai`, `model/gemini`, `model/ollama`, `embedding/*` |
+| `adk` | `ChatModelAgent`, `Runner`, `SendEvent`, `AddSessionValue`/`GetSessionValue`, `NewAsyncIteratorPair`, middleware interfaces |
+| `compose` | `ToolsNodeConfig` (via ADK) |
 
 ### What we do NOT use (yet)
 
 | eino Feature | Status |
 |-------------|--------|
-| ADK (`ChatModelAgent`, `Runner`) | 🔧 Phase 3 in progress — replacing custom agent loop |
-| `compose.*` (Graph, Chain, ToolsNode) | 🔧 Phase 3 in progress — ADK uses ToolsNode internally |
+| ADK (`ChatModelAgent`, `Runner`) | ✅ Used — ReAct agent loop (Phase 3) |
+| `compose.*` (Graph, Chain, ToolsNode) | ✅ Used — ADK uses ToolsNode internally (Phase 3) |
 | `callbacks.Handler` | ✅ Used — global observability handler (Phase 2) |
+| `adk.SendEvent` / custom events | ✅ Used — tool/approval events via middleware (Phase 3) |
+| `adk.AddSessionValue` / `GetSessionValue` | ✅ Used — token tracking + tool records (Phase 3) |
 | Interrupt/Resume, CheckPointStore | Not used — in-memory approval channels (Phase 4) |
-| Session management (AddSessionValue) | Not used — manual prompt building (Phase 5) |
 | `tool.InvokableTool` | ✅ Used — registry-based dispatch (Phase 1) |
 | `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries |
 
@@ -37,18 +40,18 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 
 ## What Our Custom Code Does (to be replaced)
 
-| Custom Code | File | Lines | Eino Replacement |
-|-------------|------|-------|-----------------|
-| Agent loop (Chat method) | `agent/service.go` | ~290 | ADK `ChatModelAgent` ReAct loop |
-| Tool calling loop | `llm/model.go` GenerateStreamWithTools | ~110 | ADK handles internally |
-| Tool dispatch (sequential switch) | `tools/executor.go` ExecuteTool | ~60 | `compose.ToolsNode` (parallel) |
-| Tool definitions | `agent/service.go` buildTools | ~145 | `tool.InvokableTool` implementations |
-| System prompt building | `agent/service.go` buildSystemPrompt | ~45 | `GenModelInput` + session values |
-| Message history assembly | `agent/service.go` buildMessages | ~25 | `ChatModelAgentState.Messages` |
-| Doc ref / attachment injection | `agent/service.go` Chat lines 386-435 | ~50 | `BeforeModelRewriteState` middleware |
-| Approval workflow | `agent/approval.go` | 83 | Interrupt/Resume + `WrapInvokableToolCall` |
-| Token tracking (manual) | `llm/model.go` extractTokenCounts | ~30 | Callbacks + `ResponseMeta` (automatic) |
-| Manual LLM observability | `llm/model.go` scattered | ~40 | Callbacks system |
+| Custom Code | File | Lines | Eino Replacement | Status |
+|-------------|------|-------|-----------------|--------|
+| Agent loop (Chat method) | `agent/service.go` | ~290 | ADK `ChatModelAgent` ReAct loop | ✅ Phase 3 |
+| Tool calling loop | `llm/model.go` GenerateStreamWithTools | ~110 | ADK handles internally | ✅ Phase 3 |
+| Tool dispatch (sequential switch) | `tools/executor.go` ExecuteTool | ~60 | `compose.ToolsNode` (parallel) | ✅ Phase 1+3 |
+| Tool definitions | `agent/service.go` buildTools | ~145 | `tool.InvokableTool` implementations | ✅ Phase 1+3 |
+| System prompt building | `agent/service.go` buildSystemPrompt | ~45 | `GenModelInput` + session values | Phase 5 |
+| Message history assembly | `agent/service.go` buildMessages | ~25 | `ChatModelAgentState.Messages` | ✅ Phase 3 |
+| Doc ref / attachment injection | `agent/service.go` Chat lines 386-435 | ~50 | `BeforeModelRewriteState` middleware | ✅ Phase 3 |
+| Approval workflow | `agent/approval.go` | 83 | Interrupt/Resume + `WrapInvokableToolCall` | Phase 4 |
+| Token tracking (manual) | `llm/model.go` extractTokenCounts | ~30 | Session values + `ResponseMeta` | ✅ Phase 3 |
+| Manual LLM observability | `llm/model.go` scattered | ~40 | Callbacks system | ✅ Phase 2 |
 
 ---
 
@@ -116,114 +119,64 @@ Additive, no behavioral changes.
 
 ---
 
-## Phase 3: ADK ChatModelAgent Migration (in progress)
+## Phase 3: ADK ChatModelAgent Migration ✅
 
 **Goal**: Replace the custom agent loop with `ChatModelAgent`. This is the biggest change.
 
 **Key constraint**: Keep approval channel-based (Phase 4 converts to interrupt/resume). Keep SSE event types/structure unchanged (TUI depends on them).
 
-### What's done so far
+### What was done
 
-- `llm.Model.GenerateStreamWithTools()` (~110 lines) replaced by deprecated stub — ADK handles the ReAct loop
-- `llm.Model.BaseChatModel()` accessor **added** — exposes underlying model for ADK
-- `llm/tools_test.go` **deleted** — tests for the removed method
+- `Chat()` (~290 lines) decomposed into `buildAgent()`, `consumeAgentEvents()`, `persistResults()`
+- `GenerateStreamWithTools()` (~110 lines) **deleted** — ADK handles the ReAct loop
+- `buildTools()`, `executeTool()`, `execWebSearch()` **deleted** — tools passed directly to ADK config
+- `llm.TokenUsage` **moved** to `agent.TokenUsage` in new `events.go`
 - `web_search` extracted to `agent/websearch_tool.go` as `WebSearchTool` implementing `tool.InvokableTool`
-- `tools.SetResultMeta` **exported** (was `setResultMeta`) — needed by `WebSearchTool` in `agent` package
-- `internal/agent/middleware.go` **created** with 3 middleware structs (see below)
+- `llm.Model.BaseChatModel()` accessor **added** — exposes underlying model for ADK
+- Custom `GenModelInput` to skip FString interpolation (system prompt contains JSON with curly braces)
 
-### What changes (remaining)
+### Architecture
 
-- `agent.Service.Chat()` (~290 lines) rewritten to use `ChatModelAgent.Run()` via `adk.Runner`
-- New `buildAgent()` method constructs per-request agent with middleware
-- `buildTools()`, `executeTool()`, `execWebSearch()` to be removed from service.go
-- Per-token SSE streaming via `AsyncIterator` consumption in `Chat()`
-
-### Middleware stack
-
-3 middlewares, each embedding `*adk.BaseChatModelAgentMiddleware`:
+**Middleware stack** — 3 middlewares, each embedding `*adk.BaseChatModelAgentMiddleware`:
 
 | # | Middleware | Hook | Purpose |
 |---|-----------|------|---------|
 | 1 | `contextInjectionMiddleware` | `BeforeModelRewriteState` | Inject doc refs + text attachments as messages before first model call |
-| 2 | `tokenTrackingMiddleware` | `AfterModelRewriteState` | Accumulate token usage from `ResponseMeta.Usage` across iterations |
-| 3 | `toolExecutionMiddleware` | `WrapInvokableToolCall` | Gate write tools on approval, emit tool_start/tool_end SSE, inject `WithResultMeta`/`WithVaultID`, record tool calls |
+| 2 | `tokenTrackingMiddleware` | `AfterModelRewriteState` | Accumulate token usage in ADK session values |
+| 3 | `toolExecutionMiddleware` | `WrapInvokableToolCall` | Gate write tools on approval, emit events via `adk.SendEvent`, record tool calls (mutex-protected for parallel execution) |
 
-### SSE streaming approach
+**Custom event types** — sent via `adk.SendEvent`, translated to SSE in `consumeAgentEvents`:
 
-Per-token streaming is handled by consuming the `AsyncIterator[*AgentEvent]` returned by `runner.Run()` — the **native Eino pattern**. The ADK's built-in `eventSenderModel` already sends streaming `MessageOutput` events:
+| Event | Source | Purpose |
+|-------|--------|---------|
+| `ToolStartEvent` | `toolExecutionMiddleware` | Tool call began |
+| `ToolEndEvent` | `toolExecutionMiddleware` | Tool call completed (success or error) |
+| `ApprovalRequiredEvent` | `toolExecutionMiddleware` | Write tool needs user approval |
+| `RunCompleteEvent` | `sessionDumpAgent` wrapper | Carries accumulated token usage + tool records |
 
-```go
-iter := runner.Run(ctx, messages)
-for event, ok := iter.Next(); ok; event, ok = iter.Next() {
-    if event.Err != nil { break }
-    if event.Output != nil && event.Output.MessageOutput != nil {
-        mv := event.Output.MessageOutput
-        if mv.IsStreaming && mv.MessageStream != nil {
-            // Consume MessageStream chunk-by-chunk → emit per-token SSE
-            for {
-                msg, err := mv.MessageStream.Recv()
-                if errors.Is(err, io.EOF) { break }
-                if err != nil { break }
-                answer.WriteString(msg.Content)
-                emit(StreamEvent{Type: "text", Content: msg.Content})
-            }
-        } else if mv.Message != nil {
-            // Non-streaming: full message at once
-            answer.WriteString(mv.Message.Content)
-            emit(StreamEvent{Type: "text", Content: mv.Message.Content})
-        }
-    }
-}
-```
+**`sessionDumpAgent`** — wraps the inner agent to emit `RunCompleteEvent` after all events are drained. Includes panic recovery to ensure token usage is always captured.
 
-**Design decision**: We initially planned a `sseStreamMiddleware` using `WrapModel` to tap the raw stream. Dropped it because the `AsyncIterator` is the native Eino consumer interface — `eventSenderModel` already sends streaming events through it. Using `WrapModel` to sidestep that duplicates the framework's event system.
+**SSE streaming** — `consumeAgentEvents` drains `AsyncIterator[*AgentEvent]`, consuming `MessageStream` chunks for per-token SSE. Continues draining after errors to capture `RunCompleteEvent`.
 
-### Agent construction (per-request)
+**Agent construction** — per-request because middlewares carry per-request state. `ChatModelAgent` construction is cheap (react graph compiles lazily on first `Run()`).
 
-The agent is constructed per-request because middlewares carry per-request state (emit callback, toolRecords, approval registry). Creating a `ChatModelAgent` is cheap — the react graph compiles lazily on first `Run()`.
+### Design decisions
 
-```go
-agent, _ := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-    Name:        "knowhow-assistant",
-    Description: "Knowledge base assistant",
-    Model:       m.BaseChatModel(),
-    ToolsConfig: adk.ToolsConfig{
-        ToolsNodeConfig: compose.ToolsNodeConfig{
-            Tools: allTools, // executor.Tools() + WebSearchTool
-        },
-    },
-    GenModelInput: func(ctx context.Context, instruction string, input *adk.AgentInput) ([]*schema.Message, error) {
-        // Custom: prepend system message, skip FString interpolation
-        msgs := make([]*schema.Message, 0, len(input.Messages)+1)
-        if instruction != "" {
-            msgs = append(msgs, schema.SystemMessage(instruction))
-        }
-        msgs = append(msgs, input.Messages...)
-        return msgs, nil
-    },
-    Instruction:   systemPrompt,
-    MaxIterations: 10,
-    Handlers: []adk.ChatModelAgentMiddleware{
-        contextInjection,
-        tokenTracking,
-        toolExecution,
-    },
-})
-
-runner := adk.NewRunner(ctx, adk.RunnerConfig{
-    Agent:          agent,
-    EnableStreaming: true,
-})
-```
+- **Session values over struct fields**: Token usage and tool records accumulated via `adk.AddSessionValue`/`GetSessionValue` rather than middleware struct fields. This works with ADK's session system and enables `sessionDumpAgent` to extract them after the run.
+- **Mutex for parallel tool safety**: `toolExecutionMiddleware.mu` protects `recordTool()`'s read-modify-write on session values since ADK's `ToolsNode` executes tools in parallel by default.
+- **`consumeAgentEvents` continues after errors**: Uses `hitError` flag to stop emitting SSE but keeps draining the iterator so `RunCompleteEvent` (with token data) is always captured.
+- **`buildAgent` returns error**: Propagates `NewChatModelAgent` failures cleanly instead of risking nil-deref panics.
+- **`persistResults` aggregates errors**: Tool result storage failures collected via `errors.Join` and surfaced to caller.
 
 ### Key files
 
-| File | Lines | Change |
-|------|-------|--------|
-| `internal/llm/model.go` | +5/-114 | `BaseChatModel()` added, `GenerateStreamWithTools()` replaced by deprecated stub |
-| `internal/agent/service.go` | (remaining) | Chat() to be rewritten, +buildAgent(), -buildTools/executeTool/execWebSearch |
-| New: `internal/agent/middleware.go` | ~240 | 3 middleware structs |
-| New: `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool |
+| File | Change |
+|------|--------|
+| `internal/agent/service.go` | `Chat()` → `buildAgent()` + `consumeAgentEvents()` + `persistResults()`, removed `buildTools`/`executeTool`/`execWebSearch` |
+| `internal/agent/middleware.go` | 3 middleware structs + `sessionDumpAgent` wrapper (~330 lines) |
+| New: `internal/agent/events.go` | `TokenUsage`, `ToolRecord`, `AgentResult`, custom event types |
+| New: `internal/agent/websearch_tool.go` | `WebSearchTool` InvokableTool |
+| `internal/llm/model.go` | `BaseChatModel()` added, `GenerateStreamWithTools` + `TokenUsage` deleted |
 
 ### Unchanged files
 
@@ -235,7 +188,7 @@ runner := adk.NewRunner(ctx, adk.RunnerConfig{
 
 ### Effort: L
 
-Biggest change — eliminates ~500 lines of custom orchestration. Depends on Phase 1.
+Biggest change — eliminated ~500 lines of custom orchestration, replaced with composable middleware.
 
 ---
 
@@ -415,16 +368,15 @@ Future work.
 ## Implementation Order
 
 ```
-Phase 1: InvokableTool + ToolsNode ✅ ───┐
-                                         ├─→ Phase 3: ADK ChatModelAgent ─┬─→ Phase 4: Interrupt/Resume
-Phase 2: Callbacks ✅ ──────────────────┘                                 └─→ Phase 5: Session + GenModelInput
-                                                                               Phase 6: RAG Chain (independent)
-                                                                               Phase 7: Multi-Agent (future)
+Phase 1: InvokableTool ✅ ───┐
+                              ├─→ Phase 3: ADK ChatModelAgent ✅ ─┬─→ Phase 4: Interrupt/Resume
+Phase 2: Callbacks ✅ ───────┘                                    └─→ Phase 5: Session + GenModelInput
+                                                                       Phase 6: RAG Chain (independent)
+                                                                       Phase 7: Multi-Agent (future)
 ```
 
-- **Phases 1 + 2**: ✅ complete
-- **Phase 3**: depends on Phase 1 (tools must be InvokableTool)
-- **Phases 4 + 5**: can run in parallel after Phase 3
+- **Phases 1 + 2 + 3**: ✅ complete
+- **Phases 4 + 5**: can run in parallel, next up
 - **Phase 6**: independent, after Phase 3 stabilizes
 - **Phase 7**: future, after all above stable
 
@@ -434,18 +386,19 @@ Phase 2: Callbacks ✅ ──────────────────┘
 
 | File | Lines | Role | Phases |
 |------|-------|------|--------|
-| `internal/agent/service.go` | ~650 | Custom agent loop, system prompt, message assembly | 🔧 3, 5 |
-| `internal/agent/middleware.go` | ~240 | ADK middleware (context injection, token tracking, tool execution) | 🔧 3 |
-| `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool | 🔧 3 |
-| `internal/llm/model.go` | ~580 | LLM wrapper, BaseChatModel() accessor | ✅ 2, 🔧 3 |
+| `internal/agent/service.go` | ~640 | ADK agent construction, event consumption, persistence | ✅ 3, 5 |
+| `internal/agent/middleware.go` | ~330 | ADK middleware + sessionDumpAgent wrapper | ✅ 3 |
+| `internal/agent/events.go` | ~70 | Custom event types, TokenUsage, ToolRecord, AgentResult | ✅ 3 |
+| `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool | ✅ 3 |
+| `internal/llm/model.go` | ~545 | LLM wrapper, BaseChatModel() accessor | ✅ 2, 3 |
 | `internal/tools/executor.go` | ~110 | Registry-based tool dispatch via InvokableTool | ✅ 1 |
 | `internal/tools/tool_*.go` | ~900 | Individual InvokableTool implementations (10 tools) | ✅ 1 |
-| `internal/tools/meta.go` | ~40 | Context-based ToolResultMeta passing (SetResultMeta exported) | ✅ 1, 🔧 3 |
+| `internal/tools/meta.go` | ~40 | Context-based ToolResultMeta passing (SetResultMeta exported) | ✅ 1, 3 |
 | `internal/mcptools/tools.go` | 561 | MCP tool bridge (shares executor) | ✅ 1 (unchanged) |
 | `internal/search/service.go` | 441 | Hybrid BM25+vector search | 6 |
-| `internal/agent/handler.go` | 324 | REST API endpoints | 🔧 3 |
+| `internal/agent/handler.go` | 324 | REST API endpoints | ✅ 3 (unchanged) |
 | `internal/metrics/collector.go` | 203 | Metrics collection | ✅ 2 |
-| `internal/agent/runner.go` | 181 | Background execution + SSE event replay | 🔧 3, 4 |
+| `internal/agent/runner.go` | 181 | Background execution + SSE event replay | ✅ 3, 4 |
 | `internal/agent/approval.go` | 83 | In-memory approval registry | 4 |
 
 ---
@@ -456,9 +409,9 @@ Phase 2: Callbacks ✅ ──────────────────┘
 |-------|--------------|-------------|-----|
 | Phase 1 ✅ | 699 (executor switch + buildTools + name mapping) | 63 (modified) + ~900 (tool structs + infra) | ~-636 net in modified files |
 | Phase 2 ✅ | 0 (additive — manual timing kept for providers without callbacks) | ~60 (callback handler) + ~50 (tests) | +110 |
-| Phase 3 | ~500 (Chat loop + GenerateStreamWithTools) | ~200 (middleware + wiring) | -300 |
+| Phase 3 ✅ | 376 (Chat loop + GenerateStreamWithTools + buildTools + executeTool) | 515 (middleware + events + agent wiring) | +139 |
 | Phase 4 | ~83 (approval registry) | ~80 (checkpoint store + interrupt) | ~0 |
 | Phase 5 | ~45 (buildSystemPrompt) | ~30 (session middleware) | -15 |
-| **Total** | **~1018** | **~670** | **~-350** |
+| **Total** | **~1158** | **~1588** | **+430** |
 
-Net reduction of ~350 lines, but more importantly: the remaining code is composable, testable middleware rather than monolithic orchestration.
+Net increase of ~430 lines, but the new code is composable, testable middleware with proper error handling and race protection — replacing monolithic orchestration.
