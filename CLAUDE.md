@@ -13,6 +13,7 @@ This project is in active development with no production users. **Don't worry ab
 - **WebDAV**: `golang.org/x/net/webdav` for document editing with any editor
 - **Protocol**: MCP (Model Context Protocol)
 - **Go version**: 1.26 — `new(value)` creates a pointer to a value (e.g. `new(42)` returns `*int` pointing to 42, `new(len(s))` returns `*int`). This replaces the old `func ptr[T any](v T) *T` helper pattern.
+- **Indentation**: This project uses **tabs** for Go files (per `gofmt`). When editing files with the Edit tool, match the surrounding indentation exactly — the Edit tool's `old_string` must reproduce the file's literal whitespace (tabs, not spaces). Never use `sed` to insert lines, as macOS `sed` does not expand `\t` to tabs.
 
 ## Commands
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 	"sync/atomic"
 
@@ -88,9 +87,9 @@ func (s *Service) Available() bool {
 	return s.getModel() != nil
 }
 
-// buildSystemPrompt constructs the system prompt, appending the vault's folder tree and label summary when available.
-func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string {
-	base := `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
+// instructionTemplate is the system prompt template for the agent. {FolderTree} and
+// {Labels} are hydrated from DB via session values in contextInjectionMiddleware.BeforeAgent.
+const instructionTemplate = `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
 
 - Use search to find relevant documents in the knowledge base
 - Use read_document to read the full content of a specific document by path
@@ -102,42 +101,11 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 - If the knowledge base has no results, tell the user and offer to search the web
 - NEVER call web_search without the user's explicit permission
 - Always cite document paths when referencing information from the knowledge base
-- Do not include a sources section at the end of your response — sources are shown separately in the UI`
-
-	var sb strings.Builder
-	sb.WriteString(base)
-
-	folders, err := s.db.ListFolders(ctx, vaultID)
-	if err != nil {
-		logutil.FromCtx(ctx).Warn("failed to list folders for system prompt", "vault_id", vaultID, "error", err)
-	} else if len(folders) > 0 {
-		sb.WriteString("\n\nVault folder structure:\n```\n/\n")
-		for _, f := range folders {
-			depth := strings.Count(strings.Trim(f.Path, "/"), "/")
-			indent := strings.Repeat("  ", depth)
-			sb.WriteString(indent)
-			sb.WriteString("├── ")
-			sb.WriteString(f.Name)
-			sb.WriteString("/\n")
-		}
-		sb.WriteString("```")
-	}
-
-	labelCounts, err := s.db.ListLabelsWithCounts(ctx, vaultID)
-	if err != nil {
-		logutil.FromCtx(ctx).Warn("failed to list labels for system prompt", "vault_id", vaultID, "error", err)
-	} else if len(labelCounts) > 0 {
-		sb.WriteString("\n\nVault labels:\n")
-		for _, lc := range labelCounts {
-			fmt.Fprintf(&sb, "- %s (%d)\n", lc.Label, lc.Count)
-		}
-	}
-
-	return sb.String()
-}
+- Do not include a sources section at the end of your response — sources are shown separately in the UI{FolderTree}{Labels}`
 
 // buildMessages converts DB messages to eino schema messages.
-func buildMessages(dbMsgs []models.Message) []*schema.Message {
+func buildMessages(ctx context.Context, dbMsgs []models.Message) []*schema.Message {
+	logger := logutil.FromCtx(ctx)
 	var out []*schema.Message
 	for _, msg := range dbMsgs {
 		switch msg.Role {
@@ -148,7 +116,7 @@ func buildMessages(dbMsgs []models.Message) []*schema.Message {
 			if msg.ToolCalls != nil && *msg.ToolCalls != "" {
 				var toolCalls []schema.ToolCall
 				if err := json.Unmarshal([]byte(*msg.ToolCalls), &toolCalls); err != nil {
-					slog.Warn("failed to deserialize tool calls from history", "message_id", msg.ID, "error", err) // no ctx available
+					logger.Warn("failed to deserialize tool calls from history", "message_id", msg.ID, "error", err)
 				} else {
 					m.ToolCalls = toolCalls
 				}
@@ -214,12 +182,11 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 
 	// 4. Build message list: history + current user message (system prompt handled by GenModelInput)
 	messages := make([]*schema.Message, 0, len(history)+1)
-	messages = append(messages, buildMessages(history)...)
+	messages = append(messages, buildMessages(ctx, history)...)
 	messages = append(messages, buildUserMessage(req.Content, splitAttachments(req.Attachments, emit)))
 
 	// 5. Build agent + runner
-	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
-	runner, err := s.buildAgent(ctx, model, sysPrompt, &req, emit)
+	runner, err := s.buildAgent(ctx, model, &req, emit)
 	if err != nil {
 		return fmt.Errorf("build agent: %w", err)
 	}
@@ -281,7 +248,7 @@ func (s *Service) finalizeRun(ctx context.Context, convID string, model *llm.Mod
 }
 
 // buildAgent constructs a ChatModelAgent + Runner per request.
-func (s *Service) buildAgent(ctx context.Context, model *llm.Model, sysPrompt string, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, error) {
+func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, error) {
 	// Collect tools — wrap write tools for interrupt/resume approval if needed
 	agentTools := s.executor.Tools()
 	if s.tavily != nil {
@@ -326,15 +293,7 @@ func (s *Service) buildAgent(ctx context.Context, model *llm.Model, sysPrompt st
 				Tools: agentTools,
 			},
 		},
-		// Custom GenModelInput: prepend system message, skip FString interpolation
-		// (system prompt contains JSON examples with curly braces).
-		GenModelInput: func(ctx context.Context, instruction string, input *adk.AgentInput) ([]*schema.Message, error) {
-			msgs := make([]*schema.Message, 0, 1+len(input.Messages))
-			msgs = append(msgs, &schema.Message{Role: schema.System, Content: instruction})
-			msgs = append(msgs, input.Messages...)
-			return msgs, nil
-		},
-		Instruction: sysPrompt,
+		Instruction: instructionTemplate,
 		Handlers:    []adk.ChatModelAgentMiddleware{contextMW, tokenMW, toolMW},
 	})
 	if err != nil {
@@ -453,6 +412,7 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 					}
 					if recvErr != nil {
 						logger.Warn("stream recv error", "error", recvErr)
+						emit(StreamEvent{Type: "error", Content: "response was truncated due to a streaming error"})
 						break
 					}
 					if chunk.Content != "" {

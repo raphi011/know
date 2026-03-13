@@ -17,7 +17,7 @@ import (
 	"github.com/raphi011/knowhow/internal/tools"
 )
 
-// --- contextInjectionMiddleware: inject doc refs + text attachments ---
+// --- contextInjectionMiddleware: inject doc refs + text attachments + session values ---
 
 type contextInjectionMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
@@ -27,6 +27,76 @@ type contextInjectionMiddleware struct {
 	db       *db.Client
 	emit     func(StreamEvent)
 	injected bool
+}
+
+// BeforeAgent hydrates session values for FString interpolation in the instruction template.
+func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.ChatModelAgentContext) (context.Context, *adk.ChatModelAgentContext, error) {
+	logger := logutil.FromCtx(ctx)
+
+	var folderTree string
+	folders, err := m.db.ListFolders(ctx, m.vaultID)
+	if err != nil {
+		logger.Warn("failed to list folders for system prompt", "vault_id", m.vaultID, "error", err)
+	} else {
+		folderTree = formatFolderTree(folders)
+	}
+
+	var labels string
+	labelCounts, err := m.db.ListLabelsWithCounts(ctx, m.vaultID)
+	if err != nil {
+		logger.Warn("failed to list labels for system prompt", "vault_id", m.vaultID, "error", err)
+	} else {
+		labels = formatLabels(labelCounts)
+	}
+
+	vals := map[string]any{
+		"FolderTree": folderTree,
+		"Labels":     labels,
+	}
+	adk.AddSessionValues(ctx, vals)
+
+	// Verify session values were stored — AddSessionValues silently no-ops if
+	// the session context is nil (e.g. ADK session not initialized).
+	if stored := adk.GetSessionValues(ctx); stored == nil {
+		logger.Warn("session values not stored — ADK session may not be initialized; system prompt will contain raw template placeholders")
+	}
+
+	return ctx, runCtx, nil
+}
+
+// formatFolderTree renders a vault's folder structure as a code block, or "" if empty.
+func formatFolderTree(folders []models.Folder) string {
+	if len(folders) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\nVault folder structure:\n```\n/\n")
+	for _, f := range folders {
+		depth := strings.Count(strings.Trim(f.Path, "/"), "/")
+		indent := strings.Repeat("  ", depth)
+		sb.WriteString(indent)
+		sb.WriteString("├── ")
+		// Escape curly braces to prevent FString interpolation of user-controlled folder names.
+		sb.WriteString(strings.NewReplacer("{", "{{", "}", "}}").Replace(f.Name))
+		sb.WriteString("/\n")
+	}
+	sb.WriteString("```")
+	return sb.String()
+}
+
+// formatLabels renders vault labels with counts, or "" if empty.
+func formatLabels(labelCounts []models.LabelCount) string {
+	if len(labelCounts) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\nVault labels:\n")
+	for _, lc := range labelCounts {
+		// Escape curly braces to prevent FString interpolation of user-controlled label names.
+		escaped := strings.NewReplacer("{", "{{", "}", "}}").Replace(lc.Label)
+		fmt.Fprintf(&sb, "- %s (%d)\n", escaped, lc.Count)
+	}
+	return sb.String()
 }
 
 func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, mc *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {

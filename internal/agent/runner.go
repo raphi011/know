@@ -223,8 +223,7 @@ func (s *Service) ResumeChat(ctx context.Context, req ResumeRequest, emit func(S
 		UserID:         req.UserID,
 	}
 
-	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
-	adkRunner, err := s.buildAgent(ctx, model, sysPrompt, chatReq, emit)
+	adkRunner, err := s.buildAgent(ctx, model, chatReq, emit)
 	if err != nil {
 		return fmt.Errorf("build agent for resume: %w", err)
 	}

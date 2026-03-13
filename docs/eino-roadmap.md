@@ -20,7 +20,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | `components/model` | `BaseChatModel` (Generate, Stream), `model.WithMaxTokens` |
 | `components/embedding` | `Embedder` (EmbedStrings) |
 | `eino-ext` | `model/claude`, `model/openai`, `model/gemini`, `model/ollama`, `embedding/*` |
-| `adk` | `ChatModelAgent`, `Runner`, `RunnerConfig.CheckPointStore`, `ResumeWithParams`, `WithCheckPointID`, `SendEvent`, `AddSessionValue`/`GetSessionValue`, `NewAsyncIteratorPair`, middleware interfaces |
+| `adk` | `ChatModelAgent`, `Runner`, `RunnerConfig.CheckPointStore`, `ResumeWithParams`, `WithCheckPointID`, `SendEvent`, `AddSessionValue`/`AddSessionValues`/`GetSessionValue`/`GetSessionValues`, `NewAsyncIteratorPair`, middleware interfaces (`BeforeAgent`, `BeforeModelRewriteState`, `AfterModelRewriteState`, `WrapInvokableToolCall`) |
 | `compose` | `ToolsNodeConfig` (via ADK), `IsInterruptRerunError` |
 | `tool` | `StatefulInterrupt`, `GetInterruptState`, `GetResumeContext` |
 
@@ -32,7 +32,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | `compose.*` (Graph, Chain, ToolsNode) | ✅ Used — ADK uses ToolsNode internally (Phase 3) |
 | `callbacks.Handler` | ✅ Used — global observability handler (Phase 2) |
 | `adk.SendEvent` / custom events | ✅ Used — tool/approval events via middleware (Phase 3) |
-| `adk.AddSessionValue` / `GetSessionValue` | ✅ Used — token tracking + tool records (Phase 3) |
+| `adk.AddSessionValue` / `GetSessionValue` | ✅ Used — token tracking + tool records (Phase 3), FString prompt templating (Phase 5) |
 | Interrupt/Resume, CheckPointStore | ✅ Used — `approvalToolWrapper` + SurrealDB checkpoint store (Phase 4) |
 | `tool.InvokableTool` | ✅ Used — registry-based dispatch (Phase 1) |
 | `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries |
@@ -47,7 +47,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | Tool calling loop | `llm/model.go` GenerateStreamWithTools | ~110 | ADK handles internally | ✅ Phase 3 |
 | Tool dispatch (sequential switch) | `tools/executor.go` ExecuteTool | ~60 | `compose.ToolsNode` (parallel) | ✅ Phase 1+3 |
 | Tool definitions | `agent/service.go` buildTools | ~145 | `tool.InvokableTool` implementations | ✅ Phase 1+3 |
-| System prompt building | `agent/service.go` buildSystemPrompt | ~45 | `GenModelInput` + session values | Phase 5 |
+| System prompt building | `agent/service.go` buildSystemPrompt | ~45 | `BeforeAgent` session values + FString template | ✅ Phase 5 |
 | Message history assembly | `agent/service.go` buildMessages | ~25 | `ChatModelAgentState.Messages` | ✅ Phase 3 |
 | Doc ref / attachment injection | `agent/service.go` Chat lines 386-435 | ~50 | `BeforeModelRewriteState` middleware | ✅ Phase 3 |
 | Approval workflow | `agent/approval.go` | 83 | `approvalToolWrapper` + `CheckPointStore` interrupt/resume | ✅ Phase 4 |
@@ -265,55 +265,35 @@ Biggest change — eliminated ~500 lines of custom orchestration, replaced with 
 
 ---
 
-## Phase 5: Session Management + GenModelInput
+## Phase 5: Session Management + GenModelInput ✅
 
 **Goal**: Use eino's session system with DB-backed hydration for system prompt templating.
 
-### What changes
+### What was done
 
-- System prompt becomes a template with session value placeholders
-- `DBSessionMiddleware.BeforeAgent` hydrates session values from DB:
-  - `FolderTree` — vault folder structure
-  - `Labels` — vault labels with counts
-  - `VaultID` — for tool scoping
-- Custom `GenModelInput` handles edge cases (instruction may contain JSON examples with curly braces)
+- `buildSystemPrompt()` (inline DB queries + string concatenation) **deleted** — replaced by `instructionTemplate` const with FString `{FolderTree}` and `{Labels}` placeholders
+- `contextInjectionMiddleware.BeforeAgent` hydrates session values from DB (ListFolders, ListLabelsWithCounts)
+- Custom `GenModelInput` **removed** — eino's default FString-based `GenModelInput` now interpolates session values into the instruction template
+- `formatFolderTree()` and `formatLabels()` helper functions produce identical output to the old `buildSystemPrompt` formatting (including section headers inside the value, so empty → no orphan headers)
 
-### Implementation
+### Design decisions
 
-```go
-func (m *DBSessionMiddleware) BeforeAgent(ctx context.Context, agentCtx *adk.ChatModelAgentContext) (context.Context, *adk.ChatModelAgentContext, error) {
-    folders, _ := m.db.ListFolders(ctx, m.vaultID)
-    labels, _ := m.db.ListLabelsWithCounts(ctx, m.vaultID)
-
-    adk.AddSessionValues(ctx, map[string]any{
-        "FolderTree": formatFolderTree(folders),
-        "Labels":     formatLabels(labels),
-    })
-    return ctx, agentCtx, nil
-}
-```
-
-Instruction template:
-
-```
-You are a helpful knowledge assistant...
-
-Vault folder structure:
-{FolderTree}
-
-Vault labels:
-{Labels}
-```
+- **Extended `contextInjectionMiddleware`** rather than adding a 4th middleware — it already holds `vaultID` and `db`
+- **Default FString GenModelInput** — prompt has no literal curly braces, so FString works cleanly. Extra session keys (`token_usage`, `tool_records`) are ignored by pyfmt since they don't appear as `{key}` in the template
+- **Session values are plain strings** — no gob registration needed (string is a primitive)
+- **BeforeAgent re-runs on Resume** — folder tree / labels re-fetched from DB, which is correct (data may have changed during interruption)
 
 ### Key files
 
-| File | Lines | Change |
-|------|-------|--------|
-| `internal/agent/service.go:93-137` | 45 | buildSystemPrompt() replaced by template + middleware |
+| File | Change |
+|------|--------|
+| `internal/agent/middleware.go` | Added `BeforeAgent` to `contextInjectionMiddleware`, added `formatFolderTree` + `formatLabels` helpers |
+| `internal/agent/service.go` | Added `instructionTemplate` const, deleted `buildSystemPrompt`, removed custom `GenModelInput`, updated `buildAgent` signature + call sites |
+| `internal/agent/runner.go` | Updated `ResumeChat` call site (removed `buildSystemPrompt` + updated `buildAgent` args) |
 
 ### Effort: S
 
-Natural extension of Phase 3 middleware. Can be done in parallel with Phase 4.
+~45 lines removed, ~65 lines added.
 
 ---
 
@@ -389,13 +369,12 @@ Future work.
 ```
 Phase 1: InvokableTool ✅ ───┐
                               ├─→ Phase 3: ADK ChatModelAgent ✅ ─┬─→ Phase 4: Interrupt/Resume ✅
-Phase 2: Callbacks ✅ ───────┘                                    └─→ Phase 5: Session + GenModelInput
+Phase 2: Callbacks ✅ ───────┘                                    └─→ Phase 5: Session + GenModelInput ✅
                                                                        Phase 6: RAG Chain (independent)
                                                                        Phase 7: Multi-Agent (future)
 ```
 
-- **Phases 1 + 2 + 3 + 4**: ✅ complete
-- **Phase 5**: next up
+- **Phases 1 + 2 + 3 + 4 + 5**: ✅ complete
 - **Phase 6**: independent, after Phase 3 stabilizes
 - **Phase 7**: future, after all above stable
 
@@ -405,10 +384,10 @@ Phase 2: Callbacks ✅ ───────┘                                 
 
 | File | Lines | Role | Phases |
 |------|-------|------|--------|
-| `internal/agent/service.go` | ~660 | ADK agent construction, event consumption, persistence, interrupt handling | ✅ 3, 4, 5 |
+| `internal/agent/service.go` | ~630 | ADK agent construction, event consumption, persistence, interrupt handling | ✅ 3, 4, 5 |
 | `internal/agent/handler.go` | ~346 | REST API endpoints (HandleApproval moved to Runner) | ✅ 3, 4 |
 | `internal/agent/runner.go` | ~331 | Background execution, SSE event replay, `Resume()` for interrupt/resume | ✅ 3, 4 |
-| `internal/agent/middleware.go` | ~284 | ADK middleware + sessionDumpAgent wrapper (simplified in Phase 4) | ✅ 3, 4 |
+| `internal/agent/middleware.go` | ~350 | ADK middleware + sessionDumpAgent wrapper (BeforeAgent + formatters added in Phase 5) | ✅ 3, 4, 5 |
 | `internal/agent/approval_tool.go` | ~149 | `approvalToolWrapper` — interrupt/resume lifecycle for write tools | ✅ 4 |
 | `internal/agent/events.go` | ~73 | Custom event types, TokenUsage, ToolRecord, AgentResult, gob registration | ✅ 3, 4 |
 | `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool | ✅ 3 |
@@ -433,7 +412,7 @@ Phase 2: Callbacks ✅ ───────┘                                 
 | Phase 2 ✅ | 0 (additive — manual timing kept for providers without callbacks) | ~60 (callback handler) + ~50 (tests) | +110 |
 | Phase 3 ✅ | 376 (Chat loop + GenerateStreamWithTools + buildTools + executeTool) | 515 (middleware + events + agent wiring) | +139 |
 | Phase 4 ✅ | 236 (approval registry + channel blocking + approval_test.go) | 300 (modified) + 222 (3 new files) | +286 |
-| Phase 5 | ~45 (buildSystemPrompt) | ~30 (session middleware) | -15 |
-| **Total** | **~1311** | **~2095** | **+784** |
+| Phase 5 ✅ | ~45 (buildSystemPrompt + custom GenModelInput) | ~65 (BeforeAgent + formatters + template const) | +20 |
+| **Total** | **~1356** | **~2130** | **+774** |
 
 Net increase of ~784 lines, but the new code is composable, testable middleware with proper error handling, race protection, and crash-resilient checkpoint persistence — replacing monolithic orchestration with in-memory state.
