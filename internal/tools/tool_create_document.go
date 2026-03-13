@@ -1,0 +1,84 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/schema"
+	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/knowhow/internal/document"
+	"github.com/raphi011/knowhow/internal/models"
+)
+
+// CreateDocumentTool implements tool.InvokableTool for creating new documents.
+type CreateDocumentTool struct {
+	db         *db.Client
+	docService *document.Service
+}
+
+func (t *CreateDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: "create_document",
+		Desc: "Create a new document in the knowledge base. The content should be markdown. Fails if a document already exists at the given path.",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"path": {
+				Type:     schema.String,
+				Desc:     "Document path (e.g. /guides/new-guide.md)",
+				Required: true,
+			},
+			"content": {
+				Type:     schema.String,
+				Desc:     "Full markdown content for the document",
+				Required: true,
+			},
+		}),
+	}, nil
+}
+
+func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
+	o := getToolOptions(opts...)
+
+	var args struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
+		return "", fmt.Errorf("parse create_document input: %w", err)
+	}
+	if args.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if args.Content == "" {
+		return "", fmt.Errorf("content is required")
+	}
+
+	existing, err := t.db.GetDocumentByPath(ctx, o.VaultID, args.Path)
+	if err != nil {
+		return "", fmt.Errorf("check existing document: %w", err)
+	}
+	if existing != nil {
+		return "", &ToolError{Message: fmt.Sprintf("document already exists at path: %s", args.Path)}
+	}
+
+	start := time.Now()
+	doc, err := t.docService.Create(ctx, models.DocumentInput{
+		VaultID: o.VaultID,
+		Path:    args.Path,
+		Content: args.Content,
+		Source:  models.SourceAIGenerated,
+	})
+	durationMs := time.Since(start).Milliseconds()
+	if err != nil {
+		return "", fmt.Errorf("create document: %w", err)
+	}
+
+	setResultMeta(ctx, &ToolResultMeta{
+		DurationMs:    durationMs,
+		DocumentPath:  &doc.Path,
+		DocumentTitle: &doc.Title,
+	})
+	return fmt.Sprintf("Document created: %s (%s)", doc.Title, doc.Path), nil
+}

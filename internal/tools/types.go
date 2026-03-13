@@ -27,8 +27,3 @@ type ToolWebRef struct {
 	Title string `json:"title"`
 	URL   string `json:"url"`
 }
-
-// IntPtr returns a pointer to the given int value.
-//
-//go:fix inline
-func IntPtr(v int) *int { return new(v) }

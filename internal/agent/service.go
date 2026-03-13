@@ -94,11 +94,13 @@ func (s *Service) Available() bool {
 func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string {
 	base := `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
 
-- Use kb_search to find relevant documents in the knowledge base
+- Use search to find relevant documents in the knowledge base
 - Use read_document to read the full content of a specific document by path
 - Use list_labels to discover available labels/categories
 - Use list_folders to browse the folder structure
 - Use list_folder_contents to see documents in a specific folder
+- Use get_document_versions to see version history for a document
+- Use create_memory to save important information for later recall (e.g. decisions, insights, project context)
 - If the knowledge base has no results, tell the user and offer to search the web
 - NEVER call web_search without the user's explicit permission
 - Always cite document paths when referencing information from the knowledge base
@@ -109,7 +111,7 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 
 	folders, err := s.db.ListFolders(ctx, vaultID)
 	if err != nil {
-		slog.Warn("failed to list folders for system prompt", "vault_id", vaultID, "error", err)
+		logutil.FromCtx(ctx).Warn("failed to list folders for system prompt", "vault_id", vaultID, "error", err)
 	} else if len(folders) > 0 {
 		sb.WriteString("\n\nVault folder structure:\n```\n/\n")
 		for _, f := range folders {
@@ -125,7 +127,7 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 
 	labelCounts, err := s.db.ListLabelsWithCounts(ctx, vaultID)
 	if err != nil {
-		slog.Warn("failed to list labels for system prompt", "vault_id", vaultID, "error", err)
+		logutil.FromCtx(ctx).Warn("failed to list labels for system prompt", "vault_id", vaultID, "error", err)
 	} else if len(labelCounts) > 0 {
 		sb.WriteString("\n\nVault labels:\n")
 		for _, lc := range labelCounts {
@@ -137,137 +139,21 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 }
 
 // buildTools returns the tool definitions for native tool calling.
-func (s *Service) buildTools() []*schema.ToolInfo {
-	tools := []*schema.ToolInfo{
-		{
-			Name: "kb_search",
-			Desc: "Search the knowledge base for relevant documents",
-			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-				"query": {
-					Type:     schema.String,
-					Desc:     "The search query",
-					Required: true,
-				},
-			}),
-		},
-		{
-			Name: "read_document",
-			Desc: "Read the full content of a specific document by its path. Set sections=true to include a section outline for use with edit_document_section.",
-			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-				"path": {
-					Type:     schema.String,
-					Desc:     "The document path (e.g. /folder/document-name)",
-					Required: true,
-				},
-				"sections": {
-					Type: schema.Boolean,
-					Desc: "Include section outline for targeted editing",
-				},
-			}),
-		},
-		{
-			Name:        "list_labels",
-			Desc:        "List all labels/categories used across documents in the knowledge base",
-			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
-		},
-		{
-			Name: "list_folders",
-			Desc: "List the folder structure of the knowledge base. Optionally filter to immediate children of a parent folder.",
-			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-				"parent": {
-					Type: schema.String,
-					Desc: "Parent folder path to list children of (e.g. /guides/). Lists all folders if omitted.",
-				},
-			}),
-		},
-		{
-			Name: "list_folder_contents",
-			Desc: "List documents and subfolders in a specific folder. Returns immediate children only.",
-			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-				"folder": {
-					Type:     schema.String,
-					Desc:     "Folder path (e.g. /guides/)",
-					Required: true,
-				},
-			}),
-		},
-	}
-
-	if s.docService != nil {
-		tools = append(tools,
-			&schema.ToolInfo{
-				Name: "create_document",
-				Desc: "Create a new document in the knowledge base. The content should be markdown. Fails if a document already exists at the given path.",
-				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-					"path": {
-						Type:     schema.String,
-						Desc:     "Document path (e.g. /guides/new-guide.md)",
-						Required: true,
-					},
-					"content": {
-						Type:     schema.String,
-						Desc:     "Full markdown content for the document",
-						Required: true,
-					},
-				}),
-			},
-			&schema.ToolInfo{
-				Name: "edit_document",
-				Desc: "Edit an existing document by replacing its full content. Read the document first to get the current content, then modify and pass the complete new content.",
-				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-					"path": {
-						Type:     schema.String,
-						Desc:     "Document path of the existing document",
-						Required: true,
-					},
-					"content": {
-						Type:     schema.String,
-						Desc:     "Complete new markdown content (replaces existing content entirely)",
-						Required: true,
-					},
-				}),
-			},
-			&schema.ToolInfo{
-				Name: "edit_document_section",
-				Desc: "Edit a specific section of a document by heading, without sending the full content. Use read_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations.",
-				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-					"path": {
-						Type:     schema.String,
-						Desc:     "Document path",
-						Required: true,
-					},
-					"operation": {
-						Type:     schema.String,
-						Desc:     "One of: replace, insert_after, insert_before, delete, append",
-						Required: true,
-					},
-					"heading": {
-						Type: schema.String,
-						Desc: "Target section heading (empty string for preamble, omit for append)",
-					},
-					"position": {
-						Type: schema.Integer,
-						Desc: "Disambiguation index for duplicate headings (default 0)",
-					},
-					"content": {
-						Type: schema.String,
-						Desc: "New section body (required for replace, insert, append)",
-					},
-					"new_heading": {
-						Type: schema.String,
-						Desc: "Heading text for insert/append operations",
-					},
-					"new_level": {
-						Type: schema.Integer,
-						Desc: "Heading level 1-6 for insert/append operations",
-					},
-				}),
-			},
-		)
+// Tool definitions come from the shared executor's InvokableTool
+// implementations; web_search is added here since it's agent-only.
+func (s *Service) buildTools(ctx context.Context) []*schema.ToolInfo {
+	var infos []*schema.ToolInfo
+	for _, t := range s.executor.Tools() {
+		info, err := t.Info(ctx)
+		if err != nil {
+			logutil.FromCtx(ctx).Warn("failed to get tool info", "tool_type", fmt.Sprintf("%T", t), "error", err)
+			continue
+		}
+		infos = append(infos, info)
 	}
 
 	if s.tavily != nil {
-		tools = append(tools, &schema.ToolInfo{
+		infos = append(infos, &schema.ToolInfo{
 			Name: "web_search",
 			Desc: "Search the web for information not found in the knowledge base. Only call this after the user explicitly asks to search the web.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
@@ -280,7 +166,7 @@ func (s *Service) buildTools() []*schema.ToolInfo {
 		})
 	}
 
-	return tools
+	return infos
 }
 
 // buildMessages converts DB messages to eino schema messages.
@@ -443,7 +329,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	var toolCallRecords []toolCallRecord
 	var answer strings.Builder
 
-	tools := s.buildTools()
+	tools := s.buildTools(ctx)
 
 	// 6. Call GenerateStreamWithTools
 	usage, err := model.GenerateStreamWithTools(ctx, messages, tools,
@@ -649,21 +535,9 @@ func buildUserMessage(content string, imageAtts []models.ChatAttachment) *schema
 	}
 }
 
-// agentToolToCanonical maps agent-specific tool names to canonical executor names.
-var agentToolToCanonical = map[string]string{
-	"kb_search":             "search",
-	"read_document":         "read_document",
-	"list_labels":           "list_labels",
-	"list_folders":          "list_folders",
-	"list_folder_contents":  "list_folder_contents",
-	"create_document":       "create_document",
-	"edit_document":         "edit_document",
-	"edit_document_section": "edit_document_section",
-}
-
 // isWriteTool returns true for tools that modify documents.
 func isWriteTool(name string) bool {
-	return name == "create_document" || name == "edit_document" || name == "edit_document_section"
+	return name == "create_document" || name == "edit_document" || name == "edit_document_section" || name == "create_memory"
 }
 
 // buildApprovalRequest computes the diff for a write tool call.
@@ -736,19 +610,13 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 }
 
 // executeTool executes a named tool with the given JSON arguments string.
-// It maps agent-specific tool names to canonical names and delegates to the
-// shared executor, except for web_search which is agent-specific.
+// web_search is agent-only; all others delegate to the shared executor.
 func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments string) (string, *tools.ToolResultMeta, error) {
 	if toolName == "web_search" {
 		return s.execWebSearch(ctx, arguments)
 	}
 
-	canonical, ok := agentToolToCanonical[toolName]
-	if !ok {
-		return "", nil, fmt.Errorf("unknown tool: %s", toolName)
-	}
-
-	return s.executor.ExecuteTool(ctx, vaultID, canonical, arguments)
+	return s.executor.ExecuteTool(ctx, vaultID, toolName, arguments)
 }
 
 func (s *Service) execWebSearch(ctx context.Context, arguments string) (string, *tools.ToolResultMeta, error) {
