@@ -68,7 +68,7 @@ func (t *ListFoldersTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 	if result == "" {
 		result = "No folders found."
 	}
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:  durationMs,
 		ResultCount: new(len(folders)),
 	})

@@ -67,7 +67,7 @@ func (t *SearchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 		result = "No results found."
 	}
 
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:  durationMs,
 		ResultCount: new(len(results)),
 		ChunkCount:  new(totalChunks),

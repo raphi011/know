@@ -328,6 +328,11 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 	return resp.Content, nil
 }
 
+// BaseChatModel returns the underlying eino chat model for use with ADK agents.
+func (m *Model) BaseChatModel() model.BaseChatModel {
+	return m.chatModel
+}
+
 // Model returns the LLM model name.
 func (m *Model) Model() string {
 	return m.modelName
@@ -545,14 +550,8 @@ type TokenUsage struct {
 	FinalPromptTokens int64 // prompt tokens from the final iteration (context fill level)
 }
 
-// GenerateStreamWithTools runs an agentic loop: stream LLM output, invoke tools when requested,
-// and continue until the model produces a final text response or the iteration limit is reached.
-//
-// onToken is called for each streamed text chunk. onToolCall is called for each tool invocation
-// and must return the tool result string. If onToolCall is nil and a tool call is received, an
-// error is returned.
-//
-// Returns cumulative token usage across all iterations.
+// GenerateStreamWithTools is deprecated — ADK ChatModelAgent handles the ReAct loop now.
+// This stub exists only to keep the build working until service.go is rewritten (Phase 3).
 func (m *Model) GenerateStreamWithTools(
 	ctx context.Context,
 	messages []*schema.Message,
@@ -560,104 +559,7 @@ func (m *Model) GenerateStreamWithTools(
 	onToken func(token string) error,
 	onToolCall func(call schema.ToolCall) (string, error),
 ) (TokenUsage, error) {
-	opts := []model.Option{model.WithMaxTokens(8192)}
-	if len(tools) > 0 {
-		opts = append(opts, model.WithTools(tools))
-	}
-
-	// Work on a copy so the caller's slice is not mutated.
-	msgs := make([]*schema.Message, len(messages))
-	copy(msgs, messages)
-
-	var usage TokenUsage
-	start := time.Now()
-	defer func() {
-		if m.metrics != nil && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
-			m.metrics.RecordLLMUsage(metrics.OpLLMStream, time.Since(start), usage.InputTokens, usage.OutputTokens)
-		}
-	}()
-
-	const maxIterations = 10
-	for i := range maxIterations {
-		sr, err := m.chatModel.Stream(ctx, msgs, opts...)
-		if err != nil {
-			return usage, wrapFatalError(fmt.Errorf("generate stream with tools (iteration %d): %w", i, err))
-		}
-
-		var allMsgs []*schema.Message
-
-		for {
-			msg, recvErr := sr.Recv()
-			if errors.Is(recvErr, io.EOF) {
-				break
-			}
-			if recvErr != nil {
-				sr.Close()
-				return usage, wrapFatalError(fmt.Errorf("generate stream with tools recv (iteration %d): %w", i, recvErr))
-			}
-			if msg.Content != "" {
-				if tokenErr := onToken(msg.Content); tokenErr != nil {
-					sr.Close()
-					return usage, fmt.Errorf("streaming token callback: %w", tokenErr)
-				}
-			}
-			allMsgs = append(allMsgs, msg)
-		}
-		sr.Close()
-
-		if len(allMsgs) == 0 {
-			return usage, fmt.Errorf("generate stream with tools (iteration %d): model returned empty stream", i)
-		}
-
-		// Merge all streaming fragments into a single message.
-		// The eino claude adapter emits tool calls as separate chunks:
-		// ContentBlockStart (ID + name) followed by ContentBlockDeltas
-		// (partial JSON args). ConcatMessages merges these by ToolCall.Index.
-		merged, mergeErr := schema.ConcatMessages(allMsgs)
-		if mergeErr != nil {
-			return usage, fmt.Errorf("generate stream with tools merge (iteration %d): %w", i, mergeErr)
-		}
-
-		// Extract token usage from the merged message. The eino claude adapter
-		// splits usage across events: MessageStartEvent carries PromptTokens,
-		// MessageDeltaEvent carries CompletionTokens. ConcatMessages keeps the
-		// max of each field, so the merged result has both.
-		if merged.ResponseMeta != nil && merged.ResponseMeta.Usage != nil {
-			promptTokens := int64(merged.ResponseMeta.Usage.PromptTokens)
-			usage.InputTokens += promptTokens
-			usage.OutputTokens += int64(merged.ResponseMeta.Usage.CompletionTokens)
-			// Overwrite each iteration — the final value reflects the actual context fill level.
-			usage.FinalPromptTokens = promptTokens
-		}
-
-		// No tool calls — model produced a final answer.
-		if len(merged.ToolCalls) == 0 {
-			return usage, nil
-		}
-
-		if onToolCall == nil {
-			return usage, fmt.Errorf("model requested tool call but onToolCall is nil")
-		}
-
-		// Append assistant turn with the tool calls.
-		logger := logutil.FromCtx(ctx)
-		for _, tc := range merged.ToolCalls {
-			logger.Debug("tool call", "iteration", i, "id", tc.ID, "name", tc.Function.Name, "index", tc.Index)
-		}
-		msgs = append(msgs, schema.AssistantMessage(merged.Content, merged.ToolCalls))
-
-		// Execute each tool and append results.
-		for _, tc := range merged.ToolCalls {
-			result, toolErr := onToolCall(tc)
-			if toolErr != nil {
-				msgs = append(msgs, schema.ToolMessage(fmt.Sprintf("error: %v", toolErr), tc.ID))
-			} else {
-				msgs = append(msgs, schema.ToolMessage(result, tc.ID))
-			}
-		}
-	}
-
-	return usage, fmt.Errorf("generate stream with tools: exceeded maximum iterations (%d)", maxIterations)
+	panic("GenerateStreamWithTools is deprecated: use ADK ChatModelAgent instead")
 }
 
 // ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).

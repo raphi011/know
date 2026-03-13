@@ -12,6 +12,7 @@ This project is in active development with no production users. **Don't worry ab
 - **TUI**: Bubbletea v2, Bubbles v2, Glamour, Lipgloss v2
 - **WebDAV**: `golang.org/x/net/webdav` for document editing with any editor
 - **Protocol**: MCP (Model Context Protocol)
+- **Go version**: 1.26 — `new(value)` creates a pointer to a value (e.g. `new(42)` returns `*int` pointing to 42, `new(len(s))` returns `*int`). This replaces the old `func ptr[T any](v T) *T` helper pattern.
 
 ## Commands
 

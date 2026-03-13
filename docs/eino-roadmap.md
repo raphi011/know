@@ -21,15 +21,15 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | `components/embedding` | `Embedder` (EmbedStrings) |
 | `eino-ext` | `model/claude`, `model/openai`, `model/gemini`, `model/ollama`, `embedding/*` |
 
-### What we do NOT use
+### What we do NOT use (yet)
 
 | eino Feature | Status |
 |-------------|--------|
-| ADK (`ChatModelAgent`, `Runner`) | Not used — custom agent loop |
-| `compose.*` (Graph, Chain, ToolsNode) | Not used — manual tool dispatch |
+| ADK (`ChatModelAgent`, `Runner`) | 🔧 Phase 3 in progress — replacing custom agent loop |
+| `compose.*` (Graph, Chain, ToolsNode) | 🔧 Phase 3 in progress — ADK uses ToolsNode internally |
 | `callbacks.Handler` | ✅ Used — global observability handler (Phase 2) |
-| Interrupt/Resume, CheckPointStore | Not used — in-memory approval channels |
-| Session management (AddSessionValue) | Not used — manual prompt building |
+| Interrupt/Resume, CheckPointStore | Not used — in-memory approval channels (Phase 4) |
+| Session management (AddSessionValue) | Not used — manual prompt building (Phase 5) |
 | `tool.InvokableTool` | ✅ Used — registry-based dispatch (Phase 1) |
 | `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries |
 
@@ -68,7 +68,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 
 ### Design decisions (as implemented)
 
-- `ToolResultMeta` returned via context (`WithResultMeta`/`ResultMeta`/`setResultMeta`) since `InvokableRun` returns `(string, error)`
+- `ToolResultMeta` returned via context (`WithResultMeta`/`ResultMeta`/`SetResultMeta`) since `InvokableRun` returns `(string, error)`
 - Vault ID passed via `tool.Option` using eino's `WrapImplSpecificOptFn` pattern (`WithVaultID`)
 - The `ToolExecutor` interface (`ExecuteTool(ctx, vaultID, name, args)`) remains for the remote proxy
 - ToolsNode not wired yet — that happens in Phase 3 when ADK `ChatModelAgent` manages the tool dispatch loop
@@ -116,58 +116,98 @@ Additive, no behavioral changes.
 
 ---
 
-## Phase 3: ADK ChatModelAgent Migration
+## Phase 3: ADK ChatModelAgent Migration (in progress)
 
 **Goal**: Replace the custom agent loop with `ChatModelAgent`. This is the biggest change.
 
-### What changes
+**Key constraint**: Keep approval channel-based (Phase 4 converts to interrupt/resume). Keep SSE event types/structure unchanged (TUI depends on them).
 
-- `agent.Service.Chat()` (~290 lines) replaced by `ChatModelAgent.Run()` via `adk.Runner`
-- `llm.Model.GenerateStreamWithTools()` (~110 lines) eliminated — ADK handles the ReAct loop
-- System prompt via `ChatModelAgentConfig.Instruction` + `GenModelInput`
-- Message history: ADK manages `ChatModelAgentState.Messages` internally
-- SSE streaming via `AsyncIterator[*AgentEvent]` → our SSE event emitter
-- Max iterations via `ChatModelAgentConfig.MaxIterations` (replaces `const maxIterations = 10`)
-- Retry with backoff via `ModelRetryConfig`
+### What's done so far
+
+- `llm.Model.GenerateStreamWithTools()` (~110 lines) replaced by deprecated stub — ADK handles the ReAct loop
+- `llm.Model.BaseChatModel()` accessor **added** — exposes underlying model for ADK
+- `llm/tools_test.go` **deleted** — tests for the removed method
+- `web_search` extracted to `agent/websearch_tool.go` as `WebSearchTool` implementing `tool.InvokableTool`
+- `tools.SetResultMeta` **exported** (was `setResultMeta`) — needed by `WebSearchTool` in `agent` package
+- `internal/agent/middleware.go` **created** with 3 middleware structs (see below)
+
+### What changes (remaining)
+
+- `agent.Service.Chat()` (~290 lines) rewritten to use `ChatModelAgent.Run()` via `adk.Runner`
+- New `buildAgent()` method constructs per-request agent with middleware
+- `buildTools()`, `executeTool()`, `execWebSearch()` to be removed from service.go
+- Per-token SSE streaming via `AsyncIterator` consumption in `Chat()`
 
 ### Middleware stack
 
-Each middleware is a separate struct embedding `*adk.BaseChatModelAgentMiddleware`:
+3 middlewares, each embedding `*adk.BaseChatModelAgentMiddleware`:
 
 | # | Middleware | Hook | Purpose |
 |---|-----------|------|---------|
-| 1 | `DBSessionMiddleware` | `BeforeAgent` | Hydrate session values from DB (folders, labels) for system prompt interpolation |
-| 2 | `DocRefMiddleware` | `BeforeModelRewriteState` | Inject doc refs + text attachments as messages before each model call |
-| 3 | `ImageAttachmentMiddleware` | `BeforeModelRewriteState` | Build multimodal user messages with image attachments |
-| 4 | `ApprovalMiddleware` | `WrapInvokableToolCall` | Gate write tools on user approval (Phase 4 upgrades to interrupt/resume) |
-| 5 | `PersistenceMiddleware` | `AfterModelRewriteState` | Persist assistant messages + tool call records to SurrealDB |
-| 6 | `TokenTrackingMiddleware` | `AfterModelRewriteState` | Accumulate + persist token usage on conversation |
+| 1 | `contextInjectionMiddleware` | `BeforeModelRewriteState` | Inject doc refs + text attachments as messages before first model call |
+| 2 | `tokenTrackingMiddleware` | `AfterModelRewriteState` | Accumulate token usage from `ResponseMeta.Usage` across iterations |
+| 3 | `toolExecutionMiddleware` | `WrapInvokableToolCall` | Gate write tools on approval, emit tool_start/tool_end SSE, inject `WithResultMeta`/`WithVaultID`, record tool calls |
 
-SSE streaming is handled by iterating the `AsyncIterator[*AgentEvent]` in the REST handler and mapping `AgentEvent` types to our `StreamEvent` types.
+### SSE streaming approach
 
-### Agent construction
+Per-token streaming is handled by consuming the `AsyncIterator[*AgentEvent]` returned by `runner.Run()` — the **native Eino pattern**. The ADK's built-in `eventSenderModel` already sends streaming `MessageOutput` events:
+
+```go
+iter := runner.Run(ctx, messages)
+for event, ok := iter.Next(); ok; event, ok = iter.Next() {
+    if event.Err != nil { break }
+    if event.Output != nil && event.Output.MessageOutput != nil {
+        mv := event.Output.MessageOutput
+        if mv.IsStreaming && mv.MessageStream != nil {
+            // Consume MessageStream chunk-by-chunk → emit per-token SSE
+            for {
+                msg, err := mv.MessageStream.Recv()
+                if errors.Is(err, io.EOF) { break }
+                if err != nil { break }
+                answer.WriteString(msg.Content)
+                emit(StreamEvent{Type: "text", Content: msg.Content})
+            }
+        } else if mv.Message != nil {
+            // Non-streaming: full message at once
+            answer.WriteString(mv.Message.Content)
+            emit(StreamEvent{Type: "text", Content: mv.Message.Content})
+        }
+    }
+}
+```
+
+**Design decision**: We initially planned a `sseStreamMiddleware` using `WrapModel` to tap the raw stream. Dropped it because the `AsyncIterator` is the native Eino consumer interface — `eventSenderModel` already sends streaming events through it. Using `WrapModel` to sidestep that duplicates the framework's event system.
+
+### Agent construction (per-request)
+
+The agent is constructed per-request because middlewares carry per-request state (emit callback, toolRecords, approval registry). Creating a `ChatModelAgent` is cheap — the react graph compiles lazily on first `Run()`.
 
 ```go
 agent, _ := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
     Name:        "knowhow-assistant",
-    Instruction: baseInstruction, // static part
-    Model:       chatModel,
+    Description: "Knowledge base assistant",
+    Model:       m.BaseChatModel(),
     ToolsConfig: adk.ToolsConfig{
         ToolsNodeConfig: compose.ToolsNodeConfig{
-            Tools: tools, // []tool.BaseTool from Phase 1
+            Tools: allTools, // executor.Tools() + WebSearchTool
         },
     },
-    GenModelInput: customGenModelInput, // avoids FString conflicts
+    GenModelInput: func(ctx context.Context, instruction string, input *adk.AgentInput) ([]*schema.Message, error) {
+        // Custom: prepend system message, skip FString interpolation
+        msgs := make([]*schema.Message, 0, len(input.Messages)+1)
+        if instruction != "" {
+            msgs = append(msgs, schema.SystemMessage(instruction))
+        }
+        msgs = append(msgs, input.Messages...)
+        return msgs, nil
+    },
+    Instruction:   systemPrompt,
     MaxIterations: 10,
     Handlers: []adk.ChatModelAgentMiddleware{
-        dbSessionMiddleware,
-        docRefMiddleware,
-        imageAttachmentMiddleware,
-        approvalMiddleware,
-        persistenceMiddleware,
-        tokenTrackingMiddleware,
+        contextInjection,
+        tokenTracking,
+        toolExecution,
     },
-    ModelRetryConfig: &adk.ModelRetryConfig{...},
 })
 
 runner := adk.NewRunner(ctx, adk.RunnerConfig{
@@ -176,46 +216,22 @@ runner := adk.NewRunner(ctx, adk.RunnerConfig{
 })
 ```
 
-### SSE event mapping
-
-```go
-iter := runner.Run(ctx, messages)
-for {
-    event, err := iter.Recv()
-    if err == io.EOF { break }
-    if event.Output != nil && event.Output.MessageOutput != nil {
-        mv := event.Output.MessageOutput
-        if mv.IsStreaming {
-            // Stream tokens to SSE
-        } else {
-            // Final message
-        }
-    }
-    if event.Action != nil && event.Action.Interrupted != nil {
-        // Approval required (Phase 4)
-    }
-}
-```
-
 ### Key files
 
 | File | Lines | Change |
 |------|-------|--------|
-| `internal/agent/service.go` | 804 | Chat() rewritten, buildTools/buildMessages/buildSystemPrompt removed |
-| `internal/llm/model.go` | 691 | GenerateStreamWithTools() removed |
-| `internal/agent/handler.go` | 324 | REST handler adapts to AsyncIterator |
-| `internal/agent/runner.go` | 181 | Background execution adapts to ADK Runner |
-| New: `internal/agent/middleware.go` | ~200 | All middleware implementations |
+| `internal/llm/model.go` | +5/-114 | `BaseChatModel()` added, `GenerateStreamWithTools()` replaced by deprecated stub |
+| `internal/agent/service.go` | (remaining) | Chat() to be rewritten, +buildAgent(), -buildTools/executeTool/execWebSearch |
+| New: `internal/agent/middleware.go` | ~240 | 3 middleware structs |
+| New: `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool |
 
-### Risks & mitigations
+### Unchanged files
 
-| Risk | Mitigation |
-|------|-----------|
-| SSE streaming granularity — ADK `AsyncIterator` may emit per-message not per-token | ADK's `eventSenderModelWrapper` sends streaming events; iterate inner `MessageStream` for per-token SSE |
-| Multimodal messages | `AgentInput.Messages` supports `UserInputMultiContent` — should work as-is |
-| Token accumulation across iterations | ADK tracks per-iteration via `ResponseMeta`; use `AfterModelRewriteState` to accumulate |
-| MCP tools sharing | MCP server uses `ToolExecutor` interface independently — decouple from agent-specific middleware |
-| Auto-title on first message | Move to `AfterModelRewriteState` or keep as a post-run goroutine |
+- `handler.go` — HTTP handlers unchanged (still calls `s.service.Chat(bgCtx, req, emit)`)
+- `runner.go` — `Runner.Start()` still calls `s.service.Chat()`, unchanged
+- `approval.go` — channel-based approval unchanged (Phase 4 converts to interrupt/resume)
+- `tools/executor.go` — tool registry unchanged
+- `tools/tool_*.go` — all InvokableTool implementations unchanged
 
 ### Effort: L
 
@@ -418,15 +434,18 @@ Phase 2: Callbacks ✅ ──────────────────┘
 
 | File | Lines | Role | Phases |
 |------|-------|------|--------|
-| `internal/agent/service.go` | ~650 | Custom agent loop, system prompt, message assembly | 3, 5 |
-| `internal/llm/model.go` | 691 | LLM wrapper, GenerateStreamWithTools, token tracking | ✅ 2, 3 |
+| `internal/agent/service.go` | ~650 | Custom agent loop, system prompt, message assembly | 🔧 3, 5 |
+| `internal/agent/middleware.go` | ~240 | ADK middleware (context injection, token tracking, tool execution) | 🔧 3 |
+| `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool | 🔧 3 |
+| `internal/llm/model.go` | ~580 | LLM wrapper, BaseChatModel() accessor | ✅ 2, 🔧 3 |
 | `internal/tools/executor.go` | ~110 | Registry-based tool dispatch via InvokableTool | ✅ 1 |
 | `internal/tools/tool_*.go` | ~900 | Individual InvokableTool implementations (10 tools) | ✅ 1 |
+| `internal/tools/meta.go` | ~40 | Context-based ToolResultMeta passing (SetResultMeta exported) | ✅ 1, 🔧 3 |
 | `internal/mcptools/tools.go` | 561 | MCP tool bridge (shares executor) | ✅ 1 (unchanged) |
 | `internal/search/service.go` | 441 | Hybrid BM25+vector search | 6 |
-| `internal/agent/handler.go` | 324 | REST API endpoints | 3 |
+| `internal/agent/handler.go` | 324 | REST API endpoints | 🔧 3 |
 | `internal/metrics/collector.go` | 203 | Metrics collection | ✅ 2 |
-| `internal/agent/runner.go` | 181 | Background execution + SSE event replay | 3, 4 |
+| `internal/agent/runner.go` | 181 | Background execution + SSE event replay | 🔧 3, 4 |
 | `internal/agent/approval.go` | 83 | In-memory approval registry | 4 |
 
 ---

@@ -94,7 +94,7 @@ func (t *CreateMemoryTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("create memory: %w", err)
 	}
 
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,

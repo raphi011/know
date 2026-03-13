@@ -83,7 +83,7 @@ func (t *EditDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("edit document: %w", err)
 	}
 
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,

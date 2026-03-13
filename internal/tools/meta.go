@@ -2,7 +2,8 @@ package tools
 
 import (
 	"context"
-	"log/slog"
+
+	"github.com/raphi011/knowhow/internal/logutil"
 )
 
 type resultMetaKey struct{}
@@ -24,13 +25,13 @@ func ResultMeta(ctx context.Context) *ToolResultMeta {
 	return h.meta
 }
 
-// setResultMeta stores a ToolResultMeta in the context. Called by tool
+// SetResultMeta stores a ToolResultMeta in the context. Called by tool
 // implementations within InvokableRun. Callers must prepare the context
 // with WithResultMeta first; logs a warning if they didn't.
-func setResultMeta(ctx context.Context, meta *ToolResultMeta) {
+func SetResultMeta(ctx context.Context, meta *ToolResultMeta) {
 	h, ok := ctx.Value(resultMetaKey{}).(*metaHolder)
 	if !ok || h == nil {
-		slog.Warn("setResultMeta called without WithResultMeta context — metadata discarded")
+		logutil.FromCtx(ctx).Warn("SetResultMeta called without WithResultMeta context — metadata discarded")
 		return
 	}
 	h.meta = meta

@@ -38,7 +38,7 @@ func (t *ListLabelsTool) InvokableRun(ctx context.Context, _ string, opts ...too
 	if len(labels) > 0 {
 		result = strings.Join(labels, ", ")
 	}
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:  durationMs,
 		ResultCount: new(len(labels)),
 	})

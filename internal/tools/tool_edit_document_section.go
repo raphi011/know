@@ -144,7 +144,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 		headingDesc = *args.NewHeading
 	}
 
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,

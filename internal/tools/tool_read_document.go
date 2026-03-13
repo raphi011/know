@@ -55,7 +55,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("read document: %w", err)
 	}
 	if doc == nil {
-		setResultMeta(ctx, &ToolResultMeta{DurationMs: durationMs})
+		SetResultMeta(ctx, &ToolResultMeta{DurationMs: durationMs})
 		return fmt.Sprintf("Document not found: %s", input.Path), nil
 	}
 
@@ -90,7 +90,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	sb.WriteString(doc.ContentBody)
 
 	contentLen := len(doc.ContentBody)
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,

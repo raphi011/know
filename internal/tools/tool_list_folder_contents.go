@@ -87,7 +87,7 @@ func (t *ListFolderContentsTool) InvokableRun(ctx context.Context, argumentsInJS
 	if result == "" {
 		result = fmt.Sprintf("No contents found in folder %s", folder)
 	}
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:  durationMs,
 		ResultCount: new(count),
 	})

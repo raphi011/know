@@ -75,7 +75,7 @@ func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON s
 		return "", fmt.Errorf("create document: %w", err)
 	}
 
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,

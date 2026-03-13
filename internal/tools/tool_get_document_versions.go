@@ -103,7 +103,7 @@ func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJ
 		}
 	}
 
-	setResultMeta(ctx, &ToolResultMeta{
+	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:  durationMs,
 		ResultCount: new(totalCount),
 	})
