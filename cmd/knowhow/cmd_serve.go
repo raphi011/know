@@ -157,7 +157,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	mux.Handle("POST /agent/chat", authMw(app.AgentRunner().HandleChat()))
 	mux.Handle("GET /agent/events/{id}", authMw(app.AgentRunner().HandleEvents()))
 	mux.Handle("POST /agent/cancel/{id}", authMw(app.AgentRunner().HandleCancel()))
-	mux.Handle("POST /agent/approval", authMw(app.AgentService().HandleApproval()))
+	mux.Handle("POST /agent/approval", authMw(app.AgentRunner().HandleApproval()))
 
 	// REST API
 	apiServer := api.NewServer(app)

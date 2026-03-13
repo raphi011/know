@@ -27,19 +27,19 @@ func (s DocumentSource) Valid() bool {
 }
 
 type Document struct {
-	ID            surrealmodels.RecordID `json:"id"`
-	Vault         surrealmodels.RecordID `json:"vault"`
-	Path          string                 `json:"path"`
-	Title         string                 `json:"title"`
-	Content       string                 `json:"content"`
-	ContentBody   string                 `json:"content_body"`
-	ContentLength int                    `json:"content_length"`
-	Labels        []string               `json:"labels"`
-	DocType       *string                `json:"doc_type,omitempty"`
-	Source        DocumentSource         `json:"source"`
-	SourcePath    *string                `json:"source_path,omitempty"`
-	ContentHash   *string                `json:"content_hash,omitempty"`
-	Metadata      map[string]any         `json:"metadata,omitempty"`
+	ID             surrealmodels.RecordID `json:"id"`
+	Vault          surrealmodels.RecordID `json:"vault"`
+	Path           string                 `json:"path"`
+	Title          string                 `json:"title"`
+	Content        string                 `json:"content"`
+	ContentBody    string                 `json:"content_body"`
+	ContentLength  int                    `json:"content_length"`
+	Labels         []string               `json:"labels"`
+	DocType        *string                `json:"doc_type,omitempty"`
+	Source         DocumentSource         `json:"source"`
+	SourcePath     *string                `json:"source_path,omitempty"`
+	ContentHash    *string                `json:"content_hash,omitempty"`
+	Metadata       map[string]any         `json:"metadata,omitempty"`
 	Processed      bool                   `json:"processed"`
 	LastAccessedAt *time.Time             `json:"last_accessed_at,omitempty"`
 	AccessCount    int                    `json:"access_count"`

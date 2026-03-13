@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -376,20 +377,15 @@ func projectLabel(project string) string {
 
 func extractProject(labels []string) string {
 	for _, l := range labels {
-		if strings.HasPrefix(l, "project/") {
-			return strings.TrimPrefix(l, "project/")
+		if after, ok := strings.CutPrefix(l, "project/"); ok {
+			return after
 		}
 	}
 	return ""
 }
 
 func hasLabel(labels []string, name string) bool {
-	for _, l := range labels {
-		if l == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(labels, name)
 }
 
 func appendUnique(labels []string, name string) []string {

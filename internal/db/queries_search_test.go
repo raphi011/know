@@ -168,7 +168,7 @@ func TestSearchWithFolderFilter(t *testing.T) {
 	}
 }
 
-func TestChunkVectorSearch(t *testing.T) {
+func TestHybridSearch(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -178,12 +178,12 @@ func TestChunkVectorSearch(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID:     vaultID,
-		Path:        "/vector-search-" + suffix + ".md",
-		Title:       "Vector Search Doc",
-		Content:     "vector search content",
-		ContentBody: "vector search content",
+		Path:        "/hybrid-search-" + suffix + ".md",
+		Title:       "Hybrid Search Doc",
+		Content:     "hybrid search content for testing",
+		ContentBody: "hybrid search content for testing",
 		Source:      models.SourceManual,
-		Labels:      []string{},
+		Labels:      []string{"test"},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -192,20 +192,31 @@ func TestChunkVectorSearch(t *testing.T) {
 
 	embedding := dummyEmbedding()
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "vector search content", Position: 0, Embedding: embedding},
+		{DocumentID: docID, Content: "hybrid search content for testing", Position: 0, Embedding: embedding},
 	}); err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
 	}
 
-	results, err := testDB.ChunkVectorSearch(ctx, embedding, SearchFilter{
+	results, err := testDB.HybridSearch(ctx, "hybrid search", embedding, SearchFilter{
 		VaultID: vaultID,
 		Limit:   10,
 	})
 	if err != nil {
-		t.Fatalf("ChunkVectorSearch failed: %v", err)
+		t.Fatalf("HybridSearch failed: %v", err)
 	}
 	if len(results) == 0 {
-		t.Error("ChunkVectorSearch should return results for matching embedding")
+		t.Fatal("HybridSearch should return results")
+	}
+
+	r := results[0]
+	if r.DocTitle != "Hybrid Search Doc" {
+		t.Errorf("expected DocTitle 'Hybrid Search Doc', got %q", r.DocTitle)
+	}
+	if r.DocPath != "/hybrid-search-"+suffix+".md" {
+		t.Errorf("expected DocPath '/hybrid-search-%s.md', got %q", suffix, r.DocPath)
+	}
+	if len(r.DocLabels) != 1 || r.DocLabels[0] != "test" {
+		t.Errorf("expected DocLabels [test], got %v", r.DocLabels)
 	}
 }
 

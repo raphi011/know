@@ -42,14 +42,14 @@ const maxImageAttachmentSize = 10 << 20
 
 // Attachment holds a resolved file reference with its content.
 type Attachment struct {
-	Path     string   // original path as provided (before resolution)
-	AbsPath  string   // resolved absolute path
-	Content  string   // file text (for text files) or base64-encoded data (for images)
+	Path     string // original path as provided (before resolution)
+	AbsPath  string // resolved absolute path
+	Content  string // file text (for text files) or base64-encoded data (for images)
 	MimeType string
-	Language string   // code fence language hint (e.g. "go", "python")
+	Language string // code fence language hint (e.g. "go", "python")
 	Type     FileType
 	Size     int64
-	Error    string   // non-empty if file couldn't be read
+	Error    string // non-empty if file couldn't be read
 }
 
 // Name returns the basename of the resolved path.
@@ -188,51 +188,51 @@ func classifyFile(ext string) FileType {
 // langForExt maps file extensions to code fence language hints.
 func langForExt(ext string) string {
 	m := map[string]string{
-		".go":     "go",
-		".py":     "python",
-		".js":     "javascript",
-		".ts":     "typescript",
-		".tsx":    "tsx",
-		".jsx":    "jsx",
-		".rs":     "rust",
-		".rb":     "ruby",
-		".java":   "java",
-		".kt":     "kotlin",
-		".kts":    "kotlin",
-		".c":      "c",
-		".h":      "c",
-		".cpp":    "cpp",
-		".hpp":    "cpp",
-		".cs":     "csharp",
-		".swift":  "swift",
-		".scala":  "scala",
-		".sh":     "bash",
-		".bash":   "bash",
-		".zsh":    "zsh",
-		".fish":   "fish",
-		".ps1":    "powershell",
-		".md":     "markdown",
-		".json":   "json",
-		".yaml":   "yaml",
-		".yml":    "yaml",
-		".toml":   "toml",
-		".xml":    "xml",
-		".html":   "html",
-		".css":    "css",
-		".scss":   "scss",
-		".less":   "less",
-		".sql":    "sql",
+		".go":      "go",
+		".py":      "python",
+		".js":      "javascript",
+		".ts":      "typescript",
+		".tsx":     "tsx",
+		".jsx":     "jsx",
+		".rs":      "rust",
+		".rb":      "ruby",
+		".java":    "java",
+		".kt":      "kotlin",
+		".kts":     "kotlin",
+		".c":       "c",
+		".h":       "c",
+		".cpp":     "cpp",
+		".hpp":     "cpp",
+		".cs":      "csharp",
+		".swift":   "swift",
+		".scala":   "scala",
+		".sh":      "bash",
+		".bash":    "bash",
+		".zsh":     "zsh",
+		".fish":    "fish",
+		".ps1":     "powershell",
+		".md":      "markdown",
+		".json":    "json",
+		".yaml":    "yaml",
+		".yml":     "yaml",
+		".toml":    "toml",
+		".xml":     "xml",
+		".html":    "html",
+		".css":     "css",
+		".scss":    "scss",
+		".less":    "less",
+		".sql":     "sql",
 		".graphql": "graphql",
-		".gql":    "graphql",
-		".proto":  "protobuf",
-		".tf":     "terraform",
-		".hcl":    "hcl",
-		".lua":    "lua",
-		".vim":    "vim",
-		".r":      "r",
-		".jl":     "julia",
-		".zig":    "zig",
-		".nim":    "nim",
+		".gql":     "graphql",
+		".proto":   "protobuf",
+		".tf":      "terraform",
+		".hcl":     "hcl",
+		".lua":     "lua",
+		".vim":     "vim",
+		".r":       "r",
+		".jl":      "julia",
+		".zig":     "zig",
+		".nim":     "nim",
 	}
 	if lang, ok := m[ext]; ok {
 		return lang
@@ -303,4 +303,3 @@ func looksLikeFilePath(s string) bool {
 		strings.HasPrefix(s, "./") ||
 		strings.HasPrefix(s, "../")
 }
-

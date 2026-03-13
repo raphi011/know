@@ -167,7 +167,7 @@ func Load() Config {
 		BedrockEmbedModelProvider: getEnv("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
 
 		// LLM (default to Anthropic)
-		LLMProvider: LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "anthropic")),
+		LLMProvider:      LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "anthropic")),
 		LLMModel:         getEnv("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514"),
 		LLMContextWindow: llmContextWindow,
 

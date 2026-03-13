@@ -3,20 +3,19 @@ package search
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/models"
-
 	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/knowhow/internal/models"
 )
 
 // Service provides search with graceful degradation.
-// Base: BM25 fulltext on chunks (always). Semantic: chunk vector search (if embedder configured).
+// Base: BM25 fulltext on chunks (always). Semantic: hybrid BM25+vector via search::rrf (if embedder configured).
 type Service struct {
 	db       *db.Client
 	embedder atomic.Pointer[llm.Embedder] // optional
@@ -89,7 +88,7 @@ func truncateSnippet(s string, maxLen int) string {
 const maxLimit = 100
 
 // Search performs search with graceful degradation.
-// With embedder: hybrid search (BM25 chunks + vector chunks, RRF fusion).
+// With embedder: hybrid search via SurrealDB's search::rrf() (BM25 + vector, fused in DB).
 // Without embedder: BM25-only chunk search.
 func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult, error) {
 	limit := input.Limit
@@ -108,125 +107,84 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		Limit:   limit,
 	}
 
-	// Always run BM25 on chunks
-	bm25Chunks, err := s.db.BM25ChunkSearch(ctx, input.Query, filter)
-	if err != nil {
-		return nil, fmt.Errorf("bm25 chunk search: %w", err)
-	}
-
-	// If no embedder, aggregate BM25 chunks into results
+	// BM25-only path: no embedder or explicitly requested
 	embedder := s.getEmbedder()
 	if embedder == nil || input.BM25Only {
-		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, false)
+		chunks, err := s.db.BM25ChunkSearch(ctx, input.Query, filter)
+		if err != nil {
+			return nil, fmt.Errorf("bm25 chunk search: %w", err)
+		}
+		return assembleResults(ctx, chunks, limit, input.FullContent, false), nil
 	}
 
-	// Try embedding cache first
-	normalized := NormalizeQuery(input.Query)
-	var queryEmbedding []float32
+	logger := logutil.FromCtx(ctx)
+
+	// Hybrid path: embed query, then run fused BM25+vector search
+	queryEmbedding, err := s.embedQuery(ctx, *embedder, input.Query)
+	if err != nil {
+		logger.Warn("failed to embed query, falling back to BM25", "error", err)
+		chunks, bm25Err := s.db.BM25ChunkSearch(ctx, input.Query, filter)
+		if bm25Err != nil {
+			return nil, fmt.Errorf("bm25 fallback after embed failure (%v): %w", err, bm25Err)
+		}
+		return assembleResults(ctx, chunks, limit, input.FullContent, true), nil
+	}
+
+	chunks, err := s.db.HybridSearch(ctx, input.Query, queryEmbedding, filter)
+	if err != nil {
+		logger.Warn("hybrid search failed, falling back to BM25", "error", err)
+		chunks, bm25Err := s.db.BM25ChunkSearch(ctx, input.Query, filter)
+		if bm25Err != nil {
+			return nil, fmt.Errorf("bm25 fallback after hybrid failure (%v): %w", err, bm25Err)
+		}
+		return assembleResults(ctx, chunks, limit, input.FullContent, true), nil
+	}
+
+	return assembleResults(ctx, chunks, limit, input.FullContent, false), nil
+}
+
+// embedQuery returns the embedding for a query, using the cache when available.
+func (s *Service) embedQuery(ctx context.Context, embedder llm.Embedder, query string) ([]float32, error) {
+	logger := logutil.FromCtx(ctx)
+	normalized := NormalizeQuery(query)
 
 	cached, err := s.db.LookupQueryEmbedding(ctx, normalized)
 	if err != nil {
-		slog.Warn("embedding cache lookup failed", "error", err)
+		logger.Warn("embedding cache lookup failed", "error", err)
 	}
 
 	const cacheTimeout = 5 * time.Second
 
 	if cached != nil {
-		// Cache hit — use stored embedding
-		queryEmbedding = cached.Embedding
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
+			bgCtx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
 			defer cancel()
-			if err := s.db.UpsertQueryEmbedding(ctx, normalized, queryEmbedding); err != nil {
-				slog.Warn("failed to update embedding cache hit count", "error", err)
+			if err := s.db.UpsertQueryEmbedding(bgCtx, normalized, cached.Embedding); err != nil {
+				logger.Warn("failed to update embedding cache hit count", "error", err)
 			}
 		}()
-	} else {
-		// Cache miss — call embedder
-		queryEmbedding, err = embedder.Embed(ctx, input.Query)
-		if err != nil {
-			slog.Warn("failed to embed query, falling back to BM25", "error", err)
-			return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, true)
+		return cached.Embedding, nil
+	}
+
+	embedding, err := embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
+		defer cancel()
+		if err := s.db.UpsertQueryEmbedding(bgCtx, normalized, embedding); err != nil {
+			logger.Warn("failed to cache query embedding", "error", err)
 		}
-		// Store in cache (fire-and-forget)
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
-			defer cancel()
-			if err := s.db.UpsertQueryEmbedding(ctx, normalized, queryEmbedding); err != nil {
-				slog.Warn("failed to cache query embedding", "error", err)
-			}
-		}()
-	}
+	}()
 
-	// Search chunks for semantic matches
-	vectorChunks, err := s.db.ChunkVectorSearch(ctx, queryEmbedding, filter)
-	if err != nil {
-		slog.Warn("chunk vector search failed, falling back to BM25", "error", err)
-		return chunksToResults(ctx, s.db, bm25Chunks, limit, input.FullContent, true)
-	}
-
-	// Collect unique doc IDs from both chunk lists
-	docIDs := collectDocIDs(bm25Chunks, vectorChunks)
-
-	// Batch fetch parent documents
-	docMap, err := fetchDocMap(ctx, s.db, docIDs)
-	if err != nil {
-		return nil, fmt.Errorf("fetch parent documents: %w", err)
-	}
-
-	return rrfFusion(bm25Chunks, vectorChunks, docMap, limit, input.FullContent), nil
+	return embedding, nil
 }
 
 // HasSemanticSearch returns true if vector search is available.
 func (s *Service) HasSemanticSearch() bool {
 	return s.getEmbedder() != nil
-}
-
-// collectDocIDs returns deduplicated document IDs from multiple chunk slices.
-func collectDocIDs(chunkSets ...[]db.ChunkWithScore) []string {
-	seen := make(map[string]bool)
-	var ids []string
-	for _, chunks := range chunkSets {
-		for _, ch := range chunks {
-			docID, err := models.RecordIDString(ch.Document)
-			if err != nil {
-				slog.Warn("failed to extract chunk document ID in collectDocIDs", "error", err)
-				continue
-			}
-			if seen[docID] {
-				continue
-			}
-			seen[docID] = true
-			ids = append(ids, docID)
-		}
-	}
-	return ids
-}
-
-// buildDocMap converts a document slice into a map keyed by string ID.
-func buildDocMap(docs []models.Document) map[string]models.Document {
-	m := make(map[string]models.Document, len(docs))
-	for _, d := range docs {
-		id, err := models.RecordIDString(d.ID)
-		if err != nil {
-			slog.Warn("failed to extract document ID in buildDocMap", "error", err)
-			continue
-		}
-		m[id] = d
-	}
-	return m
-}
-
-// fetchDocMap fetches documents by ID and returns them as a map keyed by string ID.
-func fetchDocMap(ctx context.Context, dbClient *db.Client, docIDs []string) (map[string]models.Document, error) {
-	if len(docIDs) == 0 {
-		return map[string]models.Document{}, nil
-	}
-	docs, err := dbClient.GetDocumentsByIDs(ctx, docIDs)
-	if err != nil {
-		return nil, fmt.Errorf("fetch doc map: %w", err)
-	}
-	return buildDocMap(docs), nil
 }
 
 // chunkToMatch converts a ChunkWithScore to a ChunkMatch for search results.
@@ -243,63 +201,52 @@ func chunkToMatch(ch db.ChunkWithScore, fullContent bool) ChunkMatch {
 	}
 }
 
-// chunksToResults aggregates chunks by parent document and returns search results.
-// Used when only one search path is available (BM25-only fallback).
-// When degraded is true, all results are marked as degraded (hybrid search fell back to BM25).
-func chunksToResults(ctx context.Context, dbClient *db.Client, chunks []db.ChunkWithScore, limit int, fullContent bool, degraded bool) ([]SearchResult, error) {
+// assembleResults groups chunks by parent document, sums chunk scores per document,
+// and returns up to limit results. Document metadata comes from the query result
+// (via record link traversal), not a separate fetch.
+func assembleResults(ctx context.Context, chunks []db.ChunkWithScore, limit int, fullContent bool, degraded bool) []SearchResult {
 	if len(chunks) == 0 {
-		return []SearchResult{}, nil
+		return []SearchResult{}
 	}
 
-	docIDs := collectDocIDs(chunks)
-	docMap, err := fetchDocMap(ctx, dbClient, docIDs)
-	if err != nil {
-		return nil, fmt.Errorf("fetch parent documents: %w", err)
-	}
-
-	results := aggregateChunks(chunks, docMap, limit, fullContent)
-	if degraded {
-		for i := range results {
-			results[i].Degraded = true
-		}
-	}
-	return results, nil
-}
-
-// aggregateChunks groups chunks by parent document, ranks by best chunk score,
-// and returns up to limit results. Each document's score is the max of its chunk scores.
-func aggregateChunks(chunks []db.ChunkWithScore, docMap map[string]models.Document, limit int, fullContent bool) []SearchResult {
 	type docAgg struct {
-		info   docInfo
-		score  float64
-		chunks []ChunkMatch
+		docID   string
+		path    string
+		title   string
+		labels  []string
+		docType *string
+		score   float64
+		chunks  []ChunkMatch
 	}
+
 	agg := make(map[string]*docAgg)
 	order := make([]string, 0) // preserve encounter order for stable sort tie-breaking
 
 	for _, ch := range chunks {
 		docID, err := models.RecordIDString(ch.Document)
 		if err != nil {
-			slog.Warn("failed to extract chunk document ID in aggregateChunks", "error", err)
+			logutil.FromCtx(ctx).Warn("failed to extract chunk document ID", "chunk_id", ch.ID, "error", err)
 			continue
 		}
 		if _, ok := agg[docID]; !ok {
-			doc, found := docMap[docID]
-			if !found {
-				slog.Warn("chunk parent document not found in docMap", "chunk_doc_id", docID)
-				continue
+			labels := ch.DocLabels
+			if labels == nil {
+				labels = []string{}
 			}
-			agg[docID] = &docAgg{info: docInfoFromModel(doc)}
+			agg[docID] = &docAgg{
+				docID:   docID,
+				path:    ch.DocPath,
+				title:   ch.DocTitle,
+				labels:  labels,
+				docType: ch.DocType,
+			}
 			order = append(order, docID)
 		}
 		a := agg[docID]
-		if ch.Score > a.score {
-			a.score = ch.Score
-		}
+		a.score += ch.Score
 		a.chunks = append(a.chunks, chunkToMatch(ch, fullContent))
 	}
 
-	// Sort by best chunk score, stable by encounter order
 	sort.SliceStable(order, func(i, j int) bool {
 		return agg[order[i]].score > agg[order[j]].score
 	})
@@ -312,129 +259,14 @@ func aggregateChunks(chunks []db.ChunkWithScore, docMap map[string]models.Docume
 	for i, docID := range order {
 		a := agg[docID]
 		results[i] = SearchResult{
-			DocumentID:    a.info.id,
-			Path:          a.info.path,
-			Title:         a.info.title,
-			Labels:        a.info.labels,
-			DocType:       a.info.docType,
+			DocumentID:    a.docID,
+			Path:          a.path,
+			Title:         a.title,
+			Labels:        a.labels,
+			DocType:       a.docType,
 			Score:         a.score,
 			MatchedChunks: a.chunks,
-		}
-	}
-	return results
-}
-
-// docInfo holds lightweight document metadata for RRF fusion.
-type docInfo struct {
-	id      string
-	path    string
-	title   string
-	labels  []string
-	docType *string
-}
-
-func docInfoFromModel(d models.Document) docInfo {
-	id, err := models.RecordIDString(d.ID)
-	if err != nil {
-		slog.Warn("failed to extract document ID in search ranking", "error", err)
-		id = fmt.Sprintf("unknown-%v", d.ID.ID)
-	}
-	labels := d.Labels
-	if labels == nil {
-		labels = []string{}
-	}
-	return docInfo{
-		id:      id,
-		path:    d.Path,
-		title:   d.Title,
-		labels:  labels,
-		docType: d.DocType,
-	}
-}
-
-// chunkKey returns a unique identifier for deduplication of chunks across search paths.
-func chunkKey(ch db.ChunkWithScore) string {
-	id, err := models.RecordIDString(ch.ID)
-	if err != nil {
-		// Fall back to position-based key for dedup
-		docID, docErr := models.RecordIDString(ch.Document)
-		if docErr != nil {
-			slog.Warn("failed to extract both chunk and document IDs for dedup key",
-				"chunk_id_error", err, "doc_id_error", docErr)
-		}
-		return fmt.Sprintf("%s-%d", docID, ch.Position)
-	}
-	return id
-}
-
-// rrfFusion combines BM25 chunk and vector chunk results using Reciprocal Rank Fusion.
-// docMap provides full document data for all chunk parents.
-func rrfFusion(bm25Chunks []db.ChunkWithScore, vectorChunks []db.ChunkWithScore, docMap map[string]models.Document, limit int, fullContent bool) []SearchResult {
-	const k = 60.0 // RRF constant
-
-	type docScore struct {
-		info   docInfo
-		score  float64
-		chunks []ChunkMatch
-	}
-
-	scores := make(map[string]*docScore)
-	seenChunks := make(map[string]map[string]bool) // docID → set of chunk keys
-
-	addChunks := func(chunks []db.ChunkWithScore, startRank int) {
-		for rank, ch := range chunks {
-			docID, err := models.RecordIDString(ch.Document)
-			if err != nil {
-				slog.Warn("failed to extract chunk document ID", "error", err)
-				continue
-			}
-			if _, ok := scores[docID]; !ok {
-				doc, found := docMap[docID]
-				if !found {
-					slog.Warn("chunk parent document not found in docMap", "chunk_doc_id", docID)
-					continue
-				}
-				scores[docID] = &docScore{info: docInfoFromModel(doc)}
-				seenChunks[docID] = make(map[string]bool)
-			}
-			// Always contribute to RRF score even if chunk is a duplicate
-			scores[docID].score += 1.0 / (k + float64(startRank+rank+1))
-
-			// Only add to MatchedChunks if not already seen (dedup across BM25/vector)
-			ck := chunkKey(ch)
-			if !seenChunks[docID][ck] {
-				seenChunks[docID][ck] = true
-				scores[docID].chunks = append(scores[docID].chunks, chunkToMatch(ch, fullContent))
-			}
-		}
-	}
-
-	addChunks(bm25Chunks, 0)
-	addChunks(vectorChunks, 0)
-
-	// Sort by fused score
-	sorted := make([]*docScore, 0, len(scores))
-	for _, ds := range scores {
-		sorted = append(sorted, ds)
-	}
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].score > sorted[j].score
-	})
-
-	if len(sorted) > limit {
-		sorted = sorted[:limit]
-	}
-
-	results := make([]SearchResult, len(sorted))
-	for i, ds := range sorted {
-		results[i] = SearchResult{
-			DocumentID:    ds.info.id,
-			Path:          ds.info.path,
-			Title:         ds.info.title,
-			Labels:        ds.info.labels,
-			DocType:       ds.info.docType,
-			Score:         ds.score,
-			MatchedChunks: ds.chunks,
+			Degraded:      degraded,
 		}
 	}
 	return results

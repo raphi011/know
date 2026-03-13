@@ -22,7 +22,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/samber/slog-multi v1.7.1
 	github.com/spf13/cobra v1.10.2
-	github.com/stretchr/testify v1.11.1
 	github.com/surrealdb/surrealdb.go v1.4.0
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/tmc/langchaingo v0.1.14
@@ -34,6 +33,8 @@ require (
 	google.golang.org/genai v1.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/stretchr/testify v1.11.1 // indirect
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
