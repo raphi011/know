@@ -244,6 +244,7 @@ func conversationFromModel(c *models.Conversation) Conversation {
 		Title:       c.Title,
 		TokenInput:  c.TokenInput,
 		TokenOutput: c.TokenOutput,
+		BgStatus:    c.BgStatus,
 		CreatedAt:   c.CreatedAt,
 		UpdatedAt:   c.UpdatedAt,
 	}

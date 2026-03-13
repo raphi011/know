@@ -38,6 +38,7 @@ type Conversation struct {
 	Title       string         `json:"title"`
 	TokenInput  int64          `json:"tokenInput"`
 	TokenOutput int64          `json:"tokenOutput"`
+	BgStatus    *string        `json:"bgStatus,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 	Messages    []*ChatMessage `json:"messages,omitempty"`
