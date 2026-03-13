@@ -137,10 +137,7 @@ func (fl *FileList) View(width int) string {
 
 		// Right-align the [x] marker
 		// 6 = PaddingLeft(2) + len("[x]") + 1 space
-		padding := width - 6 - len([]rune(label)) - len(marker)
-		if padding < 1 {
-			padding = 1
-		}
+		padding := max(width-6-len([]rune(label))-len(marker), 1)
 		line := label + strings.Repeat(" ", padding) + marker
 
 		if fl.selected >= 0 && i == fl.selected {

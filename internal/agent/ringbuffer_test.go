@@ -118,24 +118,22 @@ func TestRingBuffer_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent pushes
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(v int) {
 			defer wg.Done()
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				rb.Push(v*10 + j)
 			}
 		}(i)
 	}
 
 	// Concurrent subscribe/unsub
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			_, _, unsub := rb.Subscribe()
 			unsub()
-		}()
+		})
 	}
 
 	wg.Wait()

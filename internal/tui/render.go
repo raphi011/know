@@ -7,8 +7,8 @@ import (
 
 	imgcolor "image/color"
 
-	"github.com/charmbracelet/glamour"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/glamour"
 )
 
 const maxTextWidth = 120
@@ -172,10 +172,7 @@ func renderContextBar(contextMax int, contextUsed int64) string {
 	if ratio > 1 {
 		ratio = 1
 	}
-	filled := int(ratio*barWidth + 0.5)
-	if filled > barWidth {
-		filled = barWidth
-	}
+	filled := min(int(ratio*barWidth+0.5), barWidth)
 	pct := int(ratio * 100)
 
 	var clr imgcolor.Color
