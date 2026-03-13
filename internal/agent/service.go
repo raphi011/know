@@ -3,13 +3,16 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/diff"
@@ -24,15 +27,15 @@ import (
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type         string                `json:"type"` // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
-	Content      string                `json:"content,omitempty"`
-	ConvID       string                `json:"convId,omitempty"`
-	MsgID        string                `json:"msgId,omitempty"`
-	CallID       string                `json:"callId,omitempty"`
-	Tool         string                `json:"tool,omitempty"`
-	Input        map[string]any        `json:"input,omitempty"`
-	Meta         *tools.ToolResultMeta `json:"meta,omitempty"`
-	Approval     *ApprovalRequest      `json:"approval,omitempty"`
+	Type              string                `json:"type"` // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Content           string                `json:"content,omitempty"`
+	ConvID            string                `json:"convId,omitempty"`
+	MsgID             string                `json:"msgId,omitempty"`
+	CallID            string                `json:"callId,omitempty"`
+	Tool              string                `json:"tool,omitempty"`
+	Input             map[string]any        `json:"input,omitempty"`
+	Meta              *tools.ToolResultMeta `json:"meta,omitempty"`
+	Approval          *ApprovalRequest      `json:"approval,omitempty"`
 	InputTokens       int64                 `json:"inputTokens,omitempty"`
 	OutputTokens      int64                 `json:"outputTokens,omitempty"`
 	ContextWindowMax  int                   `json:"contextWindowMax,omitempty"`
@@ -138,37 +141,6 @@ func (s *Service) buildSystemPrompt(ctx context.Context, vaultID string) string 
 	return sb.String()
 }
 
-// buildTools returns the tool definitions for native tool calling.
-// Tool definitions come from the shared executor's InvokableTool
-// implementations; web_search is added here since it's agent-only.
-func (s *Service) buildTools(ctx context.Context) []*schema.ToolInfo {
-	var infos []*schema.ToolInfo
-	for _, t := range s.executor.Tools() {
-		info, err := t.Info(ctx)
-		if err != nil {
-			logutil.FromCtx(ctx).Warn("failed to get tool info", "tool_type", fmt.Sprintf("%T", t), "error", err)
-			continue
-		}
-		infos = append(infos, info)
-	}
-
-	if s.tavily != nil {
-		infos = append(infos, &schema.ToolInfo{
-			Name: "web_search",
-			Desc: "Search the web for information not found in the knowledge base. Only call this after the user explicitly asks to search the web.",
-			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-				"query": {
-					Type:     schema.String,
-					Desc:     "The web search query",
-					Required: true,
-				},
-			}),
-		})
-	}
-
-	return infos
-}
-
 // buildMessages converts DB messages to eino schema messages.
 func buildMessages(dbMsgs []models.Message) []*schema.Message {
 	var out []*schema.Message
@@ -181,7 +153,7 @@ func buildMessages(dbMsgs []models.Message) []*schema.Message {
 			if msg.ToolCalls != nil && *msg.ToolCalls != "" {
 				var toolCalls []schema.ToolCall
 				if err := json.Unmarshal([]byte(*msg.ToolCalls), &toolCalls); err != nil {
-					slog.Warn("failed to deserialize tool calls from history", "message_id", msg.ID, "error", err)
+					slog.Warn("failed to deserialize tool calls from history", "message_id", msg.ID, "error", err) // no ctx available
 				} else {
 					m.ToolCalls = toolCalls
 				}
@@ -210,7 +182,7 @@ type ChatRequest struct {
 	Approvals      *approvalRegistry // nil if auto-approve
 }
 
-// Chat runs the agent loop using native tool calling and emits SSE events via the callback.
+// Chat runs the agent loop using ADK ChatModelAgent and emits SSE events via the callback.
 func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEvent)) error {
 	model := s.getModel()
 	if model == nil {
@@ -232,7 +204,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		emit(StreamEvent{Type: "conv_id", ConvID: convID})
 	}
 
-	// Set up approval registry for write tool gating
+	// 2. Set up approval registry for write tool gating
 	if !req.AutoApprove {
 		approvals := newApprovalRegistry()
 		s.activeApprovals.Store(req.ConversationID, &approvalSession{registry: approvals, vaultID: req.VaultID})
@@ -243,17 +215,12 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		req.Approvals = approvals
 	}
 
-	// 2. Store user message
-	userMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil, nil, nil)
-	if err != nil {
+	// 3. Store user message
+	if _, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil, nil, nil); err != nil {
 		return fmt.Errorf("create user message: %w", err)
 	}
-	_, err = models.RecordIDString(userMsg.ID)
-	if err != nil {
-		return fmt.Errorf("extract user message ID: %w", err)
-	}
 
-	// 3. Load history (all messages); the last one is the user message we just stored — exclude it
+	// 4. Load history (all messages); the last one is the user message we just stored — exclude it
 	allMessages, err := s.db.ListMessages(ctx, req.ConversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
@@ -263,239 +230,46 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		history = history[:len(history)-1]
 	}
 
-	// 4. Build message list: system + history + doc refs context + current user message
-	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
-	messages := make([]*schema.Message, 0, 2+len(history)+len(req.DocRefs)*2+1)
-	messages = append(messages, &schema.Message{Role: schema.System, Content: sysPrompt})
+	// 5. Build message list: history + current user message (system prompt handled by GenModelInput)
+	messages := make([]*schema.Message, 0, len(history)+1)
 	messages = append(messages, buildMessages(history)...)
+	messages = append(messages, buildUserMessage(req.Content, splitAttachments(req.Attachments, emit)))
 
-	// Inject doc refs as a user+assistant pair
-	if len(req.DocRefs) > 0 {
-		var refContext strings.Builder
-		for _, ref := range req.DocRefs {
-			doc, docErr := s.db.GetDocumentByPath(ctx, req.VaultID, ref)
-			if docErr != nil {
-				slog.Warn("failed to read referenced doc", "path", ref, "error", docErr)
-				emit(StreamEvent{Type: "error", Content: fmt.Sprintf("could not read referenced document: %s", ref)})
-				continue
-			}
-			if doc != nil {
-				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, doc.ContentBody)
-			}
-		}
-		if refContext.Len() > 0 {
-			messages = append(messages,
-				&schema.Message{Role: schema.User, Content: "Referenced documents:\n" + refContext.String()},
-				&schema.Message{Role: schema.Assistant, Content: "I'll use these referenced documents to help answer your question."},
-			)
-		}
+	// 6. Build agent + runner
+	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
+	runner, err := s.buildAgent(ctx, model, sysPrompt, &req, emit)
+	if err != nil {
+		return fmt.Errorf("build agent: %w", err)
 	}
 
-	// Separate text and image attachments
-	var textAtts, imageAtts []models.ChatAttachment
-	for _, att := range req.Attachments {
-		switch att.Type {
-		case models.AttachmentTypeText:
-			textAtts = append(textAtts, att)
-		case models.AttachmentTypeImage:
-			imageAtts = append(imageAtts, att)
-		default:
-			logutil.FromCtx(ctx).Warn("unsupported attachment type, skipping", "path", att.Path, "type", att.Type)
-			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("unsupported attachment type %q for %s, skipping", att.Type, att.Path)})
-		}
-	}
+	// 7. Run + consume
+	iter := runner.Run(ctx, messages)
+	result := consumeAgentEvents(ctx, iter, emit)
 
-	// Inject text file attachments as fenced code blocks
-	if len(textAtts) > 0 {
-		var fileContext strings.Builder
-		for _, att := range textAtts {
-			fmt.Fprintf(&fileContext, "\n--- File: %s ---\n```%s\n%s\n```\n", att.Path, att.Language, att.Content)
-		}
-		messages = append(messages,
-			&schema.Message{Role: schema.User, Content: "Attached local files:\n" + fileContext.String()},
-			&schema.Message{Role: schema.Assistant, Content: "I'll use these attached files to help answer your question."},
-		)
-	}
+	// 8. Persist results
+	assistantMsgID, err := s.persistResults(ctx, req.ConversationID, &result)
 
-	// Build the final user message — multimodal if image attachments present
-	messages = append(messages, buildUserMessage(req.Content, imageAtts))
-
-	// Track tool calls and results for storage
-	type toolCallRecord struct {
-		call   schema.ToolCall
-		result string
-		meta   *tools.ToolResultMeta
-	}
-	var toolCallRecords []toolCallRecord
-	var answer strings.Builder
-
-	tools := s.buildTools(ctx)
-
-	// 6. Call GenerateStreamWithTools
-	usage, err := model.GenerateStreamWithTools(ctx, messages, tools,
-		func(token string) error {
-			answer.WriteString(token)
-			emit(StreamEvent{Type: "text", Content: token})
-			return nil
-		},
-		func(call schema.ToolCall) (string, error) {
-			var inputMap map[string]any
-			if jsonErr := json.Unmarshal([]byte(call.Function.Arguments), &inputMap); jsonErr != nil {
-				inputMap = map[string]any{"raw": call.Function.Arguments}
-			}
-			toolName := call.Function.Name
-			emit(StreamEvent{Type: "tool_start", CallID: call.ID, Tool: toolName, Input: inputMap})
-
-			// Gate write tools on user approval
-			if isWriteTool(toolName) && !req.AutoApprove && req.Approvals != nil {
-				approvalReq, buildErr := s.buildApprovalRequest(ctx, req.VaultID, call)
-				if buildErr != nil {
-					errMsg := fmt.Sprintf("error: %v", buildErr)
-					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
-					toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
-					return errMsg, nil
-				}
-
-				emit(StreamEvent{Type: "tool_approval_required", CallID: call.ID, Tool: toolName, Approval: approvalReq})
-				ch := req.Approvals.register(call.ID)
-
-				var resp ApprovalResponse
-				var ok bool
-				select {
-				case resp, ok = <-ch:
-					if !ok {
-						result := "error: approval cancelled"
-						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})
-						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result})
-						return result, nil
-					}
-				case <-ctx.Done():
-					result := "error: request cancelled"
-					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})
-					toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result})
-					return result, nil
-				}
-
-				if resp.Action == ApprovalReject {
-					result := "User rejected the proposed changes."
-					emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: result})
-					toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result})
-					return result, nil
-				}
-
-				if resp.Action == ApprovalApproveHunks && approvalReq.Diff != nil {
-					doc, docErr := s.db.GetDocumentByPath(ctx, req.VaultID, approvalReq.Path)
-					if docErr != nil || doc == nil {
-						errMsg := "error: could not retrieve document for partial approval"
-						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
-						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
-						return errMsg, nil
-					}
-					merged, mergeErr := diff.ApplyHunks(doc.Content, approvalReq.Diff.Hunks, resp.HunkIndexes)
-					if mergeErr != nil {
-						errMsg := fmt.Sprintf("error applying hunks: %v", mergeErr)
-						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
-						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
-						return errMsg, nil
-					}
-					inputMap["content"] = merged
-					newArgs, marshalErr := json.Marshal(inputMap)
-					if marshalErr != nil {
-						errMsg := fmt.Sprintf("error: marshal args: %v", marshalErr)
-						emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: errMsg})
-						toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: errMsg})
-						return errMsg, nil
-					}
-					call.Function.Arguments = string(newArgs)
-				}
-				// ApprovalApproveAll falls through to normal execution
-			}
-
-			result, meta, execErr := s.executeTool(ctx, req.VaultID, toolName, call.Function.Arguments)
-			if execErr != nil {
-				slog.Warn("tool execution failed", "tool", toolName, "error", execErr)
-				emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Content: fmt.Sprintf("error: %v", execErr)})
-				toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: fmt.Sprintf("error: %v", execErr), meta: nil})
-				return fmt.Sprintf("error: %v", execErr), nil
-			}
-
-			emit(StreamEvent{Type: "tool_end", CallID: call.ID, Tool: toolName, Meta: meta})
-			toolCallRecords = append(toolCallRecords, toolCallRecord{call: call, result: result, meta: meta})
-			return result, nil
-		},
-	)
-	// Persist cumulative token usage on the conversation (even on error — tokens were consumed).
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		if tokenErr := s.db.UpdateConversationTokens(ctx, req.ConversationID, usage.InputTokens, usage.OutputTokens); tokenErr != nil {
-			slog.Warn("failed to update conversation tokens", "conversation_id", req.ConversationID, "error", tokenErr)
+	// Update conversation token usage (even on persist error — tokens were consumed)
+	if result.TokenUsage.InputTokens > 0 || result.TokenUsage.OutputTokens > 0 {
+		if tokenErr := s.db.UpdateConversationTokens(ctx, req.ConversationID, result.TokenUsage.InputTokens, result.TokenUsage.OutputTokens); tokenErr != nil {
+			logutil.FromCtx(ctx).Warn("failed to update conversation tokens", "conversation_id", req.ConversationID, "error", tokenErr)
 		}
 	}
 
 	if err != nil {
-		slog.Error("LLM streaming generation failed", "conversation_id", req.ConversationID, "error", err)
-		emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", err)})
-		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
-		return fmt.Errorf("generate stream: %w", err)
-	}
-
-	// 7. Store assistant message with tool calls JSON if applicable
-	var toolCallsJSON *string
-	if len(toolCallRecords) > 0 {
-		// Collect all tool calls
-		var tcs []schema.ToolCall
-		for _, r := range toolCallRecords {
-			tcs = append(tcs, r.call)
-		}
-		b, marshalErr := json.Marshal(tcs)
-		if marshalErr != nil {
-			slog.Error("failed to marshal tool calls", "error", marshalErr)
-		} else {
-			s := string(b)
-			toolCallsJSON = &s
-		}
-	}
-
-	assistantMsg, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleAssistant, answer.String(), nil, nil, nil, nil, nil, toolCallsJSON)
-	if err != nil {
-		slog.Error("failed to store assistant message", "conversation_id", req.ConversationID, "error", err)
+		logutil.FromCtx(ctx).Error("failed to persist agent results", "conversation_id", req.ConversationID, "error", err)
 		emit(StreamEvent{Type: "error", Content: "warning: response may not be saved to conversation history"})
 	}
 
-	// 8. Store tool result messages
-	for _, r := range toolCallRecords {
-		toolName := r.call.Function.Name
-		toolInput := r.call.Function.Arguments
-		callID := r.call.ID
-
-		var toolMetaStr *string
-		if r.meta != nil {
-			metaJSON, metaErr := json.Marshal(r.meta)
-			if metaErr != nil {
-				slog.Error("failed to marshal tool meta", "tool", toolName, "error", metaErr)
-			} else {
-				ms := string(metaJSON)
-				toolMetaStr = &ms
-			}
-		}
-
-		_, storeErr := s.db.CreateMessage(ctx, req.ConversationID, models.RoleToolResult, r.result, nil, &toolName, &toolInput, toolMetaStr, &callID, nil)
-		if storeErr != nil {
-			slog.Error("failed to store tool result message", "conversation_id", req.ConversationID, "tool", toolName, "error", storeErr)
-		}
-	}
-
-	// 9. Emit msg_end with assistant message ID and token usage
-	if assistantMsg != nil {
-		assistantMsgID, idErr := models.RecordIDString(assistantMsg.ID)
-		if idErr != nil {
-			slog.Warn("unexpected assistant message ID format", "conversation_id", req.ConversationID, "error", idErr)
-			emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
-		} else {
-			emit(StreamEvent{Type: "msg_end", MsgID: assistantMsgID, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
-		}
-	} else {
-		emit(StreamEvent{Type: "msg_end", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, ContextWindowMax: model.ContextWindow(), ContextWindowUsed: usage.FinalPromptTokens})
-	}
+	// 9. Emit msg_end
+	emit(StreamEvent{
+		Type:              "msg_end",
+		MsgID:             assistantMsgID,
+		InputTokens:       result.TokenUsage.InputTokens,
+		OutputTokens:      result.TokenUsage.OutputTokens,
+		ContextWindowMax:  model.ContextWindow(),
+		ContextWindowUsed: result.TokenUsage.FinalPromptTokens,
+	})
 
 	// 10. Auto-title if first message
 	if len(history) == 0 {
@@ -503,6 +277,235 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 	}
 
 	return nil
+}
+
+// buildAgent constructs a ChatModelAgent + Runner per request.
+func (s *Service) buildAgent(ctx context.Context, model *llm.Model, sysPrompt string, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, error) {
+	// Collect tools
+	agentTools := s.executor.Tools()
+	if s.tavily != nil {
+		agentTools = append(agentTools, &WebSearchTool{tavily: s.tavily})
+	}
+
+	// Separate text/image attachments for context injection
+	var textAtts []models.ChatAttachment
+	for _, att := range req.Attachments {
+		if att.Type == models.AttachmentTypeText {
+			textAtts = append(textAtts, att)
+		}
+	}
+
+	// Create middleware instances with per-request state
+	contextMW := &contextInjectionMiddleware{
+		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
+		docRefs:                      req.DocRefs,
+		textAtts:                     textAtts,
+		vaultID:                      req.VaultID,
+		db:                           s.db,
+		emit:                         emit,
+	}
+	tokenMW := &tokenTrackingMiddleware{
+		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
+	}
+	toolMW := &toolExecutionMiddleware{
+		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
+		service:                      s,
+		req:                          req,
+	}
+
+	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "knowhow",
+		Description: "Knowledge base assistant",
+		Model:       model.BaseChatModel(),
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools: agentTools,
+			},
+		},
+		// Custom GenModelInput: prepend system message, skip FString interpolation
+		// (system prompt contains JSON examples with curly braces).
+		GenModelInput: func(ctx context.Context, instruction string, input *adk.AgentInput) ([]*schema.Message, error) {
+			msgs := make([]*schema.Message, 0, 1+len(input.Messages))
+			msgs = append(msgs, &schema.Message{Role: schema.System, Content: instruction})
+			msgs = append(msgs, input.Messages...)
+			return msgs, nil
+		},
+		Instruction: sysPrompt,
+		Handlers:    []adk.ChatModelAgentMiddleware{contextMW, tokenMW, toolMW},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create chat model agent: %w", err)
+	}
+
+	// Wrap with sessionDumpAgent to emit RunCompleteEvent after inner agent finishes
+	wrapped := &sessionDumpAgent{Agent: agent}
+
+	return adk.NewRunner(ctx, adk.RunnerConfig{
+		Agent:          wrapped,
+		EnableStreaming: true,
+	}), nil
+}
+
+// consumeAgentEvents drains the AsyncIterator, translating AgentEvents to SSE
+// StreamEvents. Returns the accumulated AgentResult.
+func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent], emit func(StreamEvent)) AgentResult {
+	logger := logutil.FromCtx(ctx)
+	var result AgentResult
+	var answer strings.Builder
+	var hitError bool
+
+	for {
+		event, ok := iter.Next()
+		if !ok {
+			break
+		}
+
+		// Error event — stop processing messages but keep draining for RunCompleteEvent
+		if event.Err != nil {
+			logger.Error("agent error", "error", event.Err)
+			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", event.Err)})
+			hitError = true
+			continue
+		}
+
+		if event.Output == nil {
+			continue
+		}
+
+		// Custom events from middleware — always process (including after errors)
+		if event.Output.CustomizedOutput != nil {
+			switch e := event.Output.CustomizedOutput.(type) {
+			case *ToolStartEvent:
+				if !hitError {
+					emit(StreamEvent{Type: "tool_start", CallID: e.CallID, Tool: e.Tool, Input: e.Input})
+				}
+
+			case *ToolEndEvent:
+				if !hitError {
+					if e.Error != "" {
+						emit(StreamEvent{Type: "tool_end", CallID: e.CallID, Tool: e.Tool, Content: e.Error})
+					} else {
+						emit(StreamEvent{Type: "tool_end", CallID: e.CallID, Tool: e.Tool, Meta: e.Meta})
+					}
+				}
+
+			case *ApprovalRequiredEvent:
+				if !hitError {
+					emit(StreamEvent{Type: "tool_approval_required", CallID: e.CallID, Tool: e.Tool, Approval: e.Request})
+				}
+
+			case *RunCompleteEvent:
+				result.TokenUsage = e.TokenUsage
+				result.ToolRecords = e.ToolRecords
+
+			default:
+				logger.Debug("unknown customized output type", "type", fmt.Sprintf("%T", e))
+			}
+			continue
+		}
+
+		// Skip message events after an error
+		if hitError {
+			continue
+		}
+
+		// Message events
+		if event.Output.MessageOutput == nil {
+			continue
+		}
+
+		mv := event.Output.MessageOutput
+
+		// Skip native Role:Tool events — our middleware already emitted tool_end
+		if mv.Role == schema.Tool {
+			continue
+		}
+
+		// Role:Assistant — streaming text
+		if mv.Role == schema.Assistant {
+			if mv.IsStreaming && mv.MessageStream != nil {
+				for {
+					chunk, recvErr := mv.MessageStream.Recv()
+					if errors.Is(recvErr, io.EOF) {
+						break
+					}
+					if recvErr != nil {
+						logger.Warn("stream recv error", "error", recvErr)
+						break
+					}
+					if chunk.Content != "" {
+						answer.WriteString(chunk.Content)
+						emit(StreamEvent{Type: "text", Content: chunk.Content})
+					}
+				}
+			} else if mv.Message != nil && mv.Message.Content != "" {
+				answer.WriteString(mv.Message.Content)
+				emit(StreamEvent{Type: "text", Content: mv.Message.Content})
+			}
+		}
+	}
+
+	result.Answer = answer.String()
+	return result
+}
+
+// persistResults batch-writes the agent's output to the database.
+// Returns the assistant message ID (empty on error) and any error.
+func (s *Service) persistResults(ctx context.Context, convID string, result *AgentResult) (string, error) {
+	logger := logutil.FromCtx(ctx)
+
+	// Build tool calls JSON for the assistant message
+	var toolCallsJSON *string
+	if len(result.ToolRecords) > 0 {
+		var tcs []schema.ToolCall
+		for _, r := range result.ToolRecords {
+			tcs = append(tcs, r.Call)
+		}
+		b, marshalErr := json.Marshal(tcs)
+		if marshalErr != nil {
+			logger.Error("failed to marshal tool calls", "error", marshalErr)
+		} else {
+			s := string(b)
+			toolCallsJSON = &s
+		}
+	}
+
+	// Store assistant message
+	assistantMsg, err := s.db.CreateMessage(ctx, convID, models.RoleAssistant, result.Answer, nil, nil, nil, nil, nil, toolCallsJSON)
+	if err != nil {
+		return "", fmt.Errorf("create assistant message: %w", err)
+	}
+
+	assistantMsgID, err := models.RecordIDString(assistantMsg.ID)
+	if err != nil {
+		logger.Warn("unexpected assistant message ID format", "conversation_id", convID, "error", err)
+	}
+
+	// Store tool result messages
+	var errs []error
+	for _, r := range result.ToolRecords {
+		toolName := r.Call.Function.Name
+		toolInput := r.Call.Function.Arguments
+		callID := r.Call.ID
+
+		var toolMetaStr *string
+		if r.Meta != nil {
+			metaJSON, metaErr := json.Marshal(r.Meta)
+			if metaErr != nil {
+				logger.Error("failed to marshal tool meta", "tool", toolName, "error", metaErr)
+			} else {
+				ms := string(metaJSON)
+				toolMetaStr = &ms
+			}
+		}
+
+		if _, storeErr := s.db.CreateMessage(ctx, convID, models.RoleToolResult, r.Result, nil, &toolName, &toolInput, toolMetaStr, &callID, nil); storeErr != nil {
+			logger.Error("failed to store tool result message", "conversation_id", convID, "tool", toolName, "error", storeErr)
+			errs = append(errs, storeErr)
+		}
+	}
+
+	return assistantMsgID, errors.Join(errs...)
 }
 
 // buildUserMessage constructs the final user message. If image attachments are
@@ -533,6 +536,23 @@ func buildUserMessage(content string, imageAtts []models.ChatAttachment) *schema
 		Role:                  schema.User,
 		UserInputMultiContent: parts,
 	}
+}
+
+// splitAttachments separates text and image attachments, emitting warnings for unsupported types.
+// Returns only image attachments (text attachments are injected via contextInjectionMiddleware).
+func splitAttachments(attachments []models.ChatAttachment, emit func(StreamEvent)) []models.ChatAttachment {
+	var imageAtts []models.ChatAttachment
+	for _, att := range attachments {
+		switch att.Type {
+		case models.AttachmentTypeText:
+			// handled by contextInjectionMiddleware
+		case models.AttachmentTypeImage:
+			imageAtts = append(imageAtts, att)
+		default:
+			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("unsupported attachment type %q for %s, skipping", att.Type, att.Path)})
+		}
+	}
+	return imageAtts
 }
 
 // isWriteTool returns true for tools that modify documents.
@@ -609,57 +629,17 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 	return req, nil
 }
 
-// executeTool executes a named tool with the given JSON arguments string.
-// web_search is agent-only; all others delegate to the shared executor.
-func (s *Service) executeTool(ctx context.Context, vaultID, toolName, arguments string) (string, *tools.ToolResultMeta, error) {
-	if toolName == "web_search" {
-		return s.execWebSearch(ctx, arguments)
-	}
-
-	return s.executor.ExecuteTool(ctx, vaultID, toolName, arguments)
-}
-
-func (s *Service) execWebSearch(ctx context.Context, arguments string) (string, *tools.ToolResultMeta, error) {
-	var input struct {
-		Query string `json:"query"`
-	}
-	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-		return "", nil, fmt.Errorf("parse web_search input: %w", err)
-	}
-	if s.tavily == nil {
-		return "", nil, fmt.Errorf("web search not configured")
-	}
-
-	start := time.Now()
-	result, webResults, err := s.tavily.Search(ctx, input.Query)
-	durationMs := time.Since(start).Milliseconds()
-	if err != nil {
-		return "", nil, fmt.Errorf("web search: %w", err)
-	}
-
-	var webSources []tools.ToolWebRef
-	for _, r := range webResults {
-		webSources = append(webSources, tools.ToolWebRef{Title: r.Title, URL: r.URL})
-	}
-
-	meta := &tools.ToolResultMeta{
-		DurationMs:     durationMs,
-		WebResultCount: new(len(webResults)),
-		WebSources:     webSources,
-	}
-	return result, meta, nil
-}
-
 func (s *Service) autoTitle(ctx context.Context, conversationID, firstMessage string) {
+	logger := logutil.FromCtx(ctx)
 	model := s.getModel()
 	if model == nil {
-		slog.Debug("skipping auto-title: no LLM model configured", "conversation_id", conversationID)
+		logger.Debug("skipping auto-title: no LLM model configured", "conversation_id", conversationID)
 		return
 	}
 	prompt := fmt.Sprintf("Generate a very short title (3-6 words, no quotes) for a conversation that starts with this message:\n\n%s", firstMessage)
 	title, err := model.GenerateWithSystem(ctx, "You generate short conversation titles. Respond with ONLY the title, nothing else.", prompt)
 	if err != nil {
-		slog.Warn("auto-title failed", "conversation_id", conversationID, "error", err)
+		logger.Warn("auto-title failed", "conversation_id", conversationID, "error", err)
 		return
 	}
 	title = strings.TrimSpace(title)
@@ -667,6 +647,6 @@ func (s *Service) autoTitle(ctx context.Context, conversationID, firstMessage st
 		return
 	}
 	if err := s.db.UpdateConversationTitle(ctx, conversationID, title); err != nil {
-		slog.Warn("failed to update conversation title", "conversation_id", conversationID, "error", err)
+		logger.Warn("failed to update conversation title", "conversation_id", conversationID, "error", err)
 	}
 }

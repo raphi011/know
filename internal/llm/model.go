@@ -543,25 +543,6 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 	return nil
 }
 
-// TokenUsage holds cumulative token counts from an agentic generation run.
-type TokenUsage struct {
-	InputTokens     int64
-	OutputTokens    int64
-	FinalPromptTokens int64 // prompt tokens from the final iteration (context fill level)
-}
-
-// GenerateStreamWithTools is deprecated — ADK ChatModelAgent handles the ReAct loop now.
-// This stub exists only to keep the build working until service.go is rewritten (Phase 3).
-func (m *Model) GenerateStreamWithTools(
-	ctx context.Context,
-	messages []*schema.Message,
-	tools []*schema.ToolInfo,
-	onToken func(token string) error,
-	onToolCall func(call schema.ToolCall) (string, error),
-) (TokenUsage, error) {
-	panic("GenerateStreamWithTools is deprecated: use ADK ChatModelAgent instead")
-}
-
 // ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).
 func (m *Model) ExtractEntitiesAndRelations(ctx context.Context, text string, existingEntities []string) (string, error) {
 	entitiesStr := ""

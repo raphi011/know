@@ -5,24 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/diff"
-	"github.com/raphi011/knowhow/internal/llm"
 	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/tools"
 )
-
-// toolCallRecord captures a tool call and its result for later persistence.
-type toolCallRecord struct {
-	call   schema.ToolCall
-	result string
-	meta   *tools.ToolResultMeta
-}
 
 // --- contextInjectionMiddleware: inject doc refs + text attachments ---
 
@@ -83,7 +76,6 @@ func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context
 	// Insert context messages before the last user message.
 	msgs := state.Messages
 	if len(msgs) < 2 {
-		// Not enough messages — prepend context at start of message list.
 		state.Messages = append(contextMsgs, msgs...)
 		return ctx, state, nil
 	}
@@ -97,11 +89,10 @@ func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context
 	return ctx, state, nil
 }
 
-// --- tokenTrackingMiddleware: accumulate token usage ---
+// --- tokenTrackingMiddleware: accumulate token usage in session values ---
 
 type tokenTrackingMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
-	usage *llm.TokenUsage
 }
 
 func (m *tokenTrackingMiddleware) AfterModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
@@ -109,12 +100,26 @@ func (m *tokenTrackingMiddleware) AfterModelRewriteState(ctx context.Context, st
 		return ctx, state, nil
 	}
 	last := state.Messages[len(state.Messages)-1]
-	if last.ResponseMeta != nil && last.ResponseMeta.Usage != nil {
-		u := last.ResponseMeta.Usage
-		m.usage.InputTokens += int64(u.PromptTokens)
-		m.usage.OutputTokens += int64(u.CompletionTokens)
-		m.usage.FinalPromptTokens = int64(u.PromptTokens)
+	if last.ResponseMeta == nil || last.ResponseMeta.Usage == nil {
+		return ctx, state, nil
 	}
+
+	u := last.ResponseMeta.Usage
+
+	// Retrieve current totals from session values
+	var usage TokenUsage
+	if v, ok := adk.GetSessionValue(ctx, sessionKeyTokenUsage); ok {
+		if existing, ok := v.(*TokenUsage); ok {
+			usage = *existing
+		}
+	}
+
+	usage.InputTokens += int64(u.PromptTokens)
+	usage.OutputTokens += int64(u.CompletionTokens)
+	usage.FinalPromptTokens = int64(u.PromptTokens)
+
+	adk.AddSessionValue(ctx, sessionKeyTokenUsage, &usage)
+
 	return ctx, state, nil
 }
 
@@ -122,10 +127,9 @@ func (m *tokenTrackingMiddleware) AfterModelRewriteState(ctx context.Context, st
 
 type toolExecutionMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
-	service     *Service
-	req         *ChatRequest
-	emit        func(StreamEvent)
-	toolRecords *[]toolCallRecord
+	service *Service
+	req     *ChatRequest
+	mu      sync.Mutex // protects recordTool's read-modify-write on session values
 }
 
 func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, endpoint adk.InvokableToolCallEndpoint, tCtx *adk.ToolContext) (adk.InvokableToolCallEndpoint, error) {
@@ -134,13 +138,22 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 		toolName := tCtx.Name
 		callID := tCtx.CallID
 
-		// Parse input for SSE event
+		// Parse input for display
 		var inputMap map[string]any
 		if jsonErr := json.Unmarshal([]byte(argumentsInJSON), &inputMap); jsonErr != nil {
 			logger.Debug("tool arguments are not valid JSON object", "tool", toolName, "error", jsonErr)
 			inputMap = map[string]any{"raw": argumentsInJSON}
 		}
-		m.emit(StreamEvent{Type: "tool_start", CallID: callID, Tool: toolName, Input: inputMap})
+
+		if err := adk.SendEvent(ctx, &adk.AgentEvent{
+			Output: &adk.AgentOutput{CustomizedOutput: &ToolStartEvent{
+				CallID: callID,
+				Tool:   toolName,
+				Input:  inputMap,
+			}},
+		}); err != nil {
+			logger.Debug("failed to send tool start event", "tool", toolName, "error", err)
+		}
 
 		// Reconstruct a schema.ToolCall for approval logic and persistence.
 		call := schema.ToolCall{
@@ -152,10 +165,19 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 		if isWriteTool(toolName) && !m.req.AutoApprove && m.req.Approvals != nil {
 			approvalReq, buildErr := m.service.buildApprovalRequest(ctx, m.req.VaultID, call)
 			if buildErr != nil {
-				return m.failTool(call, callID, toolName, fmt.Sprintf("error: %v", buildErr), nil)
+				return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: %v", buildErr), nil)
 			}
 
-			m.emit(StreamEvent{Type: "tool_approval_required", CallID: callID, Tool: toolName, Approval: approvalReq})
+			if err := adk.SendEvent(ctx, &adk.AgentEvent{
+				Output: &adk.AgentOutput{CustomizedOutput: &ApprovalRequiredEvent{
+					CallID:  callID,
+					Tool:    toolName,
+					Request: approvalReq,
+				}},
+			}); err != nil {
+				logger.Debug("failed to send approval required event", "tool", toolName, "error", err)
+			}
+
 			ch := m.req.Approvals.register(callID)
 
 			var resp ApprovalResponse
@@ -163,43 +185,43 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 			select {
 			case resp, ok = <-ch:
 				if !ok {
-					return m.failTool(call, callID, toolName, "error: approval cancelled", nil)
+					return m.failTool(ctx, call, callID, toolName, "error: approval cancelled", nil)
 				}
 			case <-ctx.Done():
-				return m.failTool(call, callID, toolName, "error: request cancelled", nil)
+				return m.failTool(ctx, call, callID, toolName, "error: request cancelled", nil)
 			}
 
 			if resp.Action == ApprovalReject {
-				return m.failTool(call, callID, toolName, "User rejected the proposed changes.", nil)
+				return m.failTool(ctx, call, callID, toolName, "User rejected the proposed changes.", nil)
 			}
 
 			if resp.Action == ApprovalApproveHunks {
 				if approvalReq.Diff == nil {
 					logger.Warn("approve_hunks received but no diff available", "tool", toolName, "call_id", callID)
-					return m.failTool(call, callID, toolName, "error: partial approval not available for this operation", nil)
+					return m.failTool(ctx, call, callID, toolName, "error: partial approval not available for this operation", nil)
 				}
 				doc, docErr := m.service.db.GetDocumentByPath(ctx, m.req.VaultID, approvalReq.Path)
 				if docErr != nil {
 					logger.Warn("failed to retrieve document for partial approval", "path", approvalReq.Path, "error", docErr)
-					return m.failTool(call, callID, toolName, fmt.Sprintf("error: retrieve document for partial approval: %v", docErr), nil)
+					return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: retrieve document for partial approval: %v", docErr), nil)
 				}
 				if doc == nil {
-					return m.failTool(call, callID, toolName, "error: document no longer exists at "+approvalReq.Path, nil)
+					return m.failTool(ctx, call, callID, toolName, "error: document no longer exists at "+approvalReq.Path, nil)
 				}
 				merged, mergeErr := diff.ApplyHunks(doc.Content, approvalReq.Diff.Hunks, resp.HunkIndexes)
 				if mergeErr != nil {
-					return m.failTool(call, callID, toolName, fmt.Sprintf("error applying hunks: %v", mergeErr), nil)
+					return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error applying hunks: %v", mergeErr), nil)
 				}
 				inputMap["content"] = merged
 				newArgs, marshalErr := json.Marshal(inputMap)
 				if marshalErr != nil {
-					return m.failTool(call, callID, toolName, fmt.Sprintf("error: marshal args: %v", marshalErr), nil)
+					return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: marshal args: %v", marshalErr), nil)
 				}
 				argumentsInJSON = string(newArgs)
 				call.Function.Arguments = argumentsInJSON
 			} else if resp.Action != ApprovalApproveAll {
 				logger.Warn("unexpected approval action, treating as rejection", "action", resp.Action, "tool", toolName, "call_id", callID)
-				return m.failTool(call, callID, toolName, fmt.Sprintf("error: unexpected approval action: %s", resp.Action), nil)
+				return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: unexpected approval action: %s", resp.Action), nil)
 			}
 			// ApprovalApproveAll falls through to normal execution
 		}
@@ -214,19 +236,110 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 		if err != nil {
 			logger.Warn("tool execution failed", "tool", toolName, "error", err)
 			// Return error as string so ReAct loop continues
-			return m.failTool(call, callID, toolName, fmt.Sprintf("error: %v", err), meta)
+			return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: %v", err), meta)
 		}
 
-		m.emit(StreamEvent{Type: "tool_end", CallID: callID, Tool: toolName, Meta: meta})
-		*m.toolRecords = append(*m.toolRecords, toolCallRecord{call: call, result: result, meta: meta})
+		m.sendToolEnd(ctx, callID, toolName, "", meta)
+		m.recordTool(ctx, call, result, meta)
 		return result, nil
 	}, nil
 }
 
-// failTool emits a tool_end event, records the failure, and returns the error
-// message as a string result so the ReAct loop can continue.
-func (m *toolExecutionMiddleware) failTool(call schema.ToolCall, callID, toolName, errMsg string, meta *tools.ToolResultMeta) (string, error) {
-	m.emit(StreamEvent{Type: "tool_end", CallID: callID, Tool: toolName, Content: errMsg})
-	*m.toolRecords = append(*m.toolRecords, toolCallRecord{call: call, result: errMsg, meta: meta})
+// failTool sends a ToolEndEvent with an error, records the failure in session
+// values, and returns the error as a string so the ReAct loop continues.
+func (m *toolExecutionMiddleware) failTool(ctx context.Context, call schema.ToolCall, callID, toolName, errMsg string, meta *tools.ToolResultMeta) (string, error) {
+	m.sendToolEnd(ctx, callID, toolName, errMsg, meta)
+	m.recordTool(ctx, call, errMsg, meta)
 	return errMsg, nil
+}
+
+// sendToolEnd emits a ToolEndEvent via adk.SendEvent.
+func (m *toolExecutionMiddleware) sendToolEnd(ctx context.Context, callID, toolName, errMsg string, meta *tools.ToolResultMeta) {
+	if err := adk.SendEvent(ctx, &adk.AgentEvent{
+		Output: &adk.AgentOutput{CustomizedOutput: &ToolEndEvent{
+			CallID: callID,
+			Tool:   toolName,
+			Meta:   meta,
+			Error:  errMsg,
+		}},
+	}); err != nil {
+		logutil.FromCtx(ctx).Debug("failed to send tool end event", "tool", toolName, "error", err)
+	}
+}
+
+// recordTool appends a ToolRecord to the session values.
+// Protected by mu because tools may execute in parallel.
+func (m *toolExecutionMiddleware) recordTool(ctx context.Context, call schema.ToolCall, result string, meta *tools.ToolResultMeta) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record := ToolRecord{Call: call, Result: result, Meta: meta}
+
+	var records []ToolRecord
+	if v, ok := adk.GetSessionValue(ctx, sessionKeyToolRecords); ok {
+		if existing, ok := v.([]ToolRecord); ok {
+			records = existing
+		}
+	}
+	records = append(records, record)
+	adk.AddSessionValue(ctx, sessionKeyToolRecords, records)
+}
+
+// --- sessionDumpAgent: wraps an agent to emit RunCompleteEvent with session values ---
+
+type sessionDumpAgent struct {
+	adk.Agent
+}
+
+func (a *sessionDumpAgent) Run(ctx context.Context, input *adk.AgentInput,
+	opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
+
+	iter, gen := adk.NewAsyncIteratorPair[*adk.AgentEvent]()
+	inner := a.Agent.Run(ctx, input, opts...)
+
+	go func() {
+		defer gen.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				logutil.FromCtx(ctx).Error("panic in agent run", "recover", r)
+				gen.Send(&adk.AgentEvent{Err: fmt.Errorf("agent panic: %v", r)})
+			}
+			// Always emit RunCompleteEvent so token usage and tool records are captured
+			kvs := adk.GetSessionValues(ctx)
+			gen.Send(&adk.AgentEvent{
+				Output: &adk.AgentOutput{CustomizedOutput: &RunCompleteEvent{
+					TokenUsage:  extractTokenUsage(kvs),
+					ToolRecords: extractToolRecords(kvs),
+				}},
+			})
+		}()
+
+		for {
+			event, ok := inner.Next()
+			if !ok {
+				break
+			}
+			gen.Send(event)
+		}
+	}()
+
+	return iter
+}
+
+func extractTokenUsage(kvs map[string]any) TokenUsage {
+	if v, ok := kvs[sessionKeyTokenUsage]; ok {
+		if usage, ok := v.(*TokenUsage); ok {
+			return *usage
+		}
+	}
+	return TokenUsage{}
+}
+
+func extractToolRecords(kvs map[string]any) []ToolRecord {
+	if v, ok := kvs[sessionKeyToolRecords]; ok {
+		if records, ok := v.([]ToolRecord); ok {
+			return records
+		}
+	}
+	return nil
 }
