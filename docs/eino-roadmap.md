@@ -85,53 +85,34 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 
 ---
 
-## Phase 2: Callbacks System
+## Phase 2: Callbacks System ✅
 
 **Goal**: Replace manual observability with eino's callback handlers.
 
-### What changes
+### What was done
 
-- Global callback handler that logs via `logutil.FromCtx(ctx)` (preserves structured logging)
-- Per-component timing replaces manual `time.Now()` / `defer logOp()` in LLM calls
-- Token usage tracking automatic via `ResponseMeta` callbacks
-- Metrics integration: callback handler calls `metrics.RecordLLMUsage` on `OnEnd`
+- Global callback handler registered at startup via `callbacks.AppendGlobalHandlers`
+- Uses `HandlerBuilder` with `OnStart`/`OnEnd`/`OnError` — logs component lifecycle via `logutil.FromCtx(ctx)` with structured fields (component type, duration, token usage breakdown)
+- For ChatModel callbacks: extracts `model.CallbackOutput.TokenUsage` for rich logging (prompt tokens, completion tokens, cached tokens)
 - Foundation for OpenTelemetry traces later
 
-### Implementation
+### Design decisions (as implemented)
 
-```go
-type observabilityHandler struct{}
-
-func (h *observabilityHandler) OnStart(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-    logutil.FromCtx(ctx).Debug("component starting", "component", info.Name, "type", info.Type)
-    return context.WithValue(ctx, startTimeKey{}, time.Now())
-}
-
-func (h *observabilityHandler) OnEnd(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
-    start := ctx.Value(startTimeKey{}).(time.Time)
-    logutil.FromCtx(ctx).Debug("component complete", "component", info.Name, "duration_ms", time.Since(start).Milliseconds())
-    // Extract token usage from model output if applicable
-    return ctx
-}
-```
-
-Register globally at startup:
-
-```go
-callbacks.AppendGlobalHandlers(&observabilityHandler{})
-```
+- **Logging only in callbacks, metrics stay in wrappers**: Not all eino-ext providers fire callbacks — OpenAI model and OpenAI embedding implementations (also used for Anthropic/Voyage embeddings) do NOT call `callbacks.OnStart`/`OnEnd`. Claude, Ollama, and Gemini do. Since eino callbacks return a new context that is NOT propagated back to the caller (`chatModel.Generate()` returns the original context), there's no way to deduplicate metrics. Therefore: callbacks handle **structured logging** (additive, harmless if doubled), and `Model`/`Embedder` wrappers handle **metrics** (universal, works for all providers).
+- **Start time via context key**: `OnStart` stores `time.Now()` as a context value; `OnEnd`/`OnError` compute duration from it.
+- **Registered once at startup**: `llm.RegisterCallbacks()` called in `server.New()` before model creation. Not called on SIGHUP reload (global handlers persist across model swaps since they're process-global).
 
 ### Key files
 
-| File | Lines | Change |
-|------|-------|--------|
-| `internal/llm/model.go` | 691 | Manual timing + metrics removed from Generate/Stream methods |
-| `internal/metrics/collector.go` | 203 | Called from callback handler instead of inline |
-| New: `internal/llm/callbacks.go` | ~60 | Observability callback handler |
+| File | Change |
+|------|--------|
+| New: `internal/llm/callbacks.go` | Observability callback handler (~60 lines) |
+| New: `internal/llm/callbacks_test.go` | Tests for handler registration and lifecycle |
+| `internal/server/bootstrap.go` | `llm.RegisterCallbacks()` called at startup |
 
 ### Effort: S
 
-Additive, no behavioral changes. Can be done in parallel with Phase 1.
+Additive, no behavioral changes.
 
 ---
 
@@ -418,14 +399,14 @@ Future work.
 ## Implementation Order
 
 ```
-Phase 1: InvokableTool + ToolsNode ─────┐
+Phase 1: InvokableTool + ToolsNode ✅ ───┐
                                          ├─→ Phase 3: ADK ChatModelAgent ─┬─→ Phase 4: Interrupt/Resume
-Phase 2: Callbacks ─────────────────────┘                                 └─→ Phase 5: Session + GenModelInput
+Phase 2: Callbacks ✅ ──────────────────┘                                 └─→ Phase 5: Session + GenModelInput
                                                                                Phase 6: RAG Chain (independent)
                                                                                Phase 7: Multi-Agent (future)
 ```
 
-- **Phases 1 + 2**: can run in parallel (no dependencies)
+- **Phases 1 + 2**: ✅ complete
 - **Phase 3**: depends on Phase 1 (tools must be InvokableTool)
 - **Phases 4 + 5**: can run in parallel after Phase 3
 - **Phase 6**: independent, after Phase 3 stabilizes
@@ -438,13 +419,13 @@ Phase 2: Callbacks ────────────────────�
 | File | Lines | Role | Phases |
 |------|-------|------|--------|
 | `internal/agent/service.go` | ~650 | Custom agent loop, system prompt, message assembly | 3, 5 |
-| `internal/llm/model.go` | 691 | LLM wrapper, GenerateStreamWithTools, token tracking | 2, 3 |
+| `internal/llm/model.go` | 691 | LLM wrapper, GenerateStreamWithTools, token tracking | ✅ 2, 3 |
 | `internal/tools/executor.go` | ~110 | Registry-based tool dispatch via InvokableTool | ✅ 1 |
 | `internal/tools/tool_*.go` | ~900 | Individual InvokableTool implementations (10 tools) | ✅ 1 |
 | `internal/mcptools/tools.go` | 561 | MCP tool bridge (shares executor) | ✅ 1 (unchanged) |
 | `internal/search/service.go` | 441 | Hybrid BM25+vector search | 6 |
 | `internal/agent/handler.go` | 324 | REST API endpoints | 3 |
-| `internal/metrics/collector.go` | 203 | Metrics collection | 2 |
+| `internal/metrics/collector.go` | 203 | Metrics collection | ✅ 2 |
 | `internal/agent/runner.go` | 181 | Background execution + SSE event replay | 3, 4 |
 | `internal/agent/approval.go` | 83 | In-memory approval registry | 4 |
 
@@ -455,7 +436,7 @@ Phase 2: Callbacks ────────────────────�
 | Phase | Lines Removed | Lines Added | Net |
 |-------|--------------|-------------|-----|
 | Phase 1 ✅ | 699 (executor switch + buildTools + name mapping) | 63 (modified) + ~900 (tool structs + infra) | ~-636 net in modified files |
-| Phase 2 | ~40 (manual timing) | ~60 (callback handler) | +20 |
+| Phase 2 ✅ | 0 (additive — manual timing kept for providers without callbacks) | ~60 (callback handler) + ~50 (tests) | +110 |
 | Phase 3 | ~500 (Chat loop + GenerateStreamWithTools) | ~200 (middleware + wiring) | -300 |
 | Phase 4 | ~83 (approval registry) | ~80 (checkpoint store + interrupt) | ~0 |
 | Phase 5 | ~45 (buildSystemPrompt) | ~30 (session middleware) | -15 |

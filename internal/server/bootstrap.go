@@ -102,6 +102,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 	}
 
+	// Register eino callback handler for structured LLM/embedding observability.
+	// Must be called before creating any models — eino fires callbacks from
+	// within Generate/Stream calls for providers that support it.
+	llm.RegisterCallbacks()
+
 	slog.Info("LLM config",
 		"embed_provider", cfg.EmbedProvider,
 		"embed_model", cfg.EmbedModel,
