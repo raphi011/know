@@ -7,6 +7,7 @@ import (
 
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/models"
+
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
@@ -14,15 +15,7 @@ func rid(table, id string) surrealmodels.RecordID {
 	return surrealmodels.RecordID{Table: table, ID: id}
 }
 
-func doc(id, title string) models.Document {
-	return models.Document{
-		ID:    rid("document", id),
-		Title: title,
-		Path:  "docs/" + id + ".md",
-	}
-}
-
-func chunkWithScore(docID, content string, score float64) db.ChunkWithScore {
+func chunk(docID, content string, score float64) db.ChunkWithScore {
 	return db.ChunkWithScore{
 		Chunk: models.Chunk{
 			ID:       rid("chunk", docID+"-0"),
@@ -30,11 +23,13 @@ func chunkWithScore(docID, content string, score float64) db.ChunkWithScore {
 			Content:  content,
 			Position: 0,
 		},
-		Score: score,
+		Score:    score,
+		DocPath:  "docs/" + docID + ".md",
+		DocTitle: "Doc " + docID,
 	}
 }
 
-func chunkWithScorePos(docID, content string, position int, score float64) db.ChunkWithScore {
+func chunkPos(docID, content string, position int, score float64) db.ChunkWithScore {
 	return db.ChunkWithScore{
 		Chunk: models.Chunk{
 			ID:       rid("chunk", fmt.Sprintf("%s-%d", docID, position)),
@@ -42,229 +37,259 @@ func chunkWithScorePos(docID, content string, position int, score float64) db.Ch
 			Content:  content,
 			Position: position,
 		},
-		Score: score,
+		Score:    score,
+		DocPath:  "docs/" + docID + ".md",
+		DocTitle: "Doc " + docID,
 	}
+}
+
+func chunkWithLabels(docID, content string, score float64, labels []string) db.ChunkWithScore {
+	ch := chunk(docID, content, score)
+	ch.DocLabels = labels
+	return ch
 }
 
 func chunkWithHeading(docID, content string, heading string, score float64) db.ChunkWithScore {
-	cs := chunkWithScore(docID, content, score)
-	cs.Chunk.HeadingPath = &heading
-	return cs
+	ch := chunk(docID, content, score)
+	ch.Chunk.HeadingPath = &heading
+	return ch
 }
 
-// docMap builds a map of document ID → Document for use in tests.
-// Panics on invalid record IDs (test-only helper; IDs are always constructed via rid()).
-func docMap(docs ...models.Document) map[string]models.Document {
-	m := make(map[string]models.Document, len(docs))
-	for _, d := range docs {
-		id, err := models.RecordIDString(d.ID)
-		if err != nil {
-			panic(fmt.Sprintf("docMap: invalid record ID: %v", err))
-		}
-		m[id] = d
-	}
-	return m
+func chunkWithDocType(docID, content string, score float64, docType string) db.ChunkWithScore {
+	ch := chunk(docID, content, score)
+	ch.DocType = &docType
+	return ch
 }
 
 // =============================================================================
-// RRF FUSION TESTS
+// ASSEMBLE RESULTS TESTS
 // =============================================================================
 
-func TestRRFFusion_BM25Only(t *testing.T) {
-	bm25 := []db.ChunkWithScore{
-		chunkWithScore("a", "Doc A content", 5.0),
-		chunkWithScore("b", "Doc B content", 3.0),
+func TestAssembleResults_SingleDoc(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunk("a", "Doc A content", 5.0),
 	}
-	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"))
 
-	results := rrfFusion(bm25, nil, dm, 10, false)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-	// Doc A should rank higher (rank 1 in BM25)
-	if results[0].Title != "Doc A" {
-		t.Errorf("expected Doc A first, got %q", results[0].Title)
+	results := assembleResults(chunks, 10, false, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 	if results[0].DocumentID != "a" {
 		t.Errorf("expected DocumentID 'a', got %q", results[0].DocumentID)
 	}
-	// BM25 chunks now carry matched chunks
+	if results[0].Path != "docs/a.md" {
+		t.Errorf("expected path 'docs/a.md', got %q", results[0].Path)
+	}
+	if results[0].Title != "Doc a" {
+		t.Errorf("expected title 'Doc a', got %q", results[0].Title)
+	}
 	if len(results[0].MatchedChunks) != 1 {
-		t.Errorf("expected 1 matched chunk on Doc A, got %d", len(results[0].MatchedChunks))
+		t.Errorf("expected 1 matched chunk, got %d", len(results[0].MatchedChunks))
+	}
+	if results[0].Degraded {
+		t.Error("expected Degraded=false")
 	}
 }
 
-func TestRRFFusion_ChunkPromotion(t *testing.T) {
-	// Vector chunks promote their parent documents even without BM25 hits
+func TestAssembleResults_MultiDocRanking(t *testing.T) {
 	chunks := []db.ChunkWithScore{
-		chunkWithScore("x", "Doc X content", 0.95),
-		chunkWithScore("y", "Doc Y content", 0.80),
+		chunk("b", "Doc B content", 3.0),
+		chunk("a", "Doc A content", 5.0),
 	}
-	dm := docMap(doc("x", "Doc X"), doc("y", "Doc Y"))
 
-	results := rrfFusion(nil, chunks, dm, 10, false)
+	results := assembleResults(chunks, 10, false, false)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
-	if results[0].Title != "Doc X" {
-		t.Errorf("expected Doc X first, got %q", results[0].Title)
+	// Doc A should rank higher (higher score)
+	if results[0].DocumentID != "a" {
+		t.Errorf("expected Doc A first (higher score), got %q", results[0].DocumentID)
 	}
-	if len(results[0].MatchedChunks) != 1 {
-		t.Fatalf("expected 1 matched chunk on Doc X, got %d", len(results[0].MatchedChunks))
-	}
-}
-
-func TestRRFFusion_HybridBoost(t *testing.T) {
-	// Doc A has different chunks in BM25 and vector — both should appear, doc gets score boost
-	// Doc B only in BM25, Doc C only via vector
-	bm25 := []db.ChunkWithScore{
-		chunkWithScorePos("a", "Doc A bm25", 0, 5.0),
-		chunkWithScore("b", "Doc B bm25", 3.0),
-	}
-	vector := []db.ChunkWithScore{
-		chunkWithScore("c", "Doc C vector", 0.95),
-		chunkWithScorePos("a", "Doc A vector", 1, 0.90),
-	}
-	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"), doc("c", "Doc C"))
-
-	results := rrfFusion(bm25, vector, dm, 10, false)
-	if len(results) != 3 {
-		t.Fatalf("expected 3 results, got %d", len(results))
-	}
-	// Doc A should be first — it appears in both lists and gets boosted
-	if results[0].Title != "Doc A" {
-		t.Errorf("expected Doc A first (hybrid boost), got %q", results[0].Title)
-	}
-	// Doc A's score should be higher than any single-source doc
-	if results[0].Score <= results[1].Score {
-		t.Errorf("hybrid doc should have higher score than single-source docs")
-	}
-	// Doc A should have 2 matched chunks (different chunks from BM25 and vector)
-	if len(results[0].MatchedChunks) != 2 {
-		t.Errorf("expected 2 matched chunks on Doc A, got %d", len(results[0].MatchedChunks))
+	if results[0].Score != 5.0 {
+		t.Errorf("expected score 5.0, got %f", results[0].Score)
 	}
 }
 
-func TestRRFFusion_ChunkAttachment(t *testing.T) {
-	// Different chunks from same doc in BM25 and vector
-	bm25 := []db.ChunkWithScore{
-		chunkWithScorePos("a", "bm25 chunk from A", 0, 5.0),
+func TestAssembleResults_MultiChunkPerDoc(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunkPos("a", "chunk 1", 0, 3.0),
+		chunkPos("a", "chunk 2", 1, 7.0),
+		chunkPos("a", "chunk 3", 2, 1.0),
 	}
-	vector := []db.ChunkWithScore{
-		chunkWithScorePos("a", "vector chunk from A", 1, 0.9),
-	}
-	dm := docMap(doc("a", "Doc A"))
 
-	results := rrfFusion(bm25, vector, dm, 10, false)
+	results := assembleResults(chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if len(results[0].MatchedChunks) != 2 {
-		t.Fatalf("expected 2 matched chunks (different positions), got %d", len(results[0].MatchedChunks))
+	// Score should be sum of chunk scores
+	if results[0].Score != 11.0 {
+		t.Errorf("expected sum score 11.0, got %f", results[0].Score)
+	}
+	if len(results[0].MatchedChunks) != 3 {
+		t.Errorf("expected 3 matched chunks, got %d", len(results[0].MatchedChunks))
 	}
 }
 
-func TestRRFFusion_ChunkDedup(t *testing.T) {
-	// Same chunk (same ID) appears in both BM25 and vector — should be deduped
-	// but the document still gets RRF score boost from both
-	sameChunk := chunkWithScore("a", "same content", 5.0)
-	dm := docMap(doc("a", "Doc A"))
+func TestAssembleResults_Limit(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunk("a", "Doc A", 5.0),
+		chunk("b", "Doc B", 4.0),
+		chunk("c", "Doc C", 3.0),
+		chunk("d", "Doc D", 2.0),
+		chunk("e", "Doc E", 1.0),
+	}
 
-	results := rrfFusion(
-		[]db.ChunkWithScore{sameChunk},
-		[]db.ChunkWithScore{sameChunk},
-		dm, 10, false,
-	)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	// Only 1 matched chunk despite appearing in both lists
-	if len(results[0].MatchedChunks) != 1 {
-		t.Errorf("expected 1 matched chunk (deduped), got %d", len(results[0].MatchedChunks))
-	}
-	// But score should reflect both contributions (higher than single path)
-	singleResults := rrfFusion([]db.ChunkWithScore{sameChunk}, nil, dm, 10, false)
-	if results[0].Score <= singleResults[0].Score {
-		t.Error("deduped chunk should still boost document RRF score from both paths")
-	}
-}
-
-func TestRRFFusion_ChunkOrphan(t *testing.T) {
-	// Chunk references a doc not in docMap — should be ignored
-	bm25 := []db.ChunkWithScore{
-		chunkWithScore("a", "Doc A content", 5.0),
-	}
-	vector := []db.ChunkWithScore{
-		chunkWithScore("unknown", "orphan chunk", 0.9),
-	}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := rrfFusion(bm25, vector, dm, 10, false)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-}
-
-func TestRRFFusion_Limit(t *testing.T) {
-	bm25 := []db.ChunkWithScore{
-		chunkWithScore("a", "Doc A", 5.0),
-		chunkWithScore("b", "Doc B", 4.0),
-		chunkWithScore("c", "Doc C", 3.0),
-		chunkWithScore("d", "Doc D", 2.0),
-		chunkWithScore("e", "Doc E", 1.0),
-	}
-	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"), doc("c", "Doc C"), doc("d", "Doc D"), doc("e", "Doc E"))
-
-	results := rrfFusion(bm25, nil, dm, 3, false)
+	results := assembleResults(chunks, 3, false, false)
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results (limit), got %d", len(results))
 	}
 }
 
-func TestRRFFusion_Empty(t *testing.T) {
-	results := rrfFusion(nil, nil, nil, 10, false)
+func TestAssembleResults_Empty(t *testing.T) {
+	results := assembleResults(nil, 10, false, false)
 	if len(results) != 0 {
-		t.Errorf("expected 0 results for empty inputs, got %d", len(results))
+		t.Errorf("expected 0 results for nil chunks, got %d", len(results))
 	}
 }
 
-func TestRRFFusion_LightweightFields(t *testing.T) {
-	bm25 := []db.ChunkWithScore{
-		{
-			Chunk: models.Chunk{
-				ID:       rid("chunk", "abc-0"),
-				Document: rid("document", "abc"),
-				Content:  "chunk content",
-				Position: 0,
-			},
-			Score: 5.0,
-		},
+func TestAssembleResults_StableOrder(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunk("first", "first doc", 5.0),
+		chunk("second", "second doc", 5.0),
 	}
-	dm := docMap(models.Document{
-		ID:     rid("document", "abc"),
-		Title:  "My Doc",
-		Path:   "notes/my-doc.md",
-		Labels: []string{"go", "test"},
-	})
 
-	results := rrfFusion(bm25, nil, dm, 10, false)
+	results := assembleResults(chunks, 10, false, false)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].DocumentID != "first" {
+		t.Errorf("expected 'first' to maintain encounter order, got %q", results[0].DocumentID)
+	}
+}
+
+func TestAssembleResults_HeadingPathPreserved(t *testing.T) {
+	heading := "## Setup > ### Install"
+	chunks := []db.ChunkWithScore{
+		chunkWithHeading("a", "Install instructions", heading, 5.0),
+	}
+
+	results := assembleResults(chunks, 10, false, false)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	r := results[0]
-	if r.DocumentID != "abc" {
-		t.Errorf("expected DocumentID 'abc', got %q", r.DocumentID)
+	if results[0].MatchedChunks[0].HeadingPath == nil {
+		t.Fatal("expected heading path, got nil")
 	}
-	if r.Path != "notes/my-doc.md" {
-		t.Errorf("expected path 'notes/my-doc.md', got %q", r.Path)
-	}
-	if r.Title != "My Doc" {
-		t.Errorf("expected title 'My Doc', got %q", r.Title)
-	}
-	if len(r.Labels) != 2 || r.Labels[0] != "go" {
-		t.Errorf("expected labels [go, test], got %v", r.Labels)
+	if *results[0].MatchedChunks[0].HeadingPath != heading {
+		t.Errorf("expected heading %q, got %q", heading, *results[0].MatchedChunks[0].HeadingPath)
 	}
 }
+
+func TestAssembleResults_Labels(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunkWithLabels("a", "content", 5.0, []string{"go", "test"}),
+	}
+
+	results := assembleResults(chunks, 10, false, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if len(results[0].Labels) != 2 || results[0].Labels[0] != "go" {
+		t.Errorf("expected labels [go, test], got %v", results[0].Labels)
+	}
+}
+
+func TestAssembleResults_NilLabelsNormalized(t *testing.T) {
+	ch := chunk("a", "content", 5.0)
+	ch.DocLabels = nil
+
+	results := assembleResults([]db.ChunkWithScore{ch}, 10, false, false)
+	if results[0].Labels == nil {
+		t.Error("expected empty slice, got nil")
+	}
+}
+
+func TestAssembleResults_DocType(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunkWithDocType("a", "content", 5.0, "note"),
+	}
+
+	results := assembleResults(chunks, 10, false, false)
+	if results[0].DocType == nil || *results[0].DocType != "note" {
+		t.Errorf("expected doc_type 'note', got %v", results[0].DocType)
+	}
+}
+
+func TestAssembleResults_Degraded(t *testing.T) {
+	chunks := []db.ChunkWithScore{
+		chunk("a", "content", 5.0),
+		chunk("b", "content", 3.0),
+	}
+
+	results := assembleResults(chunks, 10, false, true)
+	for i, r := range results {
+		if !r.Degraded {
+			t.Errorf("result %d: expected Degraded=true", i)
+		}
+	}
+}
+
+// =============================================================================
+// FULL CONTENT TESTS
+// =============================================================================
+
+func TestChunkToMatch_FullContent(t *testing.T) {
+	longContent := strings.Repeat("word ", 100) // 500 chars
+	ch := chunk("a", longContent, 5.0)
+
+	truncated := chunkToMatch(ch, false)
+	if truncated.Snippet == longContent {
+		t.Error("expected snippet to be truncated when fullContent=false")
+	}
+	if len([]rune(truncated.Snippet)) > maxSnippetLen+5 {
+		t.Errorf("expected truncated snippet, got rune length %d", len([]rune(truncated.Snippet)))
+	}
+
+	full := chunkToMatch(ch, true)
+	if full.Snippet != longContent {
+		t.Errorf("expected full content, got truncated snippet")
+	}
+}
+
+func TestAssembleResults_FullContent(t *testing.T) {
+	longContent := strings.Repeat("word ", 100)
+	chunks := []db.ChunkWithScore{chunk("a", longContent, 5.0)}
+
+	results := assembleResults(chunks, 10, true, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].MatchedChunks[0].Snippet != longContent {
+		t.Error("expected full content in snippet when fullContent=true")
+	}
+}
+
+func TestAssembleResults_SnippetTruncation(t *testing.T) {
+	var longContent strings.Builder
+	for range 100 {
+		longContent.WriteString("word ")
+	}
+
+	chunks := []db.ChunkWithScore{chunk("a", longContent.String(), 5.0)}
+
+	results := assembleResults(chunks, 10, false, false)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	snippet := results[0].MatchedChunks[0].Snippet
+	if len([]rune(snippet)) > maxSnippetLen+5 {
+		t.Errorf("snippet should be truncated, got rune length %d", len([]rune(snippet)))
+	}
+}
+
+// =============================================================================
+// TRUNCATE SNIPPET TESTS
+// =============================================================================
 
 func TestTruncateSnippet(t *testing.T) {
 	short := "hello world"
@@ -312,211 +337,5 @@ func TestTruncateSnippet_NoSpaces(t *testing.T) {
 	// 50 chars + ellipsis = 51
 	if len(runes) != 51 {
 		t.Errorf("expected 51 runes (50 + ellipsis), got %d", len(runes))
-	}
-}
-
-func TestRRFFusion_SnippetTruncation(t *testing.T) {
-	// Build chunk content longer than maxSnippetLen
-	var longContent strings.Builder
-	for range 100 {
-		longContent.WriteString("word ")
-	}
-
-	bm25 := []db.ChunkWithScore{
-		chunkWithScore("a", longContent.String(), 5.0),
-	}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := rrfFusion(bm25, nil, dm, 10, false)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	snippet := results[0].MatchedChunks[0].Snippet
-	if len([]rune(snippet)) > maxSnippetLen+5 { // +5 for ellipsis char
-		t.Errorf("snippet should be truncated, got rune length %d", len([]rune(snippet)))
-	}
-}
-
-func TestRRFFusion_HeadingPathPreserved(t *testing.T) {
-	heading := "## Setup > ### Install"
-	bm25 := []db.ChunkWithScore{
-		chunkWithHeading("a", "Install instructions", heading, 5.0),
-	}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := rrfFusion(bm25, nil, dm, 10, false)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if len(results[0].MatchedChunks) != 1 {
-		t.Fatalf("expected 1 matched chunk, got %d", len(results[0].MatchedChunks))
-	}
-	if results[0].MatchedChunks[0].HeadingPath == nil {
-		t.Fatal("expected heading path, got nil")
-	}
-	if *results[0].MatchedChunks[0].HeadingPath != heading {
-		t.Errorf("expected heading %q, got %q", heading, *results[0].MatchedChunks[0].HeadingPath)
-	}
-}
-
-// =============================================================================
-// AGGREGATE CHUNKS TESTS (BM25-only path)
-// =============================================================================
-
-func TestAggregateChunks_MultiDocRanking(t *testing.T) {
-	// Two docs with different scores — higher score doc should rank first
-	chunks := []db.ChunkWithScore{
-		chunkWithScore("b", "Doc B content", 3.0),
-		chunkWithScore("a", "Doc A content", 5.0),
-	}
-	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"))
-
-	results := aggregateChunks(chunks, dm, 10, false)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-	if results[0].DocumentID != "a" {
-		t.Errorf("expected Doc A first (higher score), got %q", results[0].DocumentID)
-	}
-	if results[0].Score != 5.0 {
-		t.Errorf("expected score 5.0, got %f", results[0].Score)
-	}
-	if results[1].DocumentID != "b" {
-		t.Errorf("expected Doc B second, got %q", results[1].DocumentID)
-	}
-}
-
-func TestAggregateChunks_MultiChunkPerDoc(t *testing.T) {
-	// Multiple chunks from same document — score should be max, both chunks attached
-	chunks := []db.ChunkWithScore{
-		chunkWithScorePos("a", "chunk 1", 0, 3.0),
-		chunkWithScorePos("a", "chunk 2", 1, 7.0),
-		chunkWithScorePos("a", "chunk 3", 2, 1.0),
-	}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := aggregateChunks(chunks, dm, 10, false)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].Score != 7.0 {
-		t.Errorf("expected max score 7.0, got %f", results[0].Score)
-	}
-	if len(results[0].MatchedChunks) != 3 {
-		t.Errorf("expected 3 matched chunks, got %d", len(results[0].MatchedChunks))
-	}
-}
-
-func TestAggregateChunks_Limit(t *testing.T) {
-	chunks := []db.ChunkWithScore{
-		chunkWithScore("a", "Doc A", 5.0),
-		chunkWithScore("b", "Doc B", 4.0),
-		chunkWithScore("c", "Doc C", 3.0),
-	}
-	dm := docMap(doc("a", "Doc A"), doc("b", "Doc B"), doc("c", "Doc C"))
-
-	results := aggregateChunks(chunks, dm, 2, false)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results (limit), got %d", len(results))
-	}
-	if results[0].DocumentID != "a" {
-		t.Errorf("expected Doc A first, got %q", results[0].DocumentID)
-	}
-	if results[1].DocumentID != "b" {
-		t.Errorf("expected Doc B second, got %q", results[1].DocumentID)
-	}
-}
-
-func TestAggregateChunks_OrphanChunk(t *testing.T) {
-	// Chunk references a doc not in docMap — should be skipped
-	chunks := []db.ChunkWithScore{
-		chunkWithScore("a", "Doc A content", 5.0),
-		chunkWithScore("orphan", "orphan content", 9.0),
-	}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := aggregateChunks(chunks, dm, 10, false)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result (orphan skipped), got %d", len(results))
-	}
-	if results[0].DocumentID != "a" {
-		t.Errorf("expected Doc A, got %q", results[0].DocumentID)
-	}
-}
-
-func TestAggregateChunks_Empty(t *testing.T) {
-	results := aggregateChunks(nil, nil, 10, false)
-	if len(results) != 0 {
-		t.Errorf("expected 0 results for nil chunks, got %d", len(results))
-	}
-}
-
-func TestAggregateChunks_StableOrder(t *testing.T) {
-	// Two docs with equal scores — should preserve encounter order
-	chunks := []db.ChunkWithScore{
-		chunkWithScore("first", "first doc", 5.0),
-		chunkWithScore("second", "second doc", 5.0),
-	}
-	dm := docMap(
-		models.Document{ID: rid("document", "first"), Title: "First", Path: "first.md"},
-		models.Document{ID: rid("document", "second"), Title: "Second", Path: "second.md"},
-	)
-
-	results := aggregateChunks(chunks, dm, 10, false)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-	if results[0].DocumentID != "first" {
-		t.Errorf("expected 'first' to maintain encounter order, got %q", results[0].DocumentID)
-	}
-}
-
-// =============================================================================
-// FULL CONTENT TESTS
-// =============================================================================
-
-func TestChunkToMatch_FullContent(t *testing.T) {
-	longContent := strings.Repeat("word ", 100) // 500 chars
-	ch := chunkWithScore("a", longContent, 5.0)
-
-	truncated := chunkToMatch(ch, false)
-	if truncated.Snippet == longContent {
-		t.Error("expected snippet to be truncated when fullContent=false")
-	}
-	if len([]rune(truncated.Snippet)) > maxSnippetLen+5 {
-		t.Errorf("expected truncated snippet, got rune length %d", len([]rune(truncated.Snippet)))
-	}
-
-	full := chunkToMatch(ch, true)
-	if full.Snippet != longContent {
-		t.Errorf("expected full content, got truncated snippet")
-	}
-}
-
-func TestAggregateChunks_FullContent(t *testing.T) {
-	longContent := strings.Repeat("word ", 100)
-	chunks := []db.ChunkWithScore{chunkWithScore("a", longContent, 5.0)}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := aggregateChunks(chunks, dm, 10, true)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].MatchedChunks[0].Snippet != longContent {
-		t.Error("expected full content in snippet when fullContent=true")
-	}
-}
-
-func TestRRFFusion_FullContent(t *testing.T) {
-	longContent := strings.Repeat("word ", 100)
-	bm25 := []db.ChunkWithScore{chunkWithScore("a", longContent, 5.0)}
-	dm := docMap(doc("a", "Doc A"))
-
-	results := rrfFusion(bm25, nil, dm, 10, true)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].MatchedChunks[0].Snippet != longContent {
-		t.Error("expected full content in snippet when fullContent=true")
 	}
 }

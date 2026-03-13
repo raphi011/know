@@ -21,7 +21,11 @@ type SearchFilter struct {
 
 type ChunkWithScore struct {
 	models.Chunk
-	Score float64 `json:"score"`
+	Score     float64  `json:"score"`
+	DocPath   string   `json:"doc_path"`
+	DocTitle  string   `json:"doc_title"`
+	DocLabels []string `json:"doc_labels"`
+	DocType   *string  `json:"doc_type"`
 }
 
 // buildChunkFilterConditions returns WHERE conditions and query variables
@@ -63,7 +67,12 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 	vars["query"] = query
 
 	sql := fmt.Sprintf(`
-		SELECT *, search::score(1) AS score
+		SELECT *,
+			search::score(1) AS score,
+			document.path AS doc_path,
+			document.title AS doc_title,
+			document.labels AS doc_labels,
+			document.doc_type AS doc_type
 		FROM chunk
 		WHERE %s
 			AND content @1@ $query
@@ -81,30 +90,46 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 	return (*results)[0].Result, nil
 }
 
-// ChunkVectorSearch performs HNSW vector similarity search on chunk embeddings,
-// applying the same filters (labels, docType, folder) as BM25 via the parent document.
-func (c *Client) ChunkVectorSearch(ctx context.Context, embedding []float32, filter SearchFilter) ([]ChunkWithScore, error) {
-	defer c.logOp(ctx, "search.vector", time.Now())
+// HybridSearch performs hybrid BM25+vector search using SurrealDB's search::rrf()
+// to fuse both result sets in a single query. Returns chunks ranked by RRF score
+// with parent document metadata included via record link traversal.
+func (c *Client) HybridSearch(ctx context.Context, query string, embedding []float32, filter SearchFilter) ([]ChunkWithScore, error) {
+	defer c.logOp(ctx, "search.hybrid", time.Now())
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 
 	conditions, vars := buildChunkFilterConditions(filter)
+	vars["query"] = query
 	vars["embedding"] = embedding
 
+	whereClause := strings.Join(conditions, " AND ")
+
+	// LET variables don't work with search::rrf() (return None) — subqueries must be inlined.
+	// ORDER BY is omitted: BM25 @1@ returns results in relevance order, and <|K,EF|> returns
+	// K nearest neighbors in similarity order. search::rrf() uses these orderings for rank fusion.
 	sql := fmt.Sprintf(`
-		SELECT *, vector::similarity::cosine(embedding, $embedding) AS score
-		FROM chunk
-		WHERE %s
-			AND embedding <|%d,40|> $embedding
-		ORDER BY score DESC
-		LIMIT %d
-	`, strings.Join(conditions, " AND "), limit, limit)
+		SELECT *,
+			document.path AS doc_path,
+			document.title AS doc_title,
+			document.labels AS doc_labels,
+			document.doc_type AS doc_type
+		FROM search::rrf([
+			(SELECT * FROM chunk
+			 WHERE %s
+			   AND content @1@ $query
+			 LIMIT %d),
+			(SELECT * FROM chunk
+			 WHERE %s
+			   AND embedding <|%d,40|> $embedding
+			 LIMIT %d)
+		], %d, 60)
+	`, whereClause, limit, whereClause, limit, limit, limit)
 
 	results, err := surrealdb.Query[[]ChunkWithScore](ctx, c.DB(), sql, vars)
 	if err != nil {
-		return nil, fmt.Errorf("chunk vector search: %w", err)
+		return nil, fmt.Errorf("hybrid search: %w", err)
 	}
 	if results == nil || len(*results) == 0 {
 		return nil, nil

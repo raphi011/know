@@ -35,7 +35,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | `adk.AddSessionValue` / `GetSessionValue` | ✅ Used — token tracking + tool records (Phase 3), FString prompt templating (Phase 5) |
 | Interrupt/Resume, CheckPointStore | ✅ Used — `approvalToolWrapper` + SurrealDB checkpoint store (Phase 4) |
 | `tool.InvokableTool` | ✅ Used — registry-based dispatch (Phase 1) |
-| `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries |
+| `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries with `search::rrf()` (Phase 6) |
 
 ---
 
@@ -297,70 +297,101 @@ Biggest change — eliminated ~500 lines of custom orchestration, replaced with 
 
 ---
 
-## Phase 6: compose.Chain for RAG Pipeline
+## Phase 6: SurrealDB Hybrid Search (`search::rrf`) ✅
 
-**Goal**: Make search composable — enable LLM reranking and query expansion.
+**Goal**: Replace Go-side RRF fusion with SurrealDB's built-in `search::rrf()`, reducing three DB round-trips + Go fusion to a single query.
 
-### What changes
+### What was done
 
-`search/service.go` Search() decomposed into chain steps:
+- `Search()` simplified from ~85 lines to ~45 lines — BM25 query, vector query, and RRF fusion collapse into one `search::rrf()` call
+- Go-side fusion code deleted: `rrfFusion`, `collectDocIDs`, `fetchDocMap`, `buildDocMap`, `aggregateChunks`, `chunksToResults`, `chunkKey`, `docInfo`, `docInfoFromModel`
+- `ChunkWithScore` extended with doc metadata fields (`DocPath`, `DocTitle`, `DocLabels`, `DocType`) via record link traversal — eliminates separate `GetDocumentsByIDs` call from search
+- `BM25ChunkSearch` updated to include doc fields (same record link pattern)
+- `ChunkVectorSearch` deleted — replaced by hybrid query
+- `embedQuery()` extracted as a clean method (was inline in `Search()`), takes `llm.Embedder` as parameter to avoid TOCTOU race on atomic pointer
+- New `assembleResults()` unifies both BM25-only and hybrid paths
+- Doc score uses **sum** of chunk scores (preserves hybrid boost for documents appearing in both BM25 and vector)
+- All logging uses `logutil.FromCtx(ctx)` for request-scoped context propagation
+- Double-failure error chains include both the original error and the fallback error
 
+### Architecture
+
+**Before**:
 ```
-QueryExpansion (optional, HyDE) → BM25Search → VectorSearch → RRFFusion → Reranking (optional) → ResultAssembly
+Go: BM25Query → DB
+Go: EmbedQuery → Embedder API
+Go: VectorQuery → DB
+Go: rrfFusion(bm25, vector) → Go code
+Go: fetchDocMap(docIDs) → DB
+Go: assembleResults → Go code
 ```
 
-Each step is a `compose.Lambda` wrapping existing logic:
-
-```go
-chain := compose.NewChain[SearchInput, []SearchResult]()
-chain.AppendLambda(bm25Lambda)
-chain.AppendLambda(vectorLambda)
-chain.AppendLambda(rrfFusionLambda)
-if reranking {
-    chain.AppendLambda(rerankLambda) // uses ChatModel
-}
-chain.AppendLambda(assemblyLambda)
+**After**:
+```
+Go: EmbedQuery → Embedder API (with cache)
+Go: HybridSearch(query, embedding) → DB (single search::rrf query with doc metadata)
+Go: assembleResults → Go code
 ```
 
-### Benefits
+### SurrealDB `search::rrf()` query
 
-- Each step independently testable
-- HyDE query expansion toggleable via chain composition
-- LLM reranking toggleable
-- Callbacks automatically instrument each step
+```sql
+SELECT *,
+    document.path AS doc_path,
+    document.title AS doc_title,
+    document.labels AS doc_labels,
+    document.doc_type AS doc_type
+FROM search::rrf([
+    (SELECT * FROM chunk WHERE <filters> AND content @1@ $query LIMIT $limit),
+    (SELECT * FROM chunk WHERE <filters> AND embedding <|$limit,40|> $embedding LIMIT $limit)
+], $limit, 60)
+```
+
+**Gotchas discovered**:
+- `LET` variables return `None` when passed to `search::rrf()` — subqueries must be inlined
+- `search::score()` cannot be used inside parenthesized subqueries within `search::rrf()` (parse error on `::`) — omit `ORDER BY` since BM25 `@1@` and KNN `<|K,EF|>` return results in relevance order implicitly
+- Record link traversal (`document.title AS doc_title`) works in the outer `SELECT`
+
+### Graceful degradation (unchanged behavior)
+
+- **No embedder / BM25Only**: `BM25ChunkSearch` directly
+- **Embedding fails**: fall back to BM25-only, mark results as `Degraded: true`
+- **HybridSearch fails**: fall back to BM25-only, mark results as `Degraded: true`
 
 ### Key files
 
-| File | Lines | Change |
-|------|-------|--------|
-| `internal/search/service.go` | 441 | Decomposed into chain steps |
+| File | Change |
+|------|--------|
+| `internal/db/queries_search.go` | New `HybridSearch` with `search::rrf()`, updated `BM25ChunkSearch` with doc fields, deleted `ChunkVectorSearch` |
+| `internal/search/service.go` | Deleted ~200 lines of fusion code, simplified `Search()`, extracted `embedQuery()`, new `assembleResults()` |
+| `internal/search/service_test.go` | Replaced RRF/aggregate tests with `assembleResults` tests |
+| `internal/db/queries_search_test.go` | Replaced `TestChunkVectorSearch` with `TestHybridSearch` |
 
-### Effort: M
+### Effort: S
 
-Current search works fine. This is enhancement — do after Phase 3 stabilizes.
+~200 lines removed, ~80 lines added.
 
 ---
 
-## Phase 7 (Future): Multi-Agent Patterns
+## Phase 7+ (Deferred): Future Improvements
 
-**Goal**: Leverage eino's agent hierarchy for complex workflows.
+The following ideas were evaluated after Phase 6 and deferred — the current search pipeline (hybrid BM25+vector via `search::rrf()`, top-20 results fed to the agent) works well enough for a personal knowledge base. All three add latency and LLM cost with marginal benefit when the agent already reads all top results.
 
-### Possible patterns
+### HyDE (Hypothetical Document Embeddings)
 
-- **Supervisor agent**: routes to specialist agents (search specialist, writing specialist, memory specialist)
-- **Plan-execute** (`adk/prebuilt/planexecute`): multi-step research ("research X across 5 documents and write a summary")
-- **Deep agent** (`adk/prebuilt/deep`): complex knowledge synthesis with task decomposition
-- **TransferToAgent**: hand off between agents based on intent
+LLM generates a hypothetical answer, embed *that* for vector search instead of the raw query. Improves recall when queries use different vocabulary than documents. Adds ~1-2s latency per search (one LLM call). **Revisit if**: short/vague queries consistently miss relevant documents.
 
-### Evaluation criteria
+### LLM Reranking
 
-- Wait until Phases 1-6 are stable before evaluating
-- Measure whether single-agent performance is sufficient for current use cases
-- Multi-agent adds complexity — only adopt if measurable quality improvement
+Post-fusion step that sends top-N results to the LLM to reorder by relevance. **Revisit if**: top-5 results are consistently wrong despite good recall (i.e., the right documents appear but are ranked poorly).
 
-### Effort: L
+### compose.Chain for Search Pipeline
 
-Future work.
+Wrap search steps in `compose.Chain` for per-step callbacks (timing, logging via Phase 2 callback system). Only worth it if HyDE or reranking are added (multiple steps to instrument). **Revisit if**: either of the above is adopted.
+
+### Multi-Agent Patterns
+
+Leverage eino's agent hierarchy (`adk/prebuilt/supervisor`, `planexecute`, `deep`) for complex workflows like multi-document research or specialist routing. **Revisit if**: single-agent performance becomes a bottleneck for complex tasks.
 
 ---
 
@@ -370,13 +401,11 @@ Future work.
 Phase 1: InvokableTool ✅ ───┐
                               ├─→ Phase 3: ADK ChatModelAgent ✅ ─┬─→ Phase 4: Interrupt/Resume ✅
 Phase 2: Callbacks ✅ ───────┘                                    └─→ Phase 5: Session + GenModelInput ✅
-                                                                       Phase 6: RAG Chain (independent)
-                                                                       Phase 7: Multi-Agent (future)
+                                                                       Phase 6: SurrealDB Hybrid Search ✅
 ```
 
-- **Phases 1 + 2 + 3 + 4 + 5**: ✅ complete
-- **Phase 6**: independent, after Phase 3 stabilizes
-- **Phase 7**: future, after all above stable
+- **Phases 1–6**: ✅ complete — full eino migration done
+- **Phase 7+**: deferred — HyDE, LLM reranking, compose.Chain, multi-agent all evaluated and shelved (see above)
 
 ---
 
@@ -398,7 +427,8 @@ Phase 2: Callbacks ✅ ───────┘                                 
 | `internal/tools/tool_*.go` | ~900 | Individual InvokableTool implementations (10 tools) | ✅ 1 |
 | `internal/tools/meta.go` | ~40 | Context-based ToolResultMeta passing (SetResultMeta exported) | ✅ 1, 3 |
 | `internal/mcptools/tools.go` | 561 | MCP tool bridge (shares executor) | ✅ 1 (unchanged) |
-| `internal/search/service.go` | 441 | Hybrid BM25+vector search | 6 |
+| `internal/search/service.go` | ~220 | Simplified hybrid search via `search::rrf()` | ✅ 6 |
+| `internal/db/queries_search.go` | ~140 | BM25 + HybridSearch queries | ✅ 6 |
 | `internal/metrics/collector.go` | 203 | Metrics collection | ✅ 2 |
 | `internal/db/queries_checkpoint.go` | ~41 | GetCheckpoint / UpsertCheckpoint DB methods | ✅ 4 |
 
@@ -413,6 +443,7 @@ Phase 2: Callbacks ✅ ───────┘                                 
 | Phase 3 ✅ | 376 (Chat loop + GenerateStreamWithTools + buildTools + executeTool) | 515 (middleware + events + agent wiring) | +139 |
 | Phase 4 ✅ | 236 (approval registry + channel blocking + approval_test.go) | 300 (modified) + 222 (3 new files) | +286 |
 | Phase 5 ✅ | ~45 (buildSystemPrompt + custom GenModelInput) | ~65 (BeforeAgent + formatters + template const) | +20 |
-| **Total** | **~1356** | **~2130** | **+774** |
+| Phase 6 | ~200 (Go-side RRF fusion + doc fetch + aggregation) | ~40 (HybridSearch DB method) | -160 |
+| **Total** | **~1556** | **~2170** | **+614** |
 
-Net increase of ~784 lines, but the new code is composable, testable middleware with proper error handling, race protection, and crash-resilient checkpoint persistence — replacing monolithic orchestration with in-memory state.
+Net increase of ~614 lines, but the new code is composable, testable middleware with proper error handling, race protection, and crash-resilient checkpoint persistence — replacing monolithic orchestration with in-memory state.
