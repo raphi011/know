@@ -140,28 +140,28 @@ Agent endpoints (background execution):
 
 ## Documentation
 
-**IMPORTANT**: When adding or modifying features, always update `README.md` with example prompts showcasing what the feature can do. This helps users understand how to use each tool effectively.
+**IMPORTANT**: When adding or modifying features, always update the relevant `docs/feature-*.md` file with example prompts showcasing what the feature can do. This helps users understand how to use each tool effectively.
 
-### Technical Learnings (`docs/`)
+### Feature Docs (`docs/feature-*.md`)
 
-When learning something new about embeddings, SurrealDB, RAG, LLMs, or the tech stack:
-1. Add learnings to the appropriate file in `docs/`
-2. Keep entries concise and practical
-3. Include code examples where helpful
+Each major feature has its own documentation file:
+- `docs/feature-mcp.md` - MCP server, tools, multi-instance setup, Claude Code/Cursor config
+- `docs/feature-agent.md` - Agent chat, TUI, tool approval, SSE streaming
+- `docs/feature-search.md` - Hybrid BM25+vector search, RRF fusion, LLM synthesis
+- `docs/feature-ingestion.md` - Document pipeline, cp command, frontmatter, wiki-links, versioning
+- `docs/feature-memory.md` - Memory system, decay scoring, consolidation, archiving
+- `docs/feature-vaults.md` - Vaults, folders, access control, share links
+- `docs/feature-webdav.md` - WebDAV editing, auth, editor support
+- `docs/feature-remotes.md` - Multi-server federation, namespace routing
+- `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 
-Available docs:
-- `docs/embeddings.md` - Vector embeddings, models, dimensions
-- `docs/surrealdb.md` - SurrealDB patterns, HNSW indexes, v3 syntax
-- `docs/rag.md` - RAG architecture, chunking, hybrid search
-- `docs/llm.md` - LLM integration patterns
-- `docs/langchaingo.md` - Go LLM library usage
-- `docs/docker.md` - Docker Compose, Colima, SurrealDB v3 image gotchas
+### Project-Specific Docs (`docs/`)
+
 - `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
-- `docs/sse.md` - Server-Sent Events, event bus, live updates
 
-### WebDAV
+### Reusable Knowledge
 
-The WebDAV server at `/dav/{vaultName}/` allows editing documents with any WebDAV-compatible editor. Auth uses HTTP Basic Auth where the password is a knowhow API token. Each vault gets its own lock system.
+Best practices, framework gotchas, and library references have been moved to the personal knowledge base (`~/Git/second-brain`). Search there for SurrealDB, embeddings, RAG, LLM, HTMX, Templ, Tailwind, WebDAV, Bubbletea, langchaingo, Docker, SSE, MCP, Next.js, React, accessibility, and testing patterns.
 
 ## Architecture — Vault-Based Document System
 
