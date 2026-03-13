@@ -100,6 +100,43 @@ func (c *Client) UpdateConversationTokens(ctx context.Context, id string, inputT
 	return nil
 }
 
+func (c *Client) SetConversationBgRunning(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "conversation.set_bg_running", time.Now())
+	sql := `UPDATE type::record("conversation", $id) SET bg_status = "running", bg_started_at = time::now(), bg_error = NONE, bg_completed_at = NONE`
+	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
+		"id": bareID("conversation", id),
+	})
+	if err != nil {
+		return fmt.Errorf("set conversation bg running: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) SetConversationBgCompleted(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "conversation.set_bg_completed", time.Now())
+	sql := `UPDATE type::record("conversation", $id) SET bg_status = "completed", bg_completed_at = time::now()`
+	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
+		"id": bareID("conversation", id),
+	})
+	if err != nil {
+		return fmt.Errorf("set conversation bg completed: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) SetConversationBgFailed(ctx context.Context, id, errMsg string) error {
+	defer c.logOp(ctx, "conversation.set_bg_failed", time.Now())
+	sql := `UPDATE type::record("conversation", $id) SET bg_status = "failed", bg_error = $error, bg_completed_at = time::now()`
+	_, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, map[string]any{
+		"id":    bareID("conversation", id),
+		"error": errMsg,
+	})
+	if err != nil {
+		return fmt.Errorf("set conversation bg failed: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput, toolMeta, toolCallID, toolCalls *string) (*models.Message, error) {
 	defer c.logOp(ctx, "message.create", time.Now())
 	if docRefs == nil {

@@ -46,6 +46,17 @@ func WithAuth(ctx context.Context, ac AuthContext) context.Context {
 	return context.WithValue(ctx, contextKey{}, ac)
 }
 
+// DetachContext creates a new context.Background() with the auth context copied
+// from the given request context. This allows background goroutines to retain
+// auth info after the original HTTP request context is cancelled.
+func DetachContext(requestCtx context.Context) (context.Context, error) {
+	ac, err := FromContext(requestCtx)
+	if err != nil {
+		return nil, err
+	}
+	return WithAuth(context.Background(), ac), nil
+}
+
 // FromContext extracts auth context from the request context.
 func FromContext(ctx context.Context) (AuthContext, error) {
 	ac, ok := ctx.Value(contextKey{}).(AuthContext)

@@ -14,16 +14,22 @@ import (
 const maxAttachments = 20
 
 type chatRequestBody struct {
-	ConversationID string               `json:"conversationId"`
-	VaultID        string               `json:"vaultId"`
-	Content        string               `json:"content"`
-	DocRefs        []string             `json:"docRefs"`
+	ConversationID string                  `json:"conversationId"`
+	VaultID        string                  `json:"vaultId"`
+	Content        string                  `json:"content"`
+	DocRefs        []string                `json:"docRefs"`
 	Attachments    []models.ChatAttachment `json:"attachments,omitempty"`
-	AutoApprove    bool                 `json:"autoApprove"`
+	AutoApprove    bool                    `json:"autoApprove"`
 }
 
-// HandleChat returns an HTTP handler for POST /agent/chat that streams SSE events back to the client.
-func (s *Service) HandleChat() http.HandlerFunc {
+type chatResponseBody struct {
+	ConversationID string `json:"conversationId"`
+	Status         string `json:"status"`
+}
+
+// HandleChat returns an HTTP handler for POST /agent/chat that starts a background
+// agent goroutine and returns 202 with the conversation ID.
+func (rn *Runner) HandleChat() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -85,6 +91,94 @@ func (s *Service) HandleChat() http.HandlerFunc {
 			return
 		}
 
+		req := ChatRequest{
+			ConversationID: body.ConversationID,
+			VaultID:        body.VaultID,
+			UserID:         ac.UserID,
+			Content:        body.Content,
+			DocRefs:        body.DocRefs,
+			Attachments:    body.Attachments,
+			AutoApprove:    body.AutoApprove,
+		}
+
+		convID, err := rn.Start(r.Context(), req)
+		if err != nil {
+			logutil.FromCtx(r.Context()).Error("failed to start agent", "error", err)
+			http.Error(w, "failed to start agent", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(chatResponseBody{
+			ConversationID: convID,
+			Status:         "running",
+		})
+	}
+}
+
+// HandleEvents returns an HTTP handler for GET /agent/events/{id} that streams
+// SSE events for a running (or recently completed) agent.
+func (rn *Runner) HandleEvents() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if _, err := auth.FromContext(r.Context()); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		convID := r.PathValue("id")
+		if convID == "" {
+			http.Error(w, "conversation ID required", http.StatusBadRequest)
+			return
+		}
+
+		// Try to subscribe to a running task
+		history, ch, unsub, err := rn.Subscribe(convID)
+		if err != nil {
+			// Task not running — check DB for completed/failed status
+			conv, dbErr := rn.db.GetConversation(r.Context(), convID)
+			if dbErr != nil || conv == nil {
+				http.Error(w, "conversation not found", http.StatusNotFound)
+				return
+			}
+			if conv.BgStatus == nil {
+				http.Error(w, "not a background task", http.StatusNotFound)
+				return
+			}
+
+			// Return terminal status as SSE
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "streaming not supported", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("X-Accel-Buffering", "no")
+
+			switch *conv.BgStatus {
+			case "completed":
+				writeSSE(w, flusher, StreamEvent{Type: "msg_end"})
+			case "failed":
+				errMsg := "agent failed"
+				if conv.BgError != nil {
+					errMsg = *conv.BgError
+				}
+				writeSSE(w, flusher, StreamEvent{Type: "error", Content: errMsg})
+			default:
+				// "running" but not in tasks map — race condition or server restart
+				http.Error(w, "task not available", http.StatusNotFound)
+			}
+			return
+		}
+		defer unsub()
+
 		// Set up SSE
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -97,40 +191,71 @@ func (s *Service) HandleChat() http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 
-		emit := func(event StreamEvent) {
-			data, err := json.Marshal(event)
-			if err != nil {
-				logutil.FromCtx(r.Context()).Warn("failed to marshal SSE event", "error", err)
+		// Replay history
+		for _, event := range history {
+			if !writeSSE(w, flusher, event) {
 				return
 			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		}
+
+		// Stream live events
+		for {
+			select {
+			case event, ok := <-ch:
+				if !ok {
+					return // agent done, channel closed
+				}
+				if !writeSSE(w, flusher, event) {
+					return // client disconnected
+				}
+			case <-r.Context().Done():
 				return // client disconnected
 			}
-			flusher.Flush()
-		}
-
-		// Enrich context logger with conversation and vault info
-		chatLogger := logutil.FromCtx(r.Context()).With(
-			"conversation_id", body.ConversationID,
-			"vault_id", body.VaultID,
-		)
-		ctx := logutil.WithLogger(r.Context(), chatLogger)
-
-		req := ChatRequest{
-			ConversationID: body.ConversationID,
-			VaultID:        body.VaultID,
-			UserID:         ac.UserID,
-			Content:        body.Content,
-			DocRefs:        body.DocRefs,
-			Attachments:    body.Attachments,
-			AutoApprove:    body.AutoApprove,
-		}
-
-		if err := s.Chat(ctx, req, emit); err != nil {
-			logutil.FromCtx(ctx).Error("agent chat error", "error", err)
-			emit(StreamEvent{Type: "error", Content: "Failed to process chat request. Please try again."})
 		}
 	}
+}
+
+// HandleCancel returns an HTTP handler for POST /agent/cancel/{id} that cancels
+// a running agent.
+func (rn *Runner) HandleCancel() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if _, err := auth.FromContext(r.Context()); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		convID := r.PathValue("id")
+		if convID == "" {
+			http.Error(w, "conversation ID required", http.StatusBadRequest)
+			return
+		}
+
+		if err := rn.Cancel(convID); err != nil {
+			http.Error(w, "no running task for this conversation", http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// writeSSE marshals an event and writes it as an SSE data line.
+// Returns false if the write failed (client disconnected).
+func writeSSE(w http.ResponseWriter, flusher http.Flusher, event StreamEvent) bool {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return false
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return false
+	}
+	flusher.Flush()
+	return true
 }
 
 type approvalRequestBody struct {

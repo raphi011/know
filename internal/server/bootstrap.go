@@ -58,6 +58,7 @@ type App struct {
 	searchService            *search.Service
 	templateService          *template.Service
 	agentService             *agent.Service
+	agentRunner              *agent.Runner
 	remoteService            *remote.Service
 	memoryService            *memory.Service
 	bus                      *event.Bus
@@ -165,6 +166,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	searchSvc := search.NewService(dbClient, embedder)
 	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
+	agentRunner := agent.NewRunner(agentSvc, dbClient)
 
 	assetSvc := asset.NewService(dbClient, bus)
 
@@ -183,6 +185,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		searchService:            searchSvc,
 		templateService:          template.NewService(dbClient),
 		agentService:             agentSvc,
+		agentRunner:              agentRunner,
 		bus:                      bus,
 		workerDone:               embeddingWorkerDone,
 		processingWorkerDone:     processingWorkerDone,
@@ -222,6 +225,11 @@ func (a *App) DBClient() *db.Client {
 // AgentService returns the agent service.
 func (a *App) AgentService() *agent.Service {
 	return a.agentService
+}
+
+// AgentRunner returns the agent runner for background agent goroutines.
+func (a *App) AgentRunner() *agent.Runner {
+	return a.agentRunner
 }
 
 // EventBus returns the event bus.
@@ -298,6 +306,9 @@ func (a *App) Close(ctx context.Context) error {
 	if procCancel != nil {
 		procCancel()
 		<-procDone
+	}
+	if a.agentRunner != nil {
+		a.agentRunner.Shutdown()
 	}
 	if a.db != nil {
 		return a.db.Close(ctx)

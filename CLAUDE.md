@@ -132,8 +132,10 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `DELETE /api/documents?vault={id}&path={path}&recursive=true&dry-run=true` — delete document or folder
 - `GET /api/config` — server configuration
 
-Agent endpoints (SSE streaming):
-- `POST /agent/chat` — send message, receive SSE stream
+Agent endpoints (background execution):
+- `POST /agent/chat` — start agent, returns 202 `{conversationId, status}`
+- `GET /agent/events/{id}` — SSE stream (replay + live events, reconnectable)
+- `POST /agent/cancel/{id}` — cancel running agent
 - `POST /agent/approval` — approve/reject tool calls
 
 ## Documentation
