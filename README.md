@@ -46,13 +46,7 @@ knowhow serve
 # 4. Copy documents into a vault
 knowhow cp ./docs / --vault default
 
-# 5. Search your knowledge
-knowhow search "authentication"
-
-# 6. Ask questions (LLM synthesis)
-knowhow ask "How does the auth service work?"
-
-# 7. Launch the agent chat TUI
+# 5. Launch the agent chat TUI
 knowhow agent
 ```
 
@@ -87,7 +81,7 @@ See individual [feature docs](docs/) for feature-specific configuration.
 ```
 +---------------------------------------------------------+
 |                      CLI (cobra)                        |
-|  cp, search, ask, agent, remote, vault, ...             |
+|  cp, agent, remote, vault, ls, cat, ...                  |
 +---------------------------------------------------------+
 |              Service Layer                              |
 |  DocumentService, SearchService, AgentService           |
@@ -116,8 +110,6 @@ See individual [feature docs](docs/) for feature-specific configuration.
 ### Project Docs
 
 - [Teleport Proxy](docs/teleport-proxy.md) — Bedrock integration via Teleport AWS proxy
-- [SSH/SFTP](docs/ssh-sftp.md) — SSH/SFTP server design
-- [CI/CD](docs/ci-cd.md) — GitHub Actions deploy pipeline
 
 ## License
 

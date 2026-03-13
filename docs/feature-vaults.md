@@ -57,14 +57,6 @@ Share links provide public, read-only access to documents or folders without req
 3. The share token is used as a `Bearer` auth token, granting read-only access scoped to the vault and path.
 4. If `isFolder=true`, access extends to all documents under that path prefix.
 
-## Sync API
-
-The sync endpoint supports metadata-first incremental sync for offline-capable clients (e.g. iOS app).
-
-- **Without `since`**: Returns a full metadata dump (no tombstones).
-- **With `since`**: Returns only documents updated after that timestamp, plus tombstones for deletions.
-- Clients compare `contentHash` against their local cache to determine which documents need re-downloading.
-
 ## Usage
 
 ### Vault info
@@ -86,5 +78,4 @@ knowhow vault my-vault --api-url http://localhost:4001
 - Access control is enforced in `internal/auth/` (token validation, role checks)
 - Folder operations live in `internal/document/` (create, move, delete with cascading)
 - Share link logic is in `internal/auth/` (token generation, hash storage, scoped access)
-- Sync endpoint is part of the REST API at `/api/sync`
 - CLI commands: `knowhow vault`, `knowhow ls`

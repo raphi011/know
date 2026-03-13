@@ -97,4 +97,3 @@ Example prompts:
 
 - [Search](feature-search.md) — how `kb_search` works under the hood
 - [MCP Server](feature-mcp.md) — using the agent tools via MCP
-- [SSE](sse.md) — event streaming architecture

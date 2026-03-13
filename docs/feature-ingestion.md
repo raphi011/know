@@ -53,12 +53,6 @@ Relations between documents can be created in three ways:
 
 - **Frontmatter**: Add `relates_to` entries -- relations are created automatically during the pipeline.
 - **Wiki-links**: Use `[[path/to/doc]]` syntax in markdown body -- resolved during parsing.
-- **CLI**: Explicitly link entities with typed relationships.
-
-```bash
-knowhow link "john-doe" "auth-service" --type "works_on"
-knowhow link "auth-service" "user-service" --type "depends_on"
-```
 
 Relations require write access on the source vault and read access on the target vault. They are stored as SurrealDB graph edges with a unique constraint on `(from, to, rel_type)`.
 
@@ -98,7 +92,7 @@ Writing a file through the WebDAV interface also triggers the full pipeline on s
 | `--dry-run` | Preview without changes |
 | `-l, --labels` | Comma-separated labels to apply |
 | `--source` | Document source tag (default: `cp`) |
-| `--api-url` | REST API base URL (default: `http://localhost:4001`, or `KNOWHOW_SERVER_URL`) |
+| `--api-url` | REST API base URL (default: `KNOWHOW_SERVER_URL` or `http://localhost:8484`) |
 | `--token` | API bearer token (or `KNOWHOW_TOKEN`) |
 
 ### Environment Variables

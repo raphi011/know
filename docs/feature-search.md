@@ -27,53 +27,16 @@ This approach is based on Anthropic's Contextual Retrieval research, which found
 
 ## Usage
 
-### CLI Search
+Search is available through the MCP `search_documents` tool and the agent chat's `kb_search` tool. Both use the same hybrid search pipeline and support `label`, `doc_type`, and `folder` filters.
 
-```bash
-# Simple search
-knowhow search "authentication"
+Example agent prompts:
 
-# Filter by labels
-knowhow search "token refresh" --labels "work,auth-service"
-
-# Filter by type
-knowhow search "senior engineer" --type person
-
-# Only verified knowledge
-knowhow search "kubernetes" --verified
 ```
-
-### Ask Questions (RAG)
-
-The `ask` command performs a search, assembles the top results as context, and streams an LLM-generated answer.
-
-```bash
-# Free-form question (streams response token by token)
-knowhow ask "What do I know about John Doe?"
-
-# Ask about a service
-knowhow ask "How does the auth service work?"
-
-# Disable streaming for scripting/piping
-knowhow ask "How does auth work?" --no-stream | head -5
-
-# Use a template for structured output (non-streaming)
-knowhow ask "John Doe" --template "Peer Review" -o review.md
-knowhow ask "auth-service" --template "Service Summary"
-
-# Filter context during ask
-knowhow ask "What are John's responsibilities?" --labels "work" --type person
+"Search for authentication patterns"
+"Find documents about Kubernetes labeled 'infrastructure'"
+"What do I know about the auth service?"
+"Search the /docs/guides folder for deployment instructions"
 ```
-
-**Streaming behavior:**
-
-- Default: Streams tokens in real-time for interactive use.
-- Auto-disables when writing to file (`-o`), piping output, or using templates.
-- Override with the `--no-stream` flag.
-
-### MCP Tool
-
-The `search_documents` MCP tool exposes the same hybrid search to AI agents. It searches across all accessible vaults and supports label, doc_type, and folder filters.
 
 ## Reference
 
@@ -81,5 +44,5 @@ The `search_documents` MCP tool exposes the same hybrid search to AI agents. It 
 - **Retrieval depth**: Top-20 results
 - **Chunk size**: ~800 tokens (full chunks, not snippets)
 - **Fusion constant**: k = 60
-- **Filter options**: `--labels`, `--type`, `--verified`, folder path
+- **Filter options**: `label`, `doc_type`, `folder` (via MCP/agent tools)
 - **Based on**: [Anthropic Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) research

@@ -38,7 +38,7 @@ recency = e^(-age_days / S)
 ```
 
 - `age_days` = days since `last_accessed_at` (not `created_at` -- accessing a memory refreshes it)
-- `S` = strength constant, default 30, giving a half-life of ~21 days
+- `S` = half-life in days (default 30), configurable per vault via `memory_decay_half_life`
 
 **Access boost** rewards frequently retrieved memories:
 
@@ -104,5 +104,6 @@ Multiplicative (`recency * access_boost`) would mean a memory with zero access b
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `memory_decay_half_life` | 30 | Half-life in days for the recency decay curve (per vault) |
 | `memory_archive_threshold` | 0.2 | Score below which memories are auto-archived (per vault) |
 | `memory_merge_threshold` | 0.95 | Cosine similarity above which memories are merge candidates (per vault) |

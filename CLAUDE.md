@@ -151,14 +151,11 @@ Each major feature has its own documentation file:
 - `docs/feature-vaults.md` - Vaults, folders, access control, share links
 - `docs/feature-webdav.md` - WebDAV editing, auth, editor support
 - `docs/feature-remotes.md` - Multi-server federation, namespace routing
+- `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 
 ### Project-Specific Docs (`docs/`)
 
 - `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
-- `docs/ssh-sftp.md` - SSH/SFTP server design
-- `docs/design-system.md` - Design tokens and color palette
-- `docs/component-architecture.md` - Component library layers
-- `docs/ci-cd.md` - GitHub Actions deploy pipeline
 
 ### Reusable Knowledge
 

@@ -1,55 +1,20 @@
 # MCP Server
 
-The `knowhow mcp` command exposes your knowledge base to AI agents via the Model Context Protocol. It aggregates one or more knowhow server instances and provides tools over Streamable HTTP, authenticated with Bearer tokens.
+Knowhow exposes your knowledge base to AI agents via the Model Context Protocol. The MCP endpoint is embedded in the main `knowhow serve` process at `/mcp`, authenticated with Bearer tokens over Streamable HTTP.
 
 ## How It Works
 
-The MCP server acts as an aggregation layer in front of one or more knowhow instances. Each instance is a separate knowhow server with its own vault, token, and URL. When a tool call does not specify an instance, all configured instances are searched. To target a single instance, pass `instance: "work"` (or whichever name) in the tool call.
+The MCP endpoint is part of the main knowhow server — no separate process or config file needed. It shares the same authentication, database connection, and vault scoping as the REST API. Communication uses Streamable HTTP (not stdio), so any MCP-compatible client can connect over the network.
 
-Communication uses Streamable HTTP (not stdio), so any MCP-compatible client can connect over the network.
+For multi-server setups (e.g. separate work and personal instances), use the [Remotes](feature-remotes.md) feature to federate across servers.
 
-## Setup & Configuration
-
-### Build
-
-```bash
-just build
-```
-
-### Configuration file
-
-Create a config file at `~/.config/knowhow-mcp/config.toml`:
-
-```toml
-port = 8585
-
-[[instance]]
-name = "private"
-url = "http://localhost:8484"
-token = "kh_private_token"
-
-[[instance]]
-name = "work"
-url = "http://work-server:8484"
-token = "kh_work_token"
-```
-
-Each `[[instance]]` entry defines a knowhow server to aggregate:
-
-| Field   | Description                          |
-|---------|--------------------------------------|
-| `name`  | Identifier used in tool calls        |
-| `url`   | Base URL of the knowhow server       |
-| `token` | Bearer token for authentication      |
+## Setup
 
 ### Start the server
 
 ```bash
-# Default config location
-./bin/knowhow mcp
-
-# Custom config path
-./bin/knowhow mcp --config /path/to/config.toml
+knowhow serve
+# MCP endpoint available at http://localhost:8484/mcp
 ```
 
 ### Client setup
@@ -62,7 +27,10 @@ Add to `.claude/settings.json`:
 {
   "mcpServers": {
     "knowhow": {
-      "url": "http://localhost:8585/mcp"
+      "url": "http://localhost:8484/mcp",
+      "headers": {
+        "Authorization": "Bearer kh_your_token"
+      }
     }
   }
 }
@@ -76,7 +44,10 @@ Add to `.cursor/mcp.json`:
 {
   "mcpServers": {
     "knowhow": {
-      "url": "http://localhost:8585/mcp"
+      "url": "http://localhost:8484/mcp",
+      "headers": {
+        "Authorization": "Bearer kh_your_token"
+      }
     }
   }
 }
@@ -87,7 +58,7 @@ Add to `.cursor/mcp.json`:
 ### Searching and reading
 
 - "Search my knowledge base for authentication patterns"
-- "Search the work instance for onboarding docs"
+- "Search for onboarding docs in the work vault"
 - "Get the document at /docs/architecture.md"
 - "List all labels in my knowledge base"
 - "Show me the folder structure of my knowledge base"
@@ -111,7 +82,7 @@ Add to `.cursor/mcp.json`:
 
 | Tool | Description |
 |------|-------------|
-| `search_documents` | Hybrid BM25 + vector search across instances. Supports `label`, `doc_type`, and `folder` filters. |
+| `search_documents` | Hybrid BM25 + vector search across vault documents. Supports `label`, `doc_type`, and `folder` filters. |
 | `get_document` | Retrieve a document by path with full content, metadata, content hash, and optional section outline. |
 | `list_labels` | List all labels used across documents (cached 60s). |
 | `list_folders` | Browse the folder structure of a vault (cached 60s). |
