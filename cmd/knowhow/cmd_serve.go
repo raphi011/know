@@ -109,6 +109,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// serverCtx is cancelled on shutdown to stop background goroutines
 	// (e.g. WebDAV pending sweep).
 	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel() // safety net for early-return paths; also called explicitly in shutdown
 
 	// Listen for SIGHUP to reload LLM config from .env
 	sighup := make(chan os.Signal, 1)
