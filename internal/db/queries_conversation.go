@@ -137,6 +137,22 @@ func (c *Client) SetConversationBgFailed(ctx context.Context, id, errMsg string)
 	return nil
 }
 
+// ReconcileStaleRunningConversations marks any conversations stuck in
+// "running" bg_status as "failed". This is called on startup to clean up
+// conversations that were interrupted by a previous unclean shutdown.
+func (c *Client) ReconcileStaleRunningConversations(ctx context.Context) (int, error) {
+	defer c.logOp(ctx, "conversation.reconcile_stale", time.Now())
+	sql := `UPDATE conversation SET bg_status = "failed", bg_error = "server shutdown interrupted", bg_completed_at = time::now() WHERE bg_status = "running" RETURN AFTER`
+	results, err := surrealdb.Query[[]models.Conversation](ctx, c.DB(), sql, nil)
+	if err != nil {
+		return 0, fmt.Errorf("reconcile stale running conversations: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return 0, nil
+	}
+	return len((*results)[0].Result), nil
+}
+
 func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput, toolMeta, toolCallID, toolCalls *string) (*models.Message, error) {
 	defer c.logOp(ctx, "message.create", time.Now())
 	if docRefs == nil {

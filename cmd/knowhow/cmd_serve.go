@@ -105,16 +105,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("create app: %w", err)
 	}
-	defer func() {
-		if err := app.Close(context.Background()); err != nil {
-			slog.Error("failed to close app", "error", err)
-		}
-	}()
 
 	// serverCtx is cancelled on shutdown to stop background goroutines
 	// (e.g. WebDAV pending sweep).
 	serverCtx, serverCancel := context.WithCancel(context.Background())
-	defer serverCancel()
+	defer serverCancel() // safety net for early-return paths; also called explicitly in shutdown
 
 	// Listen for SIGHUP to reload LLM config from .env
 	sighup := make(chan os.Signal, 1)
@@ -265,18 +260,41 @@ func runServe(_ *cobra.Command, _ []string) error {
 	<-quit
 
 	slog.Info("shutting down server...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
 
-	ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	// 1. Stop SIGHUP listener to prevent reloads during shutdown
+	slog.Info("stopping SIGHUP listener")
+	signal.Stop(sighup)
+	close(sighup)
 
+	// 2. Cancel serverCtx to stop WebDAV background goroutines
+	slog.Info("cancelling background goroutines")
+	serverCancel()
+
+	// 3. SSH shutdown — stop accepting new connections and drain active sessions
 	if sshSrv != nil {
-		sshSrv.Shutdown(ctx)
+		slog.Info("ssh: shutting down")
+		sshSrv.Shutdown(shutdownCtx)
+		slog.Info("ssh: stopped")
 	}
 
-	if err := httpServer.Shutdown(ctx); err != nil {
-		return fmt.Errorf("server shutdown: %w", err)
+	// 4. HTTP shutdown — stop accepting new connections, drain in-flight requests
+	slog.Info("http: shutting down")
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		slog.Error("http: shutdown error", "error", err)
+	} else {
+		slog.Info("http: stopped")
 	}
 
+	// 5. App shutdown — stop workers, agents, event bus, close DB (with deadline)
+	slog.Info("stopping application services")
+	if err := app.Close(shutdownCtx); err != nil {
+		slog.Error("app close error", "error", err)
+	}
+
+	// Shutdown errors are logged but not returned: the server IS shutting down,
+	// so a non-zero exit code would be misleading to process managers.
 	slog.Info("server stopped")
 	return nil
 }

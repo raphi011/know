@@ -166,7 +166,8 @@ func (r *Runner) IsRunning(conversationID string) bool {
 }
 
 // Shutdown cancels all running agents and waits for them to finish.
-func (r *Runner) Shutdown() {
+// If ctx expires before all agents complete, it returns ctx.Err().
+func (r *Runner) Shutdown(ctx context.Context) error {
 	r.mu.Lock()
 	tasks := make([]*runningTask, 0, len(r.tasks))
 	for _, t := range r.tasks {
@@ -175,7 +176,16 @@ func (r *Runner) Shutdown() {
 	}
 	r.mu.Unlock()
 
+	logger := logutil.FromCtx(ctx)
+	logger.Info("agent runner: shutting down", "agents", len(tasks))
+
 	for _, t := range tasks {
-		<-t.done
+		select {
+		case <-t.done:
+		case <-ctx.Done():
+			logger.Warn("agent runner: shutdown deadline exceeded, some agents did not finish")
+			return ctx.Err()
+		}
 	}
+	return nil
 }

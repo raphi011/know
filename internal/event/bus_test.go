@@ -303,3 +303,126 @@ func TestBus_ConcurrentPublish(t *testing.T) {
 		}
 	}
 }
+
+func TestBus_Close(t *testing.T) {
+	bus := New()
+
+	ch1, _ := bus.Subscribe("vault:a")
+	ch2, _ := bus.Subscribe("vault:b")
+
+	bus.Close()
+
+	// All subscriber channels should be closed.
+	if _, ok := <-ch1; ok {
+		t.Error("ch1 should be closed after Close")
+	}
+	if _, ok := <-ch2; ok {
+		t.Error("ch2 should be closed after Close")
+	}
+
+	// Publish after Close should not panic.
+	bus.Publish(ChangeEvent{
+		Type:    "document.created",
+		VaultID: "vault:a",
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+	})
+
+	// Subscribe after Close returns a closed channel.
+	ch3, unsub3 := bus.Subscribe("vault:c")
+	defer unsub3()
+	if _, ok := <-ch3; ok {
+		t.Error("ch3 should be closed when subscribing to a closed bus")
+	}
+
+	// Close is idempotent.
+	bus.Close()
+}
+
+func TestBus_Close_WithUnsubscribe(t *testing.T) {
+	bus := New()
+
+	_, unsub := bus.Subscribe("vault:a")
+
+	bus.Close()
+
+	// Calling unsubscribe after Close should not panic or deadlock.
+	unsub()
+}
+
+func TestBus_Close_ConcurrentPublish(t *testing.T) {
+	bus := New()
+
+	const numPublishers = 10
+
+	ch, unsub := bus.Subscribe("vault:a")
+	defer unsub()
+
+	var wg sync.WaitGroup
+	for range numPublishers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 100 {
+				bus.Publish(ChangeEvent{
+					Type:    "document.updated",
+					VaultID: "vault:a",
+					Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: string(rune(i))},
+				})
+			}
+		}()
+	}
+
+	// Close while publishers are active — must not panic.
+	bus.Close()
+	wg.Wait()
+
+	// Channel should be closed.
+	for range ch {
+		// drain
+	}
+}
+
+func TestBus_Close_ConcurrentSubscribe(t *testing.T) {
+	bus := New()
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				ch, unsub := bus.Subscribe("vault:a")
+				// Read one event or notice the channel is closed.
+				select {
+				case <-ch:
+				default:
+				}
+				unsub()
+			}
+		}()
+	}
+
+	// Close while subscribers are registering — must not panic.
+	bus.Close()
+	wg.Wait()
+}
+
+func TestBus_Close_SubscribeByPath(t *testing.T) {
+	bus := New()
+
+	ch, unsub := bus.SubscribeByPath("vault:a", "/docs/readme.md")
+	defer unsub()
+
+	bus.Close()
+
+	// The filtered channel should close once the underlying vault channel closes.
+	for range ch {
+		// drain
+	}
+
+	// Channel is closed.
+	_, ok := <-ch
+	if ok {
+		t.Error("filtered channel should be closed after bus Close")
+	}
+}
