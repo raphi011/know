@@ -23,22 +23,9 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow from Tailscale
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: tailscale
-      ports:
-        - protocol: TCP
-          port: 8484
-    # Allow from Caddy Local
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: caddy-local
-      ports:
-        - protocol: TCP
-          port: 8484
+    {{- with .Values.networkPolicy.additionalIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   egress:
     # DNS
     - to:
@@ -48,15 +35,7 @@ spec:
       ports:
         - protocol: UDP
           port: 53
-    # SurrealDB
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: surrealdb
-      ports:
-        - protocol: TCP
-          port: 8000
-    # External APIs (Google AI)
+    # External APIs (HTTPS)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -67,4 +46,7 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+    {{- with .Values.networkPolicy.additionalEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}
