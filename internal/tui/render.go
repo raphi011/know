@@ -219,9 +219,6 @@ func renderApproval(event *StreamEvent, width int) string {
 	if event.Tool != "" {
 		fmt.Fprintf(&sb, "Tool: %s\n", event.Tool)
 	}
-	if event.Diff != "" {
-		sb.WriteString("\n" + event.Diff + "\n")
-	}
 	sb.WriteString("\n")
 	sb.WriteString(approveKeyStyle.Render("[a] approve") + "  " + rejectKeyStyle.Render("[r] reject"))
 

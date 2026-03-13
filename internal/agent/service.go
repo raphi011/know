@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/cloudwego/eino/adk"
@@ -27,11 +26,12 @@ import (
 
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type              string                `json:"type"` // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Type              string                `json:"type"` // "text" | "tool_start" | "tool_end" | "interrupted" | "msg_start" | "msg_end" | "conv_id" | "error"
 	Content           string                `json:"content,omitempty"`
 	ConvID            string                `json:"convId,omitempty"`
 	MsgID             string                `json:"msgId,omitempty"`
 	CallID            string                `json:"callId,omitempty"`
+	InterruptID       string                `json:"interruptId,omitempty"`
 	Tool              string                `json:"tool,omitempty"`
 	Input             map[string]any        `json:"input,omitempty"`
 	Meta              *tools.ToolResultMeta `json:"meta,omitempty"`
@@ -50,7 +50,7 @@ type Service struct {
 	docService      *document.Service
 	executor        *tools.Executor
 	tavily          *tavilyClient
-	activeApprovals sync.Map // map[conversationID]*approvalSession
+	checkpointStore *SurrealCheckPointStore
 }
 
 // SetModel atomically replaces the LLM model (used by SIGHUP reload).
@@ -61,12 +61,6 @@ func (s *Service) SetModel(m *llm.Model) {
 // getModel returns the current model via an atomic load.
 func (s *Service) getModel() *llm.Model {
 	return s.model.Load()
-}
-
-// approvalSession pairs an approval registry with vault context for access checks.
-type approvalSession struct {
-	registry *approvalRegistry
-	vaultID  string
 }
 
 // NewService creates a new agent service.
@@ -80,6 +74,7 @@ func NewService(db *db.Client, model *llm.Model, search *search.Service, docServ
 			Search:     search,
 			DocService: docService,
 		},
+		checkpointStore: NewCheckPointStore(db),
 	}
 	s.model.Store(model)
 	if tavilyAPIKey != "" {
@@ -178,16 +173,14 @@ type ChatRequest struct {
 	Content        string
 	DocRefs        []string
 	Attachments    []models.ChatAttachment
-	AutoApprove    bool              // true = skip approval for write tools
-	Approvals      *approvalRegistry // nil if auto-approve
+	AutoApprove    bool // true = skip approval for write tools
 }
 
 // Chat runs the agent loop using ADK ChatModelAgent and emits SSE events via the callback.
 func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEvent)) error {
 	model := s.getModel()
 	if model == nil {
-		emit(StreamEvent{Type: "error", Content: "agent not available: no LLM configured"})
-		return nil
+		return fmt.Errorf("agent not available: no LLM configured")
 	}
 
 	// 1. Create conversation if needed
@@ -204,23 +197,12 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		emit(StreamEvent{Type: "conv_id", ConvID: convID})
 	}
 
-	// 2. Set up approval registry for write tool gating
-	if !req.AutoApprove {
-		approvals := newApprovalRegistry()
-		s.activeApprovals.Store(req.ConversationID, &approvalSession{registry: approvals, vaultID: req.VaultID})
-		defer func() {
-			approvals.cancel()
-			s.activeApprovals.Delete(req.ConversationID)
-		}()
-		req.Approvals = approvals
-	}
-
-	// 3. Store user message
+	// 2. Store user message
 	if _, err := s.db.CreateMessage(ctx, req.ConversationID, models.RoleUser, req.Content, req.DocRefs, nil, nil, nil, nil, nil); err != nil {
 		return fmt.Errorf("create user message: %w", err)
 	}
 
-	// 4. Load history (all messages); the last one is the user message we just stored — exclude it
+	// 3. Load history (all messages); the last one is the user message we just stored — exclude it
 	allMessages, err := s.db.ListMessages(ctx, req.ConversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
@@ -230,38 +212,57 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		history = history[:len(history)-1]
 	}
 
-	// 5. Build message list: history + current user message (system prompt handled by GenModelInput)
+	// 4. Build message list: history + current user message (system prompt handled by GenModelInput)
 	messages := make([]*schema.Message, 0, len(history)+1)
 	messages = append(messages, buildMessages(history)...)
 	messages = append(messages, buildUserMessage(req.Content, splitAttachments(req.Attachments, emit)))
 
-	// 6. Build agent + runner
+	// 5. Build agent + runner
 	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
 	runner, err := s.buildAgent(ctx, model, sysPrompt, &req, emit)
 	if err != nil {
 		return fmt.Errorf("build agent: %w", err)
 	}
 
-	// 7. Run + consume
-	iter := runner.Run(ctx, messages)
+	// 6. Run + consume (pass checkpoint ID for interrupt/resume)
+	iter := runner.Run(ctx, messages, adk.WithCheckPointID(req.ConversationID))
 	result := consumeAgentEvents(ctx, iter, emit)
 
-	// 8. Persist results
-	assistantMsgID, err := s.persistResults(ctx, req.ConversationID, &result)
+	// 7. Persist, update tokens, emit msg_end (or skip if interrupted)
+	if err := s.finalizeRun(ctx, req.ConversationID, model, &result, emit); err != nil {
+		return err
+	}
+
+	// 8. Auto-title if first message
+	if len(history) == 0 {
+		go s.autoTitle(context.Background(), req.ConversationID, req.Content)
+	}
+
+	return nil
+}
+
+// finalizeRun handles the shared post-run logic: persist results, update token
+// counts, and emit msg_end (skipped if the run was interrupted).
+func (s *Service) finalizeRun(ctx context.Context, convID string, model *llm.Model, result *AgentResult, emit func(StreamEvent)) error {
+	assistantMsgID, err := s.persistResults(ctx, convID, result)
 
 	// Update conversation token usage (even on persist error — tokens were consumed)
 	if result.TokenUsage.InputTokens > 0 || result.TokenUsage.OutputTokens > 0 {
-		if tokenErr := s.db.UpdateConversationTokens(ctx, req.ConversationID, result.TokenUsage.InputTokens, result.TokenUsage.OutputTokens); tokenErr != nil {
-			logutil.FromCtx(ctx).Warn("failed to update conversation tokens", "conversation_id", req.ConversationID, "error", tokenErr)
+		if tokenErr := s.db.UpdateConversationTokens(ctx, convID, result.TokenUsage.InputTokens, result.TokenUsage.OutputTokens); tokenErr != nil {
+			logutil.FromCtx(ctx).Warn("failed to update conversation tokens", "conversation_id", convID, "error", tokenErr)
 		}
 	}
 
 	if err != nil {
-		logutil.FromCtx(ctx).Error("failed to persist agent results", "conversation_id", req.ConversationID, "error", err)
+		logutil.FromCtx(ctx).Error("failed to persist agent results", "conversation_id", convID, "error", err)
 		emit(StreamEvent{Type: "error", Content: "warning: response may not be saved to conversation history"})
 	}
 
-	// 9. Emit msg_end
+	// If interrupted, skip msg_end — it will be emitted after resume completes
+	if result.Interrupted {
+		return nil
+	}
+
 	emit(StreamEvent{
 		Type:              "msg_end",
 		MsgID:             assistantMsgID,
@@ -271,9 +272,9 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		ContextWindowUsed: result.TokenUsage.FinalPromptTokens,
 	})
 
-	// 10. Auto-title if first message
-	if len(history) == 0 {
-		go s.autoTitle(context.Background(), req.ConversationID, req.Content)
+	// Clean up checkpoint after successful completion to prevent unbounded growth.
+	if delErr := s.db.DeleteCheckpoint(ctx, convID); delErr != nil {
+		logutil.FromCtx(ctx).Warn("failed to delete checkpoint", "conversation_id", convID, "error", delErr)
 	}
 
 	return nil
@@ -281,10 +282,13 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 
 // buildAgent constructs a ChatModelAgent + Runner per request.
 func (s *Service) buildAgent(ctx context.Context, model *llm.Model, sysPrompt string, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, error) {
-	// Collect tools
+	// Collect tools — wrap write tools for interrupt/resume approval if needed
 	agentTools := s.executor.Tools()
 	if s.tavily != nil {
 		agentTools = append(agentTools, &WebSearchTool{tavily: s.tavily})
+	}
+	if !req.AutoApprove {
+		agentTools = wrapWriteToolsForApproval(ctx, agentTools, s, req.VaultID)
 	}
 
 	// Separate text/image attachments for context injection
@@ -341,8 +345,9 @@ func (s *Service) buildAgent(ctx context.Context, model *llm.Model, sysPrompt st
 	wrapped := &sessionDumpAgent{Agent: agent}
 
 	return adk.NewRunner(ctx, adk.RunnerConfig{
-		Agent:          wrapped,
-		EnableStreaming: true,
+		Agent:           wrapped,
+		EnableStreaming:  true,
+		CheckPointStore: s.checkpointStore,
 	}), nil
 }
 
@@ -368,6 +373,28 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 			continue
 		}
 
+		// Interrupt action — eino's Runner emits this when a tool calls StatefulInterrupt.
+		// The checkpoint is already persisted by the Runner at this point.
+		if event.Action != nil && event.Action.Interrupted != nil {
+			for _, ictx := range event.Action.Interrupted.InterruptContexts {
+				if ictx.IsRootCause {
+					if req, ok := ictx.Info.(*ApprovalRequest); ok {
+						emit(StreamEvent{
+							Type:        "interrupted",
+							InterruptID: ictx.ID,
+							CallID:      req.CallID,
+							Tool:        req.Tool,
+							Approval:    req,
+						})
+					} else {
+						logger.Error("interrupt has unexpected info type", "id", ictx.ID, "type", fmt.Sprintf("%T", ictx.Info))
+					}
+				}
+			}
+			result.Interrupted = true
+			continue
+		}
+
 		if event.Output == nil {
 			continue
 		}
@@ -387,11 +414,6 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 					} else {
 						emit(StreamEvent{Type: "tool_end", CallID: e.CallID, Tool: e.Tool, Meta: e.Meta})
 					}
-				}
-
-			case *ApprovalRequiredEvent:
-				if !hitError {
-					emit(StreamEvent{Type: "tool_approval_required", CallID: e.CallID, Tool: e.Tool, Approval: e.Request})
 				}
 
 			case *RunCompleteEvent:

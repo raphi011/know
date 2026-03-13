@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/raphi011/knowhow/internal/auth"
 	"github.com/raphi011/knowhow/internal/db"
 	"github.com/raphi011/knowhow/internal/logutil"
@@ -42,16 +44,12 @@ func NewRunner(svc *Service, db *db.Client) *Runner {
 // It returns the conversation ID (created if empty) and any validation error.
 // The agent runs in a background context independent of the HTTP request.
 func (r *Runner) Start(requestCtx context.Context, req ChatRequest) (string, error) {
-	// Detach auth from request context into a background context
 	bgCtx, err := auth.DetachContext(requestCtx)
 	if err != nil {
 		return "", fmt.Errorf("detach auth context: %w", err)
 	}
 
-	// Propagate the request logger's fields (request_id, etc.) into the background context
-	logger := logutil.FromCtx(requestCtx).With(
-		"vault_id", req.VaultID,
-	)
+	logger := logutil.FromCtx(requestCtx).With("vault_id", req.VaultID)
 	bgCtx = logutil.WithLogger(bgCtx, logger)
 
 	// Create conversation upfront so we can return its ID
@@ -67,8 +65,45 @@ func (r *Runner) Start(requestCtx context.Context, req ChatRequest) (string, err
 		req.ConversationID = convID
 	}
 
+	return r.runTask(bgCtx, req.ConversationID, req.UserID, logger, func(ctx context.Context, emit func(StreamEvent)) error {
+		return r.service.Chat(ctx, req, emit)
+	})
+}
+
+// ResumeRequest contains the parameters for resuming an interrupted agent.
+type ResumeRequest struct {
+	ConversationID string
+	VaultID        string
+	UserID         string
+	InterruptID    string
+	Response       ApprovalResponse
+}
+
+// Resume resumes an interrupted agent from its checkpoint.
+// It rebuilds the agent, loads the checkpoint from SurrealDB, and continues
+// execution with the user's approval response as resume data.
+func (r *Runner) Resume(requestCtx context.Context, req ResumeRequest) (string, error) {
+	bgCtx, err := auth.DetachContext(requestCtx)
+	if err != nil {
+		return "", fmt.Errorf("detach auth context: %w", err)
+	}
+
+	logger := logutil.FromCtx(requestCtx).With(
+		"vault_id", req.VaultID,
+		"conversation_id", req.ConversationID,
+	)
+	bgCtx = logutil.WithLogger(bgCtx, logger)
+
+	return r.runTask(bgCtx, req.ConversationID, req.UserID, logger, func(ctx context.Context, emit func(StreamEvent)) error {
+		return r.service.ResumeChat(ctx, req, emit)
+	})
+}
+
+// runTask handles the shared lifecycle of running an agent function in a background
+// goroutine: buffer setup, task registration, bg_status tracking, and cleanup.
+func (r *Runner) runTask(bgCtx context.Context, convID, userID string, logger *slog.Logger, fn func(ctx context.Context, emit func(StreamEvent)) error) (string, error) {
 	bgCtx, cancel := context.WithCancel(bgCtx)
-	logger = logger.With("conversation_id", req.ConversationID)
+	logger = logger.With("conversation_id", convID)
 	bgCtx = logutil.WithLogger(bgCtx, logger)
 
 	buf := NewRingBuffer[StreamEvent](defaultBufferCapacity)
@@ -78,22 +113,18 @@ func (r *Runner) Start(requestCtx context.Context, req ChatRequest) (string, err
 		cancel: cancel,
 		events: buf,
 		done:   done,
-		userID: req.UserID,
+		userID: userID,
 	}
 
 	r.mu.Lock()
-	r.tasks[req.ConversationID] = task
+	r.tasks[convID] = task
 	r.mu.Unlock()
 
-	// Mark conversation as running in DB
-	if err := r.db.SetConversationBgRunning(bgCtx, req.ConversationID); err != nil {
+	if err := r.db.SetConversationBgRunning(bgCtx, convID); err != nil {
 		logger.Warn("failed to set bg_status running", "error", err)
 	}
 
-	// Emit conv_id so subscribers know which conversation this is
-	buf.Push(StreamEvent{Type: "conv_id", ConvID: req.ConversationID})
-
-	convID := req.ConversationID
+	buf.Push(StreamEvent{Type: "conv_id", ConvID: convID})
 
 	go func() {
 		defer close(done)
@@ -103,14 +134,13 @@ func (r *Runner) Start(requestCtx context.Context, req ChatRequest) (string, err
 			buf.Push(event)
 		}
 
-		chatErr := r.service.Chat(bgCtx, req, emit)
+		taskErr := fn(bgCtx, emit)
+		task.err = taskErr
 
-		task.err = chatErr
-
-		if chatErr != nil {
-			logger.Error("agent chat error", "error", chatErr)
-			buf.Push(StreamEvent{Type: "error", Content: "Failed to process chat request. Please try again."})
-			if dbErr := r.db.SetConversationBgFailed(context.Background(), convID, chatErr.Error()); dbErr != nil {
+		if taskErr != nil {
+			logger.Error("agent task error", "error", taskErr)
+			buf.Push(StreamEvent{Type: "error", Content: "Failed to process request. Please try again."})
+			if dbErr := r.db.SetConversationBgFailed(context.Background(), convID, taskErr.Error()); dbErr != nil {
 				logger.Warn("failed to set bg_status failed", "error", dbErr)
 			}
 		} else {
@@ -119,7 +149,6 @@ func (r *Runner) Start(requestCtx context.Context, req ChatRequest) (string, err
 			}
 		}
 
-		// Clean up task from map after a brief period to allow final event reads
 		r.mu.Lock()
 		delete(r.tasks, convID)
 		r.mu.Unlock()
@@ -178,4 +207,39 @@ func (r *Runner) Shutdown() {
 	for _, t := range tasks {
 		<-t.done
 	}
+}
+
+// ResumeChat rebuilds the agent and resumes from checkpoint using the approval response.
+func (s *Service) ResumeChat(ctx context.Context, req ResumeRequest, emit func(StreamEvent)) error {
+	model := s.getModel()
+	if model == nil {
+		return fmt.Errorf("agent not available: no LLM configured")
+	}
+
+	// Build a ChatRequest for agent construction (no new user message — resuming)
+	chatReq := &ChatRequest{
+		ConversationID: req.ConversationID,
+		VaultID:        req.VaultID,
+		UserID:         req.UserID,
+	}
+
+	sysPrompt := s.buildSystemPrompt(ctx, req.VaultID)
+	adkRunner, err := s.buildAgent(ctx, model, sysPrompt, chatReq, emit)
+	if err != nil {
+		return fmt.Errorf("build agent for resume: %w", err)
+	}
+
+	// Resume from checkpoint with the approval response targeting the interrupt ID
+	iter, err := adkRunner.ResumeWithParams(ctx, req.ConversationID, &adk.ResumeParams{
+		Targets: map[string]any{
+			req.InterruptID: &req.Response,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("resume from checkpoint: %w", err)
+	}
+
+	result := consumeAgentEvents(ctx, iter, emit)
+
+	return s.finalizeRun(ctx, req.ConversationID, model, &result, emit)
 }

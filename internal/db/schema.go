@@ -388,5 +388,13 @@ func SchemaSQL(dimension int) string {
     WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM asset WHERE vault = $before.id
     };
+
+    -- ==========================================================================
+    -- AGENT_CHECKPOINT TABLE (eino interrupt/resume checkpoint persistence)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS agent_checkpoint SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS data       ON agent_checkpoint TYPE bytes;
+    DEFINE FIELD IF NOT EXISTS updated_at ON agent_checkpoint TYPE datetime VALUE time::now();
 `, dimension)
 }

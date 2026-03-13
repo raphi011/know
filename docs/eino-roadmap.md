@@ -20,8 +20,9 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | `components/model` | `BaseChatModel` (Generate, Stream), `model.WithMaxTokens` |
 | `components/embedding` | `Embedder` (EmbedStrings) |
 | `eino-ext` | `model/claude`, `model/openai`, `model/gemini`, `model/ollama`, `embedding/*` |
-| `adk` | `ChatModelAgent`, `Runner`, `SendEvent`, `AddSessionValue`/`GetSessionValue`, `NewAsyncIteratorPair`, middleware interfaces |
-| `compose` | `ToolsNodeConfig` (via ADK) |
+| `adk` | `ChatModelAgent`, `Runner`, `RunnerConfig.CheckPointStore`, `ResumeWithParams`, `WithCheckPointID`, `SendEvent`, `AddSessionValue`/`GetSessionValue`, `NewAsyncIteratorPair`, middleware interfaces |
+| `compose` | `ToolsNodeConfig` (via ADK), `IsInterruptRerunError` |
+| `tool` | `StatefulInterrupt`, `GetInterruptState`, `GetResumeContext` |
 
 ### What we do NOT use (yet)
 
@@ -32,7 +33,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | `callbacks.Handler` | ✅ Used — global observability handler (Phase 2) |
 | `adk.SendEvent` / custom events | ✅ Used — tool/approval events via middleware (Phase 3) |
 | `adk.AddSessionValue` / `GetSessionValue` | ✅ Used — token tracking + tool records (Phase 3) |
-| Interrupt/Resume, CheckPointStore | Not used — in-memory approval channels (Phase 4) |
+| Interrupt/Resume, CheckPointStore | ✅ Used — `approvalToolWrapper` + SurrealDB checkpoint store (Phase 4) |
 | `tool.InvokableTool` | ✅ Used — registry-based dispatch (Phase 1) |
 | `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries |
 
@@ -49,7 +50,7 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 | System prompt building | `agent/service.go` buildSystemPrompt | ~45 | `GenModelInput` + session values | Phase 5 |
 | Message history assembly | `agent/service.go` buildMessages | ~25 | `ChatModelAgentState.Messages` | ✅ Phase 3 |
 | Doc ref / attachment injection | `agent/service.go` Chat lines 386-435 | ~50 | `BeforeModelRewriteState` middleware | ✅ Phase 3 |
-| Approval workflow | `agent/approval.go` | 83 | Interrupt/Resume + `WrapInvokableToolCall` | Phase 4 |
+| Approval workflow | `agent/approval.go` | 83 | `approvalToolWrapper` + `CheckPointStore` interrupt/resume | ✅ Phase 4 |
 | Token tracking (manual) | `llm/model.go` extractTokenCounts | ~30 | Session values + `ResponseMeta` | ✅ Phase 3 |
 | Manual LLM observability | `llm/model.go` scattered | ~40 | Callbacks system | ✅ Phase 2 |
 
@@ -151,7 +152,7 @@ Additive, no behavioral changes.
 |-------|--------|---------|
 | `ToolStartEvent` | `toolExecutionMiddleware` | Tool call began |
 | `ToolEndEvent` | `toolExecutionMiddleware` | Tool call completed (success or error) |
-| `ApprovalRequiredEvent` | `toolExecutionMiddleware` | Write tool needs user approval |
+| ~~`ApprovalRequiredEvent`~~ | ~~`toolExecutionMiddleware`~~ | Removed in Phase 4 — replaced by `interrupted` SSE event from `approvalToolWrapper` |
 | `RunCompleteEvent` | `sessionDumpAgent` wrapper | Carries accumulated token usage + tool records |
 
 **`sessionDumpAgent`** — wraps the inner agent to emit `RunCompleteEvent` after all events are drained. Includes panic recovery to ensure token usage is always captured.
@@ -192,57 +193,75 @@ Biggest change — eliminated ~500 lines of custom orchestration, replaced with 
 
 ---
 
-## Phase 4: Interrupt/Resume for Approvals
+## Phase 4: Interrupt/Resume for Approvals ✅
 
-**Goal**: Replace in-memory approval channels with eino's checkpoint system.
+**Goal**: Replace in-memory approval channels with eino's checkpoint-based interrupt/resume.
 
-### What changes
+### What was done
 
-- `sync.Map` approval registry (`activeApprovals`) → checkpoint-based interrupt/resume
-- Write tool calls trigger `adk.StatefulInterrupt(ctx, approvalInfo, toolCallState)` from `WrapInvokableToolCall`
-- Approval REST endpoint calls `runner.Resume(ctx, ResumeParams{...})`
-- Agent state survives server restarts (checkpoint persisted to SurrealDB)
-- SurrealDB-backed `CheckPointStore` implementation
+- `approvalRegistry` + `sync.Map` + channel-based blocking **deleted** — replaced by eino's `tool.StatefulInterrupt` / `tool.GetInterruptState` / `tool.GetResumeContext`
+- New `approvalToolWrapper` wraps each write tool at the tool level (not middleware), following eino's intended pattern from `interrupt_test.go` and `integration_test.go`
+- SurrealDB-backed `SurrealCheckPointStore` implements `adk.CheckPointStore` — agent state survives server restarts
+- New `Runner.Resume()` method rebuilds agent and calls `adkRunner.ResumeWithParams()` with the user's approval response
+- New `interrupted` SSE event type (replaces `tool_approval_required`) — includes `interruptId` for resume targeting
+- Gob type registration (`schema.RegisterName`) for all types flowing through checkpoint serialization
+- `toolExecutionMiddleware.WrapInvokableToolCall` simplified: emits events + records tool calls, but no longer blocks on approval channels; interrupt errors propagated via `compose.IsInterruptRerunError()`
+- TUI resubscribes to SSE events after approval via `resubscribeAfterApproval()`
 
-### CheckPointStore implementation
+### Architecture
 
-```go
-type SurrealCheckPointStore struct {
-    db *db.Client
-}
+**Interrupt flow** (first call — write tool):
 
-func (s *SurrealCheckPointStore) Get(ctx context.Context, id string) ([]byte, bool, error) {
-    // SELECT data FROM agent_checkpoint WHERE id = $id
-}
+1. `approvalToolWrapper.InvokableRun()` detects first call (`!wasInterrupted`)
+2. Computes diff via `service.buildApprovalRequest()`
+3. Calls `tool.StatefulInterrupt(ctx, approvalReq, &approvalToolState{...})`
+4. Interrupt error propagates up through compose graph → ADK checkpoints state to SurrealDB
+5. `consumeAgentEvents` detects `event.Action.Interrupted`, emits `interrupted` SSE event with `interruptId`
+6. Agent goroutine terminates (no blocking)
 
-func (s *SurrealCheckPointStore) Set(ctx context.Context, id string, data []byte) error {
-    // UPSERT agent_checkpoint SET data = $data, updated_at = time::now()
-}
-```
+**Resume flow** (after user approves/rejects):
 
-### Interrupt flow
+1. `POST /agent/approval` sends `{conversationId, interruptId, action}`
+2. `Runner.Resume()` builds fresh agent, calls `adkRunner.ResumeWithParams(ctx, checkpointID, &ResumeParams{Targets: ...})`
+3. ADK restores state from checkpoint, re-enters `approvalToolWrapper.InvokableRun()`
+4. Wrapper detects resume via `tool.GetInterruptState()` + `tool.GetResumeContext()`
+5. If approved: delegates to inner tool's `InvokableRun()` (with hunk-filtered args if partial approval)
+6. If rejected: returns rejection message as string (not error)
+7. Agent continues normal ReAct loop from the tool result
 
-1. `ApprovalMiddleware.WrapInvokableToolCall` checks if tool is a write tool
-2. If yes, computes diff (existing logic from `buildApprovalRequest`)
-3. Calls `adk.StatefulInterrupt(ctx, &ApprovalRequest{...}, &approvalState{...})`
-4. ADK serializes full agent state via `CheckPointStore`
-5. SSE emits interrupt event to client
-6. Client approves/rejects via REST endpoint
-7. `runner.Resume()` restores state and continues (or feeds rejection result)
+**Parallel tool handling**: When multiple write tools interrupt, only one is the `isResumeTarget`. Non-target siblings re-interrupt with saved state, preserving checkpoint consistency.
+
+### Design decisions
+
+- **Approval at tool level, not middleware**: Eino's interrupt/resume is designed for tools — `tool.GetInterruptState()` and `tool.GetResumeContext()` work at the `InvokableRun` boundary. All eino test code follows this pattern.
+- **ConversationID as checkpoint ID**: Natural 1:1 mapping — one conversation = one checkpoint. Resume uses conversation ID to locate checkpoint.
+- **`approvalToolWrapper` wraps only write tools**: Read-only tools pass through unwrapped. The wrapper delegates `Info()` to the inner tool, so tool schemas are unchanged.
+- **Partial approval (hunk selection) via resume data**: `ApprovalResponse` (with `Action` and `HunkIndexes`) is the resume data. The wrapper applies hunk selection before delegating to the inner tool.
+- **`sessionDumpAgent` captures partial results on interrupt**: Token usage from iterations before the interrupt is still recorded via `RunCompleteEvent`.
+- **`Chat()` skips `msg_end` on interrupt**: Partial results persisted, but `msg_end` SSE event only emitted after resume completes.
+- **`approval_test.go` deleted**: Tests for the deleted `approvalRegistry` — no longer relevant.
 
 ### Key files
 
-| File | Lines | Change |
-|------|-------|--------|
-| `internal/agent/approval.go` | 83 | Replaced by interrupt/resume in middleware |
-| `internal/agent/runner.go` | 181 | Resume logic added, checkpoint store wired |
-| `internal/agent/service.go` | - | `activeApprovals sync.Map` removed |
-| New: `internal/agent/checkpoint.go` | ~50 | SurrealDB CheckPointStore |
-| New: DB migration | - | `agent_checkpoint` table |
+| File | Change |
+|------|--------|
+| New: `internal/agent/approval_tool.go` (~149 lines) | `approvalToolWrapper` — interrupt/resume lifecycle for write tools |
+| New: `internal/agent/checkpoint.go` (~32 lines) | `SurrealCheckPointStore` backed by SurrealDB |
+| New: `internal/db/queries_checkpoint.go` (~41 lines) | `GetCheckpoint` / `UpsertCheckpoint` DB methods |
+| `internal/agent/approval.go` | Deleted `approvalRegistry`, kept `ApprovalRequest`/`ApprovalResponse`/`ApprovalAction` types |
+| `internal/agent/service.go` | Removed `activeApprovals sync.Map`, wire checkpoint store + tool wrapping, handle interrupt in `consumeAgentEvents` |
+| `internal/agent/middleware.go` | Simplified `WrapInvokableToolCall` — removed channel blocking, propagate interrupt errors |
+| `internal/agent/runner.go` | Added `Resume()` method + `ResumeRequest` struct |
+| `internal/agent/handler.go` | `HandleApproval` moved to `Runner`, uses `interruptId` for resume |
+| `internal/agent/events.go` | Gob `RegisterName` for checkpoint serialization, `Interrupted` field on `AgentResult` |
+| `internal/db/schema.go` | `agent_checkpoint` table definition |
+| `internal/tui/app.go` | Handle `interrupted` event, `resubscribeAfterApproval()` |
+| `internal/tui/client.go` | `InterruptID` field, updated `Approve()` to send `interruptId` |
+| `cmd/knowhow/cmd_serve.go` | Route `HandleApproval` via `AgentRunner()` |
 
 ### Effort: M
 
-Depends on Phase 3. The approval middleware from Phase 3 transitions from channel-based to interrupt-based.
+~300 lines added, ~236 removed in modified files, plus ~222 lines in 3 new files.
 
 ---
 
@@ -369,14 +388,14 @@ Future work.
 
 ```
 Phase 1: InvokableTool ✅ ───┐
-                              ├─→ Phase 3: ADK ChatModelAgent ✅ ─┬─→ Phase 4: Interrupt/Resume
+                              ├─→ Phase 3: ADK ChatModelAgent ✅ ─┬─→ Phase 4: Interrupt/Resume ✅
 Phase 2: Callbacks ✅ ───────┘                                    └─→ Phase 5: Session + GenModelInput
                                                                        Phase 6: RAG Chain (independent)
                                                                        Phase 7: Multi-Agent (future)
 ```
 
-- **Phases 1 + 2 + 3**: ✅ complete
-- **Phases 4 + 5**: can run in parallel, next up
+- **Phases 1 + 2 + 3 + 4**: ✅ complete
+- **Phase 5**: next up
 - **Phase 6**: independent, after Phase 3 stabilizes
 - **Phase 7**: future, after all above stable
 
@@ -386,20 +405,23 @@ Phase 2: Callbacks ✅ ───────┘                                 
 
 | File | Lines | Role | Phases |
 |------|-------|------|--------|
-| `internal/agent/service.go` | ~640 | ADK agent construction, event consumption, persistence | ✅ 3, 5 |
-| `internal/agent/middleware.go` | ~330 | ADK middleware + sessionDumpAgent wrapper | ✅ 3 |
-| `internal/agent/events.go` | ~70 | Custom event types, TokenUsage, ToolRecord, AgentResult | ✅ 3 |
+| `internal/agent/service.go` | ~660 | ADK agent construction, event consumption, persistence, interrupt handling | ✅ 3, 4, 5 |
+| `internal/agent/handler.go` | ~346 | REST API endpoints (HandleApproval moved to Runner) | ✅ 3, 4 |
+| `internal/agent/runner.go` | ~331 | Background execution, SSE event replay, `Resume()` for interrupt/resume | ✅ 3, 4 |
+| `internal/agent/middleware.go` | ~284 | ADK middleware + sessionDumpAgent wrapper (simplified in Phase 4) | ✅ 3, 4 |
+| `internal/agent/approval_tool.go` | ~149 | `approvalToolWrapper` — interrupt/resume lifecycle for write tools | ✅ 4 |
+| `internal/agent/events.go` | ~73 | Custom event types, TokenUsage, ToolRecord, AgentResult, gob registration | ✅ 3, 4 |
 | `internal/agent/websearch_tool.go` | ~60 | WebSearchTool InvokableTool | ✅ 3 |
+| `internal/agent/approval.go` | ~34 | Approval types (ApprovalRequest/Response/Action) | ✅ 4 |
+| `internal/agent/checkpoint.go` | ~32 | SurrealDB CheckPointStore | ✅ 4 |
 | `internal/llm/model.go` | ~545 | LLM wrapper, BaseChatModel() accessor | ✅ 2, 3 |
 | `internal/tools/executor.go` | ~110 | Registry-based tool dispatch via InvokableTool | ✅ 1 |
 | `internal/tools/tool_*.go` | ~900 | Individual InvokableTool implementations (10 tools) | ✅ 1 |
 | `internal/tools/meta.go` | ~40 | Context-based ToolResultMeta passing (SetResultMeta exported) | ✅ 1, 3 |
 | `internal/mcptools/tools.go` | 561 | MCP tool bridge (shares executor) | ✅ 1 (unchanged) |
 | `internal/search/service.go` | 441 | Hybrid BM25+vector search | 6 |
-| `internal/agent/handler.go` | 324 | REST API endpoints | ✅ 3 (unchanged) |
 | `internal/metrics/collector.go` | 203 | Metrics collection | ✅ 2 |
-| `internal/agent/runner.go` | 181 | Background execution + SSE event replay | ✅ 3, 4 |
-| `internal/agent/approval.go` | 83 | In-memory approval registry | 4 |
+| `internal/db/queries_checkpoint.go` | ~41 | GetCheckpoint / UpsertCheckpoint DB methods | ✅ 4 |
 
 ---
 
@@ -410,8 +432,8 @@ Phase 2: Callbacks ✅ ───────┘                                 
 | Phase 1 ✅ | 699 (executor switch + buildTools + name mapping) | 63 (modified) + ~900 (tool structs + infra) | ~-636 net in modified files |
 | Phase 2 ✅ | 0 (additive — manual timing kept for providers without callbacks) | ~60 (callback handler) + ~50 (tests) | +110 |
 | Phase 3 ✅ | 376 (Chat loop + GenerateStreamWithTools + buildTools + executeTool) | 515 (middleware + events + agent wiring) | +139 |
-| Phase 4 | ~83 (approval registry) | ~80 (checkpoint store + interrupt) | ~0 |
+| Phase 4 ✅ | 236 (approval registry + channel blocking + approval_test.go) | 300 (modified) + 222 (3 new files) | +286 |
 | Phase 5 | ~45 (buildSystemPrompt) | ~30 (session middleware) | -15 |
-| **Total** | **~1158** | **~1588** | **+430** |
+| **Total** | **~1311** | **~2095** | **+784** |
 
-Net increase of ~430 lines, but the new code is composable, testable middleware with proper error handling and race protection — replacing monolithic orchestration.
+Net increase of ~784 lines, but the new code is composable, testable middleware with proper error handling, race protection, and crash-resilient checkpoint persistence — replacing monolithic orchestration with in-memory state.

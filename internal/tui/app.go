@@ -161,8 +161,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.errMsg = fmt.Sprintf("Approval failed: %v", msg.err)
 			slog.Warn("approval failed", "conversationID", m.conversationID, "error", msg.err)
+			return m, nil
 		}
-		return m, nil
+		// Approval triggers a resumed agent run — resubscribe to events
+		m.streaming = true
+		return m, tea.Batch(m.resubscribeAfterApproval(), m.spinner.Tick)
 
 	case spinner.TickMsg:
 		if m.streaming {
@@ -417,13 +420,33 @@ func (m *Model) sendApproval(action string) tea.Cmd {
 	client := m.client
 	ctx := m.ctx
 	convID := m.conversationID
-	callID := m.pendingApproval.CallID
+	interruptID := m.pendingApproval.InterruptID
 
 	m.pendingApproval = nil
 
 	return func() tea.Msg {
-		err := client.Approve(ctx, convID, callID, action)
+		err := client.Approve(ctx, convID, interruptID, action)
 		return approvalSentMsg{err: err}
+	}
+}
+
+// resubscribeAfterApproval subscribes to the resumed agent's SSE event stream.
+func (m *Model) resubscribeAfterApproval() tea.Cmd {
+	client := m.client
+	ctx := m.ctx
+	convID := m.conversationID
+
+	return func() tea.Msg {
+		ch, err := client.SubscribeEvents(ctx, convID)
+		if err != nil {
+			return streamEventMsg{event: StreamEvent{Type: "error", Content: fmt.Sprintf("resubscribe failed: %v", err)}, done: true}
+		}
+
+		event, ok := <-ch
+		if !ok {
+			return streamEventMsg{done: true}
+		}
+		return streamEventMsg{event: event, ch: ch}
 	}
 }
 
@@ -457,7 +480,7 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		})
 	case "tool_end":
 		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete)
-	case "tool_approval_required":
+	case "interrupted":
 		m.pendingApproval = &msg.event
 	case "conv_id":
 		m.conversationID = msg.event.ConvID
@@ -521,7 +544,9 @@ func (m *Model) finalizeStream() tea.Cmd {
 
 	rendered := renderAssistantMessage(m.renderer, m.streamParts)
 	m.streamParts = nil
-	m.pendingApproval = nil
+
+	// Keep pendingApproval — it will be cleared when the user approves/rejects
+	// or when the next chat message starts.
 
 	if rendered == "" {
 		return nil

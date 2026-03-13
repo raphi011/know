@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/raphi011/knowhow/internal/auth"
@@ -110,10 +111,12 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		json.NewEncoder(w).Encode(chatResponseBody{
+		if err := json.NewEncoder(w).Encode(chatResponseBody{
 			ConversationID: convID,
 			Status:         "running",
-		})
+		}); err != nil {
+			logutil.FromCtx(r.Context()).Warn("failed to write response body", "error", err)
+		}
 	}
 }
 
@@ -142,7 +145,12 @@ func (rn *Runner) HandleEvents() http.HandlerFunc {
 		if err != nil {
 			// Task not running — check DB for completed/failed status
 			conv, dbErr := rn.db.GetConversation(r.Context(), convID)
-			if dbErr != nil || conv == nil {
+			if dbErr != nil {
+				logutil.FromCtx(r.Context()).Error("get conversation for events", "conversation_id", convID, "error", dbErr)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if conv == nil {
 				http.Error(w, "conversation not found", http.StatusNotFound)
 				return
 			}
@@ -249,6 +257,7 @@ func (rn *Runner) HandleCancel() http.HandlerFunc {
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, event StreamEvent) bool {
 	data, err := json.Marshal(event)
 	if err != nil {
+		slog.Error("failed to marshal SSE event", "type", event.Type, "error", err)
 		return false
 	}
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
@@ -260,20 +269,22 @@ func writeSSE(w http.ResponseWriter, flusher http.Flusher, event StreamEvent) bo
 
 type approvalRequestBody struct {
 	ConversationID string         `json:"conversationId"`
-	CallID         string         `json:"callId"`
+	InterruptID    string         `json:"interruptId"`
 	Action         ApprovalAction `json:"action"`
 	HunkIndexes    []int          `json:"hunkIndexes,omitempty"`
 }
 
-// HandleApproval returns an HTTP handler for POST /agent/approval that resolves pending tool approvals.
-func (s *Service) HandleApproval() http.HandlerFunc {
+// HandleApproval returns an HTTP handler for POST /agent/approval that resumes
+// an interrupted agent via eino's checkpoint system.
+func (rn *Runner) HandleApproval() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if _, err := auth.FromContext(r.Context()); err != nil {
+		ac, err := auth.FromContext(r.Context())
+		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -285,8 +296,8 @@ func (s *Service) HandleApproval() http.HandlerFunc {
 			return
 		}
 
-		if body.ConversationID == "" || body.CallID == "" {
-			http.Error(w, "conversationId and callId are required", http.StatusBadRequest)
+		if body.ConversationID == "" || body.InterruptID == "" {
+			http.Error(w, "conversationId and interruptId are required", http.StatusBadRequest)
 			return
 		}
 
@@ -298,27 +309,52 @@ func (s *Service) HandleApproval() http.HandlerFunc {
 			return
 		}
 
-		val, ok := s.activeApprovals.Load(body.ConversationID)
-		if !ok {
-			http.Error(w, "no active approval session for this conversation", http.StatusNotFound)
+		// Look up the conversation to check vault access
+		conv, dbErr := rn.db.GetConversation(r.Context(), body.ConversationID)
+		if dbErr != nil {
+			logutil.FromCtx(r.Context()).Error("get conversation for approval", "conversation_id", body.ConversationID, "error", dbErr)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		session := val.(*approvalSession)
+		if conv == nil {
+			http.Error(w, "conversation not found", http.StatusNotFound)
+			return
+		}
 
-		if err := auth.RequireVaultRole(r.Context(), session.vaultID, models.RoleWrite); err != nil {
+		vaultID, vaultErr := models.RecordIDString(conv.Vault)
+		if vaultErr != nil {
+			http.Error(w, "invalid vault reference", http.StatusInternalServerError)
+			return
+		}
+
+		if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 
-		if err := session.registry.resolve(ApprovalResponse{
-			CallID:      body.CallID,
-			Action:      body.Action,
-			HunkIndexes: body.HunkIndexes,
-		}); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		convID, resumeErr := rn.Resume(r.Context(), ResumeRequest{
+			ConversationID: body.ConversationID,
+			VaultID:        vaultID,
+			UserID:         ac.UserID,
+			InterruptID:    body.InterruptID,
+			Response: ApprovalResponse{
+				Action:      body.Action,
+				HunkIndexes: body.HunkIndexes,
+			},
+		})
+		if resumeErr != nil {
+			logutil.FromCtx(r.Context()).Error("failed to resume agent", "error", resumeErr)
+			http.Error(w, "failed to resume agent", http.StatusInternalServerError)
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		if err := json.NewEncoder(w).Encode(chatResponseBody{
+			ConversationID: convID,
+			Status:         "running",
+		}); err != nil {
+			logutil.FromCtx(r.Context()).Warn("failed to write response body", "error", err)
+		}
 	}
 }

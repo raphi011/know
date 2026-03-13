@@ -37,15 +37,16 @@ func (c *Client) CreateConversation(ctx context.Context, vaultID string) (*api.C
 	return &conv, err
 }
 
-// StreamEvent represents a server-sent event from the agent chat endpoint.
-// Field names and types must match the server's agent.StreamEvent JSON output.
+// StreamEvent is a TUI subset of agent.StreamEvent (internal/agent/service.go).
+// Only fields used by the TUI are included; unknown JSON fields are ignored.
+// Keep in sync with the canonical type when adding new fields.
 type StreamEvent struct {
-	Type              string `json:"type"` // "text" | "tool_start" | "tool_end" | "tool_approval_required" | "msg_end" | "conv_id" | "error"
+	Type              string `json:"type"` // "text" | "tool_start" | "tool_end" | "interrupted" | "msg_end" | "conv_id" | "error"
 	Content           string `json:"content,omitempty"`
 	ConvID            string `json:"convId,omitempty"`
 	Tool              string `json:"tool,omitempty"`
 	CallID            string `json:"callId,omitempty"`
-	Diff              string `json:"diff,omitempty"`
+	InterruptID       string `json:"interruptId,omitempty"`
 	InputTokens       int64  `json:"inputTokens,omitempty"`
 	OutputTokens      int64  `json:"outputTokens,omitempty"`
 	ContextWindowMax  int    `json:"contextWindowMax,omitempty"`
@@ -179,11 +180,11 @@ func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content stri
 	return ch, nil
 }
 
-// Approve sends a tool approval to the server.
-func (c *Client) Approve(ctx context.Context, conversationID, callID, action string) error {
+// Approve sends a tool approval to the server using eino's interrupt/resume.
+func (c *Client) Approve(ctx context.Context, conversationID, interruptID, action string) error {
 	return c.rest.Post(ctx, "/agent/approval", map[string]string{
 		"conversationId": conversationID,
-		"callId":         callID,
+		"interruptId":    interruptID,
 		"action":         action,
 	}, nil)
 }

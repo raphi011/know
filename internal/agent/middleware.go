@@ -8,10 +8,10 @@ import (
 	"sync"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/diff"
 	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/tools"
@@ -123,7 +123,7 @@ func (m *tokenTrackingMiddleware) AfterModelRewriteState(ctx context.Context, st
 	return ctx, state, nil
 }
 
-// --- toolExecutionMiddleware: approval gating + SSE tool events ---
+// --- toolExecutionMiddleware: SSE tool events + recording ---
 
 type toolExecutionMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
@@ -155,75 +155,9 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 			logger.Debug("failed to send tool start event", "tool", toolName, "error", err)
 		}
 
-		// Reconstruct a schema.ToolCall for approval logic and persistence.
 		call := schema.ToolCall{
 			ID:       callID,
 			Function: schema.FunctionCall{Name: toolName, Arguments: argumentsInJSON},
-		}
-
-		// Gate write tools on user approval
-		if isWriteTool(toolName) && !m.req.AutoApprove && m.req.Approvals != nil {
-			approvalReq, buildErr := m.service.buildApprovalRequest(ctx, m.req.VaultID, call)
-			if buildErr != nil {
-				return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: %v", buildErr), nil)
-			}
-
-			if err := adk.SendEvent(ctx, &adk.AgentEvent{
-				Output: &adk.AgentOutput{CustomizedOutput: &ApprovalRequiredEvent{
-					CallID:  callID,
-					Tool:    toolName,
-					Request: approvalReq,
-				}},
-			}); err != nil {
-				logger.Debug("failed to send approval required event", "tool", toolName, "error", err)
-			}
-
-			ch := m.req.Approvals.register(callID)
-
-			var resp ApprovalResponse
-			var ok bool
-			select {
-			case resp, ok = <-ch:
-				if !ok {
-					return m.failTool(ctx, call, callID, toolName, "error: approval cancelled", nil)
-				}
-			case <-ctx.Done():
-				return m.failTool(ctx, call, callID, toolName, "error: request cancelled", nil)
-			}
-
-			if resp.Action == ApprovalReject {
-				return m.failTool(ctx, call, callID, toolName, "User rejected the proposed changes.", nil)
-			}
-
-			if resp.Action == ApprovalApproveHunks {
-				if approvalReq.Diff == nil {
-					logger.Warn("approve_hunks received but no diff available", "tool", toolName, "call_id", callID)
-					return m.failTool(ctx, call, callID, toolName, "error: partial approval not available for this operation", nil)
-				}
-				doc, docErr := m.service.db.GetDocumentByPath(ctx, m.req.VaultID, approvalReq.Path)
-				if docErr != nil {
-					logger.Warn("failed to retrieve document for partial approval", "path", approvalReq.Path, "error", docErr)
-					return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: retrieve document for partial approval: %v", docErr), nil)
-				}
-				if doc == nil {
-					return m.failTool(ctx, call, callID, toolName, "error: document no longer exists at "+approvalReq.Path, nil)
-				}
-				merged, mergeErr := diff.ApplyHunks(doc.Content, approvalReq.Diff.Hunks, resp.HunkIndexes)
-				if mergeErr != nil {
-					return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error applying hunks: %v", mergeErr), nil)
-				}
-				inputMap["content"] = merged
-				newArgs, marshalErr := json.Marshal(inputMap)
-				if marshalErr != nil {
-					return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: marshal args: %v", marshalErr), nil)
-				}
-				argumentsInJSON = string(newArgs)
-				call.Function.Arguments = argumentsInJSON
-			} else if resp.Action != ApprovalApproveAll {
-				logger.Warn("unexpected approval action, treating as rejection", "action", resp.Action, "tool", toolName, "call_id", callID)
-				return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: unexpected approval action: %s", resp.Action), nil)
-			}
-			// ApprovalApproveAll falls through to normal execution
 		}
 
 		// Inject context for result metadata collection
@@ -232,10 +166,17 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 
 		result, err := endpoint(ctx, argumentsInJSON, opts...)
 
+		// If the tool returned an interrupt error (from approvalToolWrapper), emit
+		// a tool_end so clients see a paired start/end, then let the error
+		// propagate up to the compose engine.
+		if _, isInterrupt := compose.IsInterruptRerunError(err); isInterrupt {
+			m.sendToolEnd(ctx, callID, toolName, "interrupted", nil)
+			return "", err
+		}
+
 		meta := tools.ResultMeta(ctx)
 		if err != nil {
 			logger.Warn("tool execution failed", "tool", toolName, "error", err)
-			// Return error as string so ReAct loop continues
 			return m.failTool(ctx, call, callID, toolName, fmt.Sprintf("error: %v", err), meta)
 		}
 
