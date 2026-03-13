@@ -64,9 +64,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 	levelVar.Set(level)
 
 	logFile := os.Getenv("KNOWHOW_LOG_FILE")
-	if logFile == "" {
-		logFile = "knowhow.log"
-	}
 	logger, logCleanup, err := config.SetupLogger(logFile, &levelVar)
 	if err != nil {
 		return fmt.Errorf("setup logger: %w", err)

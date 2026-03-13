@@ -24,7 +24,7 @@ jobs:
       helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -95,7 +95,7 @@ jobs:
           echo "$ZOT_IP ${{ env.REGISTRY }}" | sudo tee -a /etc/hosts
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       - name: Package and push Helm chart
         run: |

@@ -179,7 +179,7 @@ func Load() Config {
 		TavilyAPIKey:    getEnv("TAVILY_API_KEY", ""),
 
 		// Logging
-		LogFile:  getEnv("KNOWHOW_LOG_FILE", "/tmp/knowhow.log"),
+		LogFile:  getEnv("KNOWHOW_LOG_FILE", ""),
 		LogLevel: parseLogLevel(getEnv("KNOWHOW_LOG_LEVEL", "INFO")),
 
 		// Server settings
