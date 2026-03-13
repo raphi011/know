@@ -20,6 +20,7 @@ import (
 	"github.com/raphi011/knowhow/internal/document"
 	"github.com/raphi011/knowhow/internal/event"
 	"github.com/raphi011/knowhow/internal/llm"
+	"github.com/raphi011/knowhow/internal/logutil"
 	"github.com/raphi011/knowhow/internal/memory"
 	"github.com/raphi011/knowhow/internal/models"
 	"github.com/raphi011/knowhow/internal/remote"
@@ -208,6 +209,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		},
 	}
 
+	// Reconcile conversations stuck in "running" from a previous unclean shutdown
+	if n, err := dbClient.ReconcileStaleRunningConversations(ctx); err != nil {
+		slog.Warn("failed to reconcile stale running conversations", "error", err)
+	} else if n > 0 {
+		slog.Info("reconciled stale running conversations", "count", n)
+	}
+
 	// Start background embedding worker if embedder is available
 	app.syncEmbeddingWorker(cfg, embedder)
 
@@ -289,7 +297,11 @@ func (a *App) Config() ServerConfig {
 }
 
 // Close stops background workers and closes all connections.
+// The context deadline is respected — if it expires, Close continues with
+// best-effort cleanup but includes the deadline error in the returned error.
 func (a *App) Close(ctx context.Context) error {
+	logger := logutil.FromCtx(ctx)
+
 	a.mu.Lock()
 	embedCancel := a.workerCancel
 	embedDone := a.workerDone
@@ -299,21 +311,49 @@ func (a *App) Close(ctx context.Context) error {
 	a.processingWorkerCancel = nil
 	a.mu.Unlock()
 
+	var errs []error
+
 	if embedCancel != nil {
+		logger.Info("stopping embedding worker")
 		embedCancel()
-		<-embedDone
+		select {
+		case <-embedDone:
+		case <-ctx.Done():
+			logger.Warn("embedding worker did not stop in time")
+			errs = append(errs, fmt.Errorf("embedding worker: %w", ctx.Err()))
+		}
 	}
 	if procCancel != nil {
+		logger.Info("stopping processing worker")
 		procCancel()
-		<-procDone
+		select {
+		case <-procDone:
+		case <-ctx.Done():
+			logger.Warn("processing worker did not stop in time")
+			errs = append(errs, fmt.Errorf("processing worker: %w", ctx.Err()))
+		}
 	}
 	if a.agentRunner != nil {
-		a.agentRunner.Shutdown()
+		if err := a.agentRunner.Shutdown(ctx); err != nil {
+			logger.Warn("agent runner shutdown incomplete", "error", err)
+			errs = append(errs, fmt.Errorf("agent runner: %w", err))
+		}
+	}
+	if a.bus != nil {
+		logger.Info("closing event bus")
+		a.bus.Close()
 	}
 	if a.db != nil {
-		return a.db.Close(ctx)
+		logger.Info("closing database connection")
+		// Use a fresh timeout for DB close — it's the most important cleanup
+		// step and the parent ctx may already be expired.
+		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer dbCancel()
+		if err := a.db.Close(dbCtx); err != nil {
+			errs = append(errs, fmt.Errorf("db close: %w", err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ReloadLLM re-reads .env, recreates LLM/embedding clients, and swaps them

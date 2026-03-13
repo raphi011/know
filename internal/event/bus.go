@@ -23,9 +23,10 @@ type DocumentPayload struct {
 // Bus is an in-process pub/sub event bus that fans out change events
 // to subscribers grouped by vault ID.
 type Bus struct {
-	mu   sync.Mutex
-	subs map[string]map[uint64]chan ChangeEvent // vaultID → subID → channel
-	next uint64
+	mu     sync.Mutex
+	subs   map[string]map[uint64]chan ChangeEvent // vaultID → subID → channel
+	next   uint64
+	closed bool
 }
 
 // New creates a new event bus.
@@ -40,9 +41,16 @@ func New() *Bus {
 // The channel is buffered with capacity 64; slow consumers that
 // let the buffer fill will have their channel closed and subscription removed.
 // The unsubscribe function is safe to call multiple times.
+// Returns a closed channel and a no-op unsubscribe if the bus is closed.
 func (b *Bus) Subscribe(vaultID string) (ch <-chan ChangeEvent, unsubscribe func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.closed {
+		c := make(chan ChangeEvent)
+		close(c)
+		return c, func() {}
+	}
 
 	id := b.next
 	b.next++
@@ -120,10 +128,14 @@ func (b *Bus) SubscribeByPath(vaultID, docPath string) (ch <-chan ChangeEvent, u
 
 // Publish fans out the event to all subscribers registered for the event's VaultID.
 // If a subscriber's channel buffer is full, the channel is closed and the subscriber
-// is evicted (slow consumer eviction).
+// is evicted (slow consumer eviction). No-ops if the bus is closed.
 func (b *Bus) Publish(event ChangeEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.closed {
+		return
+	}
 
 	vaultSubs, ok := b.subs[event.VaultID]
 	if !ok {
@@ -146,5 +158,27 @@ func (b *Bus) Publish(event ChangeEvent) {
 
 	if len(vaultSubs) == 0 {
 		delete(b.subs, event.VaultID)
+	}
+}
+
+// Close closes all subscriber channels, clears the subscriber map, and
+// prevents new subscriptions or publishes. Safe to call multiple times.
+func (b *Bus) Close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		return
+	}
+	b.closed = true
+
+	// Deleting entries from the map (not just setting closed=true) is required
+	// because unsubscribe() checks map membership to guard against double-close.
+	for vaultID, vaultSubs := range b.subs {
+		for id, ch := range vaultSubs {
+			close(ch)
+			delete(vaultSubs, id)
+		}
+		delete(b.subs, vaultID)
 	}
 }
