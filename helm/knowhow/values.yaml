@@ -138,3 +138,26 @@ affinity: {}
 # NetworkPolicy configuration
 networkPolicy:
   enabled: true
+  # Additional ingress rules for the backend pod
+  # Example: allow traffic from a reverse proxy namespace
+  # additionalIngress:
+  #   - from:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             kubernetes.io/metadata.name: my-proxy
+  #     ports:
+  #       - protocol: TCP
+  #         port: 8484
+  additionalIngress: []
+  # Additional egress rules for the backend pod
+  # DNS and external HTTPS (443) egress are always included
+  # Example: allow traffic to a database namespace
+  # additionalEgress:
+  #   - to:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             kubernetes.io/metadata.name: my-database
+  #     ports:
+  #       - protocol: TCP
+  #         port: 5432
+  additionalEgress: []

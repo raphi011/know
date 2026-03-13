@@ -3,25 +3,31 @@ name: CI — Go
 on:
   push:
     branches: [main]
-    paths:
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - "justfile"
-      - "docker-compose.yml"
-      - ".github/workflows/ci-go.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - "justfile"
-      - "docker-compose.yml"
-      - ".github/workflows/ci-go.yml"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - '**.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'justfile'
+              - 'docker-compose.yml'
+              - '.github/workflows/ci-go.yml'
+
   build:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -34,6 +40,8 @@ jobs:
         run: go build -buildvcs=false ./...
 
   test:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -53,6 +61,8 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   vet:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -63,3 +73,19 @@ jobs:
 
       - name: Vet
         run: go vet -buildvcs=false ./...
+
+  ci-result:
+    needs: [build, test, vet]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CI jobs passed or were skipped
+        run: |
+          results=("${{ needs.build.result }}" "${{ needs.test.result }}" "${{ needs.vet.result }}")
+          for result in "${results[@]}"; do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "CI failed: job returned '$result'"
+              exit 1
+            fi
+          done
+          echo "CI passed"
