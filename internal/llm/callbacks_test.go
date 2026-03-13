@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -28,16 +29,11 @@ func TestTimeSinceStart(t *testing.T) {
 }
 
 func TestRegisterCallbacks(t *testing.T) {
-	// Verify RegisterCallbacks doesn't panic and the handler fires
 	RegisterCallbacks()
 
-	// EnsureRunInfo sets up the RunInfo in context (required before OnStart/OnEnd)
 	ctx := callbacks.EnsureRunInfo(context.Background(), "TestModel", components.ComponentOfChatModel)
-
-	// OnStart should store start time via our handler
 	ctx = callbacks.OnStart(ctx, &model.CallbackInput{})
 
-	// OnEnd should not panic
 	callbacks.OnEnd(ctx, &model.CallbackOutput{
 		TokenUsage: &model.TokenUsage{
 			PromptTokens:     100,
@@ -52,6 +48,40 @@ func TestRegisterCallbacks_NilOutput(t *testing.T) {
 	ctx := callbacks.EnsureRunInfo(context.Background(), "TestModel", components.ComponentOfChatModel)
 	ctx = callbacks.OnStart(ctx, &model.CallbackInput{})
 
-	// OnEnd with nil-valued output should not panic
+	// Typed-nil output should not panic
 	callbacks.OnEnd(ctx, (*model.CallbackOutput)(nil))
+}
+
+func TestRegisterCallbacks_NilTokenUsage(t *testing.T) {
+	RegisterCallbacks()
+
+	ctx := callbacks.EnsureRunInfo(context.Background(), "TestModel", components.ComponentOfChatModel)
+	ctx = callbacks.OnStart(ctx, &model.CallbackInput{})
+
+	// Non-nil output with nil TokenUsage should not panic
+	callbacks.OnEnd(ctx, &model.CallbackOutput{})
+}
+
+func TestRegisterCallbacks_OnError(t *testing.T) {
+	RegisterCallbacks()
+
+	ctx := callbacks.EnsureRunInfo(context.Background(), "TestModel", components.ComponentOfChatModel)
+	ctx = callbacks.OnStart(ctx, &model.CallbackInput{})
+
+	// OnError should log and not panic
+	callbacks.OnError(ctx, fmt.Errorf("test error"))
+}
+
+func TestRegisterCallbacks_EmbeddingComponent(t *testing.T) {
+	RegisterCallbacks()
+
+	ctx := callbacks.EnsureRunInfo(context.Background(), "TestEmbedder", components.ComponentOfEmbedding)
+	ctx = callbacks.OnStart(ctx, &model.CallbackInput{})
+
+	// Non-ChatModel component skips token usage extraction
+	callbacks.OnEnd(ctx, &model.CallbackOutput{
+		TokenUsage: &model.TokenUsage{
+			PromptTokens: 200,
+		},
+	})
 }

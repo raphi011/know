@@ -27,10 +27,10 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 |-------------|--------|
 | ADK (`ChatModelAgent`, `Runner`) | Not used — custom agent loop |
 | `compose.*` (Graph, Chain, ToolsNode) | Not used — manual tool dispatch |
-| `callbacks.Handler` | Not used — manual slog + metrics |
+| `callbacks.Handler` | ✅ Used — global observability handler (Phase 2) |
 | Interrupt/Resume, CheckPointStore | Not used — in-memory approval channels |
 | Session management (AddSessionValue) | Not used — manual prompt building |
-| `tool.InvokableTool` | Not used — raw `ToolInfo` + switch dispatch |
+| `tool.InvokableTool` | ✅ Used — registry-based dispatch (Phase 1) |
 | `retriever.Retriever`, `indexer.Indexer` | Not used — direct DB queries |
 
 ---
@@ -98,15 +98,15 @@ Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level pr
 
 ### Design decisions (as implemented)
 
-- **Logging only in callbacks, metrics stay in wrappers**: Not all eino-ext providers fire callbacks — OpenAI model and OpenAI embedding implementations (also used for Anthropic/Voyage embeddings) do NOT call `callbacks.OnStart`/`OnEnd`. Claude, Ollama, and Gemini do. Since eino callbacks return a new context that is NOT propagated back to the caller (`chatModel.Generate()` returns the original context), there's no way to deduplicate metrics. Therefore: callbacks handle **structured logging** (additive, harmless if doubled), and `Model`/`Embedder` wrappers handle **metrics** (universal, works for all providers).
+- **Logging only in callbacks, metrics stay in wrappers**: All eino-ext model/embedding providers (Claude, OpenAI, Ollama, Gemini) fire callbacks. The custom Bedrock embedder (langchaingo-based) bypasses eino entirely. Since eino callbacks return a new context that is NOT propagated back to the caller (`chatModel.Generate()` returns the original context), there's no way to deduplicate metrics. Therefore: callbacks handle **structured logging** (additive, harmless if doubled), and `Model`/`Embedder` wrappers handle **metrics** (universal, works for all providers including Bedrock).
 - **Start time via context key**: `OnStart` stores `time.Now()` as a context value; `OnEnd`/`OnError` compute duration from it.
-- **Registered once at startup**: `llm.RegisterCallbacks()` called in `server.New()` before model creation. Not called on SIGHUP reload (global handlers persist across model swaps since they're process-global).
+- **Registered once at startup**: `llm.RegisterCallbacks()` called in `server.New()`. Not called on SIGHUP reload (global handlers persist across model swaps since they're process-global).
 
 ### Key files
 
 | File | Change |
 |------|--------|
-| New: `internal/llm/callbacks.go` | Observability callback handler (~60 lines) |
+| New: `internal/llm/callbacks.go` | Observability callback handler (~80 lines) |
 | New: `internal/llm/callbacks_test.go` | Tests for handler registration and lifecycle |
 | `internal/server/bootstrap.go` | `llm.RegisterCallbacks()` called at startup |
 

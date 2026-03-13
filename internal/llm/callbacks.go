@@ -13,10 +13,10 @@ import (
 type startTimeKey struct{}
 
 // RegisterCallbacks registers a global eino callback handler that provides
-// structured logging for all eino components that fire callbacks (Claude,
-// Ollama, Gemini). OpenAI's eino-ext implementation does not fire callbacks,
-// so the Model/Embedder wrappers retain their own logging as a universal
-// fallback.
+// structured logging for all eino components that fire callbacks. All eino-ext
+// model/embedding providers (Claude, OpenAI, Ollama, Gemini) fire callbacks.
+// The custom Bedrock embedder (langchaingo-based) bypasses eino entirely, so
+// the Model/Embedder wrappers retain their own logging as a universal fallback.
 //
 // Metrics recording stays in the Model/Embedder wrappers because eino
 // callbacks return a new context that is not propagated back to the caller,
@@ -74,5 +74,6 @@ func timeSinceStart(ctx context.Context) time.Duration {
 	if start, ok := ctx.Value(startTimeKey{}).(time.Time); ok {
 		return time.Since(start)
 	}
+	logutil.FromCtx(ctx).Warn("eino callback: start time not found in context, duration will be 0")
 	return 0
 }
