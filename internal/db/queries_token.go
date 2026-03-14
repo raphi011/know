@@ -26,10 +26,7 @@ func (c *Client) CreateToken(ctx context.Context, userID, tokenHash, name string
 	if err != nil {
 		return nil, fmt.Errorf("create token: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create token: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create token")
 }
 
 func (c *Client) GetTokenByHash(ctx context.Context, hash string) (*models.APIToken, error) {
@@ -41,10 +38,7 @@ func (c *Client) GetTokenByHash(ctx context.Context, hash string) (*models.APITo
 	if err != nil {
 		return nil, fmt.Errorf("get token by hash: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 func (c *Client) UpdateTokenLastUsed(ctx context.Context, tokenID string) error {
@@ -65,10 +59,7 @@ func (c *Client) ListTokens(ctx context.Context, userID string) ([]models.APITok
 	if err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) DeleteToken(ctx context.Context, id string) error {

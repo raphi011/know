@@ -39,10 +39,7 @@ func (c *Client) CreateShareLink(ctx context.Context, vaultID, tokenHash, path s
 	if err != nil {
 		return nil, fmt.Errorf("create share link: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create share link: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create share link")
 }
 
 // GetShareLinkByHash looks up a share link by its token hash.
@@ -55,10 +52,7 @@ func (c *Client) GetShareLinkByHash(ctx context.Context, hash string) (*models.S
 	if err != nil {
 		return nil, fmt.Errorf("get share link by hash: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // GetShareLink looks up a share link by ID.
@@ -71,10 +65,7 @@ func (c *Client) GetShareLink(ctx context.Context, id string) (*models.ShareLink
 	if err != nil {
 		return nil, fmt.Errorf("get share link: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // ListShareLinks returns all share links for a vault.
@@ -87,10 +78,7 @@ func (c *Client) ListShareLinks(ctx context.Context, vaultID string) ([]models.S
 	if err != nil {
 		return nil, fmt.Errorf("list share links: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // DeleteShareLink removes a share link by ID.

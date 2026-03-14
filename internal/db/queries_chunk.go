@@ -86,10 +86,7 @@ func (c *Client) GetChunks(ctx context.Context, documentID string) ([]models.Chu
 	if err != nil {
 		return nil, fmt.Errorf("get chunks: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) DeleteChunks(ctx context.Context, documentID string) error {
@@ -150,10 +147,7 @@ func (c *Client) ClaimChunksForEmbedding(ctx context.Context, limit int) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("claim chunks for embedding: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // UpdateChunkEmbedding sets the embedding vector on a chunk after the worker embeds it.

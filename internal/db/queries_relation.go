@@ -44,10 +44,7 @@ func (c *Client) GetRelations(ctx context.Context, documentID string) ([]models.
 	if err != nil {
 		return nil, fmt.Errorf("get relations: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) GetRelationByID(ctx context.Context, id string) (*models.DocRelation, error) {
@@ -59,10 +56,7 @@ func (c *Client) GetRelationByID(ctx context.Context, id string) (*models.DocRel
 	if err != nil {
 		return nil, fmt.Errorf("get relation by id: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // DeleteRelationsBySource removes all doc_relations originating from a document with the given source.

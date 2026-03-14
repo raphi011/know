@@ -2,10 +2,12 @@ package document
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"runtime/debug"
 	"time"
 
+	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -43,7 +45,7 @@ func NewProcessingWorker(service *Service, interval time.Duration, batchSize int
 // Run starts the processing worker loop. It blocks until the context is cancelled.
 // If the worker panics, it logs the stack trace and restarts after a short delay.
 func (w *ProcessingWorker) Run(ctx context.Context) {
-	slog.Info("document processing worker started", "interval", w.interval, "batch_size", w.batch)
+	logutil.FromCtx(ctx).Info("document processing worker started", "interval", w.interval, "batch_size", w.batch)
 
 	for {
 		stopped := w.runLoop(ctx)
@@ -52,10 +54,10 @@ func (w *ProcessingWorker) Run(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			slog.Info("document processing worker stopped")
+			logutil.FromCtx(ctx).Info("document processing worker stopped")
 			return
 		case <-time.After(5 * time.Second):
-			slog.Info("document processing worker restarting after panic")
+			logutil.FromCtx(ctx).Info("document processing worker restarting after panic")
 		}
 	}
 }
@@ -63,7 +65,7 @@ func (w *ProcessingWorker) Run(ctx context.Context) {
 func (w *ProcessingWorker) runLoop(ctx context.Context) (stopped bool) {
 	defer func() {
 		if p := recover(); p != nil {
-			slog.Error("document processing worker panicked",
+			logutil.FromCtx(ctx).Error("document processing worker panicked",
 				"error", p, "stack", string(debug.Stack()))
 			stopped = false
 		}
@@ -78,7 +80,7 @@ func (w *ProcessingWorker) runLoop(ctx context.Context) (stopped bool) {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("document processing worker stopped")
+			logutil.FromCtx(ctx).Info("document processing worker stopped")
 			return true
 		case <-ticker.C:
 			w.tick(ctx)
@@ -89,7 +91,7 @@ func (w *ProcessingWorker) runLoop(ctx context.Context) (stopped bool) {
 func (w *ProcessingWorker) tick(ctx context.Context) {
 	docs, err := w.service.db.ListUnprocessedDocuments(ctx, w.batch)
 	if err != nil {
-		slog.Error("document processing worker: list unprocessed", "error", err)
+		logutil.FromCtx(ctx).Error("document processing worker: list unprocessed", "error", err)
 		return
 	}
 
@@ -105,12 +107,12 @@ func (w *ProcessingWorker) tick(ctx context.Context) {
 
 		docID, err := models.RecordIDString(doc.ID)
 		if err != nil {
-			slog.Warn("failed to extract doc ID in processing tick", "path", doc.Path, "error", err)
+			logutil.FromCtx(ctx).Warn("failed to extract doc ID in processing tick", "path", doc.Path, "error", err)
 			continue
 		}
 
 		if w.failures[docID] >= w.maxRetries {
-			slog.Warn("skipping poison-pill document", "path", doc.Path, "id", docID, "failures", w.failures[docID])
+			logutil.FromCtx(ctx).Warn("skipping poison-pill document", "path", doc.Path, "id", docID, "failures", w.failures[docID])
 			continue
 		}
 
@@ -120,7 +122,7 @@ func (w *ProcessingWorker) tick(ctx context.Context) {
 			if w.failures[docID] >= w.maxRetries {
 				level = slog.LevelError
 			}
-			slog.Log(ctx, level, "failed to process document",
+			logutil.FromCtx(ctx).Log(ctx, level, "failed to process document",
 				"path", doc.Path, "attempt", w.failures[docID],
 				"max_retries", w.maxRetries, "error", err)
 			continue
@@ -131,7 +133,7 @@ func (w *ProcessingWorker) tick(ctx context.Context) {
 	}
 
 	if processed > 0 {
-		slog.Info("document processing worker processed documents", "count", processed)
+		logutil.FromCtx(ctx).Info("document processing worker processed documents", "count", processed)
 	}
 }
 
@@ -139,12 +141,12 @@ func (w *ProcessingWorker) processOne(ctx context.Context, doc *models.Document)
 	// Re-fetch to get the latest version (another write may have happened)
 	docID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("extract document ID: %w", err)
 	}
 
 	latest, err := w.service.db.GetDocumentByID(ctx, docID)
 	if err != nil {
-		return err
+		return fmt.Errorf("process document %s: %w", docID, err)
 	}
 	if latest == nil {
 		// Document was deleted between listing and processing — skip

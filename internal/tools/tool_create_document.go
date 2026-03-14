@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,12 +40,12 @@ func (t *CreateDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error)
 func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	o := getToolOptions(opts...)
 
-	var args struct {
+	args, err := parseInput[struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
-		return "", fmt.Errorf("parse create_document input: %w", err)
+	}](argumentsInJSON, "create_document")
+	if err != nil {
+		return "", err
 	}
 	if args.Path == "" {
 		return "", fmt.Errorf("path is required")

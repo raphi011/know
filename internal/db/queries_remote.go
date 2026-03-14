@@ -30,10 +30,7 @@ func (c *Client) CreateRemote(ctx context.Context, userID string, input models.R
 	if err != nil {
 		return nil, fmt.Errorf("create remote: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create remote: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create remote")
 }
 
 // GetRemoteByName returns a remote by its unique name.
@@ -47,10 +44,7 @@ func (c *Client) GetRemoteByName(ctx context.Context, name string) (*models.Remo
 	if err != nil {
 		return nil, fmt.Errorf("get remote by name: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // ListRemotes returns all configured remotes.

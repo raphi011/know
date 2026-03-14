@@ -84,10 +84,7 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 	if err != nil {
 		return nil, fmt.Errorf("bm25 chunk search: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // HybridSearch performs hybrid BM25+vector search using SurrealDB's search::rrf()
@@ -131,10 +128,7 @@ func (c *Client) HybridSearch(ctx context.Context, query string, embedding []flo
 	if err != nil {
 		return nil, fmt.Errorf("hybrid search: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // GetDocumentsByIDs fetches multiple documents by ID in a single query.
@@ -156,8 +150,5 @@ func (c *Client) GetDocumentsByIDs(ctx context.Context, ids []string) ([]models.
 	if err != nil {
 		return nil, fmt.Errorf("get documents by ids: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }

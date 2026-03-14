@@ -21,10 +21,7 @@ func (c *Client) LookupQueryEmbedding(ctx context.Context, normalizedQuery strin
 	if err != nil {
 		return nil, fmt.Errorf("lookup query embedding: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // UpsertQueryEmbedding inserts a new search query cache entry or updates hit_count

@@ -208,7 +208,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 
 	// 8. Persist, update tokens, emit msg_end (or skip if interrupted)
 	if err := s.finalizeRun(ctx, req.ConversationID, model, &result, emit); err != nil {
-		return err
+		return fmt.Errorf("finalize run: %w", err)
 	}
 
 	// 9. Auto-title if first message

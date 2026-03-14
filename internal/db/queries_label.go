@@ -33,8 +33,8 @@ func (c *Client) EnsureLabel(ctx context.Context, vaultID, name string) (string,
 			return "", fmt.Errorf("ensure label: check existing: %w", err)
 		}
 
-		if existing != nil && len(*existing) > 0 && len((*existing)[0].Result) > 0 {
-			id, err := models.RecordIDString((*existing)[0].Result[0].ID)
+		if found := firstResultOpt(existing); found != nil {
+			id, err := models.RecordIDString(found.ID)
 			if err != nil {
 				return "", fmt.Errorf("ensure label: extract id: %w", err)
 			}
@@ -53,10 +53,11 @@ func (c *Client) EnsureLabel(ctx context.Context, vaultID, name string) (string,
 			}
 			return "", fmt.Errorf("ensure label: create: %w", err)
 		}
-		if created == nil || len(*created) == 0 || len((*created)[0].Result) == 0 {
-			return "", fmt.Errorf("ensure label: no result returned from create")
+		newLabel, labelErr := firstResult(created, "ensure label")
+		if labelErr != nil {
+			return "", labelErr
 		}
-		id, err := models.RecordIDString((*created)[0].Result[0].ID)
+		id, err := models.RecordIDString(newLabel.ID)
 		if err != nil {
 			return "", fmt.Errorf("ensure label: extract id: %w", err)
 		}
@@ -67,34 +68,56 @@ func (c *Client) EnsureLabel(ctx context.Context, vaultID, name string) (string,
 }
 
 // SyncDocumentLabels replaces all has_label edges for a document with edges
-// to the given labels. Labels are upserted as needed.
+// to the given labels. Labels are upserted and edges are created in a single
+// database round-trip to avoid N+1 query overhead.
 func (c *Client) SyncDocumentLabels(ctx context.Context, docID, vaultID string, labels []string) error {
 	defer c.logOp(ctx, "label.sync", time.Now())
-	// Delete existing edges from this document
-	sql := `DELETE FROM has_label WHERE in = type::record("document", $doc_id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+
+	// Normalize labels in Go
+	normalized := make([]string, 0, len(labels))
+	for _, name := range labels {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" {
+			normalized = append(normalized, name)
+		}
+	}
+
+	// Delete old edges first; if no labels remain we're done
+	deleteSQL := `DELETE FROM has_label WHERE in = type::record("document", $doc_id)`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), deleteSQL, map[string]any{
 		"doc_id": bareID("document", docID),
 	}); err != nil {
 		return fmt.Errorf("sync document labels: delete old edges: %w", err)
 	}
 
-	for _, name := range labels {
-		labelID, err := c.EnsureLabel(ctx, vaultID, name)
-		if err != nil {
-			return fmt.Errorf("sync document labels: %w", err)
-		}
+	if len(normalized) == 0 {
+		return nil
+	}
 
-		relateSql := `
-			LET $doc = type::record("document", $doc_id);
-			LET $lbl = type::record("label", $label_id);
-			RELATE $doc->has_label->$lbl RETURN NONE
-		`
-		if _, err := surrealdb.Query[any](ctx, c.DB(), relateSql, map[string]any{
-			"doc_id":   bareID("document", docID),
-			"label_id": bareID("label", labelID),
-		}); err != nil {
-			return fmt.Errorf("sync document labels: create edge for %q: %w", name, err)
+	// Build label row objects for batch INSERT
+	vaultRef := bareID("vault", vaultID)
+	labelRows := make([]map[string]any, len(normalized))
+	for i, name := range normalized {
+		labelRows[i] = map[string]any{
+			"name":  name,
+			"vault": newRecordID("vault", vaultRef),
 		}
+	}
+
+	// Single query: upsert all labels, then create all edges.
+	// LET $doc outside the FOR loop because type::record() isn't allowed inside FOR.
+	sql := `
+		LET $doc = type::record("document", $doc_id);
+		LET $labels = INSERT INTO label $label_rows ON DUPLICATE KEY UPDATE id = id RETURN AFTER;
+		FOR $lbl IN $labels {
+			RELATE $doc->has_label->$lbl.id;
+		};
+	`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"doc_id":     bareID("document", docID),
+		"label_rows": labelRows,
+	}); err != nil {
+		return fmt.Errorf("sync document labels: upsert and relate %v: %w", normalized, err)
 	}
 
 	return nil
@@ -116,10 +139,7 @@ func (c *Client) GetDocumentsByLabel(ctx context.Context, vaultID, labelName str
 	if err != nil {
 		return nil, fmt.Errorf("get documents by label: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // GetLabelsForDocument returns all label names for a document using graph traversal.

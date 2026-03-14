@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -30,11 +29,11 @@ func (t *SearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 func (t *SearchTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	o := getToolOptions(opts...)
 
-	var input struct {
+	input, err := parseInput[struct {
 		Query string `json:"query"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-		return "", fmt.Errorf("parse search input: %w", err)
+	}](argumentsInJSON, "search")
+	if err != nil {
+		return "", err
 	}
 
 	start := time.Now()
