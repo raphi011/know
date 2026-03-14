@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -51,10 +52,29 @@ func (w *approvalToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON 
 			},
 		}
 
-		approvalReq, buildErr := w.service.buildApprovalRequest(ctx, w.vaultID, call)
-		if buildErr != nil {
-			logger.Warn("failed to build approval request", "tool", info.Name, "error", buildErr)
-			return fmt.Sprintf("error: %v", buildErr), nil
+		// Determine the effective vault for approval.
+		// If the tool args contain a "vault" field with "/" (remote), show
+		// content-only approval since we can't compute diffs on remote vaults.
+		isRemoteVault := false
+		var vaultArg struct {
+			Vault string `json:"vault"`
+		}
+		if err := json.Unmarshal([]byte(argumentsInJSON), &vaultArg); err != nil {
+			logger.Warn("failed to parse vault arg for approval routing", "tool", info.Name, "error", err)
+		} else if vaultArg.Vault != "" && strings.Contains(vaultArg.Vault, "/") {
+			isRemoteVault = true
+		}
+
+		var approvalReq *ApprovalRequest
+		if isRemoteVault {
+			approvalReq = w.service.buildRemoteApprovalRequest(call)
+		} else {
+			var buildErr error
+			approvalReq, buildErr = w.service.buildApprovalRequest(ctx, w.vaultID, call)
+			if buildErr != nil {
+				logger.Warn("failed to build approval request", "tool", info.Name, "error", buildErr)
+				return fmt.Sprintf("error: %v", buildErr), nil
+			}
 		}
 
 		saved := &approvalToolState{

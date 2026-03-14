@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/raphi011/know/internal/agent"
 	"github.com/raphi011/know/internal/asset"
+	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/document"
@@ -26,6 +28,7 @@ import (
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/search"
 	"github.com/raphi011/know/internal/template"
+	"github.com/raphi011/know/internal/tools"
 	"github.com/raphi011/know/internal/vault"
 )
 
@@ -170,17 +173,24 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	close(processingWorkerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
-	agentSvc := agent.NewService(dbClient, model, searchSvc, docService, cfg.TavilyAPIKey)
-	agentRunner := agent.NewRunner(agentSvc, dbClient)
-
 	assetSvc := asset.NewService(dbClient, bus)
-
 	remoteSvc := remote.NewService(dbClient)
+
+	// Build multi-vault tool resolvers for the agent.
+	localExecutor := &tools.Executor{
+		DB:         dbClient,
+		Search:     searchSvc,
+		DocService: docService,
+	}
+	vaultSvc := vault.NewService(dbClient)
+	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
+	agentSvc := agent.NewService(dbClient, model, agentTools, cfg.TavilyAPIKey)
+	agentRunner := agent.NewRunner(agentSvc, dbClient)
 	memorySvc := memory.NewService(dbClient, docService, model)
 
 	app := &App{
 		db:                       dbClient,
-		vaultService:             vault.NewService(dbClient),
+		vaultService:             vaultSvc,
 		remoteService:            remoteSvc,
 		memoryService:            memorySvc,
 		assetService:             assetSvc,
@@ -619,4 +629,134 @@ func seedIfEmpty(ctx context.Context, dbClient *db.Client) error {
 
 	slog.Info("auto-bootstrap complete", "user", userID, "vault", vaultID)
 	return nil
+}
+
+// buildAgentTools creates multi-vault tool wrappers for the agent service.
+// The resolvers close over the local executor, vault service, and remote service
+// to route tool calls to the appropriate vault.
+func buildAgentTools(localExecutor *tools.Executor, vaultSvc *vault.Service, remoteSvc *remote.Service) []tool.BaseTool {
+	resolver := func(ctx context.Context) ([]tools.VaultRef, error) {
+		localIDs, err := resolveVaultIDs(ctx, vaultSvc)
+		if err != nil {
+			return nil, err
+		}
+
+		refs := make([]tools.VaultRef, 0, len(localIDs))
+		for _, id := range localIDs {
+			refs = append(refs, tools.VaultRef{
+				VaultID:  id,
+				Executor: localExecutor,
+			})
+		}
+
+		if remoteSvc == nil {
+			return refs, nil
+		}
+
+		remoteVaults, err := remoteSvc.ListRemoteVaults(ctx)
+		if err != nil {
+			logutil.FromCtx(ctx).Warn("failed to list remote vaults, using local only", "error", err)
+			return refs, nil
+		}
+		for _, rv := range remoteVaults {
+			client, clientErr := remoteSvc.ClientFor(ctx, rv.RemoteName)
+			if clientErr != nil {
+				logutil.FromCtx(ctx).Warn("failed to get client for remote, skipping", "remote", rv.RemoteName, "error", clientErr)
+				continue
+			}
+			refs = append(refs, tools.VaultRef{
+				VaultID:   rv.VaultID,
+				Executor:  remote.NewExecutor(client, rv.RemoteName),
+				Namespace: rv.Namespace,
+			})
+		}
+
+		return refs, nil
+	}
+
+	writeResolver := func(ctx context.Context, vaultName string) (tools.VaultRef, error) {
+		if vaultName != "" && strings.Contains(vaultName, "/") {
+			parts := strings.SplitN(vaultName, "/", 2)
+			remoteName := parts[0]
+
+			if remoteSvc == nil {
+				return tools.VaultRef{}, fmt.Errorf("remote vaults not configured")
+			}
+
+			client, err := remoteSvc.ClientFor(ctx, remoteName)
+			if err != nil {
+				return tools.VaultRef{}, fmt.Errorf("resolve remote %q: %w", remoteName, err)
+			}
+
+			remoteVaults, err := remoteSvc.ListRemoteVaults(ctx)
+			if err != nil {
+				return tools.VaultRef{}, fmt.Errorf("list remote vaults: %w", err)
+			}
+			for _, rv := range remoteVaults {
+				if rv.Namespace == vaultName {
+					return tools.VaultRef{
+						VaultID:   rv.VaultID,
+						Executor:  remote.NewExecutor(client, remoteName),
+						Namespace: rv.Namespace,
+					}, nil
+				}
+			}
+			return tools.VaultRef{}, fmt.Errorf("remote vault %q not found", vaultName)
+		}
+
+		vaultIDs, err := resolveVaultIDs(ctx, vaultSvc)
+		if err != nil {
+			return tools.VaultRef{}, err
+		}
+		if len(vaultIDs) == 0 {
+			return tools.VaultRef{}, fmt.Errorf("no vaults accessible")
+		}
+
+		return tools.VaultRef{
+			VaultID:  vaultIDs[0],
+			Executor: localExecutor,
+		}, nil
+	}
+
+	return tools.NewMultiVaultTools(resolver, writeResolver)
+}
+
+// resolveVaultIDs returns the list of vault IDs the caller has access to.
+// In no-auth mode (wildcard access), it fetches all vault IDs from the DB.
+func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string, error) {
+	ac, err := auth.FromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve vault IDs: %w", err)
+	}
+
+	hasWildcard := false
+	for _, vp := range ac.Vaults {
+		if vp.VaultID == auth.WildcardVaultAccess {
+			hasWildcard = true
+			break
+		}
+	}
+
+	if !hasWildcard {
+		ids := make([]string, 0, len(ac.Vaults))
+		for _, vp := range ac.Vaults {
+			ids = append(ids, vp.VaultID)
+		}
+		return ids, nil
+	}
+
+	vaults, err := vaultService.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list vaults: %w", err)
+	}
+	ids := make([]string, 0, len(vaults))
+	for _, v := range vaults {
+		id, idErr := models.RecordIDString(v.ID)
+		if idErr != nil {
+			logutil.FromCtx(ctx).Warn("failed to extract vault ID, skipping", "vault_name", v.Name, "error", idErr)
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }

@@ -156,7 +156,7 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 			continue
 		}
 		if result != "" && result != "No results found." {
-			if ref.IsRemote {
+			if ref.IsRemote() {
 				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
 			}
 			sb.WriteString(result)
@@ -196,7 +196,7 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 			continue
 		}
 		if !strings.HasPrefix(result, "Document not found:") {
-			if ref.IsRemote {
+			if ref.IsRemote() {
 				result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
 			}
 			return textResult(result), nil, nil
@@ -264,7 +264,7 @@ func (t *mcpTools) listFolders(ctx context.Context, req *mcp.CallToolRequest, in
 			continue
 		}
 		if result != "No folders found." {
-			if ref.IsRemote {
+			if ref.IsRemote() {
 				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
 			}
 			sb.WriteString(result)
@@ -304,7 +304,7 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 			continue
 		}
 		if !strings.HasPrefix(result, "No contents found") {
-			if ref.IsRemote {
+			if ref.IsRemote() {
 				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
 			}
 			sb.WriteString(result)
@@ -347,7 +347,7 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 			continue
 		}
 		if !strings.HasPrefix(result, "Document not found:") {
-			if ref.IsRemote {
+			if ref.IsRemote() {
 				result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
 			}
 			return textResult(result), nil, nil
@@ -380,7 +380,7 @@ func (t *mcpTools) executeWriteTool(ctx context.Context, toolName, vaultName str
 		}
 		return nil, nil, fmt.Errorf("execute write tool %s: %w", toolName, execErr)
 	}
-	if ref.IsRemote {
+	if ref.IsRemote() {
 		result = fmt.Sprintf("[%s] %s", ref.Namespace, result)
 	}
 	return textResult(result), nil, nil
