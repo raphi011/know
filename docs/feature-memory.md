@@ -102,8 +102,15 @@ Multiplicative (`recency * access_boost`) would mean a memory with zero access b
 
 ### Configuration
 
+All memory settings are configurable per-vault via `know vault settings`:
+
+```bash
+know vault settings --set memory_path=/memories --set memory_decay_half_life=60
+```
+
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `memory_path` | `/memories` | Folder for memory documents (per vault) |
 | `memory_decay_half_life` | 30 | Half-life in days for the recency decay curve (per vault) |
 | `memory_archive_threshold` | 0.2 | Score below which memories are auto-archived (per vault) |
 | `memory_merge_threshold` | 0.95 | Cosine similarity above which memories are merge candidates (per vault) |

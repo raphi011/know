@@ -87,11 +87,14 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
+// resolveVault looks up a vault by the "name" path parameter, extracts its ID,
+// and checks that the caller has at least minRole. Returns the vault, its bare ID,
+// and true on success. On failure it writes the HTTP error and returns false.
+func (s *Server) resolveVault(w http.ResponseWriter, r *http.Request, minRole models.VaultRole) (*models.Vault, string, bool) {
 	name := r.PathValue("name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "vault name required")
-		return
+		return nil, "", false
 	}
 
 	logger := logutil.FromCtx(r.Context())
@@ -100,29 +103,38 @@ func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to resolve vault")
 		logger.Error("get vault by name", "name", name, "error", err)
-		return
+		return nil, "", false
 	}
 	if v == nil {
 		writeError(w, http.StatusNotFound, "vault not found")
-		return
+		return nil, "", false
 	}
 
 	vaultID, err := models.RecordIDString(v.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid vault ID")
 		logger.Error("extract vault ID", "name", name, "error", err)
-		return
+		return nil, "", false
 	}
 
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
+	if err := auth.RequireVaultRole(r.Context(), vaultID, minRole); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
+		return nil, "", false
+	}
+
+	return v, vaultID, true
+}
+
+func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
+	v, vaultID, ok := s.resolveVault(w, r, models.RoleRead)
+	if !ok {
 		return
 	}
 
 	stats, err := s.app.DBClient().GetVaultInfo(r.Context(), vaultID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get vault info")
-		logger.Error("get vault info", "vault_id", vaultID, "error", err)
+		logutil.FromCtx(r.Context()).Error("get vault info", "vault_id", vaultID, "error", err)
 		return
 	}
 
@@ -150,6 +162,43 @@ func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) getVaultSettings(w http.ResponseWriter, r *http.Request) {
+	v, _, ok := s.resolveVault(w, r, models.RoleRead)
+	if !ok {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, v.Defaults())
+}
+
+func (s *Server) updateVaultSettings(w http.ResponseWriter, r *http.Request) {
+	patch, ok := decodeBody[models.VaultSettings](w, r, 64*1024)
+	if !ok {
+		return
+	}
+
+	if err := patch.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	v, vaultID, ok := s.resolveVault(w, r, models.RoleAdmin)
+	if !ok {
+		return
+	}
+
+	merged := v.Defaults().Merge(*patch)
+
+	updated, err := s.app.DBClient().UpdateVaultSettings(r.Context(), vaultID, merged)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update settings")
+		logutil.FromCtx(r.Context()).Error("update vault settings", "vault_id", vaultID, "error", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated.Defaults())
 }
 
 func vaultFromModel(v *models.Vault) Vault {

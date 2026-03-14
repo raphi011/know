@@ -424,6 +424,24 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultName string) (*VaultInfo
 	return &info, nil
 }
 
+// GetVaultSettings fetches vault settings with defaults applied.
+func (c *Client) GetVaultSettings(ctx context.Context, vaultName string) (*models.VaultSettings, error) {
+	var settings models.VaultSettings
+	if err := c.Get(ctx, "/api/vaults/"+url.PathEscape(vaultName)+"/settings", &settings); err != nil {
+		return nil, fmt.Errorf("get vault settings: %w", err)
+	}
+	return &settings, nil
+}
+
+// UpdateVaultSettings updates vault settings (partial: only non-zero fields are applied).
+func (c *Client) UpdateVaultSettings(ctx context.Context, vaultName string, patch models.VaultSettings) (*models.VaultSettings, error) {
+	var settings models.VaultSettings
+	if err := c.Patch(ctx, "/api/vaults/"+url.PathEscape(vaultName)+"/settings", patch, &settings); err != nil {
+		return nil, fmt.Errorf("update vault settings: %w", err)
+	}
+	return &settings, nil
+}
+
 // DownloadBackup downloads a vault backup archive to the given output path.
 // Returns the number of bytes written.
 func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string) (int64, error) {

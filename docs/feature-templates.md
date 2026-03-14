@@ -96,11 +96,23 @@ labels:
 
 ## Configuration
 
-The template folder path is configurable per-vault via the `template_path` field in vault settings (default: `/templates`). This can be set when creating or updating a vault through the REST API.
+The template and daily note folder paths are configurable per-vault via vault settings:
 
-For the `know note` command, the template folder can also be set via:
-- `--template-folder` flag
-- `KNOW_TEMPLATE_FOLDER` environment variable
+```bash
+# View current settings
+know vault settings
+
+# Change template folder
+know vault settings --set template_path=/my-templates
+
+# Change daily note folder
+know vault settings --set daily_note_path=/journal
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `template_path` | `/templates` | Folder for template documents |
+| `daily_note_path` | `/daily` | Folder for daily notes |
 
 ## Example Prompts
 

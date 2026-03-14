@@ -16,12 +16,10 @@ import (
 )
 
 var (
-	noteAPI            *apiFlags
-	noteVaultID        *string
-	noteDate           string
-	noteFolder         string
-	noteTemplateFolder string
-	noteEdit           bool
+	noteAPI     *apiFlags
+	noteVaultID *string
+	noteDate    string
+	noteEdit    bool
 )
 
 var noteCmd = &cobra.Command{
@@ -36,11 +34,10 @@ Modes:
   know note                  Print today's note to stdout
 
 The daily note is created automatically on first use with a daily-note label.
+Folder paths are configured via vault settings (see: know vault settings).
 
 Environment variables:
-  KNOW_VAULT             vault name (alternative to --vault flag)
-  KNOW_DAILY_FOLDER      folder path for daily notes (alternative to --folder flag)
-  KNOW_TEMPLATE_FOLDER   folder path for templates (alternative to --template-folder flag)`,
+  KNOW_VAULT    vault name (alternative to --vault flag)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runNote,
 }
@@ -49,8 +46,6 @@ func init() {
 	noteAPI = addAPIFlags(noteCmd)
 	noteVaultID = addVaultFlag(noteCmd)
 	noteCmd.Flags().StringVarP(&noteDate, "date", "d", "", "target date in YYYY-MM-DD format (default: today)")
-	noteCmd.Flags().StringVar(&noteFolder, "folder", envOrDefault("KNOW_DAILY_FOLDER", "/daily/"), "folder path for daily notes (env: KNOW_DAILY_FOLDER)")
-	noteCmd.Flags().StringVar(&noteTemplateFolder, "template-folder", envOrDefault("KNOW_TEMPLATE_FOLDER", "/templates"), "folder path for templates (env: KNOW_TEMPLATE_FOLDER)")
 	noteCmd.Flags().BoolVarP(&noteEdit, "edit", "e", false, "open daily note in $EDITOR")
 }
 
@@ -64,8 +59,17 @@ func runNote(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid date %q (expected YYYY-MM-DD): %w", date, err)
 	}
 
+	ctx := context.Background()
+	client := noteAPI.newClient()
+
+	// Fetch folder paths from vault settings.
+	settings, err := client.GetVaultSettings(ctx, *noteVaultID)
+	if err != nil {
+		return fmt.Errorf("fetch vault settings: %w", err)
+	}
+
 	// Normalize folder path.
-	folder := noteFolder
+	folder := settings.DailyNotePath
 	if !strings.HasPrefix(folder, "/") {
 		folder = "/" + folder
 	}
@@ -79,11 +83,8 @@ func runNote(_ *cobra.Command, args []string) error {
 		prompt = args[0]
 	}
 
-	ctx := context.Background()
-	client := noteAPI.newClient()
-
 	// Ensure daily note exists.
-	doc, err := ensureDailyNote(ctx, client, *noteVaultID, docPath, date)
+	doc, err := ensureDailyNote(ctx, client, *noteVaultID, docPath, date, settings.TemplatePath)
 	if err != nil {
 		return err
 	}
@@ -120,7 +121,7 @@ func runNote(_ *cobra.Command, args []string) error {
 // ensureDailyNote fetches the daily note or creates it with a template if it doesn't exist.
 // It tries to read a "daily-note" template from the template folder for the initial content,
 // falling back to a hardcoded default if no template is found.
-func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, path, date string) (*apiclient.Document, error) {
+func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, path, date, templatePath string) (*apiclient.Document, error) {
 	doc, err := client.GetDocument(ctx, vaultID, path)
 	if err == nil {
 		return doc, nil
@@ -131,9 +132,9 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 		return nil, fmt.Errorf("check daily note: %w", err)
 	}
 
-	content, err := dailyNoteContent(ctx, client, vaultID, date)
+	content, err := dailyNoteContent(ctx, client, vaultID, date, templatePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("daily note content: %w", err)
 	}
 	doc, err = client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
 		VaultID: vaultID,
@@ -150,8 +151,8 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 // dailyNoteContent returns the initial content for a new daily note.
 // Tries the template folder first, falls back to a hardcoded default if no template exists.
 // Returns an error for non-404 failures (network, auth, server errors).
-func dailyNoteContent(ctx context.Context, client *apiclient.Client, vaultID, date string) (string, error) {
-	tplFolder := strings.TrimSuffix(noteTemplateFolder, "/")
+func dailyNoteContent(ctx context.Context, client *apiclient.Client, vaultID, date, templatePath string) (string, error) {
+	tplFolder := strings.TrimSuffix(templatePath, "/")
 	tplPath := tplFolder + "/daily-note.md"
 
 	tplDoc, err := client.GetDocument(ctx, vaultID, tplPath)

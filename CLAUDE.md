@@ -123,6 +123,8 @@ All env vars use the `KNOW_` prefix: `KNOW_LOG_LEVEL`, `KNOW_LOG_FILE`, etc.
 The server exposes a REST API at `/api/` for CLI and TUI communication:
 
 - `GET /api/vaults` — list accessible vaults
+- `GET /api/vaults/{name}/settings` — get vault settings (with defaults)
+- `PATCH /api/vaults/{name}/settings` — update vault settings (partial)
 - `GET /api/conversations?vault={id}` — list conversations
 - `GET /api/conversations/{id}` — get conversation with messages
 - `POST /api/conversations` — create conversation
