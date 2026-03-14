@@ -98,7 +98,6 @@ type VaultInfo struct {
 	WikiLinkBroken int `json:"wikiLinkBroken"`
 
 	// Other
-	TemplateCount     int   `json:"templateCount"`
 	VersionCount      int   `json:"versionCount"`
 	ConversationCount int   `json:"conversationCount"`
 	TokenInput        int64 `json:"tokenInput"`

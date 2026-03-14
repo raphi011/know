@@ -143,7 +143,6 @@ func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
 		AssetTotalSize:     stats.AssetTotalSize,
 		WikiLinkTotal:      stats.WikiLinkTotal,
 		WikiLinkBroken:     stats.WikiLinkBroken,
-		TemplateCount:      stats.TemplateCount,
 		VersionCount:       stats.VersionCount,
 		ConversationCount:  stats.ConversationCount,
 		TokenInput:         stats.TokenInput,

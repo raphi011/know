@@ -98,7 +98,6 @@ func runVault(_ *cobra.Command, args []string) error {
 	fmt.Printf("  Broken:       %s\n", formatNumber(int64(info.WikiLinkBroken)))
 
 	fmt.Println()
-	fmt.Printf("Templates:      %s\n", formatNumber(int64(info.TemplateCount)))
 	fmt.Printf("Versions:       %s\n", formatNumber(int64(info.VersionCount)))
 	fmt.Printf("Conversations:  %s\n", formatNumber(int64(info.ConversationCount)))
 	fmt.Printf("Token usage:    %s in / %s out\n", formatNumber(info.TokenInput), formatNumber(info.TokenOutput))

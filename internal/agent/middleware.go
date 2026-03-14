@@ -50,9 +50,27 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 		labels = formatLabels(labelCounts)
 	}
 
+	var templates string
+	vault, err := m.db.GetVault(ctx, m.vaultID)
+	if err != nil {
+		logger.Warn("failed to load vault for template listing", "vault_id", m.vaultID, "error", err)
+	} else {
+		tplPath := vault.TemplatePath()
+		tplDocs, tplErr := m.db.ListDocuments(ctx, db.ListDocumentsFilter{
+			VaultID: m.vaultID,
+			Folder:  &tplPath,
+		})
+		if tplErr != nil {
+			logger.Warn("failed to list templates for system prompt", "vault_id", m.vaultID, "error", tplErr)
+		} else {
+			templates = formatTemplates(tplDocs)
+		}
+	}
+
 	vals := map[string]any{
 		"FolderTree":  folderTree,
 		"Labels":      labels,
+		"Templates":   templates,
 		"CurrentDate": time.Now().Format("2006-01-02"),
 	}
 	adk.AddSessionValues(ctx, vals)
@@ -97,6 +115,28 @@ func formatLabels(labelCounts []models.LabelCount) string {
 		// Escape curly braces to prevent FString interpolation of user-controlled label names.
 		escaped := strings.NewReplacer("{", "{{", "}", "}}").Replace(lc.Label)
 		fmt.Fprintf(&sb, "- %s (%d)\n", escaped, lc.Count)
+	}
+	return sb.String()
+}
+
+// formatTemplates renders available templates as a list for the system prompt,
+// or "" if none exist. Escapes curly braces to prevent FString interpolation
+// of user-controlled paths and titles.
+func formatTemplates(docs []models.Document) string {
+	if len(docs) == 0 {
+		return ""
+	}
+	esc := strings.NewReplacer("{", "{{", "}", "}}")
+	var sb strings.Builder
+	sb.WriteString("\n\nAvailable templates (read with read_document to use):\n")
+	for _, doc := range docs {
+		escaped := esc.Replace(doc.Path)
+		title := esc.Replace(doc.Title)
+		if title != "" {
+			fmt.Fprintf(&sb, "- %s — %s\n", escaped, title)
+		} else {
+			fmt.Fprintf(&sb, "- %s\n", escaped)
+		}
 	}
 	return sb.String()
 }

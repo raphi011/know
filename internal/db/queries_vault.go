@@ -118,7 +118,6 @@ func (c *Client) DeleteVault(ctx context.Context, id string) error {
 	}{
 		{"document", `DELETE FROM document WHERE vault = type::record("vault", $id)`},
 		{"folder", `DELETE FROM folder WHERE vault = type::record("vault", $id)`},
-		{"template", `DELETE FROM template WHERE vault = type::record("vault", $id)`},
 		{"vault", `DELETE type::record("vault", $id)`},
 	} {
 		if _, err := surrealdb.Query[any](ctx, tx, t.sql, vars); err != nil {
@@ -172,7 +171,6 @@ type VaultInfoStats struct {
 	AssetTotalSize     int64
 	WikiLinkTotal      int
 	WikiLinkBroken     int
-	TemplateCount      int
 	VersionCount       int
 	ConversationCount  int
 	TokenInput         int64
@@ -185,7 +183,7 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 
 	vid := bareID("vault", vaultID)
 
-	// 10-statement batch query — one round-trip
+	// 9-statement batch query — one round-trip
 	sql := `
 		-- 0: document count + unprocessed
 		SELECT count() AS total, math::sum(IF processed = false THEN 1 ELSE 0 END) AS unprocessed
@@ -216,13 +214,10 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		SELECT count() AS total, math::sum(IF to_doc IS NONE THEN 1 ELSE 0 END) AS broken
 			FROM wiki_link WHERE vault = type::record("vault", $vid) GROUP ALL;
 
-		-- 7: template count
-		SELECT count() AS total FROM template WHERE vault = type::record("vault", $vid) GROUP ALL;
-
-		-- 8: version count
+		-- 7: version count
 		SELECT count() AS total FROM document_version WHERE vault = type::record("vault", $vid) GROUP ALL;
 
-		-- 9: conversation count + tokens
+		-- 8: conversation count + tokens
 		SELECT count() AS total, math::sum(token_input) AS token_input, math::sum(token_output) AS token_output
 			FROM conversation WHERE vault = type::record("vault", $vid) GROUP ALL;
 	`
@@ -236,8 +231,8 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	if results == nil {
 		return nil, fmt.Errorf("get vault info: nil results")
 	}
-	if len(*results) < 10 {
-		return nil, fmt.Errorf("get vault info: expected 10 results, got %d", len(*results))
+	if len(*results) < 9 {
+		return nil, fmt.Errorf("get vault info: expected 9 results, got %d", len(*results))
 	}
 
 	stats := &VaultInfoStats{}
@@ -339,35 +334,24 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		stats.WikiLinkBroken = wikiStats[0].Broken
 	}
 
-	// 7: templates
-	var templateCount []struct {
-		Total int `json:"total"`
-	}
-	if err := decodeResult(7, &templateCount); err != nil {
-		return nil, fmt.Errorf("decode template count: %w", err)
-	}
-	if len(templateCount) > 0 {
-		stats.TemplateCount = templateCount[0].Total
-	}
-
-	// 8: versions
+	// 7: versions
 	var versionCount []struct {
 		Total int `json:"total"`
 	}
-	if err := decodeResult(8, &versionCount); err != nil {
+	if err := decodeResult(7, &versionCount); err != nil {
 		return nil, fmt.Errorf("decode version count: %w", err)
 	}
 	if len(versionCount) > 0 {
 		stats.VersionCount = versionCount[0].Total
 	}
 
-	// 9: conversations
+	// 8: conversations
 	var convStats []struct {
 		Total       int   `json:"total"`
 		TokenInput  int64 `json:"token_input"`
 		TokenOutput int64 `json:"token_output"`
 	}
-	if err := decodeResult(9, &convStats); err != nil {
+	if err := decodeResult(8, &convStats); err != nil {
 		return nil, fmt.Errorf("decode conversation stats: %w", err)
 	}
 	if len(convStats) > 0 {

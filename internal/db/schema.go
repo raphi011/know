@@ -201,21 +201,6 @@ func SchemaSQL(dimension int) string {
     };
 
     -- ==========================================================================
-    -- TEMPLATE TABLE
-    -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS template SCHEMAFULL;
-
-    DEFINE FIELD IF NOT EXISTS vault          ON template TYPE option<record<vault>>;
-    DEFINE FIELD IF NOT EXISTS name           ON template TYPE string;
-    DEFINE FIELD IF NOT EXISTS description    ON template TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS content        ON template TYPE string;
-    DEFINE FIELD IF NOT EXISTS is_ai_template ON template TYPE bool DEFAULT false;
-    DEFINE FIELD IF NOT EXISTS created_at     ON template TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at     ON template TYPE datetime VALUE time::now();
-
-    DEFINE INDEX IF NOT EXISTS idx_template_vault_name ON template FIELDS vault, name UNIQUE;
-
-    -- ==========================================================================
     -- API_TOKEN TABLE
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS api_token SCHEMAFULL;

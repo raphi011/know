@@ -83,7 +83,7 @@ func (s *Service) Available() bool {
 }
 
 // instructionTemplate is the system prompt template for the agent. {FolderTree},
-// {Labels}, and {CurrentDate} are hydrated via session values in contextInjectionMiddleware.BeforeAgent.
+// {Labels}, {Templates}, and {CurrentDate} are hydrated via session values in contextInjectionMiddleware.BeforeAgent.
 const instructionTemplate = `You are a helpful knowledge assistant for the Know knowledge base. You help users find and understand information stored in their documents.
 
 Today's date is {CurrentDate}.
@@ -100,7 +100,8 @@ Today's date is {CurrentDate}.
 - Always cite document paths when referencing information from the knowledge base
 - Do not include a sources section at the end of your response — sources are shown separately in the UI
 - You can access multiple vaults including remote ones. Read tools (search, read_document, etc.) automatically query all accessible vaults. Results from remote vaults are prefixed with [namespace].
-- For write tools (create_document, edit_document, etc.), you can target a specific vault by setting the "vault" field. Use "remote-name/vault-name" format for remote vaults. If omitted, the first local vault is used.{FolderTree}{Labels}`
+- For write tools (create_document, edit_document, etc.), you can target a specific vault by setting the "vault" field. Use "remote-name/vault-name" format for remote vaults. If omitted, the first local vault is used.
+- When asked to use a template, read it with read_document and structure your output accordingly{FolderTree}{Labels}{Templates}`
 
 // buildMessages converts DB messages to eino schema messages.
 func buildMessages(ctx context.Context, dbMsgs []models.Message) []*schema.Message {
