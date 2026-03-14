@@ -69,6 +69,7 @@ func main() {
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(catCmd)
+	rootCmd.AddCommand(noteCmd)
 	rootCmd.AddCommand(rmCmd)
 	rootCmd.AddCommand(vaultCmd)
 	rootCmd.AddCommand(remoteCmd)
