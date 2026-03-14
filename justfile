@@ -47,11 +47,11 @@ default:
 
 # Build binary
 build:
-    go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/know
+    CGO_ENABLED=0 go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/know
 
 # Run all tests
 test:
-    go test -buildvcs=false -v ./...
+    CGO_ENABLED=0 go test -buildvcs=false -v ./...
 
 # Build and run CLI command (e.g., just run serve, just run cp ./docs /)
 run *args: build
@@ -59,7 +59,7 @@ run *args: build
 
 # Install binary to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
 install:
-    GOBIN="$HOME/go/bin" go install -buildvcs=false ./cmd/know
+    GOBIN="$HOME/go/bin" CGO_ENABLED=0 go install -buildvcs=false ./cmd/know
 
 # Build snapshot release locally (requires goreleaser)
 snapshot:
