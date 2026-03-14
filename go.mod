@@ -17,6 +17,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/gemini v0.1.29
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.8
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.8
+	github.com/go-git/go-billy/v5 v5.8.0
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/pkg/sftp v1.13.10
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
@@ -25,6 +26,7 @@ require (
 	github.com/surrealdb/surrealdb.go v1.4.0
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/tmc/langchaingo v0.1.14
+	github.com/willscott/go-nfs v0.0.3
 	github.com/yuin/goldmark v1.7.16
 	golang.org/x/crypto v0.48.0
 	golang.org/x/net v0.51.0
@@ -34,7 +36,12 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/stretchr/testify v1.11.1 // indirect
+require (
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
+	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00 // indirect
+)
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
