@@ -131,7 +131,10 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 		return nil, fmt.Errorf("check daily note: %w", err)
 	}
 
-	content := dailyNoteContent(ctx, client, vaultID, date)
+	content, err := dailyNoteContent(ctx, client, vaultID, date)
+	if err != nil {
+		return nil, err
+	}
 	doc, err = client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
 		VaultID: vaultID,
 		Path:    path,
@@ -146,22 +149,28 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 }
 
 // dailyNoteContent returns the initial content for a new daily note.
-// Tries the template folder first, falls back to a hardcoded default.
-func dailyNoteContent(ctx context.Context, client *apiclient.Client, vaultID, date string) string {
+// Tries the template folder first, falls back to a hardcoded default if no template exists.
+// Returns an error for non-404 failures (network, auth, server errors).
+func dailyNoteContent(ctx context.Context, client *apiclient.Client, vaultID, date string) (string, error) {
 	tplFolder := strings.TrimSuffix(noteTemplateFolder, "/")
 	tplPath := tplFolder + "/daily-note.md"
 
 	tplDoc, err := client.GetDocument(ctx, vaultID, tplPath)
-	if err == nil {
-		now, _ := time.Parse("2006-01-02", date)
-		if now.IsZero() {
-			now = time.Now()
+	if err != nil {
+		var httpErr *apiclient.HTTPError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != 404 {
+			return "", fmt.Errorf("fetch daily-note template: %w", err)
 		}
-		vars := document.DefaultTemplateVars(now, date, "")
-		return document.ApplyTemplateVars(tplDoc.Content, vars)
+		// Template doesn't exist — use hardcoded default.
+		return fmt.Sprintf("---\ntitle: %q\nlabels:\n  - daily-note\n---\n# %s\n", date, date), nil
 	}
 
-	return fmt.Sprintf("---\ntitle: %q\nlabels:\n  - daily-note\n---\n# %s\n", date, date)
+	now, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return "", fmt.Errorf("parse date for template vars: %w", err)
+	}
+	vars := document.DefaultTemplateVars(now, date, vaultID)
+	return document.ApplyTemplateVars(tplDoc.Content, vars), nil
 }
 
 // agentAppend sends a prompt to the agent to update the daily note.

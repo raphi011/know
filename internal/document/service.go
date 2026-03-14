@@ -244,7 +244,11 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 
 	// Template documents are excluded from chunking and search indexing.
 	// Only sync labels and mark processed so they remain browsable.
-	if s.isTemplatePath(ctx, vaultID, doc.Path) {
+	isTpl, err := s.isTemplatePath(ctx, vaultID, doc.Path)
+	if err != nil {
+		return fmt.Errorf("check template path: %w", err)
+	}
+	if isTpl {
 		if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
 			return fmt.Errorf("sync labels for template %s: %w", doc.Path, err)
 		}

@@ -2,12 +2,9 @@ package document
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
-
-	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/logutil"
-	"github.com/raphi011/know/internal/models"
 )
 
 // ApplyTemplateVars replaces built-in template placeholders (e.g. {{date}}) in content.
@@ -30,28 +27,19 @@ func DefaultTemplateVars(t time.Time, title, vaultName string) map[string]string
 }
 
 // isTemplatePath checks if a document path falls under the vault's template folder.
-func (s *Service) isTemplatePath(ctx context.Context, vaultID, docPath string) bool {
+func (s *Service) isTemplatePath(ctx context.Context, vaultID, docPath string) (bool, error) {
 	vault, err := s.db.GetVault(ctx, vaultID)
 	if err != nil {
-		logutil.FromCtx(ctx).Warn("failed to load vault for template check", "vault_id", vaultID, "error", err)
-		return false
+		return false, fmt.Errorf("load vault for template check: %w", err)
 	}
-	tplPath := vault.TemplatePath()
-	if !strings.HasSuffix(tplPath, "/") {
-		tplPath += "/"
-	}
-	return strings.HasPrefix(docPath, tplPath)
+	return IsTemplatePath(vault.TemplatePath(), docPath), nil
 }
 
-// ListTemplates returns document metadata for all templates in a vault.
-func (s *Service) ListTemplates(ctx context.Context, vaultID string) ([]models.DocumentMeta, error) {
-	vault, err := s.db.GetVault(ctx, vaultID)
-	if err != nil {
-		return nil, err
+// IsTemplatePath returns true if docPath falls under the given template folder path.
+func IsTemplatePath(templateFolder, docPath string) bool {
+	if !strings.HasSuffix(templateFolder, "/") {
+		templateFolder += "/"
 	}
-	tplPath := vault.TemplatePath()
-	return s.db.ListDocumentMetas(ctx, db.ListDocumentsFilter{
-		VaultID: vaultID,
-		Folder:  &tplPath,
-	})
+	return strings.HasPrefix(docPath, templateFolder)
 }
+

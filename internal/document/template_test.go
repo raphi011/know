@@ -70,3 +70,30 @@ func TestDefaultTemplateVars(t *testing.T) {
 		t.Errorf("vault = %q, want %q", vars["vault"], "default")
 	}
 }
+
+func TestIsTemplatePath(t *testing.T) {
+	tests := []struct {
+		name           string
+		templateFolder string
+		docPath        string
+		want           bool
+	}{
+		{"under template folder", "/templates", "/templates/daily-note.md", true},
+		{"with trailing slash", "/templates/", "/templates/daily-note.md", true},
+		{"not under template folder", "/templates", "/notes/todo.md", false},
+		{"prefix collision", "/templates", "/templates-archive/old.md", false},
+		{"exact folder path is a match", "/templates", "/templates/", true},
+		{"nested template", "/templates", "/templates/sub/note.md", true},
+		{"custom path", "/my-templates", "/my-templates/foo.md", true},
+		{"custom path no match", "/my-templates", "/templates/foo.md", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsTemplatePath(tt.templateFolder, tt.docPath)
+			if got != tt.want {
+				t.Errorf("IsTemplatePath(%q, %q) = %v, want %v", tt.templateFolder, tt.docPath, got, tt.want)
+			}
+		})
+	}
+}

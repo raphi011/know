@@ -16,9 +16,6 @@ Templates are reusable document structures stored as regular documents in a conf
 ```bash
 # Copy a template file into the vault
 know cp ./my-template.md /templates/research.md --vault default
-
-# Or create via the API
-know note -e  # then save a template document
 ```
 
 ### Via MCP
@@ -57,7 +54,9 @@ Templates support placeholder variables that are substituted programmatically (e
 | `{{title}}` | Provided title | `My Note` |
 | `{{vault}}` | Vault name | `default` |
 
-Variables are replaced using simple string substitution. Unknown variables are left as-is. When the agent uses a template, it fills in sections intelligently rather than relying on variable substitution.
+Variables are replaced using simple string substitution. Unknown variables are left as-is.
+
+**Note:** Variable substitution only happens programmatically (e.g., daily note creation via `know note`). When the agent uses a template, it reads the raw content and fills in sections intelligently rather than relying on variable substitution.
 
 ## Daily Note Integration
 
@@ -97,7 +96,7 @@ labels:
 
 ## Configuration
 
-The template folder path is configurable per-vault via `VaultSettings.template_path` (default: `/templates`).
+The template folder path is configurable per-vault via the `template_path` field in vault settings (default: `/templates`). This can be set when creating or updating a vault through the REST API.
 
 For the `know note` command, the template folder can also be set via:
 - `--template-folder` flag

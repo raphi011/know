@@ -119,16 +119,19 @@ func formatLabels(labelCounts []models.LabelCount) string {
 	return sb.String()
 }
 
-// formatTemplates renders available templates as a list, or "" if none exist.
+// formatTemplates renders available templates as a list for the system prompt,
+// or "" if none exist. Escapes curly braces to prevent FString interpolation
+// of user-controlled paths and titles.
 func formatTemplates(docs []models.Document) string {
 	if len(docs) == 0 {
 		return ""
 	}
+	esc := strings.NewReplacer("{", "{{", "}", "}}")
 	var sb strings.Builder
 	sb.WriteString("\n\nAvailable templates (read with read_document to use):\n")
 	for _, doc := range docs {
-		escaped := strings.NewReplacer("{", "{{", "}", "}}").Replace(doc.Path)
-		title := strings.NewReplacer("{", "{{", "}", "}}").Replace(doc.Title)
+		escaped := esc.Replace(doc.Path)
+		title := esc.Replace(doc.Title)
 		if title != "" {
 			fmt.Fprintf(&sb, "- %s — %s\n", escaped, title)
 		} else {
