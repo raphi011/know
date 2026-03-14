@@ -473,12 +473,19 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case "text":
 		m.appendText(msg.event.Content)
 	case "tool_start":
-		m.streamParts = append(m.streamParts, ContentPart{
-			Type:     PartToolCall,
-			ToolName: msg.event.Tool,
-			CallID:   msg.event.CallID,
-			Status:   ToolRunning,
-		})
+		// Reuse existing part if this tool was already started before approval.
+		if existing := m.findToolPart(msg.event.CallID); existing != nil {
+			existing.Status = ToolRunning
+			existing.Meta = nil
+		} else {
+			m.streamParts = append(m.streamParts, ContentPart{
+				Type:     PartToolCall,
+				ToolName: msg.event.Tool,
+				CallID:   msg.event.CallID,
+				Input:    msg.event.Input,
+				Status:   ToolRunning,
+			})
+		}
 	case "tool_end":
 		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete, msg.event.Meta)
 	case "interrupted":
@@ -515,6 +522,19 @@ func (m *Model) appendText(s string) {
 	m.streamParts = append(m.streamParts, ContentPart{Type: PartText, Content: s})
 }
 
+// findToolPart returns a pointer to the most recent tool call part matching callID, or nil.
+func (m *Model) findToolPart(callID string) *ContentPart {
+	if callID == "" {
+		return nil
+	}
+	for i := len(m.streamParts) - 1; i >= 0; i-- {
+		if m.streamParts[i].Type == PartToolCall && m.streamParts[i].CallID == callID {
+			return &m.streamParts[i]
+		}
+	}
+	return nil
+}
+
 // updateToolStatus finds a tool call part by CallID and updates its status and metadata.
 // Falls back to matching by tool name if CallID is empty (older servers).
 func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus, meta *tools.ToolResultMeta) {
@@ -538,6 +558,11 @@ func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus, met
 // via tea.Println and resets streaming state.
 func (m *Model) finalizeStream() tea.Cmd {
 	if !m.streaming {
+		return nil
+	}
+	if m.pendingApproval != nil {
+		// Don't finalize while approval is pending — the approval box
+		// and stream parts must remain visible in the managed region.
 		return nil
 	}
 	m.streaming = false

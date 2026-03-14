@@ -23,7 +23,7 @@ type EditDocumentSectionTool struct {
 func (t *EditDocumentSectionTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "edit_document_section",
-		Desc: "Edit a specific section of a document by heading, without sending the full content. Use read_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations.",
+		Desc: "Edit a specific section of a document by heading, without sending the full content. Use read_document with sections=true first to see the section outline. Operations: replace (update existing section content), insert_after/insert_before (add new section relative to target, requires new_heading), delete (remove a section), append (add new section at end, requires new_heading).",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
 				Type:     schema.String,
@@ -37,23 +37,23 @@ func (t *EditDocumentSectionTool) Info(ctx context.Context) (*schema.ToolInfo, e
 			},
 			"heading": {
 				Type: schema.String,
-				Desc: "Target section heading (empty string for preamble, omit for append)",
+				Desc: "Target section heading text (empty string for preamble). Required for replace, insert_after, insert_before, delete. Omit for append.",
 			},
 			"position": {
 				Type: schema.Integer,
-				Desc: "Disambiguation index for duplicate headings (default 0)",
+				Desc: "0-based index to disambiguate duplicate headings (default 0)",
 			},
 			"content": {
 				Type: schema.String,
-				Desc: "New section body (required for replace, insert, append)",
+				Desc: "New section body text (required for replace, insert_after, insert_before, append)",
 			},
 			"new_heading": {
 				Type: schema.String,
-				Desc: "Heading text for insert/append operations",
+				Desc: "Heading text for the new section (required for insert_after, insert_before, append)",
 			},
 			"new_level": {
 				Type: schema.Integer,
-				Desc: "Heading level 1-6 for insert/append operations",
+				Desc: "Heading level 1-6 for the new section (default 2). Required for insert_after, insert_before, append.",
 			},
 			"expected_hash": {
 				Type: schema.String,

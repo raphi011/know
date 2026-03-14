@@ -40,6 +40,7 @@ type ContentPart struct {
 	Content  string                // text content or error message
 	ToolName string                // for PartToolCall
 	CallID   string                // for PartToolCall — key for in-place updates
+	Input    map[string]any        // for PartToolCall — tool arguments (set on tool_start)
 	Status   ToolStatus            // for PartToolCall
 	Meta     *tools.ToolResultMeta // for PartToolCall — result metadata (set on tool_end)
 }
@@ -58,34 +59,68 @@ func renderMarkdown(renderer *glamour.TermRenderer, content string) string {
 	return strings.TrimSpace(rendered)
 }
 
-// renderToolStatus renders a single tool call part with status indicator.
+// renderToolStatus renders a single tool call part in function-call style.
+// Running:  tool_name(key_arg)
+// Complete: tool_name(key_arg) · detail
+// Failed:   tool_name(key_arg) · failed
 func renderToolStatus(p ContentPart) string {
+	keyArg := toolKeyArg(p.ToolName, p.Input)
+	base := fmt.Sprintf("  %s(%s)", p.ToolName, keyArg)
+
 	switch p.Status {
 	case ToolRunning:
-		return toolRoleStyle.Render(fmt.Sprintf("  Running: %s", p.ToolName))
+		return toolRoleStyle.Render(base)
 	case ToolComplete:
-		detail := toolDetail(p.ToolName, p.Meta)
-		if detail != "" {
-			return toolRoleStyle.Render(fmt.Sprintf("  %s: %s", p.ToolName, detail))
+		if detail := toolDetail(p.ToolName, p.Meta); detail != "" {
+			return toolRoleStyle.Render(fmt.Sprintf("%s · %s", base, detail))
 		}
-		return toolRoleStyle.Render(fmt.Sprintf("  %s complete", p.ToolName))
+		return toolRoleStyle.Render(base)
 	case ToolFailed:
-		return toolRoleStyle.Render(fmt.Sprintf("  %s failed", p.ToolName))
+		return toolRoleStyle.Render(fmt.Sprintf("%s · failed", base))
 	default:
-		return toolRoleStyle.Render(fmt.Sprintf("  %s", p.ToolName))
+		return toolRoleStyle.Render(base)
 	}
 }
 
+// toolKeyArg extracts the most relevant argument from tool input for display.
+func toolKeyArg(toolName string, input map[string]any) string {
+	if input == nil {
+		return ""
+	}
+	// Map tool names to their key argument field.
+	var field string
+	switch toolName {
+	case "read_document", "create_document", "edit_document",
+		"edit_document_section", "get_document_versions":
+		field = "path"
+	case "search_documents", "web_search":
+		field = "query"
+	case "list_folder_contents":
+		field = "folder"
+	case "list_folders":
+		field = "parent"
+	case "create_memory":
+		field = "title"
+	}
+	if field != "" {
+		if v, ok := input[field].(string); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 // toolDetail returns a short summary string from tool result metadata.
+// The key argument (path, query) is already shown by toolKeyArg, so
+// this returns supplementary info like counts or content length.
 func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 	if meta == nil {
 		return ""
 	}
 	switch toolName {
-	case "create_document", "edit_document", "edit_document_section",
-		"read_document", "create_memory", "get_document_versions":
-		if meta.DocumentPath != nil {
-			return *meta.DocumentPath
+	case "read_document":
+		if meta.ContentLength != nil {
+			return fmt.Sprintf("%d chars", *meta.ContentLength)
 		}
 	case "search_documents":
 		var parts []string
@@ -102,6 +137,10 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 		if meta.ResultCount != nil {
 			return fmt.Sprintf("%d results", *meta.ResultCount)
 		}
+	case "get_document_versions":
+		if meta.ResultCount != nil {
+			return fmt.Sprintf("%d versions", *meta.ResultCount)
+		}
 	case "web_search":
 		if meta.WebResultCount != nil {
 			return fmt.Sprintf("%d results", *meta.WebResultCount)
@@ -111,10 +150,15 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 }
 
 // renderParts renders a sequence of content parts (text, tool calls, errors).
+// Inserts a blank line when transitioning from tool calls to text.
 func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []ContentPart) {
+	prevType := PartType(-1)
 	for _, p := range parts {
 		switch p.Type {
 		case PartText:
+			if prevType == PartToolCall {
+				sb.WriteString("\n")
+			}
 			rendered := renderMarkdown(renderer, p.Content)
 			sb.WriteString(assistantMsgStyle.MaxWidth(maxTextWidth).Render(rendered))
 		case PartToolCall:
@@ -124,6 +168,7 @@ func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []Co
 			sb.WriteString(errorMsgStyle.Render("Error: " + p.Content))
 			sb.WriteString("\n")
 		}
+		prevType = p.Type
 	}
 }
 

@@ -48,6 +48,7 @@ type StreamEvent struct {
 	Tool              string                `json:"tool,omitempty"`
 	CallID            string                `json:"callId,omitempty"`
 	InterruptID       string                `json:"interruptId,omitempty"`
+	Input             map[string]any        `json:"input,omitempty"`
 	Meta              *tools.ToolResultMeta `json:"meta,omitempty"`
 	InputTokens       int64                 `json:"inputTokens,omitempty"`
 	OutputTokens      int64                 `json:"outputTokens,omitempty"`

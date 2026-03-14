@@ -848,7 +848,10 @@ func TestBuildSectionEdit_NilFields(t *testing.T) {
 	if edit.Content != "" {
 		t.Error("content should be empty when nil")
 	}
-	if edit.NewHeading != "" || edit.NewLevel != 0 {
-		t.Error("new heading/level should be zero values")
+	if edit.NewHeading != "" {
+		t.Error("new heading should be empty when nil")
+	}
+	if edit.NewLevel != 2 {
+		t.Errorf("new level should default to 2 for append, got %d", edit.NewLevel)
 	}
 }
