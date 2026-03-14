@@ -101,4 +101,4 @@ jobs:
       - name: Package and push Helm chart
         run: |
           helm package helm/know/
-          helm push know-*.tgz oci://${{ env.REGISTRY }}
+          helm push know-*.tgz oci://${{ env.REGISTRY }}/charts
