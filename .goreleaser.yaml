@@ -4,9 +4,9 @@ before:
   hooks:
     - go mod tidy
     - mkdir -p completions
-    - sh -c "go run -buildvcs=false ./cmd/know completion bash > completions/know.bash"
-    - sh -c "go run -buildvcs=false ./cmd/know completion zsh > completions/_know"
-    - sh -c "go run -buildvcs=false ./cmd/know completion fish > completions/know.fish"
+    - sh -c "go run ./cmd/know completion bash > completions/know.bash"
+    - sh -c "go run ./cmd/know completion zsh > completions/_know"
+    - sh -c "go run ./cmd/know completion fish > completions/know.fish"
     - sh -c "test -s completions/know.bash && test -s completions/_know && test -s completions/know.fish"
 
 builds:
@@ -21,8 +21,6 @@ builds:
     goarch:
       - amd64
       - arm64
-    flags:
-      - -buildvcs=false
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
