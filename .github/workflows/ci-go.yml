@@ -37,7 +37,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build all binaries
-        run: go build -buildvcs=false ./...
+        run: go build ./...
 
   test:
     needs: changes
@@ -51,7 +51,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests with coverage
-        run: go test -buildvcs=false -coverprofile=coverage.out -covermode=atomic -v ./...
+        run: go test -coverprofile=coverage.out -covermode=atomic -v ./...
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
@@ -72,7 +72,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Vet
-        run: go vet -buildvcs=false ./...
+        run: go vet ./...
 
   ci-result:
     needs: [build, test, vet]

@@ -17,6 +17,11 @@ func init() {
 	schema.RegisterName[diff.DiffLine]("know_diff_line")
 	schema.RegisterName[diff.DiffStats]("know_diff_stats")
 	schema.RegisterName[diff.DiffLineType]("know_diff_line_type")
+	schema.RegisterName[*ToolStartEvent]("know_tool_start_event")
+	schema.RegisterName[*ToolEndEvent]("know_tool_end_event")
+	schema.RegisterName[tools.ToolResultMeta]("know_tool_result_meta")
+	schema.RegisterName[tools.ToolDocRef]("know_tool_doc_ref")
+	schema.RegisterName[tools.ToolWebRef]("know_tool_web_ref")
 }
 
 // TokenUsage holds cumulative token counts from an agentic generation run.

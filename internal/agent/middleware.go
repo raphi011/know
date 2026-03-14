@@ -217,7 +217,7 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 				Input:  inputMap,
 			}},
 		}); err != nil {
-			logger.Debug("failed to send tool start event", "tool", toolName, "error", err)
+			logger.Warn("failed to send tool start event", "tool", toolName, "error", err)
 		}
 
 		call := schema.ToolCall{
@@ -269,7 +269,7 @@ func (m *toolExecutionMiddleware) sendToolEnd(ctx context.Context, callID, toolN
 			Error:  errMsg,
 		}},
 	}); err != nil {
-		logutil.FromCtx(ctx).Debug("failed to send tool end event", "tool", toolName, "error", err)
+		logutil.FromCtx(ctx).Warn("failed to send tool end event", "tool", toolName, "error", err)
 	}
 }
 
