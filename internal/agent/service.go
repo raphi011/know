@@ -418,8 +418,9 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 						break
 					}
 					if recvErr != nil {
-						logger.Warn("stream recv error", "error", recvErr)
+						logger.Error("stream recv error", "error", recvErr)
 						emit(StreamEvent{Type: "error", Content: fmt.Sprintf("response was truncated: %v", recvErr)})
+						hitError = true
 						break
 					}
 					if chunk.Content != "" {
