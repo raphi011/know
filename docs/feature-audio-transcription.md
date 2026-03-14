@@ -1,6 +1,6 @@
-# Audio Transcription
+# Audio Transcription & Playback
 
-Audio assets can be automatically transcribed and mapped to searchable documents. This leverages the existing two-phase async document pipeline -- audio files are ingested as assets, transcribed via a speech-to-text provider, and the resulting text becomes a normal document that flows through chunking, embedding, and search.
+Audio assets can be automatically transcribed and mapped to searchable documents, and played back directly in the TUI with waveform visualization. Transcription leverages the existing two-phase async document pipeline -- audio files are ingested as assets, transcribed via a speech-to-text provider, and the resulting text becomes a normal document that flows through chunking, embedding, and search.
 
 ## How It Works
 
@@ -82,6 +82,125 @@ The entire existing document pipeline is reused for free once the transcript tex
 - **Search** -- Hybrid BM25 + vector search with RRF fusion
 - **Versioning** -- Immutable version snapshots on each transcript update
 - **Labels** -- Frontmatter and inline `#tags` extracted and synced
+
+## TUI Audio Player
+
+The TUI includes an inline audio player with waveform visualization, allowing playback of audio assets directly from the terminal.
+
+### Libraries
+
+- **[gopxl/beep v2](https://github.com/gopxl/beep)** -- Audio decoding (MP3, WAV, FLAC, OGG Vorbis) and playback via the `Streamer` interface. Built on top of `oto` for cross-platform OS audio output.
+- **Reference implementation**: [llehouerou/waves](https://github.com/llehouerou/waves) -- A full Bubbletea audio player built with beep v2, proving this architecture works end-to-end with gapless playback, volume control, and queue management.
+
+### Playback Engine (`internal/audio/player.go`)
+
+Wraps beep's `Streamer` interface with play/pause/seek/volume controls:
+
+```go
+type Player struct {
+    streamer beep.StreamSeekCloser
+    ctrl     *beep.Ctrl
+    format   beep.Format
+    volume   *effects.Volume
+    done     chan struct{}
+}
+
+func NewPlayer(data []byte, mimeType string) (*Player, error)
+func (p *Player) Play() / Pause() / Toggle()
+func (p *Player) Seek(d time.Duration) error
+func (p *Player) Position() / Duration() time.Duration
+func (p *Player) SetVolume(delta float64)
+func (p *Player) Close()
+```
+
+`NewPlayer` detects format from MIME type, decodes via beep's format-specific decoders, initializes the speaker, and wraps the stream in volume/control layers.
+
+### Waveform Visualization
+
+There is no off-the-shelf Bubbletea waveform component -- we build one using Unicode block elements and Lipgloss styling.
+
+#### Extraction (`internal/audio/waveform.go`)
+
+```go
+func ExtractWaveform(data []byte, mimeType string, buckets int) ([]float64, error)
+```
+
+1. Decode audio to PCM samples (stereo `[2]float64` via beep)
+2. Divide samples into `buckets` equal segments (one per terminal column)
+3. Compute RMS amplitude per segment
+4. Normalize to 0.0–1.0 range
+
+The waveform is **pre-computed once on file load** -- during playback, only the cursor position changes, not the waveform shape. This avoids real-time DSP entirely.
+
+#### Rendering (`internal/tui/waveform.go`)
+
+```go
+func renderWaveform(amplitudes []float64, width int, cursorPos float64, playing bool) string
+```
+
+Unicode block characters provide 8 height levels per cell:
+
+```
+▁ ▂ ▃ ▄ ▅ ▆ ▇ █
+```
+
+Each amplitude value (0.0–1.0) maps to one of these characters. Lipgloss styles color the bars:
+- **Played portion**: accent color (green)
+- **Cursor bar**: highlighted/inverted
+- **Remaining**: muted color (gray)
+
+#### UX Mockup
+
+```
+┌─ standup-2026-03-14.mp3 ──────────────────────────┐
+│  ▃▅▇█▆▃▁▂▅▇█▇▅▃▁▁▂▃▅▆▇█▇▅▃▂▁▃▅▇█▆▃▁▂▅▇▆▃▁▂▃▅▆  │
+│       ▲ 1:23 / 4:56                                │
+│  ▶ Playing    Vol: ████░░ 70%                       │
+│  [space] play/pause  [←/→] seek  [↑/↓] volume      │
+└────────────────────────────────────────────────────┘
+```
+
+### TUI Integration
+
+#### Key Bindings (active when player is open)
+
+| Key | Action |
+|-----|--------|
+| `space` | Play / pause |
+| `←` / `→` | Seek ±5 seconds |
+| `↑` / `↓` | Volume ±10% |
+| `q` / `esc` | Close player |
+
+#### Components
+
+- **`internal/tui/player.go`** -- Bubbletea v2 model managing playback state. Uses `tea.Tick` at ~100ms for cursor updates during playback.
+- **`internal/tui/waveform.go`** -- Renders the waveform with Unicode blocks and Lipgloss colors.
+- **`internal/tui/attachment.go`** -- Extended with `FileTypeAudio` variant so audio files can be attached/opened.
+- **`internal/tui/app.go`** -- Routes key events to the player when active (same gating pattern as `pendingApproval`). Renders player view above input.
+
+### Components to Implement
+
+| Component | File | Description |
+|-----------|------|-------------|
+| Playback engine | `internal/audio/player.go` | beep-based play/pause/seek/volume |
+| Waveform extractor | `internal/audio/waveform.go` | PCM → amplitude buckets |
+| Player model | `internal/tui/player.go` | Bubbletea model with tick-based cursor |
+| Waveform renderer | `internal/tui/waveform.go` | Unicode blocks + Lipgloss styling |
+| Audio file type | `internal/tui/attachment.go` | `FileTypeAudio` classification |
+| App integration | `internal/tui/app.go` | Key routing + view composition |
+| Player key bindings | `internal/tui/keys.go` | space, arrows, q/esc |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KNOWHOW_TRANSCRIPTION_ENABLED` | `false` | Enable async transcription pipeline |
+| `KNOWHOW_TRANSCRIPTION_PROVIDER` | `openai` | STT provider (currently only `openai`) |
+| `KNOWHOW_TRANSCRIPTION_MODEL` | `gpt-4o-transcribe` | Model for transcription |
+| `KNOWHOW_TRANSCRIPTION_WORKER_INTERVAL` | `5` | Worker poll interval (seconds) |
+| `KNOWHOW_TRANSCRIPTION_WORKER_BATCH` | `5` | Documents per worker tick |
 
 ## Example Prompts
 
