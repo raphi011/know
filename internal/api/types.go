@@ -25,7 +25,6 @@ type Document struct {
 	Path        string    `json:"path"`
 	Title       string    `json:"title"`
 	Content     string    `json:"content"`
-	Source      string    `json:"source"`
 	ContentHash *string   `json:"contentHash,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -130,7 +129,6 @@ type FolderResponse struct {
 type VersionResponse struct {
 	Version     int       `json:"version"`
 	Title       string    `json:"title"`
-	Source      string    `json:"source"`
 	ContentHash string    `json:"contentHash"`
 	CreatedAt   time.Time `json:"createdAt"`
 }

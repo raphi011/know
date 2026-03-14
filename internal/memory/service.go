@@ -58,7 +58,6 @@ func (s *Service) Create(ctx context.Context, vaultID, project, title, content s
 		VaultID: vaultID,
 		Path:    path,
 		Content: fullContent,
-		Source:  models.SourceMCP,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create: %w", err)
@@ -262,7 +261,6 @@ func (s *Service) consolidate(ctx context.Context, vaultID string, memories []Sc
 			VaultID: vaultID,
 			Path:    path,
 			Content: fullContent,
-			Source:  models.SourceMCP,
 		})
 		if err != nil {
 			logger.Warn("consolidation create merged doc", "error", err)

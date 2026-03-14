@@ -82,8 +82,8 @@ var (
 	fileListSelectedStyle = lipgloss.NewStyle().Foreground(primaryColor).Bold(true).PaddingLeft(2)
 
 	// Diff styles
-	diffAddStyle        = lipgloss.NewStyle().Foreground(accentColor)  // green for added lines
-	diffDeleteStyle     = lipgloss.NewStyle().Foreground(errorColor)   // red for deleted lines
+	diffAddStyle        = lipgloss.NewStyle().Foreground(accentColor)               // green for added lines
+	diffDeleteStyle     = lipgloss.NewStyle().Foreground(errorColor)                // red for deleted lines
 	diffHunkHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#60A5FA")) // blue for @@ headers
 	diffGutterStyle     = lipgloss.NewStyle().Foreground(mutedColor)
 	diffSeparatorStyle  = lipgloss.NewStyle().Foreground(mutedColor)

@@ -23,7 +23,6 @@ func TestCreateDocument(t *testing.T) {
 		Title:       "Hello World",
 		Content:     "---\ntitle: Hello\n---\nHello world content",
 		ContentBody: "Hello world content",
-		Source:      models.SourceManual,
 		Labels:      []string{"test", "greeting"},
 		ContentHash: &hash,
 	})
@@ -54,7 +53,6 @@ func TestGetDocumentByPath(t *testing.T) {
 		Title:       "Unique Path Doc",
 		Content:     "content",
 		ContentBody: "content",
-		Source:      models.SourceManual,
 		Labels:      []string{},
 	})
 	if err != nil {
@@ -95,7 +93,6 @@ func TestListDocuments(t *testing.T) {
 			Title:       "Doc " + path,
 			Content:     "content of " + path,
 			ContentBody: "content of " + path,
-			Source:      models.SourceManual,
 			Labels:      []string{"test"},
 		})
 		if err != nil {
@@ -136,7 +133,6 @@ func TestUpdateDocument(t *testing.T) {
 		Title:       "Original",
 		Content:     "original",
 		ContentBody: "original",
-		Source:      models.SourceManual,
 		Labels:      []string{"old"},
 	})
 	if err != nil {
@@ -144,7 +140,7 @@ func TestUpdateDocument(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	updated, err := testDB.UpdateDocument(ctx, docID, "new content", "new content", "Updated Title", models.SourceManual, []string{"new"}, nil, nil)
+	updated, err := testDB.UpdateDocument(ctx, docID, "new content", "new content", "Updated Title", []string{"new"}, nil, nil)
 	if err != nil {
 		t.Fatalf("UpdateDocument failed: %v", err)
 	}
@@ -169,7 +165,6 @@ func TestDeleteDocument(t *testing.T) {
 		Title:       "Delete Me",
 		Content:     "content",
 		ContentBody: "content",
-		Source:      models.SourceManual,
 		Labels:      []string{},
 	})
 	if err != nil {
@@ -204,7 +199,6 @@ func TestMoveDocument(t *testing.T) {
 		Title:       "Move Test",
 		Content:     "content",
 		ContentBody: "content",
-		Source:      models.SourceManual,
 		Labels:      []string{},
 	})
 	if err != nil {
@@ -244,7 +238,6 @@ func TestListDocuments_LabelFilter(t *testing.T) {
 			Content:     "# " + doc.title,
 			ContentBody: doc.title,
 			Labels:      doc.labels,
-			Source:      models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", doc.path, err)
@@ -290,7 +283,6 @@ func TestGetDocumentByID(t *testing.T) {
 		Title:       "GetByID Test",
 		Content:     "get by id content",
 		ContentBody: "get by id content",
-		Source:      models.SourceManual,
 		Labels:      []string{"test"},
 	})
 	if err != nil {
@@ -338,7 +330,6 @@ func TestDeleteDocumentsByPrefix(t *testing.T) {
 			Title:       "Doc " + path,
 			Content:     "content of " + path,
 			ContentBody: "content of " + path,
-			Source:      models.SourceManual,
 			Labels:      []string{},
 		})
 		if err != nil {
@@ -378,7 +369,6 @@ func TestMoveDocumentsByPrefix(t *testing.T) {
 			Title:       "Doc " + path,
 			Content:     "content of " + path,
 			ContentBody: "content of " + path,
-			Source:      models.SourceManual,
 			Labels:      []string{},
 		})
 		if err != nil {
@@ -433,7 +423,6 @@ func TestListLabels(t *testing.T) {
 			Title:       "Doc " + doc.path,
 			Content:     "content",
 			ContentBody: "content",
-			Source:      models.SourceManual,
 			Labels:      doc.labels,
 		})
 		if err != nil {
@@ -492,7 +481,6 @@ func TestListLabelsWithCounts(t *testing.T) {
 			Title:       "Doc " + doc.path,
 			Content:     "content",
 			ContentBody: "content",
-			Source:      models.SourceManual,
 			Labels:      doc.labels,
 		})
 		if err != nil {
@@ -542,7 +530,6 @@ func TestUpsertDocument(t *testing.T) {
 		Title:       "Upsert Original",
 		Content:     "original content",
 		ContentBody: "original content",
-		Source:      models.SourceManual,
 		Labels:      []string{"v1"},
 	})
 	if err != nil {
@@ -565,7 +552,6 @@ func TestUpsertDocument(t *testing.T) {
 		Title:       "Upsert Updated",
 		Content:     "updated content",
 		ContentBody: "updated content",
-		Source:      models.SourceManual,
 		Labels:      []string{"v2"},
 	})
 	if err != nil {

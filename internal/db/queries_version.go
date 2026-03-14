@@ -20,8 +20,7 @@ func (c *Client) CreateVersion(ctx context.Context, input models.DocumentVersion
 			version = $version,
 			content = $content,
 			content_hash = $content_hash,
-			title = $title,
-			source = $source
+			title = $title
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.DocumentVersion](ctx, c.DB(), sql, map[string]any{
@@ -31,7 +30,6 @@ func (c *Client) CreateVersion(ctx context.Context, input models.DocumentVersion
 		"content":      input.Content,
 		"content_hash": input.ContentHash,
 		"title":        input.Title,
-		"source":       string(input.Source),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create version: %w", err)

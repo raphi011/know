@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/joho/godotenv"
 	"github.com/raphi011/know/internal/agent"
 	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/auth"

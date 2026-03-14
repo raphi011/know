@@ -139,7 +139,6 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 		VaultID: vaultID,
 		Path:    path,
 		Content: content,
-		Source:  "note",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create daily note: %w", err)
@@ -222,7 +221,6 @@ func editNote(ctx context.Context, client *apiclient.Client, vaultID, path, cont
 		VaultID: vaultID,
 		Path:    path,
 		Content: updated,
-		Source:  "note",
 	}); err != nil {
 		return fmt.Errorf("save note: %w", err)
 	}

@@ -87,7 +87,6 @@ func TestDeleteVault(t *testing.T) {
 		Title:       "Test",
 		Content:     "content",
 		ContentBody: "content",
-		Source:      models.SourceManual,
 		ContentHash: &hash,
 		Labels:      []string{},
 	})
@@ -180,7 +179,6 @@ func TestListDocumentPaths(t *testing.T) {
 			Title:       fmt.Sprintf("Doc %d", i),
 			Content:     "content",
 			ContentBody: "content",
-			Source:      models.SourceManual,
 			ContentHash: &hash,
 			Labels:      []string{},
 		})

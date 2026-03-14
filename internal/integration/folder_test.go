@@ -43,7 +43,6 @@ func TestFolderAutoCreate(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/guides/sub/file.md",
 		Content: "# Guide",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -84,7 +83,6 @@ func TestFolderRootDocNoFolders(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/readme.md",
 		Content: "# Readme",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -143,7 +141,6 @@ func TestFolderEmptyPersistence(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/notes/file.md",
 		Content: "# Note",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -219,7 +216,6 @@ func TestFolderDeleteCascade(t *testing.T) {
 			VaultID: vaultID,
 			Path:    p,
 			Content: "# Doc at " + p,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", p, err)
@@ -231,7 +227,6 @@ func TestFolderDeleteCascade(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/other/c.md",
 		Content: "# Other",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create other doc: %v", err)
@@ -292,7 +287,6 @@ func TestFolderMoveBasic(t *testing.T) {
 			VaultID: vaultID,
 			Path:    p,
 			Content: "# Doc at " + p,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", p, err)
@@ -304,7 +298,6 @@ func TestFolderMoveBasic(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/other/c.md",
 		Content: "# Other",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create other doc: %v", err)
@@ -382,7 +375,6 @@ func TestFolderMoveCreatesAncestors(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/guides/a.md",
 		Content: "# Guide",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -426,7 +418,6 @@ func TestFolderListByParent(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/a/b/c/file.md",
 		Content: "# Deep",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -437,7 +428,6 @@ func TestFolderListByParent(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/a/sibling/file.md",
 		Content: "# Sibling",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -491,7 +481,6 @@ func TestFolderListAll(t *testing.T) {
 			VaultID: vaultID,
 			Path:    p,
 			Content: "# Doc",
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", p, err)

@@ -87,7 +87,6 @@ func (t *CreateMemoryTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		VaultID: o.VaultID,
 		Path:    path,
 		Content: fullContent,
-		Source:  models.SourceMCP,
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {

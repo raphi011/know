@@ -47,11 +47,11 @@ type QueryBlock struct {
 
 var (
 	knowBlockRegex = regexp.MustCompile("(?s)```know\\n(.*?)```")
-	whereRegex        = regexp.MustCompile(`(?i)^WHERE\s+(.+)$`)
-	fromRegex         = regexp.MustCompile(`(?i)^FROM\s+(\S+)$`)
-	showRegex         = regexp.MustCompile(`(?i)^SHOW\s+(.+)$`)
-	sortRegex         = regexp.MustCompile(`(?i)^SORT\s+(\S+)(?:\s+(ASC|DESC))?$`)
-	limitRegex        = regexp.MustCompile(`(?i)^LIMIT\s+(\d+)$`)
+	whereRegex     = regexp.MustCompile(`(?i)^WHERE\s+(.+)$`)
+	fromRegex      = regexp.MustCompile(`(?i)^FROM\s+(\S+)$`)
+	showRegex      = regexp.MustCompile(`(?i)^SHOW\s+(.+)$`)
+	sortRegex      = regexp.MustCompile(`(?i)^SORT\s+(\S+)(?:\s+(ASC|DESC))?$`)
+	limitRegex     = regexp.MustCompile(`(?i)^LIMIT\s+(\d+)$`)
 
 	// WHERE condition patterns
 	condContainRegex  = regexp.MustCompile(`(?i)^(\w+)\s+CONTAIN\s+"([^"]+)"$`)

@@ -150,7 +150,6 @@ See also [[Beta Notes]] and [[missing-page]].
 
 #architecture #go
 `,
-		Source: models.SourceScrape,
 	})
 	if err != nil {
 		t.Fatalf("create doc1: %v", err)
@@ -202,7 +201,6 @@ labels: [notes]
 
 Some notes about the beta project.
 `,
-		Source: models.SourceScrape,
 	})
 	if err != nil {
 		t.Fatalf("create doc2: %v", err)
@@ -353,7 +351,6 @@ labels: [notes, updated]
 
 Updated content for beta.
 `,
-		Source: models.SourceScrape,
 	})
 	if err != nil {
 		t.Fatalf("upsert doc2: %v", err)
@@ -395,7 +392,6 @@ func TestDeleteByPrefix(t *testing.T) {
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", path, err)
@@ -463,7 +459,6 @@ func TestMoveByPrefix(t *testing.T) {
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", path, err)
@@ -539,7 +534,6 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", path, err)
@@ -613,7 +607,6 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", path, err)
@@ -678,7 +671,6 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", path, err)
@@ -739,7 +731,6 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/folder/a.md",
 		Content: "# Doc",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -791,7 +782,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	// Create doc B (target)
 	docB, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/target.md",
-		Content: "# Target\n\nTarget content.", Source: models.SourceManual,
+		Content: "# Target\n\nTarget content.",
 	})
 	if err != nil {
 		t.Fatalf("create target doc: %v", err)
@@ -804,7 +795,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	// Create doc A (source) that links to Target
 	docA, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/source.md",
-		Content: "# Source\n\nSee [[Target]].", Source: models.SourceManual,
+		Content: "# Source\n\nSee [[Target]].",
 	})
 	if err != nil {
 		t.Fatalf("create source doc: %v", err)
@@ -883,7 +874,7 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	// Create target doc
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/old/target.md",
-		Content: "# Target", Source: models.SourceManual,
+		Content: "# Target",
 	})
 	if err != nil {
 		t.Fatalf("create target: %v", err)
@@ -895,7 +886,7 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	// Create source doc linking by path
 	docA, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/source.md",
-		Content: "# Source\n\nSee [[/old/target.md]].", Source: models.SourceManual,
+		Content: "# Source\n\nSee [[/old/target.md]].",
 	})
 	if err != nil {
 		t.Fatalf("create source: %v", err)
@@ -951,7 +942,7 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	// Create docs under /old-dir/
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/old-dir/a.md",
-		Content: "# A", Source: models.SourceManual,
+		Content: "# A",
 	})
 	if err != nil {
 		t.Fatalf("create a: %v", err)
@@ -963,7 +954,7 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	// Create source that references paths under /old-dir/
 	src, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/source.md",
-		Content: "# Source\n\nSee [[/old-dir/a.md]].", Source: models.SourceManual,
+		Content: "# Source\n\nSee [[/old-dir/a.md]].",
 	})
 	if err != nil {
 		t.Fatalf("create source: %v", err)
@@ -1022,14 +1013,14 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	// Create target docs
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/target-a.md",
-		Content: "# Target A", Source: models.SourceManual,
+		Content: "# Target A",
 	})
 	if err != nil {
 		t.Fatalf("create target-a: %v", err)
 	}
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/target-b.md",
-		Content: "# Target B", Source: models.SourceManual,
+		Content: "# Target B",
 	})
 	if err != nil {
 		t.Fatalf("create target-b: %v", err)
@@ -1042,7 +1033,6 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	src, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/relto-src.md",
 		Content: "---\ntitle: Source\nrelates_to:\n  - Target A\n---\n# Source",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create source: %v", err)
@@ -1065,7 +1055,6 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/relto-src.md",
 		Content: "---\ntitle: Source\nrelates_to:\n  - Target B\n---\n# Source Updated",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update source: %v", err)
@@ -1087,7 +1076,6 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/relto-src.md",
 		Content: "---\ntitle: Source\n---\n# Source No Relations",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update source no rels: %v", err)
@@ -1134,7 +1122,6 @@ func TestLabelGraph(t *testing.T) {
 	doc1, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/labeled-1.md",
 		Content: "---\nlabels: [go, backend]\n---\n# Doc 1",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc1: %v", err)
@@ -1144,7 +1131,6 @@ func TestLabelGraph(t *testing.T) {
 	doc2, err := docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/labeled-2.md",
 		Content: "---\nlabels: [go, frontend]\n---\n# Doc 2",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc2: %v", err)
@@ -1195,7 +1181,6 @@ func TestLabelGraph(t *testing.T) {
 	_, err = docSvc.Create(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/labeled-1.md",
 		Content: "---\nlabels: [go, infra]\n---\n# Doc 1 Updated",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update doc1: %v", err)
@@ -1266,7 +1251,6 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/sync-test.md",
 		Content: "# Title\n\nFirst paragraph content.\n\nSecond paragraph content.",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -1301,7 +1285,6 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/sync-test.md",
 		Content: "# Title\n\nFirst paragraph content.\n\nSecond paragraph content.",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("upsert same content: %v", err)
@@ -1333,7 +1316,6 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/sync-test.md",
 		Content: "# New Title\n\nCompletely different content here.",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("upsert new content: %v", err)
@@ -1392,7 +1374,6 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/partial-sync.md",
 		Content: longContent,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -1417,7 +1398,6 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/partial-sync.md",
 		Content: updatedContent,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update doc: %v", err)

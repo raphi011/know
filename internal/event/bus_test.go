@@ -359,9 +359,7 @@ func TestBus_Close_ConcurrentPublish(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range numPublishers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range 100 {
 				bus.Publish(ChangeEvent{
 					Type:    "document.updated",
@@ -369,7 +367,7 @@ func TestBus_Close_ConcurrentPublish(t *testing.T) {
 					Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: string(rune(i))},
 				})
 			}
-		}()
+		})
 	}
 
 	// Close while publishers are active — must not panic.
@@ -387,9 +385,7 @@ func TestBus_Close_ConcurrentSubscribe(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				ch, unsub := bus.Subscribe("vault:a")
 				// Read one event or notice the channel is closed.
@@ -399,7 +395,7 @@ func TestBus_Close_ConcurrentSubscribe(t *testing.T) {
 				}
 				unsub()
 			}
-		}()
+		})
 	}
 
 	// Close while subscribers are registering — must not panic.

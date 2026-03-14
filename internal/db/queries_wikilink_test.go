@@ -16,7 +16,7 @@ func TestCreateWikiLinks(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/link-source.md", Title: "Link Source",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -49,14 +49,14 @@ func TestGetBacklinks(t *testing.T) {
 
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/backlink-a.md", Title: "Doc A",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument docA failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/backlink-b.md", Title: "Doc B",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument docB failed: %v", err)
@@ -88,7 +88,7 @@ func TestResolveDanglingLinks(t *testing.T) {
 
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/dangling-source.md", Title: "Source",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument docA failed: %v", err)
@@ -114,7 +114,7 @@ func TestResolveDanglingLinks(t *testing.T) {
 
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/future-doc.md", Title: "Future Doc",
-		Content: "arrived", ContentBody: "arrived", Source: models.SourceManual, Labels: []string{},
+		Content: "arrived", ContentBody: "arrived", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument docB failed: %v", err)
@@ -150,14 +150,14 @@ func TestUnresolveWikiLinksToDoc(t *testing.T) {
 
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/unresolve-a.md", Title: "Unresolve A",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument A failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/unresolve-b.md", Title: "Unresolve B",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument B failed: %v", err)
@@ -215,7 +215,7 @@ func TestUpdateWikiLinkRawTargets(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/raw-target-src.md", Title: "Raw Target Source",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -264,7 +264,7 @@ func TestUpdateWikiLinkRawTargetsByPrefix(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/prefix-src.md", Title: "Prefix Source",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -315,7 +315,7 @@ func TestDeleteWikiLinks(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delete-links-test.md", Title: "Delete Links",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)

@@ -190,8 +190,6 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		Title:       title,
 		Content:     input.Content,
 		ContentBody: contentBody,
-		Source:      input.Source,
-		SourcePath:  input.SourcePath,
 		ContentHash: &contentHash,
 		Labels:      allLabels,
 		DocType:     docType,
@@ -494,7 +492,6 @@ func (s *Service) Update(ctx context.Context, vaultID, path, content string) (*m
 		VaultID: vaultID,
 		Path:    path,
 		Content: content,
-		Source:  models.SourceManual,
 	})
 }
 

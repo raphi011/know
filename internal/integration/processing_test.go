@@ -53,7 +53,6 @@ func TestCreate_DefersChunksAndWikiLinks(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/deferred-test.md",
 		Content: wikiContent,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -139,7 +138,6 @@ func TestProcessAllPending_ProcessesMultipleDocuments(t *testing.T) {
 			VaultID: vaultID,
 			Path:    fmt.Sprintf("/multi-%d.md", i),
 			Content: fmt.Sprintf("# Doc %d\n\nContent for document %d.", i, i),
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("create doc %d: %v", i, err)
@@ -180,7 +178,6 @@ func TestUpdate_ResetsProcessedFlag(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/reset-test.md",
 		Content: "# Original\n\nOriginal content.",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -206,7 +203,6 @@ func TestUpdate_ResetsProcessedFlag(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/reset-test.md",
 		Content: "# Updated\n\nNew content after update.",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -235,7 +231,6 @@ func TestProcessDocument_Idempotent(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/idempotent-test.md",
 		Content: longContent,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)

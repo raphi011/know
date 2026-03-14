@@ -125,7 +125,6 @@ func (f *writeFile) Close() error {
 		VaultID: f.vaultID,
 		Path:    f.name,
 		Content: content,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		slog.Error("webdav: failed to save document on close",

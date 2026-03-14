@@ -372,10 +372,7 @@ func renderHunks(hunks []diff.Hunk) string {
 			}
 		}
 	}
-	gutterWidth := len(fmt.Sprintf("%d", maxLineNo))
-	if gutterWidth < 2 {
-		gutterWidth = 2
-	}
+	gutterWidth := max(len(fmt.Sprintf("%d", maxLineNo)), 2)
 
 	for i, h := range hunks {
 		if i > 0 {
@@ -418,10 +415,7 @@ func renderNewDocPreview(content string) string {
 	var sb strings.Builder
 	lines := strings.Split(content, "\n")
 
-	gutterWidth := len(fmt.Sprintf("%d", len(lines)))
-	if gutterWidth < 2 {
-		gutterWidth = 2
-	}
+	gutterWidth := max(len(fmt.Sprintf("%d", len(lines))), 2)
 
 	for i, line := range lines {
 		lineNo := fmt.Sprintf("%*d", gutterWidth, i+1)

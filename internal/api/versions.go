@@ -63,7 +63,6 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 		resp[i] = VersionResponse{
 			Version:     v.Version,
 			Title:       v.Title,
-			Source:      string(v.Source),
 			ContentHash: v.ContentHash,
 			CreatedAt:   v.CreatedAt,
 		}

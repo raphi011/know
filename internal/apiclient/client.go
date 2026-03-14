@@ -108,7 +108,6 @@ type BulkFile struct {
 // BulkMeta holds shared metadata for a bulk upload request.
 type BulkMeta struct {
 	VaultID string `json:"vaultId"`
-	Source  string `json:"source"`
 	Force   bool   `json:"force"`
 	DryRun  bool   `json:"dryRun"`
 }
@@ -267,7 +266,6 @@ type CreateDocumentRequest struct {
 	VaultID string `json:"vaultId"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
-	Source  string `json:"source"`
 }
 
 // CreateDocument creates a new document on the remote server.
@@ -296,7 +294,6 @@ func (c *Client) EditDocument(ctx context.Context, req EditDocumentRequest) (*Do
 type Version struct {
 	Version     int       `json:"version"`
 	Title       string    `json:"title"`
-	Source      string    `json:"source"`
 	ContentHash string    `json:"contentHash"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
@@ -321,7 +318,6 @@ type Document struct {
 	Path        string  `json:"path"`
 	Title       string  `json:"title"`
 	Content     string  `json:"content"`
-	Source      string  `json:"source"`
 	ContentHash *string `json:"contentHash,omitempty"`
 }
 

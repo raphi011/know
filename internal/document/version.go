@@ -47,7 +47,6 @@ func (s *Service) maybeCreateVersion(ctx context.Context, docID, vaultID string,
 		Content:     oldDoc.Content,
 		ContentHash: hash,
 		Title:       oldDoc.Title,
-		Source:      oldDoc.Source,
 	}, nextVersion); err != nil {
 		slog.Warn("failed to create version snapshot", "doc_id", docID, "version", nextVersion, "error", err)
 		return
@@ -104,7 +103,6 @@ func (s *Service) Rollback(ctx context.Context, vaultID, documentID, versionID s
 		VaultID: vaultID,
 		Path:    doc.Path,
 		Content: version.Content,
-		Source:  models.SourceRollback,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("apply rollback: %w", err)

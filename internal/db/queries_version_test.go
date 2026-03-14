@@ -17,7 +17,6 @@ func createTestDocument(t *testing.T, ctx context.Context, vaultID string) *mode
 		Title:       "Version Test Doc",
 		Content:     "version test content",
 		ContentBody: "version test content",
-		Source:      models.SourceManual,
 		Labels:      []string{},
 	})
 	if err != nil {
@@ -41,7 +40,6 @@ func TestCreateVersion(t *testing.T) {
 		Content:     "version 1 content",
 		ContentHash: "hash1",
 		Title:       "Version 1",
-		Source:      models.SourceManual,
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -75,7 +73,6 @@ func TestGetVersion(t *testing.T) {
 		Content:     "get version content",
 		ContentHash: "hash-get",
 		Title:       "Get Version",
-		Source:      models.SourceManual,
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -112,7 +109,6 @@ func TestGetVersionByNumber(t *testing.T) {
 		Content:     "by number content",
 		ContentHash: "hash-num",
 		Title:       "By Number",
-		Source:      models.SourceManual,
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -149,7 +145,6 @@ func TestListVersions(t *testing.T) {
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
 			Title:       fmt.Sprintf("Version %d", i),
-			Source:      models.SourceManual,
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -181,7 +176,6 @@ func TestGetLatestVersion(t *testing.T) {
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
 			Title:       fmt.Sprintf("Version %d", i),
-			Source:      models.SourceManual,
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -216,7 +210,6 @@ func TestCountVersions(t *testing.T) {
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
 			Title:       fmt.Sprintf("Version %d", i),
-			Source:      models.SourceManual,
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -248,7 +241,6 @@ func TestDeleteOldestVersions(t *testing.T) {
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
 			Title:       fmt.Sprintf("Version %d", i),
-			Source:      models.SourceManual,
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -297,7 +289,6 @@ func TestNextVersionNumber(t *testing.T) {
 		Content:     "content v1",
 		ContentHash: "hash-1",
 		Title:       "Version 1",
-		Source:      models.SourceManual,
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)

@@ -16,7 +16,6 @@ type DocumentVersion struct {
 	Content     string                 `json:"content"`
 	ContentHash string                 `json:"content_hash"`
 	Title       string                 `json:"title"`
-	Source      DocumentSource         `json:"source"`
 	CreatedAt   time.Time              `json:"created_at"`
 }
 
@@ -27,5 +26,4 @@ type DocumentVersionInput struct {
 	Content     string
 	ContentHash string
 	Title       string
-	Source      DocumentSource
 }

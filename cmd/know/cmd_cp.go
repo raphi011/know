@@ -18,7 +18,6 @@ var (
 	cpLabels    []string
 	cpDryRun    bool
 	cpForce     bool
-	cpSource    string
 	cpRecursive bool
 )
 
@@ -50,7 +49,6 @@ func init() {
 	cpCmd.Flags().StringSliceVarP(&cpLabels, "labels", "l", nil, "labels to include in document path metadata")
 	cpCmd.Flags().BoolVar(&cpDryRun, "dry-run", false, "show what would be copied without changes")
 	cpCmd.Flags().BoolVar(&cpForce, "force", false, "overwrite existing files if content hash differs")
-	cpCmd.Flags().StringVar(&cpSource, "source", "cp", "document source tag")
 	cpCmd.Flags().BoolVarP(&cpRecursive, "recursive", "r", false, "recurse into subdirectories")
 	if err := cpCmd.MarkFlagRequired("vault"); err != nil {
 		panic(fmt.Sprintf("mark vault flag required: %v", err))
@@ -121,7 +119,6 @@ func runCp(cmd *cobra.Command, args []string) error {
 	client := cpAPI.newClient()
 	meta := apiclient.BulkMeta{
 		VaultID: cpVaultID,
-		Source:  cpSource,
 		Force:   cpForce,
 		DryRun:  cpDryRun,
 	}
