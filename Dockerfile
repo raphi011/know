@@ -14,7 +14,7 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
 # Build single binary
-RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /know ./cmd/know
+RUN CGO_ENABLED=0 GOOS=linux go build -o /know ./cmd/know
 
 # Runtime
 FROM alpine:3.21
