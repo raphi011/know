@@ -245,7 +245,6 @@ func (e *Executor) execUpsertDocument(ctx context.Context, vaultID, arguments, v
 		VaultID: vaultID,
 		Path:    input.Path,
 		Content: input.Content,
-		Source:  "ai_generated",
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
@@ -284,7 +283,6 @@ func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments stri
 		VaultID: vaultID,
 		Path:    path,
 		Content: fullContent,
-		Source:  "mcp",
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
@@ -335,7 +333,6 @@ func (e *Executor) execGetDocumentVersions(ctx context.Context, vaultID, argumen
 			fmt.Fprintf(&sb, "### Version %d\n", v.Version)
 			fmt.Fprintf(&sb, "- Title: %s\n", v.Title)
 			fmt.Fprintf(&sb, "- Created: %s\n", v.CreatedAt.Format(time.RFC3339))
-			fmt.Fprintf(&sb, "- Source: %s\n", v.Source)
 			fmt.Fprintf(&sb, "- Hash: %s\n\n", v.ContentHash)
 		}
 	}

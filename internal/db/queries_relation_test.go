@@ -19,14 +19,14 @@ func TestCreateRelation(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/rel-a-" + suffix + ".md", Title: "Rel Doc A",
-		Content: "content a", ContentBody: "content a", Source: models.SourceManual, Labels: []string{},
+		Content: "content a", ContentBody: "content a", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument A failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/rel-b-" + suffix + ".md", Title: "Rel Doc B",
-		Content: "content b", ContentBody: "content b", Source: models.SourceManual, Labels: []string{},
+		Content: "content b", ContentBody: "content b", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument B failed: %v", err)
@@ -61,21 +61,21 @@ func TestGetRelations(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/getrel-a-" + suffix + ".md", Title: "GetRel A",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument A failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/getrel-b-" + suffix + ".md", Title: "GetRel B",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument B failed: %v", err)
 	}
 	docC, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/getrel-c-" + suffix + ".md", Title: "GetRel C",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument C failed: %v", err)
@@ -117,14 +117,14 @@ func TestGetRelationByID(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/relbyid-a-" + suffix + ".md", Title: "RelByID A",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument A failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/relbyid-b-" + suffix + ".md", Title: "RelByID B",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument B failed: %v", err)
@@ -171,21 +171,21 @@ func TestDeleteRelationsBySource(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delsrc-a-" + suffix + ".md", Title: "DelSrc A",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument A failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delsrc-b-" + suffix + ".md", Title: "DelSrc B",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument B failed: %v", err)
 	}
 	docC, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delsrc-c-" + suffix + ".md", Title: "DelSrc C",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument C failed: %v", err)
@@ -237,14 +237,14 @@ func TestDeleteRelation(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delrel-a-" + suffix + ".md", Title: "DelRel A",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument A failed: %v", err)
 	}
 	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delrel-b-" + suffix + ".md", Title: "DelRel B",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument B failed: %v", err)

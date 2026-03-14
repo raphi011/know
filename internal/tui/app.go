@@ -62,7 +62,7 @@ type Model struct {
 	spinner  spinner.Model
 
 	// Streaming state
-	streaming bool
+	streaming   bool
 	streamParts []ContentPart
 	dialog      *approvalDialog // non-nil when diff dialog is active
 	errMsg      string

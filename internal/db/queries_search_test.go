@@ -19,7 +19,7 @@ func TestBM25ChunkSearch(t *testing.T) {
 	goDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/search-go.md", Title: "Go Programming",
 		Content: "---\ntitle: Go\n---\nGo is a statically typed language", ContentBody: "Go is a statically typed language",
-		Source: models.SourceManual, Labels: []string{"programming"},
+		Labels: []string{"programming"},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument go failed: %v", err)
@@ -29,7 +29,7 @@ func TestBM25ChunkSearch(t *testing.T) {
 	pyDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/search-python.md", Title: "Python Programming",
 		Content: "---\ntitle: Python\n---\nPython is a dynamic language", ContentBody: "Python is a dynamic language",
-		Source: models.SourceManual, Labels: []string{"programming"},
+		Labels: []string{"programming"},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument python failed: %v", err)
@@ -65,7 +65,7 @@ func TestSearchWithLabelFilter(t *testing.T) {
 	webDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-a.md", Title: "Web Doc",
 		Content: "Web frameworks are great", ContentBody: "Web frameworks are great",
-		Source: models.SourceManual, Labels: []string{"web"},
+		Labels: []string{"web"},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument web failed: %v", err)
@@ -75,7 +75,7 @@ func TestSearchWithLabelFilter(t *testing.T) {
 	cliDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-b.md", Title: "CLI Doc",
 		Content: "CLI tools are useful frameworks", ContentBody: "CLI tools are useful frameworks",
-		Source: models.SourceManual, Labels: []string{"cli"},
+		Labels: []string{"cli"},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument cli failed: %v", err)
@@ -121,7 +121,7 @@ func TestSearchWithFolderFilter(t *testing.T) {
 	guidesDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/guides/setup.md", Title: "Setup Guide",
 		Content: "Install the software first", ContentBody: "Install the software first",
-		Source: models.SourceManual, Labels: []string{},
+		Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument guides failed: %v", err)
@@ -131,7 +131,7 @@ func TestSearchWithFolderFilter(t *testing.T) {
 	notesDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/notes/install.md", Title: "Install Notes",
 		Content: "Notes about installing software", ContentBody: "Notes about installing software",
-		Source: models.SourceManual, Labels: []string{},
+		Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument notes failed: %v", err)
@@ -182,7 +182,6 @@ func TestHybridSearch(t *testing.T) {
 		Title:       "Hybrid Search Doc",
 		Content:     "hybrid search content for testing",
 		ContentBody: "hybrid search content for testing",
-		Source:      models.SourceManual,
 		Labels:      []string{"test"},
 	})
 	if err != nil {
@@ -236,7 +235,6 @@ func TestGetDocumentsByIDs(t *testing.T) {
 			Title:       fmt.Sprintf("ByIDs Doc %d", i),
 			Content:     "content " + path,
 			ContentBody: "content " + path,
-			Source:      models.SourceManual,
 			Labels:      []string{},
 		})
 		if err != nil {

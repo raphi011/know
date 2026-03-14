@@ -15,7 +15,6 @@ import (
 // bulkMeta is the JSON metadata sent as the first multipart part ("meta").
 type bulkMeta struct {
 	VaultID string `json:"vaultId"`
-	Source  string `json:"source"`
 	Force   bool   `json:"force"`
 	DryRun  bool   `json:"dryRun"`
 }
@@ -69,15 +68,6 @@ func (s *Server) bulkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	src := models.SourceCP
-	if meta.Source != "" {
-		src = models.DocumentSource(meta.Source)
-		if !src.Valid() {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid source: %q", meta.Source))
-			return
-		}
-	}
-
 	var results []bulkFileResult
 
 	// Process remaining parts — each is a file.
@@ -93,7 +83,7 @@ func (s *Server) bulkUpload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		result := s.processBulkPart(r, part, meta, src)
+		result := s.processBulkPart(r, part, meta)
 		results = append(results, result)
 	}
 
@@ -108,7 +98,7 @@ func (s *Server) bulkUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) processBulkPart(r *http.Request, part *multipart.Part, meta bulkMeta, src models.DocumentSource) bulkFileResult {
+func (s *Server) processBulkPart(r *http.Request, part *multipart.Part, meta bulkMeta) bulkFileResult {
 	path := part.FormName()
 	if path == "" {
 		return bulkFileResult{Path: "(unknown)", Status: "error", Error: "missing path in form name"}
@@ -124,10 +114,10 @@ func (s *Server) processBulkPart(r *http.Request, part *multipart.Part, meta bul
 	if isImage {
 		return s.processBulkAsset(r, path, data, meta)
 	}
-	return s.processBulkDocument(r, path, string(data), meta, src)
+	return s.processBulkDocument(r, path, string(data), meta)
 }
 
-func (s *Server) processBulkDocument(r *http.Request, path, content string, meta bulkMeta, src models.DocumentSource) bulkFileResult {
+func (s *Server) processBulkDocument(r *http.Request, path, content string, meta bulkMeta) bulkFileResult {
 	logger := logutil.FromCtx(r.Context())
 	hash := models.ContentHash(content)
 
@@ -157,7 +147,6 @@ func (s *Server) processBulkDocument(r *http.Request, path, content string, meta
 		VaultID: meta.VaultID,
 		Path:    path,
 		Content: content,
-		Source:  src,
 	})
 	if err != nil {
 		logger.Error("bulk: upsert document", "vault", meta.VaultID, "path", path, "error", err)

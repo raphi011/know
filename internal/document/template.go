@@ -42,4 +42,3 @@ func IsTemplatePath(templateFolder, docPath string) bool {
 	}
 	return strings.HasPrefix(docPath, templateFolder)
 }
-

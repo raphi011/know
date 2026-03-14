@@ -51,7 +51,7 @@ func TestSyncDocumentLabels(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-sync.md", Title: "Label Sync",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -110,14 +110,14 @@ func TestGetDocumentsByLabel(t *testing.T) {
 
 	doc1, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-query-1.md", Title: "Label Query 1",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument 1 failed: %v", err)
 	}
 	doc2, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/label-query-2.md", Title: "Label Query 2",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument 2 failed: %v", err)

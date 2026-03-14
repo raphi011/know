@@ -356,43 +356,6 @@ func TestBulkUpload_EmptyRequest(t *testing.T) {
 	}
 }
 
-func TestBulkUpload_InvalidSource(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "invalid-source")
-
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	metaPart, err := writer.CreateFormField("meta")
-	if err != nil {
-		t.Fatalf("create meta part: %v", err)
-	}
-	if err := json.NewEncoder(metaPart).Encode(map[string]any{
-		"vaultId": vaultID,
-		"source":  "invalid_source",
-	}); err != nil {
-		t.Fatalf("encode meta: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close writer: %v", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/bulk", &buf)
-	if err != nil {
-		t.Fatalf("create request: %v", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
-	}
-}
-
 func TestBulkUpload_MissingVaultID(t *testing.T) {
 	srv, _ := setupBulkServer(t, "no-vault")
 

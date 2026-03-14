@@ -210,8 +210,8 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name: "list_labels",
-				Desc: "List all labels/categories used across documents in all vaults",
+				Name:        "list_labels",
+				Desc:        "List all labels/categories used across documents in all vaults",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
 			},
 			merge: mergeDedupCSV,

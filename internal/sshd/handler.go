@@ -438,7 +438,6 @@ func (w *writeBuffer) Close() error {
 		VaultID: w.vaultID,
 		Path:    w.path,
 		Content: content,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		slog.Error("sftp: failed to save document on close",

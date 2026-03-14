@@ -6,26 +6,6 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-type DocumentSource string
-
-const (
-	SourceManual      DocumentSource = "manual"
-	SourceScrape      DocumentSource = "scrape"
-	SourceCP          DocumentSource = "cp"
-	SourceMCP         DocumentSource = "mcp"
-	SourceAIGenerated DocumentSource = "ai_generated"
-	SourceRollback    DocumentSource = "rollback"
-)
-
-// Valid returns true if the DocumentSource is a known value.
-func (s DocumentSource) Valid() bool {
-	switch s {
-	case SourceManual, SourceScrape, SourceCP, SourceMCP, SourceAIGenerated, SourceRollback:
-		return true
-	}
-	return false
-}
-
 type Document struct {
 	ID             surrealmodels.RecordID `json:"id"`
 	Vault          surrealmodels.RecordID `json:"vault"`
@@ -36,8 +16,6 @@ type Document struct {
 	ContentLength  int                    `json:"content_length"`
 	Labels         []string               `json:"labels"`
 	DocType        *string                `json:"doc_type,omitempty"`
-	Source         DocumentSource         `json:"source"`
-	SourcePath     *string                `json:"source_path,omitempty"`
 	ContentHash    *string                `json:"content_hash,omitempty"`
 	Metadata       map[string]any         `json:"metadata,omitempty"`
 	Processed      bool                   `json:"processed"`
@@ -53,8 +31,6 @@ type DocumentInput struct {
 	Title       string         `json:"title"`
 	Content     string         `json:"content"`
 	ContentBody string         `json:"content_body"`
-	Source      DocumentSource `json:"source"`
-	SourcePath  *string        `json:"source_path,omitempty"`
 	ContentHash *string        `json:"content_hash,omitempty"`
 	Labels      []string       `json:"labels,omitempty"`
 	DocType     *string        `json:"doc_type,omitempty"`

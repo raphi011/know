@@ -48,7 +48,6 @@ type upsertDocumentRequest struct {
 	VaultID string `json:"vaultId"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
-	Source  string `json:"source"`
 }
 
 func (s *Server) upsertDocument(w http.ResponseWriter, r *http.Request) {
@@ -73,22 +72,12 @@ func (s *Server) upsertDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	src := models.SourceManual
-	if body.Source != "" {
-		src = models.DocumentSource(body.Source)
-		if !src.Valid() {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid document source: %q", body.Source))
-			return
-		}
-	}
-
 	logger := logutil.FromCtx(r.Context())
 
 	doc, err := s.app.DocumentService().Create(r.Context(), models.DocumentInput{
 		VaultID: body.VaultID,
 		Path:    body.Path,
 		Content: body.Content,
-		Source:  src,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create/update document")
@@ -216,7 +205,6 @@ func documentFromModel(d *models.Document) Document {
 		Path:        d.Path,
 		Title:       d.Title,
 		Content:     d.Content,
-		Source:      string(d.Source),
 		ContentHash: d.ContentHash,
 		CreatedAt:   d.CreatedAt,
 		UpdatedAt:   d.UpdatedAt,

@@ -104,8 +104,6 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 			content_length = $content_length,
 			labels = $labels,
 			doc_type = $doc_type,
-			source = $source,
-			source_path = $source_path,
 			content_hash = $content_hash,
 			metadata = $metadata,
 			processed = false
@@ -120,8 +118,6 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 		"content_length": len(input.Content),
 		"labels":         labels,
 		"doc_type":       optionalString(input.DocType),
-		"source":         string(input.Source),
-		"source_path":    optionalString(input.SourcePath),
 		"content_hash":   optionalString(input.ContentHash),
 		"metadata":       optionalObject(input.Metadata),
 	})
@@ -251,7 +247,7 @@ func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) 
 	return (*results)[0].Result, nil
 }
 
-func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, source models.DocumentSource, labels []string, contentHash *string, metadata map[string]any) (*models.Document, error) {
+func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, labels []string, contentHash *string, metadata map[string]any) (*models.Document, error) {
 	defer c.logOp(ctx, "document.update", time.Now())
 	if labels == nil {
 		labels = []string{}
@@ -263,7 +259,6 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 			content_body = $content_body,
 			content_length = $content_length,
 			title = $title,
-			source = $source,
 			labels = $labels,
 			content_hash = $content_hash,
 			metadata = $metadata,
@@ -276,7 +271,6 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 		"content_body":   contentBody,
 		"content_length": len(content),
 		"title":          title,
-		"source":         string(source),
 		"labels":         labels,
 		"content_hash":   optionalString(contentHash),
 		"metadata":       optionalObject(metadata),
@@ -505,7 +499,7 @@ func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput)
 			return nil, false, nil, fmt.Errorf("extract document id: %w", err)
 		}
 
-		doc, err = c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Source, input.Labels, input.ContentHash, input.Metadata)
+		doc, err = c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Labels, input.ContentHash, input.Metadata)
 		if err != nil {
 			return nil, false, nil, err
 		}

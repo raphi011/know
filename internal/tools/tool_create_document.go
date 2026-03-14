@@ -68,7 +68,6 @@ func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON s
 		VaultID: o.VaultID,
 		Path:    args.Path,
 		Content: args.Content,
-		Source:  models.SourceAIGenerated,
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {

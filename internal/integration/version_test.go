@@ -52,7 +52,6 @@ func TestVersionLifecycle(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 1\n\nOriginal content.\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create doc: %v", err)
@@ -76,7 +75,6 @@ func TestVersionLifecycle(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 2\n\nUpdated content.\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update doc v2: %v", err)
@@ -102,7 +100,6 @@ func TestVersionLifecycle(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 3\n\nThird revision.\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update doc v3: %v", err)
@@ -122,7 +119,6 @@ func TestVersionLifecycle(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 3\n\nThird revision.\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("no-op update: %v", err)
@@ -151,9 +147,6 @@ func TestVersionLifecycle(t *testing.T) {
 	}
 	if restored.Content != v1.Content {
 		t.Errorf("rollback content mismatch:\ngot:  %q\nwant: %q", restored.Content, v1.Content)
-	}
-	if restored.Source != models.SourceRollback {
-		t.Errorf("rollback source: got %q, want %q", restored.Source, models.SourceRollback)
 	}
 
 	// Should have 3 versions now (v1=original, v2=first update, v3=pre-rollback)
@@ -225,7 +218,6 @@ func TestVersionCoalescing(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/coalesce.md",
 		Content: "v1\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -245,7 +237,6 @@ func TestVersionCoalescing(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/coalesce.md",
 		Content: "v2\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update v2: %v", err)
@@ -264,7 +255,6 @@ func TestVersionCoalescing(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/coalesce.md",
 		Content: "v3\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("update v3: %v", err)
@@ -322,7 +312,6 @@ func TestVersionRetention(t *testing.T) {
 		VaultID: vaultID,
 		Path:    "/docs/retention.md",
 		Content: "v0\n",
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -343,7 +332,6 @@ func TestVersionRetention(t *testing.T) {
 			VaultID: vaultID,
 			Path:    "/docs/retention.md",
 			Content: "v" + itoa(i) + "\n",
-			Source:  models.SourceManual,
 		})
 		if err != nil {
 			t.Fatalf("update v%d: %v", i, err)

@@ -52,10 +52,10 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS content_length  ON document TYPE int;
     DEFINE FIELD IF NOT EXISTS labels       ON document TYPE array<string> DEFAULT [];
     DEFINE FIELD IF NOT EXISTS doc_type     ON document TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS source       ON document TYPE string DEFAULT "manual";
-    DEFINE FIELD IF NOT EXISTS source_path  ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
+    REMOVE FIELD IF EXISTS source ON document;
+    REMOVE FIELD IF EXISTS source_path ON document;
     DEFINE FIELD IF NOT EXISTS processed       ON document TYPE bool DEFAULT false;
     DEFINE FIELD IF NOT EXISTS last_accessed_at ON document TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS access_count     ON document TYPE int DEFAULT 0;
@@ -103,8 +103,8 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS content      ON document_version TYPE string;
     DEFINE FIELD IF NOT EXISTS content_hash ON document_version TYPE string;
     DEFINE FIELD IF NOT EXISTS title        ON document_version TYPE string;
-    DEFINE FIELD IF NOT EXISTS source       ON document_version TYPE string DEFAULT "manual";
     DEFINE FIELD IF NOT EXISTS created_at   ON document_version TYPE datetime DEFAULT time::now();
+    REMOVE FIELD IF EXISTS source ON document_version;
 
     DEFINE INDEX IF NOT EXISTS idx_version_document        ON document_version FIELDS document;
     DEFINE INDEX IF NOT EXISTS idx_version_document_version ON document_version FIELDS document, version UNIQUE;

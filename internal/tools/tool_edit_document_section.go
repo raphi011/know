@@ -125,7 +125,6 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 		VaultID: o.VaultID,
 		Path:    args.Path,
 		Content: newContent,
-		Source:  models.SourceAIGenerated,
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {

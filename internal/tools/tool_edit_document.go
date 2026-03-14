@@ -76,7 +76,6 @@ func (t *EditDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		VaultID: o.VaultID,
 		Path:    args.Path,
 		Content: args.Content,
-		Source:  models.SourceAIGenerated,
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {

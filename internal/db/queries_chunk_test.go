@@ -23,7 +23,6 @@ func TestCreateAndGetChunks(t *testing.T) {
 		Title:       "Chunk Test",
 		Content:     "long content",
 		ContentBody: "long content",
-		Source:      models.SourceManual,
 		Labels:      []string{"test"},
 	})
 	if err != nil {
@@ -65,7 +64,6 @@ func TestDeleteChunks(t *testing.T) {
 		Title:       "Chunk Delete",
 		Content:     "content",
 		ContentBody: "content",
-		Source:      models.SourceManual,
 		Labels:      []string{},
 	})
 	if err != nil {
@@ -106,7 +104,6 @@ func TestCascadeDeleteChunksOnDocumentDelete(t *testing.T) {
 		Title:       "Cascade",
 		Content:     "content",
 		ContentBody: "content",
-		Source:      models.SourceManual,
 		Labels:      []string{},
 	})
 	if err != nil {
@@ -145,7 +142,7 @@ func TestCreateChunks_WithEmbedAt(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/embed-at-test.md", Title: "Embed At Test",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -185,7 +182,7 @@ func TestClaimChunksForEmbedding(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/claim-test.md", Title: "Claim Test",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -254,7 +251,7 @@ func TestClaimChunksForEmbedding_SkipsFutureEmbedAt(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/future-embed-test.md", Title: "Future Embed",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -291,7 +288,7 @@ func TestUpdateChunkEmbedding(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/update-embed-test.md", Title: "Update Embed",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -338,7 +335,7 @@ func TestRescheduleChunkEmbedding(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/reschedule-test.md", Title: "Reschedule",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -385,7 +382,7 @@ func TestDeleteChunkByID(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/delete-chunk-byid.md", Title: "Delete Chunk",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -435,7 +432,7 @@ func TestUpdateChunkPosition(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/update-pos-test.md", Title: "Update Pos",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -478,7 +475,7 @@ func TestClaimChunksForEmbedding_RespectsLimit(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/limit-test.md", Title: "Limit Test",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
@@ -534,7 +531,7 @@ func TestRescheduleAndReclaimRoundTrip(t *testing.T) {
 
 	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
 		VaultID: vaultID, Path: "/roundtrip-test.md", Title: "Roundtrip",
-		Content: "content", ContentBody: "content", Source: models.SourceManual, Labels: []string{},
+		Content: "content", ContentBody: "content", Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateDocument failed: %v", err)
