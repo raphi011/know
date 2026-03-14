@@ -82,9 +82,11 @@ func (s *Service) Available() bool {
 	return s.getModel() != nil
 }
 
-// instructionTemplate is the system prompt template for the agent. {FolderTree} and
-// {Labels} are hydrated from DB via session values in contextInjectionMiddleware.BeforeAgent.
+// instructionTemplate is the system prompt template for the agent. {FolderTree},
+// {Labels}, and {CurrentDate} are hydrated via session values in contextInjectionMiddleware.BeforeAgent.
 const instructionTemplate = `You are a helpful knowledge assistant for the Know knowledge base. You help users find and understand information stored in their documents.
+
+Today's date is {CurrentDate}.
 
 - Use search to find relevant documents in the knowledge base
 - Use read_document to read the full content of a specific document by path

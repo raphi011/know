@@ -1,0 +1,241 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/tui"
+	"github.com/spf13/cobra"
+)
+
+var (
+	noteAPI     *apiFlags
+	noteVaultID *string
+	noteDate    string
+	noteFolder  string
+	noteEdit    bool
+)
+
+var noteCmd = &cobra.Command{
+	Use:   "note [message]",
+	Short: "Add to today's daily note",
+	Long: `Add an entry to today's daily note or open it in an editor.
+
+Modes:
+  know note "message"        Agent appends entry to today's note
+  know note -e               Open today's note in $EDITOR
+  know note -e "message"     Agent drafts, then open in editor for review
+  know note                  Print today's note to stdout
+
+The daily note is created automatically on first use with a daily-note label.
+
+Environment variables:
+  KNOW_VAULT          vault name (alternative to --vault flag)
+  KNOW_DAILY_FOLDER   folder path for daily notes (alternative to --folder flag)`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runNote,
+}
+
+func init() {
+	noteAPI = addAPIFlags(noteCmd)
+	noteVaultID = addVaultFlag(noteCmd)
+	noteCmd.Flags().StringVarP(&noteDate, "date", "d", "", "target date in YYYY-MM-DD format (default: today)")
+	noteCmd.Flags().StringVar(&noteFolder, "folder", envOrDefault("KNOW_DAILY_FOLDER", "/daily/"), "folder path for daily notes (env: KNOW_DAILY_FOLDER)")
+	noteCmd.Flags().BoolVarP(&noteEdit, "edit", "e", false, "open daily note in $EDITOR")
+}
+
+func runNote(_ *cobra.Command, args []string) error {
+	// Parse date.
+	date := noteDate
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return fmt.Errorf("invalid date %q (expected YYYY-MM-DD): %w", date, err)
+	}
+
+	// Normalize folder path.
+	folder := noteFolder
+	if !strings.HasPrefix(folder, "/") {
+		folder = "/" + folder
+	}
+	if !strings.HasSuffix(folder, "/") {
+		folder = folder + "/"
+	}
+
+	docPath := folder + date + ".md"
+	prompt := ""
+	if len(args) > 0 {
+		prompt = args[0]
+	}
+
+	ctx := context.Background()
+	client := noteAPI.newClient()
+
+	// Ensure daily note exists.
+	doc, err := ensureDailyNote(ctx, client, *noteVaultID, docPath, date)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case prompt == "" && !noteEdit:
+		// Mode A: print note to stdout.
+		fmt.Print(doc.Content)
+		return nil
+
+	case prompt != "" && !noteEdit:
+		// Mode B: agent oneshot.
+		agentClient := tui.NewClient(noteAPI.URL, noteAPI.Token)
+		return agentAppend(ctx, agentClient, docPath, prompt)
+
+	case prompt == "" && noteEdit:
+		// Mode C: editor only.
+		return editNote(ctx, client, *noteVaultID, docPath, doc.Content)
+
+	default:
+		// Mode D: agent draft then editor.
+		agentClient := tui.NewClient(noteAPI.URL, noteAPI.Token)
+		if err := agentAppend(ctx, agentClient, docPath, prompt); err != nil {
+			return err
+		}
+		updated, err := client.GetDocument(ctx, *noteVaultID, docPath)
+		if err != nil {
+			return fmt.Errorf("fetch updated note: %w", err)
+		}
+		return editNote(ctx, client, *noteVaultID, docPath, updated.Content)
+	}
+}
+
+// ensureDailyNote fetches the daily note or creates it with a template if it doesn't exist.
+func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, path, date string) (*apiclient.Document, error) {
+	doc, err := client.GetDocument(ctx, vaultID, path)
+	if err == nil {
+		return doc, nil
+	}
+
+	var httpErr *apiclient.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != 404 {
+		return nil, fmt.Errorf("check daily note: %w", err)
+	}
+
+	// Create template.
+	template := fmt.Sprintf("---\ntitle: %q\nlabels:\n  - daily-note\n---\n# %s\n", date, date)
+	doc, err = client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
+		VaultID: vaultID,
+		Path:    path,
+		Content: template,
+		Source:  "note",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create daily note: %w", err)
+	}
+
+	return doc, nil
+}
+
+// agentAppend sends a prompt to the agent to update the daily note.
+func agentAppend(ctx context.Context, agentClient *tui.Client, path, message string) error {
+	prompt := fmt.Sprintf(
+		"Update the daily note at %s. Add the following entry:\n\n%s\n\nKeep all existing content intact. Add a timestamp (%s) prefix to the new entry.",
+		path, message, time.Now().Format("15:04"),
+	)
+
+	events, err := agentClient.Chat(ctx, "", *noteVaultID, prompt, nil, true)
+	if err != nil {
+		return fmt.Errorf("start agent: %w", err)
+	}
+
+	return streamToStdout(events)
+}
+
+// streamToStdout prints agent text events to stdout until the stream ends.
+func streamToStdout(events <-chan tui.StreamEvent) error {
+	for event := range events {
+		switch event.Type {
+		case "text":
+			fmt.Print(event.Content)
+		case "error":
+			return fmt.Errorf("agent: %s", event.Content)
+		case "interrupted":
+			return fmt.Errorf("agent: interrupted")
+		case "msg_end":
+			fmt.Println()
+			return nil
+		}
+	}
+	return fmt.Errorf("agent: stream ended unexpectedly")
+}
+
+// editNote opens the note content in $EDITOR and saves changes back.
+func editNote(ctx context.Context, client *apiclient.Client, vaultID, path, content string) error {
+	updated, err := openInEditor(content)
+	if err != nil {
+		return err
+	}
+
+	if updated == content {
+		fmt.Println("no changes")
+		return nil
+	}
+
+	if _, err := client.EditDocument(ctx, apiclient.EditDocumentRequest{
+		VaultID: vaultID,
+		Path:    path,
+		Content: updated,
+		Source:  "note",
+	}); err != nil {
+		return fmt.Errorf("save note: %w", err)
+	}
+
+	fmt.Println("saved")
+	return nil
+}
+
+// openInEditor writes content to a temp file, opens $EDITOR, and returns the edited content.
+func openInEditor(content string) (string, error) {
+	tmpFile, err := os.CreateTemp("", "know-note-*.md")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath) // best-effort cleanup; OS cleans /tmp periodically
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("close temp file: %w", err)
+	}
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	if _, err := exec.LookPath(editor); err != nil {
+		return "", fmt.Errorf("editor %q not found: set $EDITOR to your preferred editor", editor)
+	}
+
+	cmd := exec.Command(editor, tmpPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("run editor: %w", err)
+	}
+
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return "", fmt.Errorf("read edited file: %w", err)
+	}
+
+	return string(data), nil
+}

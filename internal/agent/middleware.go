@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
@@ -50,8 +51,9 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 	}
 
 	vals := map[string]any{
-		"FolderTree": folderTree,
-		"Labels":     labels,
+		"FolderTree":  folderTree,
+		"Labels":      labels,
+		"CurrentDate": time.Now().Format("2006-01-02"),
 	}
 	adk.AddSessionValues(ctx, vals)
 
