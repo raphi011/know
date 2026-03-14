@@ -61,10 +61,7 @@ func (c *Client) GetWikiLinks(ctx context.Context, fromDocID string) ([]models.W
 	if err != nil {
 		return nil, fmt.Errorf("get wiki links: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // GetBacklinks returns wiki-links pointing to a document.
@@ -77,10 +74,7 @@ func (c *Client) GetBacklinks(ctx context.Context, toDocID string) ([]models.Wik
 	if err != nil {
 		return nil, fmt.Errorf("get backlinks: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // DeleteWikiLinks removes all wiki-links originating from a document.
@@ -106,10 +100,7 @@ func (c *Client) UnresolveWikiLinksToDoc(ctx context.Context, docID string) (int
 	if err != nil {
 		return 0, fmt.Errorf("unresolve wiki links to doc: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 // UpdateWikiLinkRawTargets updates raw_target for all wiki_links in a vault matching oldTarget.
@@ -125,10 +116,7 @@ func (c *Client) UpdateWikiLinkRawTargets(ctx context.Context, vaultID, oldTarge
 	if err != nil {
 		return 0, fmt.Errorf("update wiki link raw targets: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 // UpdateWikiLinkRawTargetsByPrefix updates raw_target for all wiki_links in a vault
@@ -145,10 +133,7 @@ func (c *Client) UpdateWikiLinkRawTargetsByPrefix(ctx context.Context, vaultID, 
 	if err != nil {
 		return 0, fmt.Errorf("update wiki link raw targets by prefix: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 // ResolveDanglingLinks finds dangling wiki-links in a vault matching a target
@@ -169,8 +154,5 @@ func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, t
 	if err != nil {
 		return 0, fmt.Errorf("resolve dangling links: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }

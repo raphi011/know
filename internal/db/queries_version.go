@@ -34,10 +34,7 @@ func (c *Client) CreateVersion(ctx context.Context, input models.DocumentVersion
 	if err != nil {
 		return nil, fmt.Errorf("create version: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create version: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create version")
 }
 
 // GetVersion retrieves a single version by its ID.
@@ -51,10 +48,7 @@ func (c *Client) GetVersion(ctx context.Context, id string) (*models.DocumentVer
 	if err != nil {
 		return nil, fmt.Errorf("get version: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // GetVersionByNumber retrieves a specific version by document ID and version number.
@@ -69,10 +63,7 @@ func (c *Client) GetVersionByNumber(ctx context.Context, documentID string, vers
 	if err != nil {
 		return nil, fmt.Errorf("get version by number: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // ListVersions returns versions for a document, paginated, newest first.
@@ -110,10 +101,7 @@ func (c *Client) GetLatestVersion(ctx context.Context, documentID string) (*mode
 	if err != nil {
 		return nil, fmt.Errorf("get latest version: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // CountVersions returns the total number of versions for a document.
@@ -158,10 +146,7 @@ func (c *Client) DeleteOldestVersions(ctx context.Context, documentID string, ke
 	if err != nil {
 		return 0, fmt.Errorf("delete oldest versions: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 // NextVersionNumber returns the next version number for a document.

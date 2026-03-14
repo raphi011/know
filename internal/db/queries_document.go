@@ -55,10 +55,7 @@ func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *st
 	if err != nil {
 		return nil, fmt.Errorf("list sync metadata: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // ListTombstones returns tombstones for deleted documents in a vault since the given time.
@@ -81,10 +78,7 @@ func (c *Client) ListTombstones(ctx context.Context, vaultID string, since strin
 	if err != nil {
 		return nil, fmt.Errorf("list tombstones: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
@@ -124,10 +118,7 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 	if err != nil {
 		return nil, fmt.Errorf("create document: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create document: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create document")
 }
 
 func (c *Client) GetDocumentByPath(ctx context.Context, vaultID, path string) (*models.Document, error) {
@@ -140,10 +131,7 @@ func (c *Client) GetDocumentByPath(ctx context.Context, vaultID, path string) (*
 	if err != nil {
 		return nil, fmt.Errorf("get document by path: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 func (c *Client) GetDocumentByID(ctx context.Context, id string) (*models.Document, error) {
@@ -155,10 +143,7 @@ func (c *Client) GetDocumentByID(ctx context.Context, id string) (*models.Docume
 	if err != nil {
 		return nil, fmt.Errorf("get document by id: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // DocumentOrderBy defines allowed ORDER BY clauses for document queries.
@@ -241,10 +226,7 @@ func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) 
 	if err != nil {
 		return nil, fmt.Errorf("list documents: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, labels []string, contentHash *string, metadata map[string]any) (*models.Document, error) {
@@ -278,10 +260,7 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 	if err != nil {
 		return nil, fmt.Errorf("update document: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("update document: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "update document")
 }
 
 func (c *Client) DeleteDocument(ctx context.Context, id string) error {
@@ -305,10 +284,7 @@ func (c *Client) DeleteDocumentsByPrefix(ctx context.Context, vaultID, pathPrefi
 	if err != nil {
 		return 0, fmt.Errorf("delete documents by prefix: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 // MoveDocumentsByPrefix updates all documents in a vault whose path starts with oldPrefix,
@@ -330,10 +306,7 @@ func (c *Client) MoveDocumentsByPrefix(ctx context.Context, vaultID, oldPrefix, 
 	if err != nil {
 		return 0, fmt.Errorf("move documents by prefix: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.Document, error) {
@@ -350,10 +323,7 @@ func (c *Client) MoveDocument(ctx context.Context, id, newPath string) (*models.
 	if err != nil {
 		return nil, fmt.Errorf("move document: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("move document: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "move document")
 }
 
 // ListUnprocessedDocuments returns documents that have not yet been processed by the async worker.
@@ -369,10 +339,7 @@ func (c *Client) ListUnprocessedDocuments(ctx context.Context, limit int) ([]mod
 	if err != nil {
 		return nil, fmt.Errorf("list unprocessed: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // MarkDocumentProcessed sets processed = true on a document.
@@ -439,10 +406,7 @@ func (c *Client) GetDocumentMetaByPath(ctx context.Context, vaultID, path string
 	if err != nil {
 		return nil, fmt.Errorf("get document meta by path: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // ListDocumentMetas returns lightweight metadata (no content) for documents matching the filter.
@@ -458,10 +422,7 @@ func (c *Client) ListDocumentMetas(ctx context.Context, filter ListDocumentsFilt
 	if err != nil {
 		return nil, fmt.Errorf("list document metas: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // UpsertDocument creates or updates a document by vault+path.
@@ -556,8 +517,5 @@ func (c *Client) GetDocumentsByAllLabels(ctx context.Context, vaultID string, la
 	if err != nil {
 		return nil, fmt.Errorf("get documents by all labels: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }

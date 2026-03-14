@@ -27,10 +27,7 @@ func (c *Client) CreateVaultMember(ctx context.Context, userID, vaultID string, 
 	if err != nil {
 		return nil, fmt.Errorf("create vault member: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create vault member: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create vault member")
 }
 
 // GetVaultMemberships returns all vault memberships for a user.
@@ -43,10 +40,7 @@ func (c *Client) GetVaultMemberships(ctx context.Context, userID string) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("get vault memberships: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // GetVaultMembers returns all members of a vault.
@@ -59,10 +53,7 @@ func (c *Client) GetVaultMembers(ctx context.Context, vaultID string) ([]models.
 	if err != nil {
 		return nil, fmt.Errorf("get vault members: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // UpdateVaultMemberRole updates the role of a vault member.

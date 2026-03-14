@@ -114,7 +114,7 @@ func (f *FS) OpenFile(filename string, flag int, _ os.FileMode) (billy.File, err
 
 	vaultID, err := f.resolveVault(ctx, vaultName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open %s: %w", filename, err)
 	}
 
 	// Vault root
@@ -171,7 +171,7 @@ func (f *FS) Stat(filename string) (os.FileInfo, error) {
 
 	vaultID, err := f.resolveVault(ctx, vaultName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stat %s: %w", filename, err)
 	}
 
 	// Vault root
@@ -224,7 +224,7 @@ func (f *FS) Rename(oldpath, newpath string) error {
 
 	vaultID, err := f.resolveVault(ctx, oldVault)
 	if err != nil {
-		return err
+		return fmt.Errorf("rename %s: %w", oldpath, err)
 	}
 
 	// Try as document
@@ -269,7 +269,7 @@ func (f *FS) Remove(filename string) error {
 
 	vaultID, err := f.resolveVault(ctx, vaultName)
 	if err != nil {
-		return err
+		return fmt.Errorf("remove %s: %w", filename, err)
 	}
 
 	if docPath == "/" {
@@ -320,7 +320,7 @@ func (f *FS) ReadDir(dirname string) ([]os.FileInfo, error) {
 
 	vaultID, err := f.resolveVault(ctx, vaultName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("readdir %s: %w", dirname, err)
 	}
 
 	return f.listDirEntries(ctx, vaultID, docPath)
@@ -337,7 +337,7 @@ func (f *FS) MkdirAll(filename string, _ os.FileMode) error {
 
 	vaultID, err := f.resolveVault(ctx, vaultName)
 	if err != nil {
-		return err
+		return fmt.Errorf("mkdir %s: %w", filename, err)
 	}
 
 	if docPath == "/" {

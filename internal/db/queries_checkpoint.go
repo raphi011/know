@@ -21,10 +21,10 @@ func (c *Client) GetCheckpoint(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get checkpoint: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
+	if row := firstResultOpt(results); row != nil {
+		return row.Data, nil
 	}
-	return (*results)[0].Result[0].Data, nil
+	return nil, nil
 }
 
 func (c *Client) UpsertCheckpoint(ctx context.Context, id string, data []byte) error {

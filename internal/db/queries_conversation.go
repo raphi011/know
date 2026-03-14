@@ -24,10 +24,7 @@ func (c *Client) CreateConversation(ctx context.Context, vaultID, userID string)
 	if err != nil {
 		return nil, fmt.Errorf("create conversation: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create conversation: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create conversation")
 }
 
 func (c *Client) GetConversation(ctx context.Context, id string) (*models.Conversation, error) {
@@ -39,10 +36,7 @@ func (c *Client) GetConversation(ctx context.Context, id string) (*models.Conver
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 func (c *Client) ListConversations(ctx context.Context, vaultID, userID string) ([]models.Conversation, error) {
@@ -55,10 +49,7 @@ func (c *Client) ListConversations(ctx context.Context, vaultID, userID string) 
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) UpdateConversationTitle(ctx context.Context, id, title string) error {
@@ -147,10 +138,7 @@ func (c *Client) ReconcileStaleRunningConversations(ctx context.Context) (int, e
 	if err != nil {
 		return 0, fmt.Errorf("reconcile stale running conversations: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 func (c *Client) CreateMessage(ctx context.Context, conversationID string, role models.MessageRole, content string, docRefs []string, toolName, toolInput, toolMeta, toolCallID, toolCalls *string) (*models.Message, error) {
@@ -185,10 +173,7 @@ func (c *Client) CreateMessage(ctx context.Context, conversationID string, role 
 	if err != nil {
 		return nil, fmt.Errorf("create message: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create message: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create message")
 }
 
 func (c *Client) ListMessages(ctx context.Context, conversationID string) ([]models.Message, error) {
@@ -200,8 +185,5 @@ func (c *Client) ListMessages(ctx context.Context, conversationID string) ([]mod
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }

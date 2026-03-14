@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -40,12 +39,12 @@ func (t *ReadDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	o := getToolOptions(opts...)
 
-	var input struct {
+	input, err := parseInput[struct {
 		Path     string `json:"path"`
 		Sections bool   `json:"sections"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-		return "", fmt.Errorf("parse read_document input: %w", err)
+	}](argumentsInJSON, "read_document")
+	if err != nil {
+		return "", err
 	}
 
 	start := time.Now()

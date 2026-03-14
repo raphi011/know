@@ -32,10 +32,7 @@ func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (
 	if err != nil {
 		return nil, fmt.Errorf("create folder: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create folder: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create folder")
 }
 
 // EnsureFolders idempotently creates all ancestor folders for a document path,
@@ -59,7 +56,7 @@ func (c *Client) EnsureFolders(ctx context.Context, vaultID, docPath string) err
 	}
 
 	if err := c.EnsureFolderPath(ctx, vaultID, dir); err != nil {
-		return err
+		return fmt.Errorf("ensure folders for %s: %w", docPath, err)
 	}
 
 	// Cache for 60 seconds
@@ -114,10 +111,7 @@ func (c *Client) ListFolders(ctx context.Context, vaultID string) ([]models.Fold
 	if err != nil {
 		return nil, fmt.Errorf("list folders: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // ListChildFolders returns immediate child folders of parentPath in a vault.
@@ -138,13 +132,14 @@ func (c *Client) ListChildFolders(ctx context.Context, vaultID, parentPath strin
 	if err != nil {
 		return nil, fmt.Errorf("list child folders: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
+	all := allResults(results)
+	if all == nil {
 		return nil, nil
 	}
 
 	// Filter to immediate children only (no additional "/" after prefix)
 	var children []models.Folder
-	for _, f := range (*results)[0].Result {
+	for _, f := range all {
 		rel := strings.TrimPrefix(f.Path, prefix)
 		if rel != "" && !strings.Contains(rel, "/") {
 			children = append(children, f)
@@ -164,10 +159,7 @@ func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string
 	if err != nil {
 		return nil, fmt.Errorf("get folder by path: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // DeleteFolder deletes a single folder and all its children (paths starting with folderPath + "/").
@@ -291,12 +283,4 @@ func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newP
 	}
 
 	return countResults(r1) + countResults(r2), nil
-}
-
-// countResults returns the number of results from the first statement in a query response.
-func countResults[T any](results *[]surrealdb.QueryResult[[]T]) int {
-	if results == nil || len(*results) == 0 {
-		return 0
-	}
-	return len((*results)[0].Result)
 }

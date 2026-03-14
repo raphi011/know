@@ -1,8 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -51,15 +49,8 @@ type upsertDocumentRequest struct {
 }
 
 func (s *Server) upsertDocument(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024) // 5 MB
-	var body upsertDocumentRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
-			return
-		}
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	body, ok := decodeBody[upsertDocumentRequest](w, r, 5*1024*1024) // 5 MB
+	if !ok {
 		return
 	}
 	if body.VaultID == "" || body.Path == "" {

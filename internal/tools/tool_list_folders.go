@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -35,11 +34,11 @@ func (t *ListFoldersTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 func (t *ListFoldersTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	o := getToolOptions(opts...)
 
-	var input struct {
+	input, err := parseInput[struct {
 		Parent *string `json:"parent"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-		return "", fmt.Errorf("parse list_folders input: %w", err)
+	}](argumentsInJSON, "list_folders")
+	if err != nil {
+		return "", err
 	}
 
 	start := time.Now()

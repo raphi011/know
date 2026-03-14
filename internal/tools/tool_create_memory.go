@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -54,14 +53,14 @@ func (t *CreateMemoryTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 func (t *CreateMemoryTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	o := getToolOptions(opts...)
 
-	var input struct {
+	input, err := parseInput[struct {
 		Title   string   `json:"title"`
 		Content string   `json:"content"`
 		Project string   `json:"project"`
 		Labels  []string `json:"labels"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-		return "", fmt.Errorf("parse create_memory input: %w", err)
+	}](argumentsInJSON, "create_memory")
+	if err != nil {
+		return "", err
 	}
 	if strings.TrimSpace(input.Title) == "" {
 		return "", fmt.Errorf("title is required")

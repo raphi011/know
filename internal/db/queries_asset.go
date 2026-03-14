@@ -77,10 +77,7 @@ func (c *Client) createAsset(ctx context.Context, input models.AssetInput, conte
 	if err != nil {
 		return nil, fmt.Errorf("create asset: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create asset: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create asset")
 }
 
 func (c *Client) updateAsset(ctx context.Context, input models.AssetInput, contentHash string, size int) (*models.Asset, error) {
@@ -104,10 +101,7 @@ func (c *Client) updateAsset(ctx context.Context, input models.AssetInput, conte
 	if err != nil {
 		return nil, fmt.Errorf("update asset: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("update asset: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "update asset")
 }
 
 // GetAssetByPath returns the full asset (including data) by vault+path.
@@ -121,10 +115,7 @@ func (c *Client) GetAssetByPath(ctx context.Context, vaultID, path string) (*mod
 	if err != nil {
 		return nil, fmt.Errorf("get asset by path: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // GetAssetMetaByPath returns lightweight asset metadata (no data bytes).
@@ -138,10 +129,7 @@ func (c *Client) GetAssetMetaByPath(ctx context.Context, vaultID, path string) (
 	if err != nil {
 		return nil, fmt.Errorf("get asset meta by path: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // ListAssetMetas returns lightweight metadata for assets in a vault, optionally filtered by folder prefix.
@@ -166,10 +154,7 @@ func (c *Client) ListAssetMetas(ctx context.Context, vaultID string, folder *str
 	if err != nil {
 		return nil, fmt.Errorf("list asset metas: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // DeleteAsset deletes an asset by vault+path.
@@ -197,10 +182,7 @@ func (c *Client) DeleteAssetsByPrefix(ctx context.Context, vaultID, pathPrefix s
 	if err != nil {
 		return 0, fmt.Errorf("delete assets by prefix: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }
 
 // MoveAsset updates an asset's path and mime_type.
@@ -239,8 +221,5 @@ func (c *Client) MoveAssetsByPrefix(ctx context.Context, vaultID, oldPrefix, new
 	if err != nil {
 		return 0, fmt.Errorf("move assets by prefix: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return 0, nil
-	}
-	return len((*results)[0].Result), nil
+	return countResults(results), nil
 }

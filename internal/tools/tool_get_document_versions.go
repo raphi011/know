@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -39,12 +38,12 @@ func (t *GetDocumentVersionsTool) Info(ctx context.Context) (*schema.ToolInfo, e
 func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	o := getToolOptions(opts...)
 
-	var input struct {
+	input, err := parseInput[struct {
 		Path  string `json:"path"`
 		Limit *int   `json:"limit"`
-	}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
-		return "", fmt.Errorf("parse get_document_versions input: %w", err)
+	}](argumentsInJSON, "get_document_versions")
+	if err != nil {
+		return "", err
 	}
 	if strings.TrimSpace(input.Path) == "" {
 		return "", fmt.Errorf("path is required")

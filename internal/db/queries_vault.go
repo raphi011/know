@@ -8,7 +8,6 @@ import (
 
 	"github.com/raphi011/know/internal/models"
 	"github.com/surrealdb/surrealdb.go"
-	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 func (c *Client) CreateVault(ctx context.Context, userID string, input models.VaultInput) (*models.Vault, error) {
@@ -28,10 +27,7 @@ func (c *Client) CreateVault(ctx context.Context, userID string, input models.Va
 	if err != nil {
 		return nil, fmt.Errorf("create vault: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create vault: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create vault")
 }
 
 func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID string, input models.VaultInput) (*models.Vault, error) {
@@ -52,10 +48,7 @@ func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID s
 	if err != nil {
 		return nil, fmt.Errorf("create vault with id: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create vault with id: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create vault with id")
 }
 
 func (c *Client) GetVault(ctx context.Context, id string) (*models.Vault, error) {
@@ -67,10 +60,7 @@ func (c *Client) GetVault(ctx context.Context, id string) (*models.Vault, error)
 	if err != nil {
 		return nil, fmt.Errorf("get vault: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 func (c *Client) GetVaultByName(ctx context.Context, name string) (*models.Vault, error) {
@@ -82,10 +72,7 @@ func (c *Client) GetVaultByName(ctx context.Context, name string) (*models.Vault
 	if err != nil {
 		return nil, fmt.Errorf("get vault by name: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 func (c *Client) ListVaults(ctx context.Context) ([]models.Vault, error) {
@@ -95,10 +82,7 @@ func (c *Client) ListVaults(ctx context.Context) ([]models.Vault, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list vaults: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
-		return nil, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 func (c *Client) DeleteVault(ctx context.Context, id string) error {
@@ -143,18 +127,15 @@ func (c *Client) ListDocumentPaths(ctx context.Context, vaultID string) ([]strin
 	if err != nil {
 		return nil, fmt.Errorf("list document paths: %w", err)
 	}
-	if results == nil || len(*results) == 0 {
+	rows := allResults(results)
+	if rows == nil {
 		return nil, nil
 	}
-	paths := make([]string, len((*results)[0].Result))
-	for i, r := range (*results)[0].Result {
+	paths := make([]string, len(rows))
+	for i, r := range rows {
 		paths[i] = r.Path
 	}
 	return paths, nil
-}
-
-func newRecordID(table, id string) surrealmodels.RecordID {
-	return surrealmodels.RecordID{Table: table, ID: id}
 }
 
 // VaultInfoStats holds aggregated vault statistics from a batch query.

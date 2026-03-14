@@ -24,10 +24,7 @@ func (c *Client) CreateUser(ctx context.Context, input models.UserInput) (*model
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create user: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create user")
 }
 
 func (c *Client) CreateUserWithID(ctx context.Context, userID string, input models.UserInput) (*models.User, error) {
@@ -46,10 +43,7 @@ func (c *Client) CreateUserWithID(ctx context.Context, userID string, input mode
 	if err != nil {
 		return nil, fmt.Errorf("create user with id: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, fmt.Errorf("create user with id: no result returned")
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResult(results, "create user with id")
 }
 
 func (c *Client) GetUser(ctx context.Context, id string) (*models.User, error) {
@@ -61,10 +55,7 @@ func (c *Client) GetUser(ctx context.Context, id string) (*models.User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 func (c *Client) GetUserByName(ctx context.Context, name string) (*models.User, error) {
@@ -76,10 +67,7 @@ func (c *Client) GetUserByName(ctx context.Context, name string) (*models.User, 
 	if err != nil {
 		return nil, fmt.Errorf("get user by name: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return nil, nil
-	}
-	return &(*results)[0].Result[0], nil
+	return firstResultOpt(results), nil
 }
 
 // UpdateUserSystemAdmin sets the is_system_admin flag on a user.
