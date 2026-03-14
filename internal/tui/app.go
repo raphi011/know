@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // Model is the root bubbletea model for inline chat.
@@ -479,7 +480,7 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			Status:   ToolRunning,
 		})
 	case "tool_end":
-		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete)
+		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete, msg.event.Meta)
 	case "interrupted":
 		m.pendingApproval = &msg.event
 	case "conv_id":
@@ -514,24 +515,23 @@ func (m *Model) appendText(s string) {
 	m.streamParts = append(m.streamParts, ContentPart{Type: PartText, Content: s})
 }
 
-// updateToolStatus finds a tool call part by CallID and updates its status.
+// updateToolStatus finds a tool call part by CallID and updates its status and metadata.
 // Falls back to matching by tool name if CallID is empty (older servers).
-func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus) {
+func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus, meta *tools.ToolResultMeta) {
 	for i := len(m.streamParts) - 1; i >= 0; i-- {
 		p := &m.streamParts[i]
 		if p.Type != PartToolCall {
 			continue
 		}
-		if callID != "" && p.CallID == callID {
+		matched := (callID != "" && p.CallID == callID) ||
+			(callID == "" && p.ToolName == toolName && p.Status == ToolRunning)
+		if matched {
 			p.Status = status
-			return
-		}
-		if callID == "" && p.ToolName == toolName && p.Status == ToolRunning {
-			p.Status = status
+			p.Meta = meta
 			return
 		}
 	}
-	slog.Warn("tool_end event had no matching tool_start", "callID", callID, "tool", toolName)
+	slog.Debug("tool status update: no matching part found", "callID", callID, "tool", toolName, "status", status)
 }
 
 // finalizeStream commits the streaming response to terminal scrollback

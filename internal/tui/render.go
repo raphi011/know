@@ -9,6 +9,7 @@ import (
 
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
+	"github.com/raphi011/know/internal/tools"
 )
 
 const maxTextWidth = 120
@@ -36,10 +37,11 @@ const (
 // text and tool calls to interleave naturally.
 type ContentPart struct {
 	Type     PartType
-	Content  string     // text content or error message
-	ToolName string     // for PartToolCall
-	CallID   string     // for PartToolCall — key for in-place updates
-	Status   ToolStatus // for PartToolCall
+	Content  string                // text content or error message
+	ToolName string                // for PartToolCall
+	CallID   string                // for PartToolCall — key for in-place updates
+	Status   ToolStatus            // for PartToolCall
+	Meta     *tools.ToolResultMeta // for PartToolCall — result metadata (set on tool_end)
 }
 
 // renderMarkdown renders markdown content using glamour, falling back to
@@ -62,12 +64,50 @@ func renderToolStatus(p ContentPart) string {
 	case ToolRunning:
 		return toolRoleStyle.Render(fmt.Sprintf("  Running: %s", p.ToolName))
 	case ToolComplete:
+		detail := toolDetail(p.ToolName, p.Meta)
+		if detail != "" {
+			return toolRoleStyle.Render(fmt.Sprintf("  %s: %s", p.ToolName, detail))
+		}
 		return toolRoleStyle.Render(fmt.Sprintf("  %s complete", p.ToolName))
 	case ToolFailed:
 		return toolRoleStyle.Render(fmt.Sprintf("  %s failed", p.ToolName))
 	default:
 		return toolRoleStyle.Render(fmt.Sprintf("  %s", p.ToolName))
 	}
+}
+
+// toolDetail returns a short summary string from tool result metadata.
+func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
+	if meta == nil {
+		return ""
+	}
+	switch toolName {
+	case "create_document", "edit_document", "edit_document_section",
+		"read_document", "create_memory", "get_document_versions":
+		if meta.DocumentPath != nil {
+			return *meta.DocumentPath
+		}
+	case "search_documents":
+		var parts []string
+		if meta.ResultCount != nil {
+			parts = append(parts, fmt.Sprintf("%d docs", *meta.ResultCount))
+		}
+		if meta.ChunkCount != nil {
+			parts = append(parts, fmt.Sprintf("%d chunks", *meta.ChunkCount))
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, ", ")
+		}
+	case "list_folder_contents", "list_folders", "list_labels":
+		if meta.ResultCount != nil {
+			return fmt.Sprintf("%d results", *meta.ResultCount)
+		}
+	case "web_search":
+		if meta.WebResultCount != nil {
+			return fmt.Sprintf("%d results", *meta.WebResultCount)
+		}
+	}
+	return ""
 }
 
 // renderParts renders a sequence of content parts (text, tool calls, errors).
