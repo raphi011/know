@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: zot.manx-turtle.ts.net
-  BACKEND_IMAGE: know-server
+  BACKEND_IMAGE: know
 
 jobs:
   changes:
