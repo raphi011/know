@@ -29,7 +29,7 @@ surrealdb:
 # LLM provider configuration
 llm:
   provider: ""       # none | ollama | openai | anthropic | bedrock | googleai
-  model: ""          # e.g. claude-sonnet-4-20250514, gemini-2.0-flash
+  model: ""          # e.g. claude-sonnet-4-20250514, gemini-2.5-flash
 
 # Embedding provider configuration
 embedding:
