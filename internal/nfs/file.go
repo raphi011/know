@@ -111,7 +111,6 @@ func (f *writeFile) Close() error {
 		VaultID: f.vaultID,
 		Path:    f.path,
 		Content: content,
-		Source:  models.SourceManual,
 	})
 	if err != nil {
 		f.logger.Error("failed to save document on close",
