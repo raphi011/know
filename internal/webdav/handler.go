@@ -16,13 +16,13 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/net/webdav"
 
-	"github.com/raphi011/knowhow/internal/asset"
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/asset"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/vault"
 )
 
 // vaultMap is a lazily-initialized, concurrent-safe per-vault store.
@@ -51,7 +51,7 @@ func (vm *vaultMap[T]) Range(fn func(vaultID string, v T) bool) {
 
 // NewHandler creates an http.Handler that serves WebDAV for vault documents.
 // The path prefix is stripped from incoming requests (e.g. "/dav/default/").
-// Auth uses HTTP Basic Auth where the password is a knowhow API token.
+// Auth uses HTTP Basic Auth where the password is a know API token.
 // maxPutBytes limits the size of PUT request bodies (0 = no limit).
 func NewHandler(
 	ctx context.Context,
@@ -137,7 +137,7 @@ func NewHandler(
 		if !noAuth {
 			_, password, ok := r.BasicAuth()
 			if !ok || password == "" {
-				w.Header().Set("WWW-Authenticate", `Basic realm="knowhow"`)
+				w.Header().Set("WWW-Authenticate", `Basic realm="know"`)
 				http.Error(w, "authentication required", http.StatusUnauthorized)
 				return
 			}

@@ -11,10 +11,10 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // --- contextInjectionMiddleware: inject doc refs + text attachments + session values ---

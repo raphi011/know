@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/memory"
-	"github.com/raphi011/knowhow/internal/remote"
-	"github.com/raphi011/knowhow/internal/tools"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/memory"
+	"github.com/raphi011/know/internal/remote"
+	"github.com/raphi011/know/internal/tools"
+	"github.com/raphi011/know/internal/vault"
 )
 
 type mcpTools struct {

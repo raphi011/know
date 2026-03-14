@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: zot.manx-turtle.ts.net
-  BACKEND_IMAGE: knowhow-server
+  BACKEND_IMAGE: know-server
 
 jobs:
   changes:
@@ -59,7 +59,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep '^appVersion' helm/knowhow/Chart.yaml | awk '{print $2}' | tr -d '"')
+          VERSION=$(grep '^appVersion' helm/know/Chart.yaml | awk '{print $2}' | tr -d '"')
           if [ -z "$VERSION" ]; then
             echo "::error::Failed to extract appVersion from Chart.yaml"
             exit 1
@@ -99,5 +99,5 @@ jobs:
 
       - name: Package and push Helm chart
         run: |
-          helm package helm/knowhow/
-          helm push knowhow-*.tgz oci://${{ env.REGISTRY }}
+          helm package helm/know/
+          helm push know-*.tgz oci://${{ env.REGISTRY }}

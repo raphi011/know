@@ -1,10 +1,10 @@
-// Package api provides REST API handlers for Knowhow.
+// Package api provides REST API handlers for Know.
 package api
 
 import (
 	"time"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 // Vault is the JSON representation of a vault.

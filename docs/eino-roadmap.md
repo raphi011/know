@@ -1,6 +1,6 @@
 # Eino Full Migration Roadmap
 
-Knowhow uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level primitives. The entire agent loop, tool dispatch, observability, state management, and approval workflow are hand-rolled. Eino provides production-ready solutions for all of these.
+Know uses CloudWeGo's Eino framework (v0.8.1) but only leverages low-level primitives. The entire agent loop, tool dispatch, observability, state management, and approval workflow are hand-rolled. Eino provides production-ready solutions for all of these.
 
 **Goal**: Replace all custom agent/orchestration code with eino's built-in capabilities end-to-end.
 
@@ -257,7 +257,7 @@ Biggest change — eliminated ~500 lines of custom orchestration, replaced with 
 | `internal/db/schema.go` | `agent_checkpoint` table definition |
 | `internal/tui/app.go` | Handle `interrupted` event, `resubscribeAfterApproval()` |
 | `internal/tui/client.go` | `InterruptID` field, updated `Approve()` to send `interruptId` |
-| `cmd/knowhow/cmd_serve.go` | Route `HandleApproval` via `AgentRunner()` |
+| `cmd/know/cmd_serve.go` | Route `HandleApproval` via `AgentRunner()` |
 
 ### Effort: M
 

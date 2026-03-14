@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/remote"
-	"github.com/raphi011/knowhow/internal/tools"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/remote"
+	"github.com/raphi011/know/internal/tools"
+	"github.com/raphi011/know/internal/vault"
 )
 
 // VaultRef is a resolved vault reference with its executor and namespace.

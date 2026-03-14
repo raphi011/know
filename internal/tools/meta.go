@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 type resultMetaKey struct{}

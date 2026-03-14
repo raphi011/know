@@ -1,4 +1,4 @@
-# Knowhow
+# Know
 
 An MCP (Model Context Protocol) server in Go that provides a persistent knowledge layer for AI agents, backed by SurrealDB. Includes a bubbletea v2 TUI for agent chat and a WebDAV server for document editing.
 
@@ -72,7 +72,7 @@ return fmt.Errorf("create document: %w", err)
 **Error strings must start with a lowercase letter** (per Go convention / `staticcheck ST1005`):
 - `fmt.Errorf("create vault: %w", err)` — correct
 - `fmt.Errorf("Create vault: %w", err)` — wrong
-- Proper nouns and acronyms that are normally capitalized (e.g. `KNOWHOW_BEDROCK_*`, `HTTP 500`) are fine
+- Proper nouns and acronyms that are normally capitalized (e.g. `KNOW_BEDROCK_*`, `HTTP 500`) are fine
 
 ## Structured Logging & Instrumentation
 
@@ -116,7 +116,7 @@ ctx = logutil.WithLogger(ctx, logger)
 
 ### Environment variables
 
-All env vars use the `KNOWHOW_` prefix: `KNOWHOW_LOG_LEVEL`, `KNOWHOW_LOG_FILE`, etc.
+All env vars use the `KNOW_` prefix: `KNOW_LOG_LEVEL`, `KNOW_LOG_FILE`, etc.
 
 ## REST API
 
@@ -170,7 +170,7 @@ Best practices, framework gotchas, and library references have been moved to the
 ### Project Structure
 
 ```
-cmd/knowhow/            # Single binary: CLI (cp, config, ui, db seed, db wipe) + server (serve)
+cmd/know/            # Single binary: CLI (cp, config, ui, db seed, db wipe) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -217,7 +217,7 @@ just bootstrap
 # 3. Start server with live-reload
 just dev
 
-# 4. Copy documents (KNOWHOW_TOKEN is set by justfile)
+# 4. Copy documents (KNOW_TOKEN is set by justfile)
 just run cp ./docs / --vault default
 
 # 5. Launch TUI
@@ -226,7 +226,7 @@ just run agent
 
 ## Bubbletea v2 TUI
 
-The TUI at `internal/tui/` provides agent chat via `knowhow agent`. Use the `bubbletea` subagent for TUI implementation.
+The TUI at `internal/tui/` provides agent chat via `know agent`. Use the `bubbletea` subagent for TUI implementation.
 
 ### Import Paths (v2)
 

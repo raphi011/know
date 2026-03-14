@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/parser"
-	"github.com/raphi011/knowhow/internal/search"
-	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/search"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // setupExecutor creates a vault and returns a tools.Executor wired to the test DB.

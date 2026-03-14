@@ -14,21 +14,21 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
 # Build single binary
-RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /knowhow ./cmd/knowhow
+RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /know ./cmd/know
 
 # Runtime
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S -g 1000 knowhow \
-    && adduser -S -u 1000 -G knowhow knowhow
+    && addgroup -S -g 1000 know \
+    && adduser -S -u 1000 -G know know
 
-COPY --from=go-builder /knowhow /usr/local/bin/knowhow
+COPY --from=go-builder /know /usr/local/bin/know
 
-USER knowhow
+USER know
 
 EXPOSE 8484
 
-ENV KNOWHOW_SERVER_PORT=8484
+ENV KNOW_SERVER_PORT=8484
 
-ENTRYPOINT ["knowhow", "serve"]
+ENTRYPOINT ["know", "serve"]

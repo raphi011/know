@@ -13,15 +13,15 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/diff"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/llm"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/parser"
-	"github.com/raphi011/knowhow/internal/search"
-	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/diff"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/llm"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/search"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // StreamEvent is sent to the client via SSE.
@@ -92,7 +92,7 @@ func (s *Service) Available() bool {
 
 // instructionTemplate is the system prompt template for the agent. {FolderTree} and
 // {Labels} are hydrated from DB via session values in contextInjectionMiddleware.BeforeAgent.
-const instructionTemplate = `You are a helpful knowledge assistant for the Knowhow knowledge base. You help users find and understand information stored in their documents.
+const instructionTemplate = `You are a helpful knowledge assistant for the Know knowledge base. You help users find and understand information stored in their documents.
 
 - Use search to find relevant documents in the knowledge base
 - Use read_document to read the full content of a specific document by path
@@ -299,7 +299,7 @@ func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatReq
 	}
 
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "knowhow",
+		Name:        "know",
 		Description: "Knowledge base assistant",
 		Model:       model.BaseChatModel(),
 		ToolsConfig: adk.ToolsConfig{

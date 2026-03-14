@@ -1,12 +1,12 @@
 ---
 name: github-issue
 description: |
-  Manage GitHub issues for the knowhow project. Use when the user wants to create, list, search, view, update, or close issues, or when discussing bugs/features that should become issues. Triggers on: "create issue", "file a bug", "feature request", "list issues", "close issue", "open issue", "github issue", "report bug", "add to project board", or when the user says something like "this should be an issue" or "let's track this".
+  Manage GitHub issues for the know project. Use when the user wants to create, list, search, view, update, or close issues, or when discussing bugs/features that should become issues. Triggers on: "create issue", "file a bug", "feature request", "list issues", "close issue", "open issue", "github issue", "report bug", "add to project board", or when the user says something like "this should be an issue" or "let's track this".
 ---
 
 # GitHub Issue Management
 
-You are managing GitHub issues for the `knowhow` repository. All operations use the `gh` CLI.
+You are managing GitHub issues for the `know` repository. All operations use the `gh` CLI.
 
 ## 1. Detect Action
 
@@ -79,7 +79,7 @@ Ask: "Create this issue? You can suggest edits or approve."
 # Create the issue
 gh issue create --title "<title>" --body "<body>" --label "<label>"
 
-# Add to project board (Knowhow project #4)
+# Add to project board (Know project #4)
 gh project item-add 4 --owner raphi011 --url <issue-url>
 ```
 
@@ -147,7 +147,7 @@ gh issue close <number> --comment "<reason>"
 gh project item-add 4 --owner raphi011 --url <issue-url>
 ```
 
-The issue URL format is `https://github.com/raphi011/knowhow/issues/<number>`.
+The issue URL format is `https://github.com/raphi011/know/issues/<number>`.
 
 ## Available Labels
 

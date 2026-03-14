@@ -6,7 +6,7 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// Remote represents a connection to another knowhow server.
+// Remote represents a connection to another know server.
 type Remote struct {
 	ID        surrealmodels.RecordID `json:"id"`
 	Name      string                 `json:"name"`

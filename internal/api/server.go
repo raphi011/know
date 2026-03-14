@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/raphi011/knowhow/internal/server"
+	"github.com/raphi011/know/internal/server"
 )
 
 // Server holds the REST API handlers.

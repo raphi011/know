@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
 )
 
 func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {

@@ -9,9 +9,9 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/parser"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/parser"
 )
 
 // ReadDocumentTool implements tool.InvokableTool for reading a document by path.

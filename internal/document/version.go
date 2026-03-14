@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 // maybeCreateVersion snapshots the old document content as a version if the

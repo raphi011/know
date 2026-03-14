@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
 )
 
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +60,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Phase 2: Write tar.gz to temp file.
-	tmp, err := os.CreateTemp("", "knowhow-backup-*.tar.gz")
+	tmp, err := os.CreateTemp("", "know-backup-*.tar.gz")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("create temp file: %v", err))
 		return
@@ -120,7 +120,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 
 	bareVault := models.BareID("vault", vaultID)
 	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="knowhow-backup-%s.tar.gz"`, bareVault))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="know-backup-%s.tar.gz"`, bareVault))
 	http.ServeContent(w, r, "", time.Time{}, tmp)
 }
 

@@ -14,7 +14,7 @@ Key capabilities:
 - **Full CRUD** — Create, read, update, and delete documents and folders
 - **Document pipeline** — Saves trigger parsing, embedding, linking, and chunking
 - **Markdown-only** — Only `.md` files can be created
-- **Token auth** — SSH password authentication using knowhow API tokens
+- **Token auth** — SSH password authentication using know API tokens
 
 ## Setup & Configuration
 
@@ -22,13 +22,13 @@ Key capabilities:
 
 | Variable | Default | Description |
 |---|---|---|
-| `KNOWHOW_SSH_ENABLED` | `false` | Enable the SSH/SFTP server |
-| `KNOWHOW_SSH_PORT` | `2222` | Port to listen on |
-| `KNOWHOW_SSH_HOST_KEY` | (auto-generate) | Path to host key file; generates Ed25519 key to `~/.knowhow/host_key` if not set |
+| `KNOW_SSH_ENABLED` | `false` | Enable the SSH/SFTP server |
+| `KNOW_SSH_PORT` | `2222` | Port to listen on |
+| `KNOW_SSH_HOST_KEY` | (auto-generate) | Path to host key file; generates Ed25519 key to `~/.know/host_key` if not set |
 
 ### Authentication
 
-SSH password authentication where the password is a knowhow API token (username is ignored), matching the WebDAV auth pattern.
+SSH password authentication where the password is a know API token (username is ignored), matching the WebDAV auth pattern.
 
 ## Usage
 
@@ -56,7 +56,7 @@ sftp -P 2222 anyuser@localhost
 - "Upload all markdown files from `./notes/` into the `default` vault"
 - "Download every document from the `research` vault for offline reading"
 - "Batch rename files in a vault using a shell script over SFTP"
-- "Sync a local folder with a knowhow vault using `lftp mirror`"
+- "Sync a local folder with a know vault using `lftp mirror`"
 
 ### GUI Clients
 

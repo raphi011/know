@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
 )
 
 // HandleEvents returns an HTTP handler for GET /events that streams change events via SSE.

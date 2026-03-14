@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/cloudwego/eino/adk"
-	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/know/internal/db"
 )
 
 // Compile-time interface assertion.

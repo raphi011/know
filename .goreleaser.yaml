@@ -4,15 +4,15 @@ before:
   hooks:
     - go mod tidy
     - mkdir -p completions
-    - sh -c "go run -buildvcs=false ./cmd/knowhow completion bash > completions/knowhow.bash"
-    - sh -c "go run -buildvcs=false ./cmd/knowhow completion zsh > completions/_knowhow"
-    - sh -c "go run -buildvcs=false ./cmd/knowhow completion fish > completions/knowhow.fish"
-    - sh -c "test -s completions/knowhow.bash && test -s completions/_knowhow && test -s completions/knowhow.fish"
+    - sh -c "go run -buildvcs=false ./cmd/know completion bash > completions/know.bash"
+    - sh -c "go run -buildvcs=false ./cmd/know completion zsh > completions/_know"
+    - sh -c "go run -buildvcs=false ./cmd/know completion fish > completions/know.fish"
+    - sh -c "test -s completions/know.bash && test -s completions/_know && test -s completions/know.fish"
 
 builds:
-  - id: knowhow
-    main: ./cmd/knowhow
-    binary: knowhow
+  - id: know
+    main: ./cmd/know
+    binary: know
     env:
       - CGO_ENABLED=0
     goos:
@@ -62,15 +62,15 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/raphi011/knowhow"
+    homepage: "https://github.com/raphi011/know"
     description: "Knowledge management CLI with AI-powered search"
     license: "MIT"
     extra_install: |
-      bash_completion.install "completions/knowhow.bash" => "knowhow"
-      zsh_completion.install "completions/_knowhow"
-      fish_completion.install "completions/knowhow.fish"
+      bash_completion.install "completions/know.bash" => "know"
+      zsh_completion.install "completions/_know"
+      fish_completion.install "completions/know.fish"
     service: |
-      run [opt_bin/"knowhow", "serve"]
+      run [opt_bin/"know", "serve"]
       keep_alive true
-      log_path var/"log/knowhow.log"
-      error_log_path var/"log/knowhow.log"
+      log_path var/"log/know.log"
+      error_log_path var/"log/know.log"

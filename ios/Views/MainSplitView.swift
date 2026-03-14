@@ -3,7 +3,7 @@ import SwiftData
 import SwiftUI
 
 struct MainSplitView: View {
-    let service: KnowhowService
+    let service: KnowService
 
     @Environment(AuthService.self) private var authService
     @Environment(SyncEngine.self) private var syncEngine
@@ -29,7 +29,7 @@ struct MainSplitView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
-                .navigationTitle("Knowhow")
+                .navigationTitle("Know")
                 .searchable(text: $searchQuery, isPresented: $isSearchPresented, prompt: "Search documents...")
                 .onChange(of: searchQuery) { _, newValue in
                     debounceSearch(newValue)
@@ -198,7 +198,7 @@ struct MainSplitView: View {
 // MARK: - Sidebar Vault Section
 
 private struct SidebarVaultSection: View {
-    let service: KnowhowService
+    let service: KnowService
     let vault: Vault
 
     @Binding var selectedDocumentId: String?
@@ -210,7 +210,7 @@ private struct SidebarVaultSection: View {
     @Query private var syncStates: [SyncState]
 
     init(
-        service: KnowhowService,
+        service: KnowService,
         vault: Vault,
         selectedDocumentId: Binding<String?>,
         selectedDocumentRef: Binding<DocumentReference?>

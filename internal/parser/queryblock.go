@@ -31,7 +31,7 @@ type Condition struct {
 	Value string
 }
 
-// QueryBlock represents a parsed knowhow query block.
+// QueryBlock represents a parsed know query block.
 type QueryBlock struct {
 	Index      int         // byte offset of opening ``` in content
 	RawQuery   string      // raw DSL text inside the fences
@@ -46,7 +46,7 @@ type QueryBlock struct {
 }
 
 var (
-	knowhowBlockRegex = regexp.MustCompile("(?s)```knowhow\\n(.*?)```")
+	knowBlockRegex = regexp.MustCompile("(?s)```know\\n(.*?)```")
 	whereRegex        = regexp.MustCompile(`(?i)^WHERE\s+(.+)$`)
 	fromRegex         = regexp.MustCompile(`(?i)^FROM\s+(\S+)$`)
 	showRegex         = regexp.MustCompile(`(?i)^SHOW\s+(.+)$`)
@@ -59,9 +59,9 @@ var (
 	condContainsRegex = regexp.MustCompile(`(?i)^(\w+)\s+CONTAINS\s+"([^"]+)"$`)
 )
 
-// ExtractQueryBlocks finds all ```knowhow blocks in content and parses them.
+// ExtractQueryBlocks finds all ```know blocks in content and parses them.
 func ExtractQueryBlocks(content string) []QueryBlock {
-	matches := knowhowBlockRegex.FindAllStringSubmatchIndex(content, -1)
+	matches := knowBlockRegex.FindAllStringSubmatchIndex(content, -1)
 	if len(matches) == 0 {
 		return nil
 	}

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/parser"
+	"github.com/raphi011/know/internal/parser"
 )
 
 // LLMProvider identifies the LLM provider.
@@ -65,9 +65,9 @@ type Config struct {
 	MCPEnabled        bool // serve MCP endpoint at /mcp (default: true)
 
 	// SSH/SFTP server
-	SSHEnabled     bool   // KNOWHOW_SSH_ENABLED (default: false)
-	SSHPort        string // KNOWHOW_SSH_PORT (default: "2222")
-	SSHHostKeyPath string // KNOWHOW_SSH_HOST_KEY (default: "" = auto-generate)
+	SSHEnabled     bool   // KNOW_SSH_ENABLED (default: false)
+	SSHPort        string // KNOW_SSH_PORT (default: "2222")
+	SSHHostKeyPath string // KNOW_SSH_HOST_KEY (default: "" = auto-generate)
 
 	// Embedding worker settings
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
@@ -83,14 +83,14 @@ type Config struct {
 	ChunkMaxSize    int // maximum chunk size in chars (default: 4000)
 
 	// Embedding input limit
-	EmbedMaxInputChars int // max chars per embedding API call, 0 = no limit (KNOWHOW_EMBED_MAX_INPUT_CHARS)
+	EmbedMaxInputChars int // max chars per embedding API call, 0 = no limit (KNOW_EMBED_MAX_INPUT_CHARS)
 
 	// Versioning settings
 	VersionCoalesceMinutes int // minutes between version snapshots (default: 10)
 	VersionRetentionCount  int // max versions per document (default: 50)
 
 	// TLS settings
-	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOWHOW_TLS_SKIP_VERIFY)
+	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOW_TLS_SKIP_VERIFY)
 }
 
 // ChunkConfig returns the raw chunking configuration as a parser.ChunkConfig.
@@ -137,16 +137,16 @@ func (c Config) EffectiveChunkConfig() parser.ChunkConfig {
 
 // Load reads configuration from environment variables.
 func Load() Config {
-	embedMaxInputChars := getEnvInt("KNOWHOW_EMBED_MAX_INPUT_CHARS", 0)
+	embedMaxInputChars := getEnvInt("KNOW_EMBED_MAX_INPUT_CHARS", 0)
 	if embedMaxInputChars < 0 {
-		slog.Warn("KNOWHOW_EMBED_MAX_INPUT_CHARS is negative, treating as 0 (no limit)",
+		slog.Warn("KNOW_EMBED_MAX_INPUT_CHARS is negative, treating as 0 (no limit)",
 			"configured", embedMaxInputChars)
 		embedMaxInputChars = 0
 	}
 
-	llmContextWindow := getEnvInt("KNOWHOW_LLM_CONTEXT_WINDOW", 0)
+	llmContextWindow := getEnvInt("KNOW_LLM_CONTEXT_WINDOW", 0)
 	if llmContextWindow < 0 {
-		slog.Warn("KNOWHOW_LLM_CONTEXT_WINDOW is negative, treating as 0 (use registry default)",
+		slog.Warn("KNOW_LLM_CONTEXT_WINDOW is negative, treating as 0 (use registry default)",
 			"configured", llmContextWindow)
 		llmContextWindow = 0
 	}
@@ -161,14 +161,14 @@ func Load() Config {
 		SurrealDBAuthLevel: getEnv("SURREALDB_AUTH_LEVEL", "root"),
 
 		// Embedding (default to none — configure per instance)
-		EmbedProvider:             LLMProvider(getEnv("KNOWHOW_EMBED_PROVIDER", "none")),
-		EmbedModel:                getEnv("KNOWHOW_EMBED_MODEL", ""),
-		EmbedDimension:            getEnvInt("KNOWHOW_EMBED_DIMENSION", 768),
-		BedrockEmbedModelProvider: getEnv("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
+		EmbedProvider:             LLMProvider(getEnv("KNOW_EMBED_PROVIDER", "none")),
+		EmbedModel:                getEnv("KNOW_EMBED_MODEL", ""),
+		EmbedDimension:            getEnvInt("KNOW_EMBED_DIMENSION", 768),
+		BedrockEmbedModelProvider: getEnv("KNOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
 
 		// LLM (default to Anthropic)
-		LLMProvider:      LLMProvider(getEnv("KNOWHOW_LLM_PROVIDER", "anthropic")),
-		LLMModel:         getEnv("KNOWHOW_LLM_MODEL", "claude-sonnet-4-20250514"),
+		LLMProvider:      LLMProvider(getEnv("KNOW_LLM_PROVIDER", "anthropic")),
+		LLMModel:         getEnv("KNOW_LLM_MODEL", "claude-sonnet-4-20250514"),
 		LLMContextWindow: llmContextWindow,
 
 		// Provider hosts/keys
@@ -179,39 +179,39 @@ func Load() Config {
 		TavilyAPIKey:    getEnv("TAVILY_API_KEY", ""),
 
 		// Logging
-		LogFile:  getEnv("KNOWHOW_LOG_FILE", ""),
-		LogLevel: parseLogLevel(getEnv("KNOWHOW_LOG_LEVEL", "INFO")),
+		LogFile:  getEnv("KNOW_LOG_FILE", ""),
+		LogLevel: parseLogLevel(getEnv("KNOW_LOG_LEVEL", "INFO")),
 
 		// Server settings
-		IngestConcurrency: getEnvInt("KNOWHOW_INGEST_CONCURRENCY", 4),
-		NoAuth:            getEnvBool("KNOWHOW_NO_AUTH", false),
-		MCPEnabled:        getEnvBool("KNOWHOW_MCP_ENABLED", true),
-		SSHEnabled:        getEnvBool("KNOWHOW_SSH_ENABLED", false),
-		SSHPort:           getEnv("KNOWHOW_SSH_PORT", "2222"),
-		SSHHostKeyPath:    getEnv("KNOWHOW_SSH_HOST_KEY", ""),
+		IngestConcurrency: getEnvInt("KNOW_INGEST_CONCURRENCY", 4),
+		NoAuth:            getEnvBool("KNOW_NO_AUTH", false),
+		MCPEnabled:        getEnvBool("KNOW_MCP_ENABLED", true),
+		SSHEnabled:        getEnvBool("KNOW_SSH_ENABLED", false),
+		SSHPort:           getEnv("KNOW_SSH_PORT", "2222"),
+		SSHHostKeyPath:    getEnv("KNOW_SSH_HOST_KEY", ""),
 
 		// Embedding worker
-		EmbedWorkerInterval: getEnvInt("KNOWHOW_EMBED_WORKER_INTERVAL", 5),
-		EmbedWorkerBatch:    getEnvInt("KNOWHOW_EMBED_WORKER_BATCH", 10),
+		EmbedWorkerInterval: getEnvInt("KNOW_EMBED_WORKER_INTERVAL", 5),
+		EmbedWorkerBatch:    getEnvInt("KNOW_EMBED_WORKER_BATCH", 10),
 
 		// Processing worker
-		ProcessingWorkerInterval: getEnvInt("KNOWHOW_PROCESSING_WORKER_INTERVAL", 2),
-		ProcessingWorkerBatch:    getEnvInt("KNOWHOW_PROCESSING_WORKER_BATCH", 20),
+		ProcessingWorkerInterval: getEnvInt("KNOW_PROCESSING_WORKER_INTERVAL", 2),
+		ProcessingWorkerBatch:    getEnvInt("KNOW_PROCESSING_WORKER_BATCH", 20),
 
 		// Chunking
-		ChunkThreshold:  getEnvInt("KNOWHOW_CHUNK_THRESHOLD", 6000),
-		ChunkTargetSize: getEnvInt("KNOWHOW_CHUNK_TARGET_SIZE", 3000),
-		ChunkMaxSize:    getEnvInt("KNOWHOW_CHUNK_MAX_SIZE", 4000),
+		ChunkThreshold:  getEnvInt("KNOW_CHUNK_THRESHOLD", 6000),
+		ChunkTargetSize: getEnvInt("KNOW_CHUNK_TARGET_SIZE", 3000),
+		ChunkMaxSize:    getEnvInt("KNOW_CHUNK_MAX_SIZE", 4000),
 
 		// Embedding input limit (0 = no limit; Cohere Embed v3 on Bedrock: 2048)
 		EmbedMaxInputChars: embedMaxInputChars,
 
 		// Versioning
-		VersionCoalesceMinutes: getEnvInt("KNOWHOW_VERSION_COALESCE_MINUTES", 10),
-		VersionRetentionCount:  getEnvInt("KNOWHOW_VERSION_RETENTION", 50),
+		VersionCoalesceMinutes: getEnvInt("KNOW_VERSION_COALESCE_MINUTES", 10),
+		VersionRetentionCount:  getEnvInt("KNOW_VERSION_RETENTION", 50),
 
 		// TLS
-		TLSSkipVerify: getEnvBool("KNOWHOW_TLS_SKIP_VERIFY", false),
+		TLSSkipVerify: getEnvBool("KNOW_TLS_SKIP_VERIFY", false),
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // WebSearchTool is an agent-only InvokableTool that wraps the Tavily web search API.

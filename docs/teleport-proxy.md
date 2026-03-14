@@ -65,7 +65,7 @@ Source: `tool/tsh/common/app_aws.go` — `GetAWSCredentialsProvider()` generates
 
 **Root cause**: eino-ext passes `Config.HTTPClient` (*http.Client) to `awsConfig.WithHTTPClient()`. When `AWS_CA_BUNDLE` is set, the AWS SDK's `resolveCustomCABundle` does a type assertion to `*awshttp.BuildableClient`, which fails on a plain `*http.Client` → panic.
 
-**Workaround**: Unset `AWS_CA_BUNDLE` before creating the eino-ext client. When `KNOWHOW_TLS_SKIP_VERIFY=true`, `AWS_CA_BUNDLE` is no longer set in `.env` at all, so the panic path is avoided entirely.
+**Workaround**: Unset `AWS_CA_BUNDLE` before creating the eino-ext client. When `KNOW_TLS_SKIP_VERIFY=true`, `AWS_CA_BUNDLE` is no longer set in `.env` at all, so the panic path is avoided entirely.
 
 **Status**: Fixed in `internal/llm/model.go:newBedrockChatModel()`. CA bundle unset kept as defensive measure.
 
@@ -75,7 +75,7 @@ Source: `tool/tsh/common/app_aws.go` — `GetAWSCredentialsProvider()` generates
 
 **Root cause**: In eino-ext's Bedrock path (`claude.go:86-105`), the `HTTPClient` is only passed to `awsConfig.WithHTTPClient()` (for SigV4 signing), NOT to `option.WithHTTPClient()` (for actual API calls). The Anthropic SDK always uses `http.DefaultClient` for Bedrock requests.
 
-**Workaround**: When `KNOWHOW_TLS_SKIP_VERIFY=true`, set `InsecureSkipVerify` on `http.DefaultTransport`. Fallback: patch `http.DefaultTransport` with the proxy CA cert when skip-verify is off.
+**Workaround**: When `KNOW_TLS_SKIP_VERIFY=true`, set `InsecureSkipVerify` on `http.DefaultTransport`. Fallback: patch `http.DefaultTransport` with the proxy CA cert when skip-verify is off.
 
 **Status**: Fixed in `internal/llm/model.go:skipVerifyDefaultTransport()` / `addCAToDefaultTransport()`.
 
@@ -83,11 +83,11 @@ Source: `tool/tsh/common/app_aws.go` — `GetAWSCredentialsProvider()` generates
 
 **Symptom**: Intermittent TLS certificate errors. Requests fail with "certificate signed by unknown authority" even though the proxy is running.
 
-**Root cause**: Multiple `tsh` sessions (e.g., `tsh proxy aws` for knowhow AND `tsh aws --exec claude` for Claude Code) all write their CA certs to the **same file** at `~/.tsh/keys/<host>/<user>-app/<cluster>/<app>-localca.pem`. Each new session overwrites the previous cert. The proxy uses the cert from when IT started, but the app reads the file later — by which point a different session may have overwritten it.
+**Root cause**: Multiple `tsh` sessions (e.g., `tsh proxy aws` for know AND `tsh aws --exec claude` for Claude Code) all write their CA certs to the **same file** at `~/.tsh/keys/<host>/<user>-app/<cluster>/<app>-localca.pem`. Each new session overwrites the previous cert. The proxy uses the cert from when IT started, but the app reads the file later — by which point a different session may have overwritten it.
 
-**Resolution**: With `KNOWHOW_TLS_SKIP_VERIFY=true`, the CA cert file is no longer needed — TLS verification is skipped for the local proxy. The proxy is always on `127.0.0.1`, so MITM is not a concern. The old CA cert snapshot workaround has been removed from `bedrock-setup.fish`.
+**Resolution**: With `KNOW_TLS_SKIP_VERIFY=true`, the CA cert file is no longer needed — TLS verification is skipped for the local proxy. The proxy is always on `127.0.0.1`, so MITM is not a concern. The old CA cert snapshot workaround has been removed from `bedrock-setup.fish`.
 
-**Status**: Resolved by `KNOWHOW_TLS_SKIP_VERIFY`.
+**Status**: Resolved by `KNOW_TLS_SKIP_VERIFY`.
 
 ### Issue 4: 400 Bad Request from Proxy — RESOLVED
 

@@ -8,9 +8,9 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
 )
 
 // EditDocumentTool implements tool.InvokableTool for editing a document's full content.

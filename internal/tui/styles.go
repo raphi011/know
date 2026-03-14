@@ -18,7 +18,7 @@ var (
 
 // Banner returns the styled startup banner for printing before bubbletea starts.
 func Banner() string {
-	return headerStyle.Render("knowhow")
+	return headerStyle.Render("know")
 }
 
 var (

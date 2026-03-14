@@ -25,7 +25,7 @@ struct LoginView: View {
                 } header: {
                     Text("Connection")
                 } footer: {
-                    Text("Enter your Knowhow server URL and API token (starts with kh_).")
+                    Text("Enter your Know server URL and API token (starts with kh_).")
                 }
 
                 if let displayError = errorMessage ?? restoreError?.localizedDescription {
@@ -50,7 +50,7 @@ struct LoginView: View {
                     .disabled(serverURL.isEmpty || token.isEmpty || isLoading)
                 }
             }
-            .navigationTitle("Knowhow")
+            .navigationTitle("Know")
             .onAppear {
                 let storedURL = authService.serverURL
                 if !storedURL.isEmpty {

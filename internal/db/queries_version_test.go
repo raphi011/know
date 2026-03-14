@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 func createTestDocument(t *testing.T, ctx context.Context, vaultID string) *models.Document {

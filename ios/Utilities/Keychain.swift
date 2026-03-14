@@ -3,7 +3,7 @@ import Security
 
 /// Thin wrapper around the Security framework for storing credentials.
 enum Keychain {
-    private static let service = "com.knowhow.ios"
+    private static let service = "com.know.ios"
 
     static func save(key: String, value: String) throws {
         let data = Data(value.utf8)

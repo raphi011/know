@@ -6,11 +6,11 @@ import (
 	"sync"
 
 	"github.com/cloudwego/eino/components/tool"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/memory"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/search"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/memory"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/search"
 )
 
 // ToolExecutor defines the interface for executing tools against a vault.

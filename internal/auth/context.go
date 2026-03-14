@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 // VaultInfo is the minimal vault data needed for auth resolution.

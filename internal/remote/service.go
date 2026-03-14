@@ -1,4 +1,4 @@
-// Package remote manages connections to other knowhow servers for federation.
+// Package remote manages connections to other know servers for federation.
 package remote
 
 import (
@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
 )
 
 // RemoteVault represents a vault on a remote server with its namespaced name.

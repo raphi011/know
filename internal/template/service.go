@@ -3,8 +3,8 @@ package template
 import (
 	"context"
 
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/models"
 )
 
 // Service manages template CRUD operations.

@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import OSLog
 
-private let logger = Logger(subsystem: "com.knowhow", category: "SyncEngine")
+private let logger = Logger(subsystem: "com.know", category: "SyncEngine")
 
 /// Orchestrates metadata sync, on-demand content fetching, and SSE streaming.
 @MainActor
@@ -15,10 +15,10 @@ final class SyncEngine {
     }
 
     private(set) var status: Status = .idle
-    private(set) var service: KnowhowService?
+    private(set) var service: KnowService?
     private var sseTask: Task<Void, Never>?
 
-    func configure(service: KnowhowService?) {
+    func configure(service: KnowService?) {
         self.service = service
     }
 

@@ -19,9 +19,9 @@ import (
 	ollamaembed "github.com/cloudwego/eino-ext/components/embedding/ollama"
 	openaiembed "github.com/cloudwego/eino-ext/components/embedding/openai"
 	"github.com/cloudwego/eino/components/embedding"
-	"github.com/raphi011/knowhow/internal/config"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/metrics"
+	"github.com/raphi011/know/internal/config"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	bedrockembed "github.com/tmc/langchaingo/embeddings/bedrock"
 	"google.golang.org/genai"
 )
@@ -233,7 +233,7 @@ func newBedrockEmbedder(ctx context.Context, modelID, providerHint string, tlsSk
 		} else if strings.HasPrefix(modelID, "cohere.") {
 			provider = "cohere"
 		} else if strings.HasPrefix(modelID, "arn:") {
-			return nil, fmt.Errorf("KNOWHOW_BEDROCK_EMBED_MODEL_PROVIDER required for ARN-based model: %s", modelID)
+			return nil, fmt.Errorf("KNOW_BEDROCK_EMBED_MODEL_PROVIDER required for ARN-based model: %s", modelID)
 		} else {
 			provider = strings.Split(modelID, ".")[0]
 		}

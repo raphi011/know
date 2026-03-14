@@ -1,4 +1,4 @@
-# Knowhow
+# Know
 
 Personal knowledge RAG database - like Obsidian / second brain but searchable, indexable, and AI-augmented.
 
@@ -20,10 +20,10 @@ Store any type of knowledge (people, services, concepts, documents) with flexibl
 
 ```bash
 # Homebrew (macOS/Linux)
-brew install raphi011/tap/knowhow
+brew install raphi011/tap/know
 
 # Or build from source
-go build -o knowhow ./cmd/knowhow
+go build -o know ./cmd/know
 ```
 
 ### Prerequisites
@@ -38,16 +38,16 @@ go build -o knowhow ./cmd/knowhow
 surreal start --user root --pass root
 
 # 2. Bootstrap (creates user, vault, token)
-knowhow db seed
+know db seed
 
 # 3. Start the server
-knowhow serve
+know serve
 
 # 4. Copy documents into a vault
-knowhow cp ./docs / --vault default
+know cp ./docs / --vault default
 
 # 5. Launch the agent chat TUI
-knowhow agent
+know agent
 ```
 
 ## Configuration
@@ -61,12 +61,12 @@ SURREALDB_USER=root
 SURREALDB_PASS=root
 
 # Embedding Provider (googleai | anthropic | openai | bedrock | ollama)
-KNOWHOW_EMBED_PROVIDER=googleai
-KNOWHOW_EMBED_MODEL=gemini-embedding-001
+KNOW_EMBED_PROVIDER=googleai
+KNOW_EMBED_MODEL=gemini-embedding-001
 
 # LLM Provider (anthropic | openai | googleai | bedrock | ollama)
-KNOWHOW_LLM_PROVIDER=anthropic
-KNOWHOW_LLM_MODEL=claude-sonnet-4-20250514
+KNOW_LLM_PROVIDER=anthropic
+KNOW_LLM_MODEL=claude-sonnet-4-20250514
 
 # Provider API Keys
 GOOGLE_AI_API_KEY=...

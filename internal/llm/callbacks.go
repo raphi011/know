@@ -7,7 +7,7 @@ import (
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
-	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 type startTimeKey struct{}

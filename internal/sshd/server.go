@@ -1,5 +1,5 @@
 // Package sshd provides an SSH server with SFTP subsystem for accessing
-// knowhow documents. Authentication uses knowhow API tokens as SSH passwords.
+// know documents. Authentication uses know API tokens as SSH passwords.
 package sshd
 
 import (
@@ -21,14 +21,14 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/vault"
 )
 
-// Server is an SSH server that serves SFTP for knowhow documents.
+// Server is an SSH server that serves SFTP for know documents.
 type Server struct {
 	listener   net.Listener
 	sshConfig  *ssh.ServerConfig
@@ -43,7 +43,7 @@ type Server struct {
 }
 
 // NewServer creates a new SSH server. If hostKeyPath is empty, an Ed25519 key
-// is auto-generated at ~/.knowhow/host_key.
+// is auto-generated at ~/.know/host_key.
 func NewServer(
 	ln net.Listener,
 	dbClient *db.Client,
@@ -273,7 +273,7 @@ func loadOrGenerateHostKey(path string) (ed25519.PrivateKey, error) {
 		if err != nil {
 			return nil, fmt.Errorf("user home dir: %w", err)
 		}
-		path = filepath.Join(home, ".knowhow", "host_key")
+		path = filepath.Join(home, ".know", "host_key")
 	}
 
 	// Try loading existing key
