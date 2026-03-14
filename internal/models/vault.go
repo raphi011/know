@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -23,43 +24,90 @@ type VaultSettings struct {
 	MemoryArchiveThreshold float64 `json:"memory_archive_threshold,omitempty"`
 	MemoryDecayHalfLife    int     `json:"memory_decay_half_life,omitempty"`
 	TemplatePath           string  `json:"template_path,omitempty"`
+	DailyNotePath          string  `json:"daily_note_path,omitempty"`
 }
 
-// DefaultTemplatePath is the default folder for template documents.
-const DefaultTemplatePath = "/templates"
+const (
+	// DefaultTemplatePath is the default folder for template documents.
+	DefaultTemplatePath = "/templates"
+	// DefaultDailyNotePath is the default folder for daily notes.
+	DefaultDailyNotePath = "/daily"
+	// DefaultMemoryPath is the default folder for memories.
+	DefaultMemoryPath = "/memories"
+	// DefaultMemoryMergeThreshold is the cosine similarity above which memories are merge candidates.
+	DefaultMemoryMergeThreshold = 0.95
+	// DefaultMemoryArchiveThreshold is the score below which memories are auto-archived.
+	DefaultMemoryArchiveThreshold = 0.2
+	// DefaultMemoryDecayHalfLife is the half-life in days for memory recency decay.
+	DefaultMemoryDecayHalfLife = 30
+)
 
-// MemoryDefaults returns the vault's memory settings with defaults applied.
-func (v *Vault) MemoryDefaults() VaultSettings {
-	s := VaultSettings{
-		MemoryPath:             "/memories",
-		MemoryMergeThreshold:   0.95,
-		MemoryArchiveThreshold: 0.2,
-		MemoryDecayHalfLife:    30,
+// Validate checks that all non-zero fields in VaultSettings are within valid ranges.
+func (s VaultSettings) Validate() error {
+	if s.MemoryMergeThreshold < 0 || s.MemoryMergeThreshold > 1 {
+		return fmt.Errorf("memory_merge_threshold must be between 0 and 1, got %g", s.MemoryMergeThreshold)
 	}
-	if v.Settings == nil {
-		return s
+	if s.MemoryArchiveThreshold < 0 || s.MemoryArchiveThreshold > 1 {
+		return fmt.Errorf("memory_archive_threshold must be between 0 and 1, got %g", s.MemoryArchiveThreshold)
 	}
-	if v.Settings.MemoryPath != "" {
-		s.MemoryPath = v.Settings.MemoryPath
+	if s.MemoryDecayHalfLife < 0 {
+		return fmt.Errorf("memory_decay_half_life must be non-negative, got %d", s.MemoryDecayHalfLife)
 	}
-	if v.Settings.MemoryMergeThreshold > 0 {
-		s.MemoryMergeThreshold = v.Settings.MemoryMergeThreshold
+	return nil
+}
+
+// Merge overlays non-zero fields from patch onto s and returns the result.
+func (s VaultSettings) Merge(patch VaultSettings) VaultSettings {
+	if patch.MemoryPath != "" {
+		s.MemoryPath = patch.MemoryPath
 	}
-	if v.Settings.MemoryArchiveThreshold > 0 {
-		s.MemoryArchiveThreshold = v.Settings.MemoryArchiveThreshold
+	if patch.MemoryMergeThreshold > 0 {
+		s.MemoryMergeThreshold = patch.MemoryMergeThreshold
 	}
-	if v.Settings.MemoryDecayHalfLife > 0 {
-		s.MemoryDecayHalfLife = v.Settings.MemoryDecayHalfLife
+	if patch.MemoryArchiveThreshold > 0 {
+		s.MemoryArchiveThreshold = patch.MemoryArchiveThreshold
+	}
+	if patch.MemoryDecayHalfLife > 0 {
+		s.MemoryDecayHalfLife = patch.MemoryDecayHalfLife
+	}
+	if patch.TemplatePath != "" {
+		s.TemplatePath = patch.TemplatePath
+	}
+	if patch.DailyNotePath != "" {
+		s.DailyNotePath = patch.DailyNotePath
 	}
 	return s
 }
 
+// Defaults returns the vault's settings with all defaults applied.
+func (v *Vault) Defaults() VaultSettings {
+	s := VaultSettings{
+		MemoryPath:             DefaultMemoryPath,
+		MemoryMergeThreshold:   DefaultMemoryMergeThreshold,
+		MemoryArchiveThreshold: DefaultMemoryArchiveThreshold,
+		MemoryDecayHalfLife:    DefaultMemoryDecayHalfLife,
+		TemplatePath:           DefaultTemplatePath,
+		DailyNotePath:          DefaultDailyNotePath,
+	}
+	if v.Settings == nil {
+		return s
+	}
+	return s.Merge(*v.Settings)
+}
+
+// MemoryDefaults returns the vault's memory settings with defaults applied.
+func (v *Vault) MemoryDefaults() VaultSettings {
+	return v.Defaults()
+}
+
 // TemplatePath returns the vault's configured template path, or the default.
 func (v *Vault) TemplatePath() string {
-	if v.Settings != nil && v.Settings.TemplatePath != "" {
-		return v.Settings.TemplatePath
-	}
-	return DefaultTemplatePath
+	return v.Defaults().TemplatePath
+}
+
+// DailyNotePath returns the vault's configured daily note path, or the default.
+func (v *Vault) DailyNotePath() string {
+	return v.Defaults().DailyNotePath
 }
 
 type VaultInput struct {

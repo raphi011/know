@@ -115,6 +115,21 @@ func (c *Client) DeleteVault(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdateVaultSettings replaces the vault's settings with the provided value.
+// The caller is responsible for merging defaults before calling this.
+func (c *Client) UpdateVaultSettings(ctx context.Context, vaultID string, settings models.VaultSettings) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.update_settings", time.Now())
+	sql := `UPDATE type::record("vault", $id) SET settings = $settings RETURN AFTER`
+	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
+		"id":       bareID("vault", vaultID),
+		"settings": settings,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("update vault settings: %w", err)
+	}
+	return firstResult(results, "update vault settings")
+}
+
 // ListDocumentPaths returns all document paths in a vault (for folder derivation).
 func (c *Client) ListDocumentPaths(ctx context.Context, vaultID string) ([]string, error) {
 	defer c.logOp(ctx, "vault.list_document_paths", time.Now())
