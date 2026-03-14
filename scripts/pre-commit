@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook: auto-fix Go files with goimports, go fix, and go mod tidy.
+# These tools only rewrite files — they never fail the commit.
+#
+
+set -o pipefail
+
+# Only run if there are staged Go files
+staged_go=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+[ -z "$staged_go" ] && exit 0
+
+# Resolve module root (for worktree setups where .git is a file)
+module_root=$(git rev-parse --show-toplevel)
+
+# Track whether we re-staged anything
+restaged=false
+
+# 1. goimports (superset of gofmt: format + fix imports)
+if command -v goimports &>/dev/null; then
+	echo "$staged_go" | while IFS= read -r f; do
+		[ -f "$module_root/$f" ] && goimports -w "$module_root/$f"
+	done
+	# Re-stage any modified files
+	echo "$staged_go" | while IFS= read -r f; do
+		[ -f "$module_root/$f" ] && git add "$module_root/$f"
+	done
+	restaged=true
+elif command -v gofmt &>/dev/null; then
+	# Fallback to gofmt if goimports not installed
+	echo "$staged_go" | while IFS= read -r f; do
+		[ -f "$module_root/$f" ] && gofmt -w "$module_root/$f"
+	done
+	echo "$staged_go" | while IFS= read -r f; do
+		[ -f "$module_root/$f" ] && git add "$module_root/$f"
+	done
+	restaged=true
+fi
+
+# 2. go fix (Go 1.26+ modernizers)
+goversion=$(go version | grep -oE 'go1\.([0-9]+)' | grep -oE '[0-9]+$')
+if [ "${goversion:-0}" -ge 26 ]; then
+	cd "$module_root" || exit 0
+	go fix ./... 2>/dev/null || true
+	# Re-stage any files that go fix modified
+	echo "$staged_go" | while IFS= read -r f; do
+		[ -f "$module_root/$f" ] && git add "$module_root/$f"
+	done
+	restaged=true
+fi
+
+# 3. go mod tidy
+cd "$module_root" || exit 0
+go mod tidy 2>/dev/null || true
+git add go.mod go.sum 2>/dev/null || true
+
+exit 0

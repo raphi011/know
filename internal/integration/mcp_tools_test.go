@@ -771,12 +771,16 @@ func TestToolsExecutor_ReadDocument_NotFound(t *testing.T) {
 	exec, vaultID := setupExecutor(t, "read-404")
 	ctx := context.Background()
 
-	result, _, err := exec.ExecuteTool(ctx, vaultID, "read_document", `{"path":"/nonexistent.md"}`)
-	if err != nil {
-		t.Fatalf("read_document: %v", err)
+	_, _, err := exec.ExecuteTool(ctx, vaultID, "read_document", `{"path":"/nonexistent.md"}`)
+	if err == nil {
+		t.Fatal("expected error for reading nonexistent document")
 	}
-	if !strings.Contains(result, "Document not found") {
-		t.Errorf("expected 'Document not found', got: %s", result)
+	var toolErr *tools.ToolError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("expected ToolError, got %T: %v", err, err)
+	}
+	if !strings.Contains(toolErr.Message, "document not found") {
+		t.Errorf("expected 'document not found' in error, got: %s", toolErr.Message)
 	}
 }
 

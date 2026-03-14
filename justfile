@@ -61,6 +61,13 @@ run *args: build
 install:
     GOBIN="$HOME/go/bin" CGO_ENABLED=0 go install -buildvcs=false ./cmd/know
 
+# Install git pre-commit hook (auto-fixes: goimports, go fix, go mod tidy)
+install-hooks:
+    @hooks_dir=$(git rev-parse --git-common-dir)/hooks && \
+    cp scripts/pre-commit "$hooks_dir/pre-commit" && \
+    chmod +x "$hooks_dir/pre-commit" && \
+    echo "Pre-commit hook installed to $hooks_dir/pre-commit"
+
 # Build snapshot release locally (requires goreleaser)
 snapshot:
     goreleaser release --snapshot --clean

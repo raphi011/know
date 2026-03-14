@@ -20,9 +20,9 @@ type SearchTool struct {
 func (t *SearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "search",
-		Desc: "Search the knowledge base for relevant documents",
+		Desc: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"query": {Type: schema.String, Desc: "The search query", Required: true},
+			"query": {Type: schema.String, Desc: "Search query text", Required: true},
 		}),
 	}, nil
 }

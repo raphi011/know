@@ -56,7 +56,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 	if doc == nil {
 		SetResultMeta(ctx, &ToolResultMeta{DurationMs: durationMs})
-		return fmt.Sprintf("Document not found: %s", input.Path), nil
+		return "", &ToolError{Message: fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", input.Path)}
 	}
 
 	var sb strings.Builder

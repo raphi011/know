@@ -60,7 +60,7 @@ func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON s
 		return "", fmt.Errorf("check existing document: %w", err)
 	}
 	if existing != nil {
-		return "", &ToolError{Message: fmt.Sprintf("document already exists at path: %s", args.Path)}
+		return "", &ToolError{Message: fmt.Sprintf("document already exists at path: %s. Use edit_document to update it or choose a different path", args.Path)}
 	}
 
 	start := time.Now()
