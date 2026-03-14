@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/models"
 	"golang.org/x/crypto/ssh"
 )
 

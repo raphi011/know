@@ -5,7 +5,7 @@ import (
 )
 
 func TestExtractQueryBlocks_SingleBlock(t *testing.T) {
-	content := "# My Doc\n\nSome text.\n\n```knowhow\nFROM /projects\nWHERE labels CONTAIN \"go\"\nSHOW title, labels, updated_at\nSORT updated_at DESC\nLIMIT 10\n```\n\nMore text."
+	content := "# My Doc\n\nSome text.\n\n```know\nFROM /projects\nWHERE labels CONTAIN \"go\"\nSHOW title, labels, updated_at\nSORT updated_at DESC\nLIMIT 10\n```\n\nMore text."
 
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
@@ -42,7 +42,7 @@ func TestExtractQueryBlocks_NoBlocks(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_MultipleBlocks(t *testing.T) {
-	content := "```knowhow\nFROM /a\n```\n\ntext\n\n```knowhow\nWHERE type = \"note\"\nSHOW title, path, labels\n```"
+	content := "```know\nFROM /a\n```\n\ntext\n\n```know\nWHERE type = \"note\"\nSHOW title, path, labels\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
@@ -56,7 +56,7 @@ func TestExtractQueryBlocks_MultipleBlocks(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_DefaultValues(t *testing.T) {
-	content := "```knowhow\nFROM /docs\n```"
+	content := "```know\nFROM /docs\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
@@ -75,7 +75,7 @@ func TestExtractQueryBlocks_DefaultValues(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_WhereConditions(t *testing.T) {
-	content := "```knowhow\nWHERE labels CONTAIN \"go\"\nWHERE type = \"note\"\nWHERE title CONTAINS \"setup\"\n```"
+	content := "```know\nWHERE labels CONTAIN \"go\"\nWHERE type = \"note\"\nWHERE title CONTAINS \"setup\"\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
@@ -101,9 +101,9 @@ func TestExtractQueryBlocks_FormatDetection(t *testing.T) {
 		content string
 		want    QueryFormat
 	}{
-		{"no SHOW = list", "```knowhow\nFROM /a\n```", FormatList},
-		{"2 fields = list", "```knowhow\nSHOW title, path\n```", FormatList},
-		{"3+ fields = table", "```knowhow\nSHOW title, path, labels\n```", FormatTable},
+		{"no SHOW = list", "```know\nFROM /a\n```", FormatList},
+		{"2 fields = list", "```know\nSHOW title, path\n```", FormatList},
+		{"3+ fields = table", "```know\nSHOW title, path, labels\n```", FormatTable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestExtractQueryBlocks_FormatDetection(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_MalformedBlock(t *testing.T) {
-	content := "```knowhow\nGARBAGE nonsense\n```"
+	content := "```know\nGARBAGE nonsense\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
@@ -130,7 +130,7 @@ func TestExtractQueryBlocks_MalformedBlock(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_IndexTracking(t *testing.T) {
-	content := "prefix\n\n```knowhow\nFROM /a\n```"
+	content := "prefix\n\n```know\nFROM /a\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))

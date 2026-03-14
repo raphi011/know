@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 // ProcessingWorker polls for unprocessed documents and runs the deferred

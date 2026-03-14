@@ -1,4 +1,4 @@
-// Package tui provides a bubbletea v2 inline terminal UI for Knowhow.
+// Package tui provides a bubbletea v2 inline terminal UI for Know.
 package tui
 
 import (
@@ -12,8 +12,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
-	"github.com/raphi011/knowhow/internal/api"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/api"
+	"github.com/raphi011/know/internal/models"
 )
 
 // Model is the root bubbletea model for inline chat.

@@ -1,5 +1,5 @@
 // Package mcptools provides an embedded MCP server handler that exposes
-// knowhow tools over the Model Context Protocol.
+// know tools over the Model Context Protocol.
 package mcptools
 
 import (
@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/memory"
-	"github.com/raphi011/knowhow/internal/remote"
-	"github.com/raphi011/knowhow/internal/tools"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/memory"
+	"github.com/raphi011/know/internal/remote"
+	"github.com/raphi011/know/internal/tools"
+	"github.com/raphi011/know/internal/vault"
 )
 
-// NewHandler creates the MCP HTTP handler that serves knowhow tools at the
+// NewHandler creates the MCP HTTP handler that serves know tools at the
 // given path. Auth is handled externally via auth.Middleware wrapping this handler.
 // remoteService and memoryService may be nil if not configured.
 func NewHandler(executor tools.ToolExecutor, dbClient *db.Client, vaultService *vault.Service, remoteService *remote.Service, memoryService *memory.Service) http.Handler {
@@ -28,7 +28,7 @@ func NewHandler(executor tools.ToolExecutor, dbClient *db.Client, vaultService *
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "knowhow",
+		Name:    "know",
 		Version: "0.1.0",
 	}, nil)
 

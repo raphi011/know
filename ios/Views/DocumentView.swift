@@ -8,7 +8,7 @@ enum DocumentReference {
 }
 
 struct DocumentView: View {
-    let service: KnowhowService
+    let service: KnowService
     let reference: DocumentReference
 
     @Environment(SyncEngine.self) private var syncEngine

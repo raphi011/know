@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/llm"
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/pathutil"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/llm"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/pathutil"
 )
 
 // ScoredMemory is a memory document with its computed relevance score.

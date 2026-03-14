@@ -15,11 +15,11 @@ import (
 
 	"github.com/pkg/sftp"
 
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/vault"
 )
 
 // maxDocSize is the maximum allowed document size via SFTP (10 MB).

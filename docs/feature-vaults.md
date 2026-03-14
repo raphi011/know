@@ -1,6 +1,6 @@
 # Vaults
 
-Vaults are the top-level organizational unit in Knowhow, providing isolated document collections with role-based access control, folder hierarchies, and shareable public links.
+Vaults are the top-level organizational unit in Know, providing isolated document collections with role-based access control, folder hierarchies, and shareable public links.
 
 ## Overview
 
@@ -21,21 +21,21 @@ Documents are organized into first-class folders backed by database records. Fol
 
 ```bash
 # List root of default vault
-knowhow ls
+know ls
 
 # List a specific directory
-knowhow ls /docs
+know ls /docs
 
 # Recursive listing
-knowhow ls /docs -R
+know ls /docs -R
 
 # List in a specific vault
-knowhow ls --vault my-vault /notes
+know ls --vault my-vault /notes
 ```
 
 ## Access Control
 
-Knowhow uses role-based access control at the vault level. Each vault member is assigned one of three roles:
+Know uses role-based access control at the vault level. Each vault member is assigned one of three roles:
 
 | Role    | Level | Capabilities                                    |
 |---------|-------|-------------------------------------------------|
@@ -63,13 +63,13 @@ Share links provide public, read-only access to documents or folders without req
 
 ```bash
 # Show stats for all vaults (documents, chunks, embeddings, labels, members, etc.)
-knowhow vault
+know vault
 
 # Show stats for a specific vault
-knowhow vault default
+know vault default
 
 # Specify a custom API URL
-knowhow vault my-vault --api-url http://localhost:4001
+know vault my-vault --api-url http://localhost:4001
 ```
 
 ## Reference
@@ -78,4 +78,4 @@ knowhow vault my-vault --api-url http://localhost:4001
 - Access control is enforced in `internal/auth/` (token validation, role checks)
 - Folder operations live in `internal/document/` (create, move, delete with cascading)
 - Share link logic is in `internal/auth/` (token generation, hash storage, scoped access)
-- CLI commands: `knowhow vault`, `knowhow ls`
+- CLI commands: `know vault`, `know ls`

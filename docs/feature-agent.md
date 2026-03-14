@@ -30,7 +30,7 @@ Conversation management is automatic: conversations are created on the first mes
 
 ## TUI Chat
 
-The `knowhow agent` command launches a terminal chat UI powered by Bubbletea v2.
+The `know agent` command launches a terminal chat UI powered by Bubbletea v2.
 
 ### File Attachments
 
@@ -72,7 +72,7 @@ When the agent creates or edits documents, changes are shown inline as a diff fo
 
 **Auto-Approve Mode:** A per-conversation toggle (shield icon in the TUI) skips the approval step and applies all changes immediately.
 
-**MCP clients:** When using knowhow as an MCP server, tool approval is handled by the MCP client's native approval mechanism instead.
+**MCP clients:** When using know as an MCP server, tool approval is handled by the MCP client's native approval mechanism instead.
 
 ## Usage
 

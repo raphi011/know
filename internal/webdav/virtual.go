@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/net/webdav"
 
-	"github.com/raphi011/knowhow/internal/db"
+	"github.com/raphi011/know/internal/db"
 )
 
 // VirtualFile generates dynamic markdown content from DB state.

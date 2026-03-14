@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 // NoAuthMiddleware injects an admin AuthContext with access to all vaults,

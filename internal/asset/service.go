@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/event"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/event"
+	"github.com/raphi011/know/internal/models"
 )
 
 // Service manages asset lifecycle: validate, store, serve.

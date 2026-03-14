@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/raphi011/knowhow/internal/diff"
+import "github.com/raphi011/know/internal/diff"
 
 // ApprovalAction is the user's decision on a tool approval request.
 type ApprovalAction string

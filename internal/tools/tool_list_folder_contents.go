@@ -9,8 +9,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/pathutil"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/pathutil"
 )
 
 // ListFolderContentsTool implements tool.InvokableTool for listing folder contents.

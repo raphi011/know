@@ -2,7 +2,7 @@ package tools
 
 import "github.com/cloudwego/eino/components/tool"
 
-// toolOptions holds custom options for knowhow tools.
+// toolOptions holds custom options for know tools.
 type toolOptions struct {
 	VaultID string
 }
@@ -14,7 +14,7 @@ func WithVaultID(vaultID string) tool.Option {
 	})
 }
 
-// getToolOptions extracts knowhow-specific options from eino tool options.
+// getToolOptions extracts know-specific options from eino tool options.
 func getToolOptions(opts ...tool.Option) *toolOptions {
 	return tool.GetImplSpecificOptions(&toolOptions{}, opts...)
 }

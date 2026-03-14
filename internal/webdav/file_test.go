@@ -8,7 +8,7 @@ import (
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 func TestReadFile(t *testing.T) {

@@ -4,7 +4,7 @@ Hybrid search combining semantic understanding and keyword matching to find rele
 
 ## Overview
 
-Knowhow uses a hybrid search architecture that fuses two complementary retrieval strategies:
+Know uses a hybrid search architecture that fuses two complementary retrieval strategies:
 
 - **Vector search** (semantic similarity): Handles paraphrasing, synonyms, and conceptual queries. Uses embeddings to find documents that are semantically close to the query even when exact words differ.
 - **BM25 fulltext search** (keyword matching): Handles exact names, technical terms, and specific keywords that semantic search might miss.

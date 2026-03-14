@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/apiclient"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // Executor implements tools.ToolExecutor by proxying tool calls to a remote
-// knowhow server via its REST API.
+// know server via its REST API.
 type Executor struct {
 	client     *apiclient.Client
 	remoteName string

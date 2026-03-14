@@ -1,6 +1,6 @@
-name: Knowhow
+name: Know
 options:
-  bundleIdPrefix: com.knowhow
+  bundleIdPrefix: com.know
   deploymentTarget:
     iOS: "18.0"
   xcodeVersion: "16.0"
@@ -12,7 +12,7 @@ packages:
     from: "2.4.1"
 
 targets:
-  Knowhow:
+  Know:
     type: application
     platform: iOS
     sources:
@@ -34,20 +34,20 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.knowhow.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.know.ios
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
-        CODE_SIGN_ENTITLEMENTS: Knowhow.entitlements
+        CODE_SIGN_ENTITLEMENTS: Know.entitlements
 
-  KnowhowTests:
+  KnowTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: Tests
     dependencies:
-      - target: Knowhow
+      - target: Know
     settings:
       base:
         SWIFT_VERSION: "6.0"

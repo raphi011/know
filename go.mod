@@ -1,4 +1,4 @@
-module github.com/raphi011/knowhow
+module github.com/raphi011/know
 
 go 1.26.0
 

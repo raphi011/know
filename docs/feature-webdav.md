@@ -21,7 +21,7 @@ Key capabilities:
 
 ### Authentication
 
-Auth uses HTTP Basic Auth. The username can be anything; the password is a knowhow API token. A `noAuth` mode is available for local development.
+Auth uses HTTP Basic Auth. The username can be anything; the password is a know API token. A `noAuth` mode is available for local development.
 
 ### Mounting a Vault
 

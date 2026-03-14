@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/api"
-	"github.com/raphi011/knowhow/internal/apiclient"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/api"
+	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/models"
 )
 
 // Client wraps apiclient.Client with TUI-specific methods.

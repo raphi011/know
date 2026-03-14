@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/raphi011/knowhow/internal/tools"
+	"github.com/raphi011/know/internal/tools"
 )
 
 func TestIsToolLevelError(t *testing.T) {

@@ -1,10 +1,10 @@
 # Document Ingestion Pipeline
 
-The ingestion pipeline handles copying, parsing, embedding, and chunking documents into knowhow vaults. It processes markdown files through a multi-stage pipeline that extracts metadata, resolves relations, and generates vector embeddings for semantic search.
+The ingestion pipeline handles copying, parsing, embedding, and chunking documents into know vaults. It processes markdown files through a multi-stage pipeline that extracts metadata, resolves relations, and generates vector embeddings for semantic search.
 
 ## Overview
 
-When a document is ingested via `knowhow cp` or the WebDAV interface, it passes through the full document pipeline: **parse -> embed -> link -> chunk**. Unchanged files are automatically skipped based on content hash comparison, and every update creates an immutable version for rollback support.
+When a document is ingested via `know cp` or the WebDAV interface, it passes through the full document pipeline: **parse -> embed -> link -> chunk**. Unchanged files are automatically skipped based on content hash comparison, and every update creates an immutable version for rollback support.
 
 ## How It Works
 
@@ -58,7 +58,7 @@ Relations require write access on the source vault and read access on the target
 
 ### Query Blocks
 
-Documents can embed live queries using an inline DSL inside `knowhow` code blocks. These support `FROM`, `WHERE`, `SHOW`, `SORT`, and `LIMIT` clauses. Output format depends on the number of `SHOW` fields: 1-2 fields render as a list, 3+ fields render as a table.
+Documents can embed live queries using an inline DSL inside `know` code blocks. These support `FROM`, `WHERE`, `SHOW`, `SORT`, and `LIMIT` clauses. Output format depends on the number of `SHOW` fields: 1-2 fields render as a list, 3+ fields render as a table.
 
 ## Usage
 
@@ -66,23 +66,23 @@ Documents can embed live queries using an inline DSL inside `knowhow` code block
 
 ```bash
 # Copy top-level files (unchanged files are automatically skipped)
-knowhow cp ./docs / --vault default
+know cp ./docs / --vault default
 
 # Recursive copy with labels
-knowhow cp ./notes /notes --vault default -r --labels "personal"
+know cp ./notes /notes --vault default -r --labels "personal"
 
 # Dry run (preview which files would be copied)
-knowhow cp ./wiki /wiki --vault default --dry-run
+know cp ./wiki /wiki --vault default --dry-run
 
 # Force overwrite files with different content hash
-knowhow cp ./docs /docs --vault default --force
+know cp ./docs /docs --vault default --force
 ```
 
 Writing a file through the WebDAV interface also triggers the full pipeline on save.
 
 ## Reference
 
-### CLI Flags for `knowhow cp`
+### CLI Flags for `know cp`
 
 | Flag | Description |
 |------|-------------|
@@ -92,10 +92,10 @@ Writing a file through the WebDAV interface also triggers the full pipeline on s
 | `--dry-run` | Preview without changes |
 | `-l, --labels` | Comma-separated labels to apply |
 | `--source` | Document source tag (default: `cp`) |
-| `--api-url` | REST API base URL (default: `KNOWHOW_SERVER_URL` or `http://localhost:8484`) |
-| `--token` | API bearer token (or `KNOWHOW_TOKEN`) |
+| `--api-url` | REST API base URL (default: `KNOW_SERVER_URL` or `http://localhost:8484`) |
+| `--token` | API bearer token (or `KNOW_TOKEN`) |
 
 ### Environment Variables
 
-- `KNOWHOW_SERVER_URL` -- REST API base URL (alternative to `--api-url`)
-- `KNOWHOW_TOKEN` -- API bearer token (alternative to `--token`)
+- `KNOW_SERVER_URL` -- REST API base URL (alternative to `--api-url`)
+- `KNOW_TOKEN` -- API bearer token (alternative to `--token`)

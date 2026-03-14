@@ -11,9 +11,9 @@ import (
 	"path"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/asset"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/asset"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
 )
 
 // readFile provides read-only access to a document's content.

@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/api"
-	"github.com/raphi011/knowhow/internal/asset"
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/parser"
-	"github.com/raphi011/knowhow/internal/server"
+	"github.com/raphi011/know/internal/api"
+	"github.com/raphi011/know/internal/asset"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/server"
 )
 
 // bulkResponse mirrors the server response structure.

@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/asset"
-	"github.com/raphi011/knowhow/internal/auth"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/parser"
-	"github.com/raphi011/knowhow/internal/vault"
-	knowhowdav "github.com/raphi011/knowhow/internal/webdav"
+	"github.com/raphi011/know/internal/asset"
+	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/vault"
+	knowdav "github.com/raphi011/know/internal/webdav"
 )
 
 // mustNewRequest creates an HTTP request, failing the test on error.
@@ -60,7 +60,7 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	assetSvc := asset.NewService(testDB, nil)
-	handler := knowhowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -450,7 +450,7 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 
 	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 	assetSvc := asset.NewService(testDB, nil)
-	handler := knowhowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 

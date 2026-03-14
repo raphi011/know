@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 // RequestLogMiddleware generates a request_id, enriches the context logger,

@@ -12,12 +12,12 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/event"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/event"
+	"github.com/raphi011/know/internal/models"
 
-	"github.com/raphi011/knowhow/internal/llm"
-	"github.com/raphi011/knowhow/internal/parser"
+	"github.com/raphi011/know/internal/llm"
+	"github.com/raphi011/know/internal/parser"
 )
 
 // VersionConfig holds versioning settings.

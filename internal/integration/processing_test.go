@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/parser"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/vault"
 )
 
 // setupProcessingTest creates a vault and document service for processing tests.

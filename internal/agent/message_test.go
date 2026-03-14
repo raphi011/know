@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 func TestBuildUserMessage(t *testing.T) {

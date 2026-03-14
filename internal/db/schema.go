@@ -9,7 +9,7 @@ func SchemaSQL(dimension int) string {
     -- ==========================================================================
     -- ANALYZER (shared across fulltext indexes)
     -- ==========================================================================
-    DEFINE ANALYZER IF NOT EXISTS knowhow_analyzer
+    DEFINE ANALYZER IF NOT EXISTS know_analyzer
         TOKENIZERS class
         FILTERS lowercase, ascii, snowball(english);
 
@@ -139,7 +139,7 @@ func SchemaSQL(dimension int) string {
 
     DEFINE INDEX IF NOT EXISTS idx_chunk_document   ON chunk FIELDS document;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embed_at   ON chunk FIELDS embed_at;
-    DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER knowhow_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER know_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding  ON chunk FIELDS embedding
         HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12 HASHED_VECTOR;
 
@@ -354,7 +354,7 @@ func SchemaSQL(dimension int) string {
     };
 
     -- ==========================================================================
-    -- REMOTE TABLE (federation: connections to other knowhow servers)
+    -- REMOTE TABLE (federation: connections to other know servers)
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS remote SCHEMAFULL;
 

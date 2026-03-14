@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 func TestRequestLogMiddleware_setsRequestID(t *testing.T) {

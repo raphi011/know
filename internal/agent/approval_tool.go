@@ -7,8 +7,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/knowhow/internal/diff"
-	"github.com/raphi011/knowhow/internal/logutil"
+	"github.com/raphi011/know/internal/diff"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 // approvalToolState is persisted in the checkpoint when a write tool is interrupted.

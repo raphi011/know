@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/logutil"
-	"github.com/raphi011/knowhow/internal/metrics"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/contrib/rews"
 	"github.com/surrealdb/surrealdb.go/pkg/connection"

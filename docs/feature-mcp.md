@@ -1,10 +1,10 @@
 # MCP Server
 
-Knowhow exposes your knowledge base to AI agents via the Model Context Protocol. The MCP endpoint is embedded in the main `knowhow serve` process at `/mcp`, authenticated with Bearer tokens over Streamable HTTP.
+Know exposes your knowledge base to AI agents via the Model Context Protocol. The MCP endpoint is embedded in the main `know serve` process at `/mcp`, authenticated with Bearer tokens over Streamable HTTP.
 
 ## How It Works
 
-The MCP endpoint is part of the main knowhow server — no separate process or config file needed. It shares the same authentication, database connection, and vault scoping as the REST API. Communication uses Streamable HTTP (not stdio), so any MCP-compatible client can connect over the network.
+The MCP endpoint is part of the main know server — no separate process or config file needed. It shares the same authentication, database connection, and vault scoping as the REST API. Communication uses Streamable HTTP (not stdio), so any MCP-compatible client can connect over the network.
 
 For multi-server setups (e.g. separate work and personal instances), use the [Remotes](feature-remotes.md) feature to federate across servers.
 
@@ -13,7 +13,7 @@ For multi-server setups (e.g. separate work and personal instances), use the [Re
 ### Start the server
 
 ```bash
-knowhow serve
+know serve
 # MCP endpoint available at http://localhost:8484/mcp
 ```
 
@@ -26,7 +26,7 @@ Add to `.claude/settings.json`:
 ```json
 {
   "mcpServers": {
-    "knowhow": {
+    "know": {
       "url": "http://localhost:8484/mcp",
       "headers": {
         "Authorization": "Bearer kh_your_token"
@@ -43,7 +43,7 @@ Add to `.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "knowhow": {
+    "know": {
       "url": "http://localhost:8484/mcp",
       "headers": {
         "Authorization": "Bearer kh_your_token"

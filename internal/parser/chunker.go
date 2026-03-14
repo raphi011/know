@@ -25,7 +25,7 @@ type ChunkConfig struct {
 
 // DefaultChunkConfig returns sensible defaults for embedding-quality chunk sizes.
 // TargetSize ~750 tokens, MaxSize ~1000 tokens (at ~4 chars/token for English prose).
-// These are typically overridden by KNOWHOW_CHUNK_* environment variables (see justfile).
+// These are typically overridden by KNOW_CHUNK_* environment variables (see justfile).
 func DefaultChunkConfig() ChunkConfig {
 	return ChunkConfig{
 		Threshold:  6000,

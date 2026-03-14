@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 // FileType classifies an attachment by content kind.

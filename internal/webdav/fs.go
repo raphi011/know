@@ -1,4 +1,4 @@
-// Package webdav provides a WebDAV filesystem backed by knowhow's
+// Package webdav provides a WebDAV filesystem backed by know's
 // document and vault services. Files map to documents, directories
 // map to vault folders. Writing a file triggers the full document
 // pipeline (parse → embed → link → chunk).
@@ -15,11 +15,11 @@ import (
 
 	"golang.org/x/net/webdav"
 
-	"github.com/raphi011/knowhow/internal/asset"
-	"github.com/raphi011/knowhow/internal/db"
-	"github.com/raphi011/knowhow/internal/document"
-	"github.com/raphi011/knowhow/internal/models"
-	"github.com/raphi011/knowhow/internal/vault"
+	"github.com/raphi011/know/internal/asset"
+	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/vault"
 )
 
 const markdownContentType = "text/markdown; charset=utf-8"

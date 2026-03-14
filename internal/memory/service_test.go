@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 func TestComputeScore(t *testing.T) {
@@ -129,11 +129,11 @@ func TestBuildMemoryDocument(t *testing.T) {
 		MemoryPath: "/memories",
 	}
 
-	path, content := BuildMemoryDocument("knowhow", "API Design Notes", "Some content here", nil, settings)
+	path, content := BuildMemoryDocument("know", "API Design Notes", "Some content here", nil, settings)
 
 	// Check path format
-	if !contains(path, "/memories/knowhow/") {
-		t.Errorf("path should contain /memories/knowhow/, got: %s", path)
+	if !contains(path, "/memories/know/") {
+		t.Errorf("path should contain /memories/know/, got: %s", path)
 	}
 	if !contains(path, "-api-design-notes.md") {
 		t.Errorf("path should contain slugified title, got: %s", path)
@@ -143,7 +143,7 @@ func TestBuildMemoryDocument(t *testing.T) {
 	if !contains(content, `"memory"`) {
 		t.Error("content should contain memory label")
 	}
-	if !contains(content, `"project/knowhow"`) {
+	if !contains(content, `"project/know"`) {
 		t.Error("content should contain project label")
 	}
 	if !contains(content, "Some content here") {
@@ -212,8 +212,8 @@ func TestBuildMemoryDocument_ExtraLabels(t *testing.T) {
 }
 
 func TestProjectLabel(t *testing.T) {
-	if got := projectLabel("Knowhow"); got != "project/knowhow" {
-		t.Errorf("projectLabel(Knowhow) = %q, want project/knowhow", got)
+	if got := projectLabel("Know"); got != "project/know" {
+		t.Errorf("projectLabel(Know) = %q, want project/know", got)
 	}
 	if got := projectLabel("  My Project  "); got != "project/my project" {
 		t.Errorf("projectLabel with spaces = %q", got)
@@ -253,7 +253,7 @@ func TestCosineSimilarity(t *testing.T) {
 }
 
 func TestHasLabel(t *testing.T) {
-	labels := []string{"memory", "project/knowhow", "golang"}
+	labels := []string{"memory", "project/know", "golang"}
 	if !hasLabel(labels, "memory") {
 		t.Error("should find memory label")
 	}
@@ -263,7 +263,7 @@ func TestHasLabel(t *testing.T) {
 }
 
 func TestMergeLabels(t *testing.T) {
-	a := []string{"memory", "project/knowhow"}
+	a := []string{"memory", "project/know"}
 	b := []string{"memory", "golang"}
 	result := mergeLabels(a, b)
 
@@ -276,9 +276,9 @@ func TestMergeLabels(t *testing.T) {
 }
 
 func TestExtractProject(t *testing.T) {
-	labels := []string{"memory", "project/knowhow", "golang"}
-	if got := extractProject(labels); got != "knowhow" {
-		t.Errorf("extractProject = %q, want knowhow", got)
+	labels := []string{"memory", "project/know", "golang"}
+	if got := extractProject(labels); got != "know" {
+		t.Errorf("extractProject = %q, want know", got)
 	}
 	if got := extractProject([]string{"memory"}); got != "" {
 		t.Errorf("extractProject without project label = %q, want empty", got)

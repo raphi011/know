@@ -1,10 +1,10 @@
 # Remotes (Multi-Server Federation)
 
-The remote system enables federation between knowhow servers. Connect to other knowhow instances and access their vaults as if they were local.
+The remote system enables federation between know servers. Connect to other know instances and access their vaults as if they were local.
 
 ## Overview
 
-Remotes let you register external knowhow servers by name, URL, and API token. Once registered, a remote's vaults are discovered automatically and become accessible alongside local vaults using a namespaced identifier (`remoteName/vaultName`). Tool calls targeting a remote vault are transparently proxied via the REST API.
+Remotes let you register external know servers by name, URL, and API token. Once registered, a remote's vaults are discovered automatically and become accessible alongside local vaults using a namespaced identifier (`remoteName/vaultName`). Tool calls targeting a remote vault are transparently proxied via the REST API.
 
 ## How It Works
 
@@ -20,16 +20,16 @@ Remotes let you register external knowhow servers by name, URL, and API token. O
 
 ```bash
 # List configured remotes
-knowhow remote list
+know remote list
 
 # Add a remote server
-knowhow remote add home http://home-server:8484 --token kh_token_here
+know remote add home http://home-server:8484 --token kh_token_here
 
 # The token can also be provided via environment variable
-KNOWHOW_REMOTE_TOKEN=kh_token_here knowhow remote add home http://home-server:8484
+KNOW_REMOTE_TOKEN=kh_token_here know remote add home http://home-server:8484
 
 # Remove a remote
-knowhow remote remove home
+know remote remove home
 ```
 
 ### Agent Usage

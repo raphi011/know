@@ -3,7 +3,7 @@
 #
 # COMPOSE_PROJECT_NAME is pinned so that all git worktrees share the same
 # SurrealDB container instead of each trying to bind port 4002.
-name: knowhow
+name: know
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.2

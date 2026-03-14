@@ -1,4 +1,4 @@
-// Package apiclient provides a lightweight REST API client for the Knowhow server.
+// Package apiclient provides a lightweight REST API client for the Know server.
 package apiclient
 
 import (
@@ -14,7 +14,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 // HTTPError is returned when the server responds with a 4xx/5xx status code.
@@ -27,7 +27,7 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Message)
 }
 
-// Client is a REST API client for the Knowhow server.
+// Client is a REST API client for the Know server.
 type Client struct {
 	baseURL string
 	token   string

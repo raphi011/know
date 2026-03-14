@@ -3,7 +3,7 @@ package document
 import (
 	"testing"
 
-	"github.com/raphi011/knowhow/internal/models"
+	"github.com/raphi011/know/internal/models"
 )
 
 func TestExtractInlineLabels(t *testing.T) {

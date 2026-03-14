@@ -1,6 +1,6 @@
 import Foundation
 
-/// GraphQL query string constants matching the Knowhow server schema.
+/// GraphQL query string constants matching the Know server schema.
 enum Queries {
     static let me = """
     query Me {
