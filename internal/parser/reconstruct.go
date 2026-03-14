@@ -65,6 +65,8 @@ func BuildSectionEdit(args SectionEditArgs) SectionEdit {
 	}
 	if args.NewLevel != nil {
 		edit.NewLevel = *args.NewLevel
+	} else if edit.Operation == OpInsertAfter || edit.Operation == OpInsertBefore || edit.Operation == OpAppend {
+		edit.NewLevel = 2
 	}
 
 	if args.Heading != nil {

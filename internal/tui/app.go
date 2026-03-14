@@ -10,11 +10,45 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/tools"
 )
+
+// approvalDecision represents the state of a user's decision on a tool call.
+type approvalDecision int
+
+const (
+	decisionPending  approvalDecision = iota // user has not yet decided
+	decisionApproved                         // user approved the tool call
+	decisionRejected                         // user rejected the tool call
+)
+
+// approvalDialog manages the state for the diff approval overlay.
+type approvalDialog struct {
+	approvals []pendingApproval // queued approvals
+	current   int               // index of currently viewed approval
+	viewport  viewport.Model    // scrollable diff view
+}
+
+// setCurrent moves the dialog to approval at index i, clamping to valid bounds,
+// and rebuilds the viewport content.
+func (d *approvalDialog) setCurrent(i int) {
+	d.current = max(0, min(i, len(d.approvals)-1))
+	cur := d.approvals[d.current]
+	content := buildDiffContent(cur.event.Tool, cur.event.Approval)
+	d.viewport.SetContent(content)
+	d.viewport.GotoTop()
+}
+
+// pendingApproval tracks one tool call awaiting user decision.
+type pendingApproval struct {
+	event    StreamEvent      // the interrupted event (has InterruptID, Tool, Approval)
+	decision approvalDecision // user's decision
+}
 
 // Model is the root bubbletea model for inline chat.
 type Model struct {
@@ -28,10 +62,10 @@ type Model struct {
 	spinner  spinner.Model
 
 	// Streaming state
-	streaming       bool
-	streamParts     []ContentPart
-	pendingApproval *StreamEvent
-	errMsg          string
+	streaming bool
+	streamParts []ContentPart
+	dialog      *approvalDialog // non-nil when diff dialog is active
+	errMsg      string
 
 	// Token usage (cumulative across messages)
 	tokenInput  int64
@@ -46,6 +80,7 @@ type Model struct {
 	rendererWidth int
 	glamourStyle  string // "dark" or "light" — detected before p.Run()
 	width         int
+	height        int
 
 	// Lifecycle
 	ctx       context.Context
@@ -130,6 +165,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		m.updateRenderer()
 		m.input.SetWidth(msg.Width - 4)
 		if !m.termReady {
@@ -161,9 +197,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.errMsg = fmt.Sprintf("Approval failed: %v", msg.err)
 			slog.Warn("approval failed", "conversationID", m.conversationID, "error", msg.err)
+			// Keep dialog so user can see state and retry
 			return m, nil
 		}
-		// Approval triggers a resumed agent run — resubscribe to events
+		// Success — clear dialog and resubscribe to resumed agent events
+		m.dialog = nil
 		m.streaming = true
 		return m, tea.Batch(m.resubscribeAfterApproval(), m.spinner.Tick)
 
@@ -199,7 +237,15 @@ func (m Model) View() tea.View {
 
 	// Streaming content
 	if m.streaming && len(m.streamParts) > 0 {
-		content.WriteString(renderStreamParts(m.renderer, m.streamParts, m.pendingApproval, m.width))
+		content.WriteString(renderStreamParts(m.renderer, m.streamParts, m.width))
+	}
+
+	// Diff approval dialog
+	if m.dialog != nil && len(m.dialog.approvals) > 0 {
+		dialogHeight := max(m.height/2, 10)
+		content.WriteString("\n")
+		content.WriteString(renderDiffDialog(m.dialog, m.width, dialogHeight))
+		content.WriteString("\n")
 	}
 
 	// Error line
@@ -212,7 +258,7 @@ func (m Model) View() tea.View {
 	content.WriteString("\n")
 
 	// Spinner (only during streaming)
-	if m.streaming {
+	if m.streaming && m.dialog == nil {
 		content.WriteString(statusStyle.Render(m.spinner.View() + " Thinking..."))
 		content.WriteString("\n\n")
 	}
@@ -237,14 +283,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// Approval keys when pending
-	if m.pendingApproval != nil {
-		switch {
-		case key.Matches(msg, keys.Approve):
-			return m, m.sendApproval("approve_all")
-		case key.Matches(msg, keys.Reject):
-			return m, m.sendApproval("reject")
-		}
+	// Diff dialog keys when active
+	if m.dialog != nil && len(m.dialog.approvals) > 0 {
+		return m.handleDialogKey(msg)
 	}
 
 	// File list focused — handle navigation and deletion
@@ -412,21 +453,102 @@ func (m *Model) listenForEvents(ch <-chan StreamEvent) tea.Cmd {
 	}
 }
 
-func (m *Model) sendApproval(action string) tea.Cmd {
-	if m.pendingApproval == nil {
+// handleDialogKey handles key presses when the diff dialog is active.
+func (m Model) handleDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	dialog := m.dialog
+	if dialog.current < 0 || dialog.current >= len(dialog.approvals) {
+		return m, nil
+	}
+	cur := &dialog.approvals[dialog.current]
+
+	switch {
+	case key.Matches(msg, keys.Approve):
+		if cur.decision == decisionPending {
+			cur.decision = decisionApproved
+			if cmd := m.trySubmitAllDecisions(); cmd != nil {
+				return m, cmd
+			}
+			m.advanceToNextPending()
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.Reject):
+		if cur.decision == decisionPending {
+			cur.decision = decisionRejected
+			if cmd := m.trySubmitAllDecisions(); cmd != nil {
+				return m, cmd
+			}
+			m.advanceToNextPending()
+		}
+		return m, nil
+
+	case msg.String() == "left":
+		if dialog.current > 0 {
+			dialog.setCurrent(dialog.current - 1)
+		}
+		return m, nil
+
+	case msg.String() == "right":
+		if dialog.current < len(dialog.approvals)-1 {
+			dialog.setCurrent(dialog.current + 1)
+		}
+		return m, nil
+
+	default:
+		// Scroll keys go to viewport
+		var cmd tea.Cmd
+		dialog.viewport, cmd = dialog.viewport.Update(msg)
+		return m, cmd
+	}
+}
+
+// advanceToNextPending moves the dialog cursor to the next pending approval.
+func (m *Model) advanceToNextPending() {
+	if m.dialog == nil {
+		return
+	}
+	for i, a := range m.dialog.approvals {
+		if a.decision == decisionPending {
+			m.dialog.setCurrent(i)
+			return
+		}
+	}
+}
+
+// trySubmitAllDecisions checks if all approvals are decided and submits them.
+// Returns a tea.Cmd if all are decided, nil otherwise.
+// The dialog is NOT cleared here — it is cleared on successful approvalSentMsg
+// so the user can see state and retry on failure.
+func (m *Model) trySubmitAllDecisions() tea.Cmd {
+	if m.dialog == nil {
 		return nil
 	}
+	for _, a := range m.dialog.approvals {
+		if a.decision == decisionPending {
+			return nil
+		}
+	}
 
+	// All decided — build commands to send each decision
 	client := m.client
 	ctx := m.ctx
 	convID := m.conversationID
-	interruptID := m.pendingApproval.InterruptID
-
-	m.pendingApproval = nil
+	approvals := make([]pendingApproval, len(m.dialog.approvals))
+	copy(approvals, m.dialog.approvals)
 
 	return func() tea.Msg {
-		err := client.Approve(ctx, convID, interruptID, action)
-		return approvalSentMsg{err: err}
+		for i, a := range approvals {
+			action := "reject"
+			if a.decision == decisionApproved {
+				action = "approve_all"
+			}
+			if err := client.Approve(ctx, convID, a.event.InterruptID, action); err != nil {
+				return approvalSentMsg{
+					err: fmt.Errorf("approval %d/%d (%s): %w", i+1, len(approvals), a.event.Tool, err),
+				}
+			}
+		}
+		return approvalSentMsg{}
 	}
 }
 
@@ -472,16 +594,34 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case "text":
 		m.appendText(msg.event.Content)
 	case "tool_start":
-		m.streamParts = append(m.streamParts, ContentPart{
-			Type:     PartToolCall,
-			ToolName: msg.event.Tool,
-			CallID:   msg.event.CallID,
-			Status:   ToolRunning,
-		})
+		// Reuse existing part if this tool was already started before approval.
+		if existing := m.findToolPart(msg.event.CallID); existing != nil {
+			existing.Status = ToolRunning
+			existing.Meta = nil
+		} else {
+			m.streamParts = append(m.streamParts, ContentPart{
+				Type:     PartToolCall,
+				ToolName: msg.event.Tool,
+				CallID:   msg.event.CallID,
+				Input:    msg.event.Input,
+				Status:   ToolRunning,
+			})
+		}
 	case "tool_end":
-		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete)
+		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete, msg.event.Meta)
 	case "interrupted":
-		m.pendingApproval = &msg.event
+		pa := pendingApproval{event: msg.event}
+		if m.dialog == nil {
+			dialogHeight := max(m.height/2, 10)
+			content := buildDiffContent(msg.event.Tool, msg.event.Approval)
+			vp := newDiffViewport(content, m.width, dialogHeight)
+			m.dialog = &approvalDialog{
+				approvals: []pendingApproval{pa},
+				viewport:  vp,
+			}
+		} else {
+			m.dialog.approvals = append(m.dialog.approvals, pa)
+		}
 	case "conv_id":
 		m.conversationID = msg.event.ConvID
 	case "error":
@@ -514,24 +654,36 @@ func (m *Model) appendText(s string) {
 	m.streamParts = append(m.streamParts, ContentPart{Type: PartText, Content: s})
 }
 
-// updateToolStatus finds a tool call part by CallID and updates its status.
+// findToolPart returns a pointer to the most recent tool call part matching callID, or nil.
+func (m *Model) findToolPart(callID string) *ContentPart {
+	if callID == "" {
+		return nil
+	}
+	for i := len(m.streamParts) - 1; i >= 0; i-- {
+		if m.streamParts[i].Type == PartToolCall && m.streamParts[i].CallID == callID {
+			return &m.streamParts[i]
+		}
+	}
+	return nil
+}
+
+// updateToolStatus finds a tool call part by CallID and updates its status and metadata.
 // Falls back to matching by tool name if CallID is empty (older servers).
-func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus) {
+func (m *Model) updateToolStatus(callID, toolName string, status ToolStatus, meta *tools.ToolResultMeta) {
 	for i := len(m.streamParts) - 1; i >= 0; i-- {
 		p := &m.streamParts[i]
 		if p.Type != PartToolCall {
 			continue
 		}
-		if callID != "" && p.CallID == callID {
+		matched := (callID != "" && p.CallID == callID) ||
+			(callID == "" && p.ToolName == toolName && p.Status == ToolRunning)
+		if matched {
 			p.Status = status
-			return
-		}
-		if callID == "" && p.ToolName == toolName && p.Status == ToolRunning {
-			p.Status = status
+			p.Meta = meta
 			return
 		}
 	}
-	slog.Warn("tool_end event had no matching tool_start", "callID", callID, "tool", toolName)
+	slog.Debug("tool status update: no matching part found", "callID", callID, "tool", toolName, "status", status)
 }
 
 // finalizeStream commits the streaming response to terminal scrollback
@@ -540,13 +692,17 @@ func (m *Model) finalizeStream() tea.Cmd {
 	if !m.streaming {
 		return nil
 	}
+	if m.dialog != nil {
+		// Don't finalize while approval dialog is active — the dialog
+		// and stream parts must remain visible in the managed region.
+		return nil
+	}
 	m.streaming = false
 
 	rendered := renderAssistantMessage(m.renderer, m.streamParts)
 	m.streamParts = nil
 
-	// Keep pendingApproval — it will be cleared when the user approves/rejects
-	// or when the next chat message starts.
+	// Dialog is cleared when the user approves/rejects all pending approvals.
 
 	if rendered == "" {
 		return nil

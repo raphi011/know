@@ -11,7 +11,9 @@ import (
 
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/diff"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/tools"
 )
 
 // Client wraps apiclient.Client with TUI-specific methods.
@@ -41,16 +43,34 @@ func (c *Client) CreateConversation(ctx context.Context, vaultID string) (*api.C
 // Only fields used by the TUI are included; unknown JSON fields are ignored.
 // Keep in sync with the canonical type when adding new fields.
 type StreamEvent struct {
-	Type              string `json:"type"` // "text" | "tool_start" | "tool_end" | "interrupted" | "msg_end" | "conv_id" | "error"
-	Content           string `json:"content,omitempty"`
-	ConvID            string `json:"convId,omitempty"`
-	Tool              string `json:"tool,omitempty"`
-	CallID            string `json:"callId,omitempty"`
-	InterruptID       string `json:"interruptId,omitempty"`
-	InputTokens       int64  `json:"inputTokens,omitempty"`
-	OutputTokens      int64  `json:"outputTokens,omitempty"`
-	ContextWindowMax  int    `json:"contextWindowMax,omitempty"`
-	ContextWindowUsed int64  `json:"contextWindowUsed,omitempty"`
+	Type              string                `json:"type"` // "text" | "tool_start" | "tool_end" | "interrupted" | "msg_end" | "conv_id" | "error"
+	Content           string                `json:"content,omitempty"`
+	ConvID            string                `json:"convId,omitempty"`
+	Tool              string                `json:"tool,omitempty"`
+	CallID            string                `json:"callId,omitempty"`
+	InterruptID       string                `json:"interruptId,omitempty"`
+	Input             map[string]any        `json:"input,omitempty"`
+	Meta              *tools.ToolResultMeta `json:"meta,omitempty"`
+	Approval          *Approval             `json:"approval,omitempty"`
+	InputTokens       int64                 `json:"inputTokens,omitempty"`
+	OutputTokens      int64                 `json:"outputTokens,omitempty"`
+	ContextWindowMax  int                   `json:"contextWindowMax,omitempty"`
+	ContextWindowUsed int64                 `json:"contextWindowUsed,omitempty"`
+}
+
+// Approval carries diff data for write-tool approval dialogs.
+// Mirrors agent.ApprovalRequest fields needed by the TUI.
+type Approval struct {
+	Path    string       `json:"path"`
+	IsNew   bool         `json:"isNew"`
+	Diff    *DiffPayload `json:"diff,omitempty"`
+	Content string       `json:"content,omitempty"`
+}
+
+// DiffPayload contains hunks and stats for an edit diff.
+type DiffPayload struct {
+	Hunks []diff.Hunk    `json:"hunks"`
+	Stats diff.DiffStats `json:"stats"`
 }
 
 // chatStartResponse is the JSON body returned by POST /agent/chat (202 Accepted).

@@ -69,6 +69,10 @@ snapshot:
 dev: build
     "{{build_dir}}/{{binary}}" serve --no-auth
 
+# Launch TUI agent against local dev server
+know *args: build
+    "{{build_dir}}/{{binary}}" agent --api-url {{KNOW_SERVER_URL}} "$@"
+
 # Bootstrap DB (wipe + create user/vault/token from env vars)
 bootstrap: build
     {{build_dir}}/{{binary}} db wipe

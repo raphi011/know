@@ -7,8 +7,11 @@ import (
 
 	imgcolor "image/color"
 
+	"charm.land/bubbles/v2/viewport"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
+	"github.com/raphi011/know/internal/diff"
+	"github.com/raphi011/know/internal/tools"
 )
 
 const maxTextWidth = 120
@@ -36,10 +39,12 @@ const (
 // text and tool calls to interleave naturally.
 type ContentPart struct {
 	Type     PartType
-	Content  string     // text content or error message
-	ToolName string     // for PartToolCall
-	CallID   string     // for PartToolCall — key for in-place updates
-	Status   ToolStatus // for PartToolCall
+	Content  string                // text content or error message
+	ToolName string                // for PartToolCall
+	CallID   string                // for PartToolCall — key for in-place updates
+	Input    map[string]any        // for PartToolCall — tool arguments (set on tool_start)
+	Status   ToolStatus            // for PartToolCall
+	Meta     *tools.ToolResultMeta // for PartToolCall — result metadata (set on tool_end)
 }
 
 // renderMarkdown renders markdown content using glamour, falling back to
@@ -56,25 +61,106 @@ func renderMarkdown(renderer *glamour.TermRenderer, content string) string {
 	return strings.TrimSpace(rendered)
 }
 
-// renderToolStatus renders a single tool call part with status indicator.
+// renderToolStatus renders a single tool call part in function-call style.
+// Running:  tool_name(key_arg)
+// Complete: tool_name(key_arg) · detail
+// Failed:   tool_name(key_arg) · failed
 func renderToolStatus(p ContentPart) string {
+	keyArg := toolKeyArg(p.ToolName, p.Input)
+	base := fmt.Sprintf("  %s(%s)", p.ToolName, keyArg)
+
 	switch p.Status {
 	case ToolRunning:
-		return toolRoleStyle.Render(fmt.Sprintf("  Running: %s", p.ToolName))
+		return toolRoleStyle.Render(base)
 	case ToolComplete:
-		return toolRoleStyle.Render(fmt.Sprintf("  %s complete", p.ToolName))
+		if detail := toolDetail(p.ToolName, p.Meta); detail != "" {
+			return toolRoleStyle.Render(fmt.Sprintf("%s · %s", base, detail))
+		}
+		return toolRoleStyle.Render(base)
 	case ToolFailed:
-		return toolRoleStyle.Render(fmt.Sprintf("  %s failed", p.ToolName))
+		return toolRoleStyle.Render(fmt.Sprintf("%s · failed", base))
 	default:
-		return toolRoleStyle.Render(fmt.Sprintf("  %s", p.ToolName))
+		return toolRoleStyle.Render(base)
 	}
 }
 
+// toolKeyArg extracts the most relevant argument from tool input for display.
+func toolKeyArg(toolName string, input map[string]any) string {
+	if input == nil {
+		return ""
+	}
+	// Map tool names to their key argument field.
+	var field string
+	switch toolName {
+	case "read_document", "create_document", "edit_document",
+		"edit_document_section", "get_document_versions":
+		field = "path"
+	case "search_documents", "web_search":
+		field = "query"
+	case "list_folder_contents":
+		field = "folder"
+	case "list_folders":
+		field = "parent"
+	case "create_memory":
+		field = "title"
+	}
+	if field != "" {
+		if v, ok := input[field].(string); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// toolDetail returns a short summary string from tool result metadata.
+// The key argument (path, query) is already shown by toolKeyArg, so
+// this returns supplementary info like counts or content length.
+func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
+	if meta == nil {
+		return ""
+	}
+	switch toolName {
+	case "read_document":
+		if meta.ContentLength != nil {
+			return fmt.Sprintf("%d chars", *meta.ContentLength)
+		}
+	case "search_documents":
+		var parts []string
+		if meta.ResultCount != nil {
+			parts = append(parts, fmt.Sprintf("%d docs", *meta.ResultCount))
+		}
+		if meta.ChunkCount != nil {
+			parts = append(parts, fmt.Sprintf("%d chunks", *meta.ChunkCount))
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, ", ")
+		}
+	case "list_folder_contents", "list_folders", "list_labels":
+		if meta.ResultCount != nil {
+			return fmt.Sprintf("%d results", *meta.ResultCount)
+		}
+	case "get_document_versions":
+		if meta.ResultCount != nil {
+			return fmt.Sprintf("%d versions", *meta.ResultCount)
+		}
+	case "web_search":
+		if meta.WebResultCount != nil {
+			return fmt.Sprintf("%d results", *meta.WebResultCount)
+		}
+	}
+	return ""
+}
+
 // renderParts renders a sequence of content parts (text, tool calls, errors).
+// Inserts a blank line when transitioning from tool calls to text.
 func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []ContentPart) {
+	prevType := PartType(-1)
 	for _, p := range parts {
 		switch p.Type {
 		case PartText:
+			if prevType == PartToolCall {
+				sb.WriteString("\n")
+			}
 			rendered := renderMarkdown(renderer, p.Content)
 			sb.WriteString(assistantMsgStyle.MaxWidth(maxTextWidth).Render(rendered))
 		case PartToolCall:
@@ -84,29 +170,21 @@ func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []Co
 			sb.WriteString(errorMsgStyle.Render("Error: " + p.Content))
 			sb.WriteString("\n")
 		}
+		prevType = p.Type
 	}
 }
 
-// renderStreamParts renders the current streaming content (text + tool calls + errors)
-// plus the approval prompt if pending. Used for the live managed region during streaming.
-func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, pending *StreamEvent, width int) string {
-	if len(parts) == 0 && pending == nil {
+// renderStreamParts renders the current streaming content (text + tool calls + errors).
+// Used for the live managed region during streaming.
+func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, width int) string {
+	if len(parts) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
-
-	if len(parts) > 0 {
-		sb.WriteString(assistantRoleStyle.Render("assistant"))
-		sb.WriteString("\n")
-		renderParts(&sb, renderer, parts)
-	}
-
-	if pending != nil {
-		sb.WriteString("\n")
-		sb.WriteString(renderApproval(pending, width))
-	}
-
+	sb.WriteString(assistantRoleStyle.Render("assistant"))
+	sb.WriteString("\n")
+	renderParts(&sb, renderer, parts)
 	return sb.String()
 }
 
@@ -209,16 +287,173 @@ func renderStatusBar(tokenInput, tokenOutput int64, vaultID string, contextMax i
 	return statusBarDetailStyle.Render(" " + strings.Join(parts, " │ "))
 }
 
-// renderApproval renders the tool approval prompt box.
-func renderApproval(event *StreamEvent, width int) string {
-	var sb strings.Builder
-	sb.WriteString("Tool approval required\n")
-	if event.Tool != "" {
-		fmt.Fprintf(&sb, "Tool: %s\n", event.Tool)
+// renderDiffDialog renders the scrollable diff approval dialog.
+func renderDiffDialog(dialog *approvalDialog, width, height int) string {
+	if len(dialog.approvals) == 0 {
+		return ""
 	}
+	if dialog.current < 0 || dialog.current >= len(dialog.approvals) {
+		return ""
+	}
+
+	cur := &dialog.approvals[dialog.current]
+	approval := cur.event.Approval
+
+	var sb strings.Builder
+
+	// Header: tool name + path + stats + navigation
+	header := renderDiffHeader(cur.event.Tool, approval, dialog.current, len(dialog.approvals))
+	sb.WriteString(diffHeaderStyle.Render(header))
 	sb.WriteString("\n")
-	sb.WriteString(approveKeyStyle.Render("[a] approve") + "  " + rejectKeyStyle.Render("[r] reject"))
+
+	// Viewport (scrollable diff body)
+	sb.WriteString(dialog.viewport.View())
+	sb.WriteString("\n")
+
+	// Footer: key hints
+	var hints []string
+	switch cur.decision {
+	case decisionPending:
+		hints = append(hints,
+			approveKeyStyle.Render("[a] approve"),
+			rejectKeyStyle.Render("[r] reject"),
+		)
+	case decisionApproved:
+		hints = append(hints, approveKeyStyle.Render("approved"))
+	case decisionRejected:
+		hints = append(hints, rejectKeyStyle.Render("rejected"))
+	}
+	hints = append(hints, diffNavStyle.Render("[↑↓] scroll"))
+	if len(dialog.approvals) > 1 {
+		hints = append(hints, diffNavStyle.Render("[◄►] prev/next"))
+	}
+	sb.WriteString(strings.Join(hints, "  "))
 
 	boxWidth := max(width-4, 20)
 	return approvalBoxStyle.Width(boxWidth).Render(sb.String())
+}
+
+// renderDiffHeader builds the header line for the diff dialog.
+func renderDiffHeader(toolName string, approval *Approval, current, total int) string {
+	var parts []string
+	parts = append(parts, toolName)
+
+	if approval != nil && approval.Path != "" {
+		parts[0] = fmt.Sprintf("%s(%s)", toolName, approval.Path)
+	}
+
+	if approval != nil && approval.Diff != nil {
+		stats := approval.Diff.Stats
+		parts = append(parts, fmt.Sprintf("+%d -%d (%d hunks)", stats.Additions, stats.Deletions, stats.HunksCount))
+	} else if approval != nil && approval.IsNew {
+		parts = append(parts, "new document")
+	}
+
+	if total > 1 {
+		parts = append(parts, fmt.Sprintf("[%d/%d] ◄ ►", current+1, total))
+	}
+
+	return "─── " + strings.Join(parts, " ─── ") + " ───"
+}
+
+// renderHunks renders diff hunks with colored lines and line number gutter.
+func renderHunks(hunks []diff.Hunk) string {
+	var sb strings.Builder
+
+	// Find max line number width for gutter alignment
+	maxLineNo := 0
+	for _, h := range hunks {
+		for _, line := range h.Lines {
+			if line.OldLineNo != nil && *line.OldLineNo > maxLineNo {
+				maxLineNo = *line.OldLineNo
+			}
+			if line.NewLineNo != nil && *line.NewLineNo > maxLineNo {
+				maxLineNo = *line.NewLineNo
+			}
+		}
+	}
+	gutterWidth := len(fmt.Sprintf("%d", maxLineNo))
+	if gutterWidth < 2 {
+		gutterWidth = 2
+	}
+
+	for i, h := range hunks {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(diffHunkHeaderStyle.Render(h.Header()))
+		sb.WriteString("\n")
+
+		for _, line := range h.Lines {
+			oldNo := strings.Repeat(" ", gutterWidth)
+			newNo := strings.Repeat(" ", gutterWidth)
+			if line.OldLineNo != nil {
+				oldNo = fmt.Sprintf("%*d", gutterWidth, *line.OldLineNo)
+			}
+			if line.NewLineNo != nil {
+				newNo = fmt.Sprintf("%*d", gutterWidth, *line.NewLineNo)
+			}
+
+			gutter := diffGutterStyle.Render(oldNo+" "+newNo) +
+				diffSeparatorStyle.Render(" │")
+
+			content := strings.TrimRight(line.Content, "\n")
+			switch line.Type {
+			case diff.DiffAdd:
+				sb.WriteString(gutter + diffAddStyle.Render("+"+content))
+			case diff.DiffDelete:
+				sb.WriteString(gutter + diffDeleteStyle.Render("-"+content))
+			case diff.DiffContext:
+				sb.WriteString(gutter + " " + content)
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// renderNewDocPreview renders the full content of a new document, all green with + prefix.
+func renderNewDocPreview(content string) string {
+	var sb strings.Builder
+	lines := strings.Split(content, "\n")
+
+	gutterWidth := len(fmt.Sprintf("%d", len(lines)))
+	if gutterWidth < 2 {
+		gutterWidth = 2
+	}
+
+	for i, line := range lines {
+		lineNo := fmt.Sprintf("%*d", gutterWidth, i+1)
+		gutter := diffGutterStyle.Render(lineNo) + diffSeparatorStyle.Render(" │")
+		sb.WriteString(gutter + diffAddStyle.Render("+"+line) + "\n")
+	}
+
+	return sb.String()
+}
+
+// buildDiffContent builds the viewport content string for a given approval.
+// Falls back to a plain text summary when no diff data is available.
+func buildDiffContent(toolName string, approval *Approval) string {
+	if approval == nil {
+		return fmt.Sprintf("Tool: %s\nApproval required (no diff available)", toolName)
+	}
+	if approval.IsNew && approval.Content != "" {
+		return renderNewDocPreview(approval.Content)
+	}
+	if approval.Diff != nil && len(approval.Diff.Hunks) > 0 {
+		return renderHunks(approval.Diff.Hunks)
+	}
+	return fmt.Sprintf("Tool: %s\nApproval required (no diff available)", toolName)
+}
+
+// newDiffViewport creates a viewport sized for the diff dialog.
+func newDiffViewport(content string, width, height int) viewport.Model {
+	// Reserve lines for header (1), footer (1), box border (2), blank line (1)
+	vpHeight := max(height-5, 3)
+	vpWidth := max(width-6, 20) // box border + padding
+
+	vp := viewport.New(viewport.WithWidth(vpWidth), viewport.WithHeight(vpHeight))
+	vp.SetContent(content)
+	return vp
 }
