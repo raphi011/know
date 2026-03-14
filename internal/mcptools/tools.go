@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -44,7 +45,7 @@ func (t *mcpTools) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_documents",
-		Description: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets.",
+		Description: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets. Use list_labels first to discover labels for filtering.",
 		Annotations: readOnly,
 	}, t.searchDocuments)
 
@@ -68,7 +69,7 @@ func (t *mcpTools) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_folder_contents",
-		Description: "List documents and subfolders in a specific folder. Returns immediate children only.",
+		Description: "List documents and subfolders in a specific folder. Returns immediate children only. Use list_folders first to discover available folders.",
 		Annotations: readOnly,
 	}, t.listFolderContents)
 
@@ -124,10 +125,10 @@ func (t *mcpTools) register(server *mcp.Server) {
 
 type searchInput struct {
 	Query   string   `json:"query" jsonschema:"Search query text"`
-	Labels  []string `json:"labels,omitempty" jsonschema:"Filter by labels"`
-	DocType *string  `json:"doc_type,omitempty" jsonschema:"Filter by document type"`
-	Folder  *string  `json:"folder,omitempty" jsonschema:"Filter by folder path prefix"`
-	Limit   *int     `json:"limit,omitempty" jsonschema:"Max results (default 20)"`
+	Labels  []string `json:"labels,omitempty" jsonschema:"Filter by labels (call list_labels to discover available labels)"`
+	DocType *string  `json:"doc_type,omitempty" jsonschema:"Filter by document type (from frontmatter, e.g. note, guide, reference)"`
+	Folder  *string  `json:"folder,omitempty" jsonschema:"Filter by folder path prefix (e.g. /guides/)"`
+	Limit   *int     `json:"limit,omitempty" jsonschema:"Max results (default 20, max 100)"`
 }
 
 func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, any, error) {
@@ -135,7 +136,10 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 		return errorResult("query is required"), nil, nil
 	}
 	if input.Limit != nil && *input.Limit < 1 {
-		return errorResult("limit must be positive"), nil, nil
+		return errorResult("limit must be a positive integer (e.g. 10, 20, 50)"), nil, nil
+	}
+	if input.Limit != nil && *input.Limit > 100 {
+		return errorResult("limit must be at most 100"), nil, nil
 	}
 
 	refs, err := t.resolveAllVaults(ctx)
@@ -149,10 +153,12 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	var sb strings.Builder
+	var failedVaults int
 	for _, ref := range refs {
 		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "search", string(argsJSON))
 		if execErr != nil {
 			logutil.FromCtx(ctx).Warn("search failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
+			failedVaults++
 			continue
 		}
 		if result != "" && result != "No results found." {
@@ -164,6 +170,9 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	if sb.Len() == 0 {
+		if failedVaults > 0 && failedVaults == len(refs) {
+			return errorResult(fmt.Sprintf("search failed for all %d vault(s). Check server logs for details", failedVaults)), nil, nil
+		}
 		return textResult("No results found."), nil, nil
 	}
 	return textResult(sb.String()), nil, nil
@@ -192,18 +201,19 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 	for _, ref := range refs {
 		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "read_document", string(argsJSON))
 		if execErr != nil {
+			if isToolLevelError(execErr) {
+				continue // not found in this vault, try next
+			}
 			logutil.FromCtx(ctx).Warn("get document failed", "vault", ref.VaultID, "namespace", ref.Namespace, "path", input.Path, "error", execErr)
 			continue
 		}
-		if !strings.HasPrefix(result, "Document not found:") {
-			if ref.IsRemote() {
-				result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
-			}
-			return textResult(result), nil, nil
+		if ref.IsRemote() {
+			result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
 		}
+		return textResult(result), nil, nil
 	}
 
-	return errorResult(fmt.Sprintf("Document not found: %s. Use search_documents to find it, or list_folder_contents to browse.", input.Path)), nil, nil
+	return errorResult(fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", input.Path)), nil, nil
 }
 
 type listLabelsInput struct{}
@@ -319,7 +329,7 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 
 type getDocumentVersionsInput struct {
 	Path  string `json:"path" jsonschema:"Document path"`
-	Limit *int   `json:"limit,omitempty" jsonschema:"Max versions to return (default 20)"`
+	Limit *int   `json:"limit,omitempty" jsonschema:"Max versions to return (default 20, max 100)"`
 }
 
 func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolRequest, input getDocumentVersionsInput) (*mcp.CallToolResult, any, error) {
@@ -327,7 +337,10 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 		return errorResult("path is required"), nil, nil
 	}
 	if input.Limit != nil && *input.Limit < 1 {
-		return errorResult("limit must be positive"), nil, nil
+		return errorResult("limit must be a positive integer (e.g. 5, 10, 20)"), nil, nil
+	}
+	if input.Limit != nil && *input.Limit > 100 {
+		return errorResult("limit must be at most 100"), nil, nil
 	}
 
 	refs, err := t.resolveAllVaults(ctx)
@@ -343,18 +356,19 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 	for _, ref := range refs {
 		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "get_document_versions", string(argsJSON))
 		if execErr != nil {
+			if isToolLevelError(execErr) {
+				continue // not found in this vault, try next
+			}
 			logutil.FromCtx(ctx).Warn("get document versions failed", "vault", ref.VaultID, "namespace", ref.Namespace, "path", input.Path, "error", execErr)
 			continue
 		}
-		if !strings.HasPrefix(result, "Document not found:") {
-			if ref.IsRemote() {
-				result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
-			}
-			return textResult(result), nil, nil
+		if ref.IsRemote() {
+			result = fmt.Sprintf("[%s]\n%s", ref.Namespace, result)
 		}
+		return textResult(result), nil, nil
 	}
 
-	return errorResult(fmt.Sprintf("Document not found: %s. Use search_documents to find it, or list_folder_contents to browse.", input.Path)), nil, nil
+	return errorResult(fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", input.Path)), nil, nil
 }
 
 // ---------- Write tool handlers (use first vault) ----------
@@ -531,8 +545,13 @@ func (t *mcpTools) editDocumentSection(ctx context.Context, req *mcp.CallToolReq
 	if strings.TrimSpace(input.Path) == "" {
 		return errorResult("path is required"), nil, nil
 	}
-	if strings.TrimSpace(input.Operation) == "" {
-		return errorResult("operation is required. Use one of: replace, insert_after, insert_before, delete, append"), nil, nil
+	validOps := []string{"replace", "insert_after", "insert_before", "delete", "append"}
+	op := strings.TrimSpace(input.Operation)
+	if op == "" {
+		return errorResult("operation is required. Valid operations: " + strings.Join(validOps, ", ")), nil, nil
+	}
+	if !slices.Contains(validOps, op) {
+		return errorResult(fmt.Sprintf("unknown operation: %q. Valid operations: %s", op, strings.Join(validOps, ", "))), nil, nil
 	}
 	return t.executeWriteTool(ctx, "edit_document_section", input.Vault, input)
 }

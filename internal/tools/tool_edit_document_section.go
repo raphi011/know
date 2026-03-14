@@ -23,7 +23,7 @@ type EditDocumentSectionTool struct {
 func (t *EditDocumentSectionTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "edit_document_section",
-		Desc: "Edit a specific section of a document by heading, without sending the full content. Use read_document with sections=true first to see the section outline. Operations: replace (update existing section content), insert_after/insert_before (add new section relative to target, requires new_heading), delete (remove a section), append (add new section at end, requires new_heading).",
+		Desc: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true first to see the section outline. Operations: replace (update existing section content), insert_after/insert_before (add new section relative to target, requires new_heading), delete (remove a section), append (add new section at end, requires new_heading).",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
 				Type:     schema.String,
@@ -90,7 +90,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 	case parser.OpReplace, parser.OpInsertAfter, parser.OpInsertBefore, parser.OpDelete, parser.OpAppend:
 		// valid
 	default:
-		return "", &ToolError{Message: fmt.Sprintf("unknown operation: %s", args.Operation)}
+		return "", &ToolError{Message: fmt.Sprintf("unknown operation: %q. Valid operations: replace, insert_after, insert_before, delete, append", args.Operation)}
 	}
 
 	existing, err := t.db.GetDocumentByPath(ctx, o.VaultID, args.Path)
@@ -98,7 +98,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 		return "", fmt.Errorf("check document: %w", err)
 	}
 	if existing == nil {
-		return "", &ToolError{Message: fmt.Sprintf("document not found: %s", args.Path)}
+		return "", &ToolError{Message: fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", args.Path)}
 	}
 	if err := checkContentHash(args.ExpectedHash, existing.ContentHash); err != nil {
 		return "", err

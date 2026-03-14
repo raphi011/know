@@ -91,6 +91,10 @@ func (t *MultiVaultReadTool) runFirstHit(ctx context.Context, refs []VaultRef, a
 	for _, ref := range refs {
 		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, t.toolInfo.Name, argsJSON)
 		if execErr != nil {
+			var toolErr *ToolError
+			if errors.As(execErr, &toolErr) {
+				continue // not found in this vault, try next
+			}
 			logger.Warn("multi-vault tool failed", "tool", t.toolInfo.Name, "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
 			failedVaults++
 			continue
@@ -190,9 +194,13 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		{
 			info: &schema.ToolInfo{
 				Name: "search",
-				Desc: "Search the knowledge base for relevant documents across all vaults",
+				Desc: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets. Use list_labels first to discover labels for filtering.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-					"query": {Type: schema.String, Desc: "The search query", Required: true},
+					"query":    {Type: schema.String, Desc: "Search query text", Required: true},
+					"labels":   {Type: schema.Array, Desc: "Filter by labels (call list_labels to discover)", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
+					"doc_type": {Type: schema.String, Desc: "Filter by document type (e.g. note, guide)"},
+					"folder":   {Type: schema.String, Desc: "Filter by folder path prefix (e.g. /guides/)"},
+					"limit":    {Type: schema.Integer, Desc: "Max results (default 20, max 100)"},
 				}),
 			},
 			merge: mergeConcat,
@@ -239,10 +247,10 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		{
 			info: &schema.ToolInfo{
 				Name: "get_document_versions",
-				Desc: "Get version history for a document by path",
+				Desc: "Get version history for a document by path. Returns previous versions with timestamps, sources, and titles.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"path":  {Type: schema.String, Desc: "Document path", Required: true},
-					"limit": {Type: schema.Integer, Desc: "Max versions to return (default 20)"},
+					"limit": {Type: schema.Integer, Desc: "Max versions to return (default 20, max 100)"},
 				}),
 			},
 			merge: mergeFirstHit,
@@ -265,13 +273,13 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"path":          {Type: schema.String, Desc: "Document path of the existing document", Required: true},
 				"content":       {Type: schema.String, Desc: "Complete new markdown content (replaces existing content entirely)", Required: true},
-				"expected_hash": {Type: schema.String, Desc: "Content hash from read_document for optimistic concurrency check"},
+				"expected_hash": {Type: schema.String, Desc: "Content hash from get_document for optimistic concurrency check"},
 				"vault":         {Type: schema.String, Desc: "Target vault (e.g. remote-name/vault-name). Defaults to first local vault."},
 			}),
 		},
 		{
 			Name: "edit_document_section",
-			Desc: "Edit a specific section of a document by heading, without sending the full content. Use read_document with sections=true to see available sections.",
+			Desc: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"path":          {Type: schema.String, Desc: "Document path", Required: true},
 				"operation":     {Type: schema.String, Desc: "One of: replace, insert_after, insert_before, delete, append", Required: true},
@@ -280,18 +288,18 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 				"content":       {Type: schema.String, Desc: "New section body (required for replace, insert, append)"},
 				"new_heading":   {Type: schema.String, Desc: "Heading text for insert/append operations"},
 				"new_level":     {Type: schema.Integer, Desc: "Heading level 1-6 for insert/append operations"},
-				"expected_hash": {Type: schema.String, Desc: "Content hash from read_document for optimistic concurrency check"},
+				"expected_hash": {Type: schema.String, Desc: "Content hash from get_document for optimistic concurrency check"},
 				"vault":         {Type: schema.String, Desc: "Target vault (e.g. remote-name/vault-name). Defaults to first local vault."},
 			}),
 		},
 		{
 			Name: "create_memory",
-			Desc: "Create a memory, optionally scoped to a project",
+			Desc: "Create a memory, optionally scoped to a project. For project memories, use a stable identifier (git remote URL or repo folder name). For global memories, omit project and add descriptive labels. Call list_labels first to reuse existing labels.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"title":   {Type: schema.String, Desc: "Memory title (used for filename)", Required: true},
 				"content": {Type: schema.String, Desc: "Memory content (markdown)", Required: true},
-				"project": {Type: schema.String, Desc: "Optional project identifier"},
-				"labels":  {Type: schema.Array, Desc: "Additional labels for categorization", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
+				"project": {Type: schema.String, Desc: "Project identifier (git remote URL or repo folder name). Omit for global memories."},
+				"labels":  {Type: schema.Array, Desc: "Labels for categorization (e.g. golang, docker). Call list_labels to discover existing labels.", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
 				"vault":   {Type: schema.String, Desc: "Target vault (e.g. remote-name/vault-name). Defaults to first local vault."},
 			}),
 		},
@@ -324,6 +332,5 @@ func isEmptyResult(result string) bool {
 // isNotFoundResult checks for "not found" responses that indicate the item
 // doesn't exist in this vault (but might exist in another).
 func isNotFoundResult(result string) bool {
-	return isEmptyResult(result) ||
-		strings.HasPrefix(result, "Document not found:")
+	return isEmptyResult(result)
 }

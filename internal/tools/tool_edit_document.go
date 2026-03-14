@@ -65,7 +65,7 @@ func (t *EditDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("check document: %w", err)
 	}
 	if existing == nil {
-		return "", &ToolError{Message: fmt.Sprintf("document not found: %s", args.Path)}
+		return "", &ToolError{Message: fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", args.Path)}
 	}
 	if err := checkContentHash(args.ExpectedHash, existing.ContentHash); err != nil {
 		return "", err

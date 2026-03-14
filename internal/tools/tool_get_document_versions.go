@@ -50,7 +50,10 @@ func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJ
 		return "", fmt.Errorf("path is required")
 	}
 	if input.Limit != nil && *input.Limit < 1 {
-		return "", fmt.Errorf("limit must be positive")
+		return "", &ToolError{Message: "limit must be a positive integer (e.g. 5, 10, 20)"}
+	}
+	if input.Limit != nil && *input.Limit > 100 {
+		return "", &ToolError{Message: "limit must be at most 100"}
 	}
 
 	limit := 20
@@ -63,7 +66,7 @@ func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJ
 		return "", fmt.Errorf("get document for versions: %w", err)
 	}
 	if doc == nil {
-		return fmt.Sprintf("Document not found: %s", input.Path), nil
+		return "", &ToolError{Message: fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", input.Path)}
 	}
 
 	docID, err := models.RecordIDString(doc.ID)
