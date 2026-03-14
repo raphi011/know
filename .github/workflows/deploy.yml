@@ -33,6 +33,7 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Dockerfile'
+              - '.github/workflows/deploy.yml'
             helm:
               - 'helm/**'
 
