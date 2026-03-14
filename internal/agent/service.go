@@ -11,16 +11,15 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/diff"
-	"github.com/raphi011/know/internal/document"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
-	"github.com/raphi011/know/internal/search"
 	"github.com/raphi011/know/internal/tools"
 )
 
@@ -48,9 +47,7 @@ const defaultAgentTimeout = 10 * time.Minute
 type Service struct {
 	db              *db.Client
 	model           atomic.Pointer[llm.Model]
-	search          *search.Service
-	docService      *document.Service
-	executor        *tools.Executor
+	tools           []tool.BaseTool
 	tavily          *tavilyClient
 	checkpointStore *SurrealCheckPointStore
 }
@@ -65,17 +62,12 @@ func (s *Service) getModel() *llm.Model {
 	return s.model.Load()
 }
 
-// NewService creates a new agent service.
-func NewService(db *db.Client, model *llm.Model, search *search.Service, docService *document.Service, tavilyAPIKey string) *Service {
+// NewService creates a new agent service. The tools slice should contain
+// multi-vault tool wrappers built by the bootstrap layer.
+func NewService(db *db.Client, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string) *Service {
 	s := &Service{
-		db:         db,
-		search:     search,
-		docService: docService,
-		executor: &tools.Executor{
-			DB:         db,
-			Search:     search,
-			DocService: docService,
-		},
+		db:              db,
+		tools:           agentTools,
 		checkpointStore: NewCheckPointStore(db),
 	}
 	s.model.Store(model)
@@ -104,7 +96,9 @@ const instructionTemplate = `You are a helpful knowledge assistant for the Know 
 - If the knowledge base has no results, tell the user and offer to search the web
 - NEVER call web_search without the user's explicit permission
 - Always cite document paths when referencing information from the knowledge base
-- Do not include a sources section at the end of your response — sources are shown separately in the UI{FolderTree}{Labels}`
+- Do not include a sources section at the end of your response — sources are shown separately in the UI
+- You can access multiple vaults including remote ones. Read tools (search, read_document, etc.) automatically query all accessible vaults. Results from remote vaults are prefixed with [namespace].
+- For write tools (create_document, edit_document, etc.), you can target a specific vault by setting the "vault" field. Use "remote-name/vault-name" format for remote vaults. If omitted, the first local vault is used.{FolderTree}{Labels}`
 
 // buildMessages converts DB messages to eino schema messages.
 func buildMessages(ctx context.Context, dbMsgs []models.Message) []*schema.Message {
@@ -264,7 +258,8 @@ func (s *Service) finalizeRun(ctx context.Context, convID string, model *llm.Mod
 // buildAgent constructs a ChatModelAgent + Runner per request.
 func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatRequest, emit func(StreamEvent)) (*adk.Runner, *tokenTrackingMiddleware, *toolExecutionMiddleware, error) {
 	// Collect tools — wrap write tools for interrupt/resume approval if needed
-	agentTools := s.executor.Tools()
+	agentTools := make([]tool.BaseTool, len(s.tools))
+	copy(agentTools, s.tools)
 	if s.tavily != nil {
 		agentTools = append(agentTools, &WebSearchTool{tavily: s.tavily})
 	}
@@ -617,6 +612,36 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 		Stats: diff.ComputeStats(hunks),
 	}
 	return req, nil
+}
+
+// buildRemoteApprovalRequest creates a content-only approval request for
+// remote vault writes where we can't compute diffs.
+func (s *Service) buildRemoteApprovalRequest(call schema.ToolCall) *ApprovalRequest {
+	var args struct {
+		Path    string  `json:"path"`
+		Content *string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+		// Show raw arguments so the user can still make an informed approval decision.
+		return &ApprovalRequest{
+			CallID:  call.ID,
+			Tool:    call.Function.Name,
+			Path:    "(unable to parse path)",
+			IsNew:   true,
+			Content: call.Function.Arguments,
+		}
+	}
+
+	req := &ApprovalRequest{
+		CallID: call.ID,
+		Tool:   call.Function.Name,
+		Path:   args.Path,
+		IsNew:  true, // treat as new — we can't read remote doc for diff
+	}
+	if args.Content != nil {
+		req.Content = *args.Content
+	}
+	return req
 }
 
 func (s *Service) autoTitle(ctx context.Context, conversationID, firstMessage string) {

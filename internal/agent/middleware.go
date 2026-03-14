@@ -227,7 +227,6 @@ func (m *toolExecutionMiddleware) WrapInvokableToolCall(ctx context.Context, end
 
 		// Inject context for result metadata collection
 		ctx = tools.WithResultMeta(ctx)
-		opts = append(opts, tools.WithVaultID(m.req.VaultID))
 
 		result, err := endpoint(ctx, argumentsInJSON, opts...)
 

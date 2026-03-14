@@ -13,13 +13,8 @@ import (
 	"github.com/raphi011/know/internal/vault"
 )
 
-// VaultRef is a resolved vault reference with its executor and namespace.
-type VaultRef struct {
-	VaultID   string             // vault ID (local bare ID or remote server vault ID)
-	Executor  tools.ToolExecutor // local or remote executor
-	Namespace string             // "" for local, "home" for remote
-	IsRemote  bool
-}
+// VaultRef is an alias for tools.VaultRef used in MCP tool handlers.
+type VaultRef = tools.VaultRef
 
 // resolveVaultIDs returns the list of vault IDs the caller has access to.
 // In no-auth mode (wildcard access), it fetches all vault IDs from the DB.
@@ -99,7 +94,6 @@ func (t *mcpTools) resolveAllVaults(ctx context.Context) ([]VaultRef, error) {
 			VaultID:   rv.VaultID,
 			Executor:  remote.NewExecutor(client, rv.RemoteName),
 			Namespace: rv.Namespace,
-			IsRemote:  true,
 		})
 	}
 
@@ -109,49 +103,48 @@ func (t *mcpTools) resolveAllVaults(ctx context.Context) ([]VaultRef, error) {
 // resolveWriteVault resolves the target vault for a write operation.
 // If vaultName contains "/" it routes to a remote vault.
 // Otherwise, it uses the first local vault.
-func (t *mcpTools) resolveWriteVault(ctx context.Context, vaultName string) (*VaultRef, error) {
+func (t *mcpTools) resolveWriteVault(ctx context.Context, vaultName string) (VaultRef, error) {
 	if vaultName != "" && strings.Contains(vaultName, "/") {
 		// Remote vault: "home/default" → remote="home", vaultName="default"
 		parts := strings.SplitN(vaultName, "/", 2)
 		remoteName := parts[0]
 
 		if t.remoteService == nil {
-			return nil, fmt.Errorf("remote vaults not configured")
+			return VaultRef{}, fmt.Errorf("remote vaults not configured")
 		}
 
 		client, err := t.remoteService.ClientFor(ctx, remoteName)
 		if err != nil {
-			return nil, fmt.Errorf("resolve remote %q: %w", remoteName, err)
+			return VaultRef{}, fmt.Errorf("resolve remote %q: %w", remoteName, err)
 		}
 
 		// Find the vault ID on the remote by name
 		remoteVaults, err := t.remoteService.ListRemoteVaults(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("list remote vaults: %w", err)
+			return VaultRef{}, fmt.Errorf("list remote vaults: %w", err)
 		}
 		for _, rv := range remoteVaults {
 			if rv.Namespace == vaultName {
-				return &VaultRef{
+				return VaultRef{
 					VaultID:   rv.VaultID,
 					Executor:  remote.NewExecutor(client, remoteName),
 					Namespace: rv.Namespace,
-					IsRemote:  true,
 				}, nil
 			}
 		}
-		return nil, fmt.Errorf("remote vault %q not found", vaultName)
+		return VaultRef{}, fmt.Errorf("remote vault %q not found", vaultName)
 	}
 
 	// Local vault
 	vaultIDs, err := resolveVaultIDs(ctx, t.vaultService)
 	if err != nil {
-		return nil, err
+		return VaultRef{}, err
 	}
 	if len(vaultIDs) == 0 {
-		return nil, fmt.Errorf("no vaults accessible")
+		return VaultRef{}, fmt.Errorf("no vaults accessible")
 	}
 
-	return &VaultRef{
+	return VaultRef{
 		VaultID:  vaultIDs[0],
 		Executor: t.executor,
 	}, nil
