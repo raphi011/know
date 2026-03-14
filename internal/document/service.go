@@ -242,6 +242,19 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 		return fmt.Errorf("extract vault id: %w", err)
 	}
 
+	// Template documents are excluded from chunking and search indexing.
+	// Only sync labels and mark processed so they remain browsable.
+	if s.isTemplatePath(ctx, vaultID, doc.Path) {
+		if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
+			return fmt.Errorf("sync labels for template %s: %w", doc.Path, err)
+		}
+		if err := s.db.MarkDocumentProcessed(ctx, docID); err != nil {
+			return fmt.Errorf("mark template processed: %w", err)
+		}
+		s.publishDocEvent("document.processed", vaultID, doc)
+		return nil
+	}
+
 	parsed, err := parser.ParseMarkdown(doc.Content)
 	if err != nil {
 		return fmt.Errorf("parse markdown: %w", err)

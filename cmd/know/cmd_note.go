@@ -10,16 +10,18 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/document"
 	"github.com/raphi011/know/internal/tui"
 	"github.com/spf13/cobra"
 )
 
 var (
-	noteAPI     *apiFlags
-	noteVaultID *string
-	noteDate    string
-	noteFolder  string
-	noteEdit    bool
+	noteAPI            *apiFlags
+	noteVaultID        *string
+	noteDate           string
+	noteFolder         string
+	noteTemplateFolder string
+	noteEdit           bool
 )
 
 var noteCmd = &cobra.Command{
@@ -36,8 +38,9 @@ Modes:
 The daily note is created automatically on first use with a daily-note label.
 
 Environment variables:
-  KNOW_VAULT          vault name (alternative to --vault flag)
-  KNOW_DAILY_FOLDER   folder path for daily notes (alternative to --folder flag)`,
+  KNOW_VAULT             vault name (alternative to --vault flag)
+  KNOW_DAILY_FOLDER      folder path for daily notes (alternative to --folder flag)
+  KNOW_TEMPLATE_FOLDER   folder path for templates (alternative to --template-folder flag)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runNote,
 }
@@ -47,6 +50,7 @@ func init() {
 	noteVaultID = addVaultFlag(noteCmd)
 	noteCmd.Flags().StringVarP(&noteDate, "date", "d", "", "target date in YYYY-MM-DD format (default: today)")
 	noteCmd.Flags().StringVar(&noteFolder, "folder", envOrDefault("KNOW_DAILY_FOLDER", "/daily/"), "folder path for daily notes (env: KNOW_DAILY_FOLDER)")
+	noteCmd.Flags().StringVar(&noteTemplateFolder, "template-folder", envOrDefault("KNOW_TEMPLATE_FOLDER", "/templates"), "folder path for templates (env: KNOW_TEMPLATE_FOLDER)")
 	noteCmd.Flags().BoolVarP(&noteEdit, "edit", "e", false, "open daily note in $EDITOR")
 }
 
@@ -114,6 +118,8 @@ func runNote(_ *cobra.Command, args []string) error {
 }
 
 // ensureDailyNote fetches the daily note or creates it with a template if it doesn't exist.
+// It tries to read a "daily-note" template from the template folder for the initial content,
+// falling back to a hardcoded default if no template is found.
 func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, path, date string) (*apiclient.Document, error) {
 	doc, err := client.GetDocument(ctx, vaultID, path)
 	if err == nil {
@@ -125,12 +131,11 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 		return nil, fmt.Errorf("check daily note: %w", err)
 	}
 
-	// Create template.
-	template := fmt.Sprintf("---\ntitle: %q\nlabels:\n  - daily-note\n---\n# %s\n", date, date)
+	content := dailyNoteContent(ctx, client, vaultID, date)
 	doc, err = client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
 		VaultID: vaultID,
 		Path:    path,
-		Content: template,
+		Content: content,
 		Source:  "note",
 	})
 	if err != nil {
@@ -138,6 +143,25 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 	}
 
 	return doc, nil
+}
+
+// dailyNoteContent returns the initial content for a new daily note.
+// Tries the template folder first, falls back to a hardcoded default.
+func dailyNoteContent(ctx context.Context, client *apiclient.Client, vaultID, date string) string {
+	tplFolder := strings.TrimSuffix(noteTemplateFolder, "/")
+	tplPath := tplFolder + "/daily-note.md"
+
+	tplDoc, err := client.GetDocument(ctx, vaultID, tplPath)
+	if err == nil {
+		now, _ := time.Parse("2006-01-02", date)
+		if now.IsZero() {
+			now = time.Now()
+		}
+		vars := document.DefaultTemplateVars(now, date, "")
+		return document.ApplyTemplateVars(tplDoc.Content, vars)
+	}
+
+	return fmt.Sprintf("---\ntitle: %q\nlabels:\n  - daily-note\n---\n# %s\n", date, date)
 }
 
 // agentAppend sends a prompt to the agent to update the daily note.

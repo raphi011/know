@@ -27,7 +27,6 @@ import (
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/search"
-	"github.com/raphi011/know/internal/template"
 	"github.com/raphi011/know/internal/tools"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -60,7 +59,6 @@ type App struct {
 	documentService          *document.Service
 	assetService             *asset.Service
 	searchService            *search.Service
-	templateService          *template.Service
 	agentService             *agent.Service
 	agentRunner              *agent.Runner
 	remoteService            *remote.Service
@@ -198,7 +196,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
 		documentService:          docService,
 		searchService:            searchSvc,
-		templateService:          template.NewService(dbClient),
 		agentService:             agentSvc,
 		agentRunner:              agentRunner,
 		bus:                      bus,
@@ -272,11 +269,6 @@ func (a *App) DocumentService() *document.Service {
 // VaultService returns the vault service.
 func (a *App) VaultService() *vault.Service {
 	return a.vaultService
-}
-
-// TemplateService returns the template service.
-func (a *App) TemplateService() *template.Service {
-	return a.templateService
 }
 
 // AssetService returns the asset service.

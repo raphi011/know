@@ -22,7 +22,11 @@ type VaultSettings struct {
 	MemoryMergeThreshold   float64 `json:"memory_merge_threshold,omitempty"`
 	MemoryArchiveThreshold float64 `json:"memory_archive_threshold,omitempty"`
 	MemoryDecayHalfLife    int     `json:"memory_decay_half_life,omitempty"`
+	TemplatePath           string  `json:"template_path,omitempty"`
 }
+
+// DefaultTemplatePath is the default folder for template documents.
+const DefaultTemplatePath = "/templates"
 
 // MemoryDefaults returns the vault's memory settings with defaults applied.
 func (v *Vault) MemoryDefaults() VaultSettings {
@@ -48,6 +52,14 @@ func (v *Vault) MemoryDefaults() VaultSettings {
 		s.MemoryDecayHalfLife = v.Settings.MemoryDecayHalfLife
 	}
 	return s
+}
+
+// TemplatePath returns the vault's configured template path, or the default.
+func (v *Vault) TemplatePath() string {
+	if v.Settings != nil && v.Settings.TemplatePath != "" {
+		return v.Settings.TemplatePath
+	}
+	return DefaultTemplatePath
 }
 
 type VaultInput struct {
