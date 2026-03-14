@@ -69,6 +69,10 @@ type Config struct {
 	SSHPort        string // KNOW_SSH_PORT (default: "2222")
 	SSHHostKeyPath string // KNOW_SSH_HOST_KEY (default: "" = auto-generate)
 
+	// NFS server
+	NFSEnabled bool   // KNOW_NFS_ENABLED (default: false)
+	NFSPort    string // KNOW_NFS_PORT (default: "2049")
+
 	// Embedding worker settings
 	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
 	EmbedWorkerBatch    int // max chunks per tick (default: 10)
@@ -189,6 +193,8 @@ func Load() Config {
 		SSHEnabled:        getEnvBool("KNOW_SSH_ENABLED", false),
 		SSHPort:           getEnv("KNOW_SSH_PORT", "2222"),
 		SSHHostKeyPath:    getEnv("KNOW_SSH_HOST_KEY", ""),
+		NFSEnabled:        getEnvBool("KNOW_NFS_ENABLED", false),
+		NFSPort:           getEnv("KNOW_NFS_PORT", "2049"),
 
 		// Embedding worker
 		EmbedWorkerInterval: getEnvInt("KNOW_EMBED_WORKER_INTERVAL", 5),

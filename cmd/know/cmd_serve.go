@@ -15,6 +15,7 @@ import (
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/mcptools"
+	knownfs "github.com/raphi011/know/internal/nfs"
 	"github.com/raphi011/know/internal/server"
 	"github.com/raphi011/know/internal/sshd"
 	"github.com/raphi011/know/internal/tools"
@@ -27,6 +28,8 @@ var (
 	serveNoAuth   bool
 	serveSSH      bool
 	serveSSHPort  int
+	serveNFS      bool
+	serveNFSPort  int
 	serveLogLevel string
 )
 
@@ -51,6 +54,8 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveNoAuth, "no-auth", envOrDefaultBool("KNOW_NO_AUTH", false), "disable token authentication")
 	serveCmd.Flags().BoolVar(&serveSSH, "ssh", envOrDefaultBool("KNOW_SSH_ENABLED", false), "enable SSH/SFTP server")
 	serveCmd.Flags().IntVar(&serveSSHPort, "ssh-port", envOrDefaultInt("KNOW_SSH_PORT", 2222), "SSH server port")
+	serveCmd.Flags().BoolVar(&serveNFS, "nfs", envOrDefaultBool("KNOW_NFS_ENABLED", false), "enable NFS server (localhost only)")
+	serveCmd.Flags().IntVar(&serveNFSPort, "nfs-port", envOrDefaultInt("KNOW_NFS_PORT", 2049), "NFS server port")
 	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("KNOW_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
 }
 
@@ -97,6 +102,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 	cfg.NoAuth = serveNoAuth
 	cfg.SSHEnabled = serveSSH
 	cfg.SSHPort = fmt.Sprintf("%d", serveSSHPort)
+	cfg.NFSEnabled = serveNFS
+	cfg.NFSPort = fmt.Sprintf("%d", serveNFSPort)
 
 	// Create application with all dependencies
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -230,6 +237,23 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("SSH/SFTP server enabled", "port", cfg.SSHPort)
 	}
 
+	// NFS server (optional, always binds to localhost)
+	var nfsSrv *knownfs.Server
+	if cfg.NFSEnabled {
+		nfsLn, listenErr := net.Listen("tcp", "127.0.0.1:"+cfg.NFSPort)
+		if listenErr != nil {
+			return fmt.Errorf("bind NFS port %s: %w", cfg.NFSPort, listenErr)
+		}
+		nfsSrv = knownfs.NewServer(
+			nfsLn,
+			app.DBClient(),
+			app.DocumentService(),
+			app.VaultService(),
+		)
+		go nfsSrv.Serve()
+		slog.Info("NFS server enabled (localhost only)", "port", cfg.NFSPort)
+	}
+
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -272,14 +296,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 	slog.Info("cancelling background goroutines")
 	serverCancel()
 
-	// 3. SSH shutdown — stop accepting new connections and drain active sessions
+	// 3. NFS shutdown
+	if nfsSrv != nil {
+		slog.Info("nfs: shutting down")
+		nfsSrv.Shutdown(shutdownCtx)
+	}
+
+	// 4. SSH shutdown — stop accepting new connections and drain active sessions
 	if sshSrv != nil {
 		slog.Info("ssh: shutting down")
 		sshSrv.Shutdown(shutdownCtx)
 		slog.Info("ssh: stopped")
 	}
 
-	// 4. HTTP shutdown — stop accepting new connections, drain in-flight requests
+	// 5. HTTP shutdown — stop accepting new connections, drain in-flight requests
 	slog.Info("http: shutting down")
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http: shutdown error", "error", err)
@@ -287,7 +317,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("http: stopped")
 	}
 
-	// 5. App shutdown — stop workers, agents, event bus, close DB (with deadline)
+	// 6. App shutdown — stop workers, agents, event bus, close DB (with deadline)
 	slog.Info("stopping application services")
 	if err := app.Close(shutdownCtx); err != nil {
 		slog.Error("app close error", "error", err)
