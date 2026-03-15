@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DocumentRow: View {
-    let document: DocumentSummary
+    let document: CachedDocument
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {

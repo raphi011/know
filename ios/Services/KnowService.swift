@@ -1,94 +1,48 @@
 import Foundation
 
-/// High-level API methods wrapping GraphQLClient for typed access to Know data.
+/// High-level API methods wrapping RESTClient for typed access to Know data.
 final class KnowService: Sendable {
-    private let client: GraphQLClient
-    let baseURL: URL
-    let token: String
+	private let client: RESTClient
 
-    init(client: GraphQLClient) {
-        self.client = client
-        self.baseURL = client.baseURL
-        self.token = client.token
-    }
+	init(client: RESTClient) {
+		self.client = client
+	}
 
-    func fetchVaults() async throws -> [Vault] {
-        let response: VaultsResponse = try await client.execute(query: Queries.vaults)
-        return response.vaults
-    }
+	var baseURL: URL {
+		get async { await client.baseURL }
+	}
 
-    func fetchVault(id: String, folder: String? = nil) async throws -> Vault {
-        var variables: [String: Any] = ["id": id]
-        if let folder {
-            variables["folder"] = folder
-        }
+	var token: String {
+		get async { await client.token }
+	}
 
-        let response: VaultResponse = try await client.execute(
-            query: Queries.vault,
-            variables: variables
-        )
+	func fetchVaults() async throws -> [Vault] {
+		try await client.get(path: "api/vaults")
+	}
 
-        guard let vault = response.vault else {
-            throw APIError.noData
-        }
-        return vault
-    }
+	func fetchDocument(vaultId: String, path: String) async throws -> Document {
+		try await client.get(
+			path: "api/documents",
+			query: ["vault": vaultId, "path": path]
+		)
+	}
 
-    func fetchDocument(vaultId: String, path: String) async throws -> Document {
-        let response: DocumentResponse = try await client.execute(
-            query: Queries.document,
-            variables: ["vaultId": vaultId, "path": path]
-        )
+	func listFiles(vaultId: String, recursive: Bool = false) async throws -> [FileEntry] {
+		var query = ["vault": vaultId]
+		if recursive {
+			query["recursive"] = "true"
+		}
+		return try await client.get(path: "api/ls", query: query)
+	}
 
-        guard let document = response.document else {
-            throw APIError.noData
-        }
-        return document
-    }
-
-    func fetchDocumentById(id: String) async throws -> Document {
-        let response: DocumentByIdResponse = try await client.execute(
-            query: Queries.documentById,
-            variables: ["id": id]
-        )
-
-        guard let document = response.documentById else {
-            throw APIError.noData
-        }
-        return document
-    }
-
-    func fetchSyncMetadata(vaultId: String, since: Date? = nil, limit: Int? = nil, offset: Int? = nil) async throws -> SyncMetadataResult {
-        var variables: [String: Any] = ["vaultId": vaultId]
-        if let since {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            variables["since"] = formatter.string(from: since)
-        }
-        if let limit { variables["limit"] = limit }
-        if let offset { variables["offset"] = offset }
-
-        let response: SyncMetadataResponse = try await client.execute(
-            query: Queries.syncMetadata,
-            variables: variables
-        )
-        return response.syncMetadata
-    }
-
-    func search(vaultId: String, query: String, labels: [String]? = nil, folder: String? = nil, limit: Int? = nil) async throws -> [SearchResult] {
-        var input: [String: Any] = [
-            "vaultId": vaultId,
-            "query": query,
-        ]
-        if let labels { input["labels"] = labels }
-        if let folder { input["folder"] = folder }
-        if let limit { input["limit"] = limit }
-
-        let response: SearchResponse = try await client.execute(
-            query: Queries.search,
-            variables: ["input": input]
-        )
-
-        return response.search
-    }
+	func search(vaultId: String, query: String, labels: [String]? = nil, limit: Int? = nil) async throws -> [SearchResult] {
+		var params = ["vault": vaultId, "query": query]
+		if let labels, !labels.isEmpty {
+			params["labels"] = labels.joined(separator: ",")
+		}
+		if let limit {
+			params["limit"] = String(limit)
+		}
+		return try await client.get(path: "api/search", query: params)
+	}
 }

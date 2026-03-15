@@ -1,37 +1,25 @@
 import Foundation
+import OSLog
 
-enum AuthState {
-    case unauthenticated
-    case authenticated(user: Me, client: GraphQLClient)
-}
+private let logger = Logger(subsystem: "com.know", category: "AuthService")
 
 /// Manages authentication credentials and login validation.
 @MainActor
 @Observable
 final class AuthService {
-    private(set) var state: AuthState = .unauthenticated
-
-    var isAuthenticated: Bool {
-        if case .authenticated = state { return true }
-        return false
-    }
-
-    var currentUser: Me? {
-        if case .authenticated(let user, _) = state { return user }
-        return nil
-    }
-
-    var client: GraphQLClient? {
-        if case .authenticated(_, let client) = state { return client }
-        return nil
-    }
+    private(set) var isAuthenticated = false
+    private(set) var client: RESTClient?
 
     private static let serverURLKey = "serverURL"
     private static let tokenKey = "token"
 
-    // Both URL and token stored in Keychain for simplified session restore
     var serverURL: String {
-        (try? Keychain.load(key: Self.serverURLKey)) ?? ""
+        do {
+            return try Keychain.load(key: Self.serverURLKey) ?? ""
+        } catch {
+            logger.warning("Failed to load serverURL from Keychain: \(error)")
+            return ""
+        }
     }
 
     func login(serverURL: String, token: String) async throws {
@@ -39,13 +27,16 @@ final class AuthService {
             throw APIError.invalidURL
         }
 
-        let newClient = GraphQLClient(baseURL: url, token: token)
-        let response: MeResponse = try await newClient.execute(query: Queries.me)
+        let newClient = RESTClient(baseURL: url, token: token)
+
+        // Validate by fetching vaults — if the token is invalid, this throws unauthorized
+        try await newClient.validate(path: "api/vaults")
 
         try Keychain.save(key: Self.serverURLKey, value: serverURL)
         try Keychain.save(key: Self.tokenKey, value: token)
 
-        state = .authenticated(user: response.me, client: newClient)
+        client = newClient
+        isAuthenticated = true
     }
 
     /// Attempts to restore a previous session from stored credentials.
@@ -64,17 +55,22 @@ final class AuthService {
             return nil
         }
 
-        let storedClient = GraphQLClient(baseURL: url, token: token)
+        let storedClient = RESTClient(baseURL: url, token: token)
 
         do {
-            let response: MeResponse = try await storedClient.execute(query: Queries.me)
-            state = .authenticated(user: response.me, client: storedClient)
+            try await storedClient.validate(path: "api/vaults")
+            client = storedClient
+            isAuthenticated = true
             return nil
         } catch {
             if case APIError.unauthorized = error {
-                // Token expired -- clear stale credentials
-                try? Keychain.delete(key: Self.serverURLKey)
-                try? Keychain.delete(key: Self.tokenKey)
+                logger.info("Stored token expired or revoked, clearing credentials")
+                do {
+                    try Keychain.delete(key: Self.serverURLKey)
+                    try Keychain.delete(key: Self.tokenKey)
+                } catch {
+                    logger.error("Failed to delete credentials from Keychain: \(error)")
+                }
                 return nil
             }
             return error
@@ -82,9 +78,13 @@ final class AuthService {
     }
 
     func logout() {
-        // Best-effort keychain cleanup -- in-memory state is always cleared
-        try? Keychain.delete(key: Self.serverURLKey)
-        try? Keychain.delete(key: Self.tokenKey)
-        state = .unauthenticated
+        do {
+            try Keychain.delete(key: Self.serverURLKey)
+            try Keychain.delete(key: Self.tokenKey)
+        } catch {
+            logger.error("Failed to delete credentials during logout: \(error)")
+        }
+        client = nil
+        isAuthenticated = false
     }
 }

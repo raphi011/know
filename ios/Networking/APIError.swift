@@ -3,10 +3,9 @@ import Foundation
 enum APIError: LocalizedError {
     case invalidURL
     case unauthorized
+    case notFound
     case networkError(Error)
-    case graphQLErrors([GraphQLError])
     case decodingError(Error)
-    case noData
     case serverError(Int, String?)
 
     var errorDescription: String? {
@@ -15,14 +14,12 @@ enum APIError: LocalizedError {
             return "Invalid server URL"
         case .unauthorized:
             return "Invalid or expired token"
+        case .notFound:
+            return "Not found"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
-        case .graphQLErrors(let errors):
-            return errors.map(\.message).joined(separator: "\n")
         case .decodingError(let error):
             return "Failed to decode response: \(error.localizedDescription)"
-        case .noData:
-            return "No data returned"
         case .serverError(let code, let body):
             if let body, !body.isEmpty {
                 return "Server error (HTTP \(code)): \(String(body.prefix(200)))"

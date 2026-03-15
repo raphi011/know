@@ -25,6 +25,9 @@ type Document struct {
 	Path        string    `json:"path"`
 	Title       string    `json:"title"`
 	Content     string    `json:"content"`
+	ContentBody string    `json:"contentBody"`
+	Labels      []string  `json:"labels"`
+	DocType     *string   `json:"docType,omitempty"`
 	ContentHash *string   `json:"contentHash,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -105,10 +108,22 @@ type VaultInfo struct {
 
 // SearchResultResponse is the JSON representation of a search result.
 type SearchResultResponse struct {
+	DocumentID    string               `json:"documentId"`
 	Path          string               `json:"path"`
 	Title         string               `json:"title"`
+	Labels        []string             `json:"labels"`
+	DocType       *string              `json:"docType,omitempty"`
 	Score         float64              `json:"score"`
 	MatchedChunks []ChunkMatchResponse `json:"matchedChunks"`
+}
+
+// nonNilLabels returns an empty slice instead of nil so JSON serialization
+// produces [] instead of null.
+func nonNilLabels(labels []string) []string {
+	if labels == nil {
+		return []string{}
+	}
+	return labels
 }
 
 // ChunkMatchResponse is the JSON representation of a matched chunk.
