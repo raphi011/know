@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestBackup_DocumentsAndAssets(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "backup")
+func TestExport_DocumentsAndAssets(t *testing.T) {
+	srv, vaultID := setupBulkServer(t, "export")
 
 	// Seed documents and an asset via bulk upload.
 	bulkUploadRequest(t, srv, map[string]any{
@@ -22,9 +22,9 @@ func TestBackup_DocumentsAndAssets(t *testing.T) {
 		"/images/logo.png":  {0x89, 0x50, 0x4E, 0x47},
 	})
 
-	resp, err := http.Get(srv.URL + "/api/backup?vault=" + vaultID)
+	resp, err := http.Get(srv.URL + "/api/export?vault=" + vaultID)
 	if err != nil {
-		t.Fatalf("GET backup: %v", err)
+		t.Fatalf("GET export: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -92,12 +92,12 @@ func TestBackup_DocumentsAndAssets(t *testing.T) {
 	}
 }
 
-func TestBackup_EmptyVault(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "backup-empty")
+func TestExport_EmptyVault(t *testing.T) {
+	srv, vaultID := setupBulkServer(t, "export-empty")
 
-	resp, err := http.Get(srv.URL + "/api/backup?vault=" + vaultID)
+	resp, err := http.Get(srv.URL + "/api/export?vault=" + vaultID)
 	if err != nil {
-		t.Fatalf("GET backup: %v", err)
+		t.Fatalf("GET export: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -129,12 +129,12 @@ func TestBackup_EmptyVault(t *testing.T) {
 	}
 }
 
-func TestBackup_MissingVaultParam(t *testing.T) {
-	srv, _ := setupBulkServer(t, "backup-no-vault")
+func TestExport_MissingVaultParam(t *testing.T) {
+	srv, _ := setupBulkServer(t, "export-no-vault")
 
-	resp, err := http.Get(srv.URL + "/api/backup")
+	resp, err := http.Get(srv.URL + "/api/export")
 	if err != nil {
-		t.Fatalf("GET backup: %v", err)
+		t.Fatalf("GET export: %v", err)
 	}
 	defer resp.Body.Close()
 

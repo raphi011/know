@@ -15,7 +15,7 @@ import (
 	"github.com/raphi011/know/internal/models"
 )
 
-func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
+func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	vaultID := r.URL.Query().Get("vault")
@@ -60,7 +60,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Phase 2: Write tar.gz to temp file.
-	tmp, err := os.CreateTemp("", "know-backup-*.tar.gz")
+	tmp, err := os.CreateTemp("", "know-export-*.tar.gz")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("create temp file: %v", err))
 		return
@@ -120,7 +120,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 
 	bareVault := models.BareID("vault", vaultID)
 	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="know-backup-%s.tar.gz"`, bareVault))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="know-export-%s.tar.gz"`, bareVault))
 	http.ServeContent(w, r, "", time.Time{}, tmp)
 }
 

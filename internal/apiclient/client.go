@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/raphi011/know/internal/logutil"
 
 	"github.com/raphi011/know/internal/models"
 )
@@ -465,10 +466,10 @@ func (c *Client) UpdateVaultSettings(ctx context.Context, vaultName string, patc
 	return &settings, nil
 }
 
-// DownloadBackup downloads a vault backup archive to the given output path.
+// DownloadExport downloads a vault export archive to the given output path.
 // Returns the number of bytes written.
-func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string) (int64, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/backup?vault="+url.QueryEscape(vaultID), nil)
+func (c *Client) DownloadExport(ctx context.Context, vaultID, outputPath string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/export?vault="+url.QueryEscape(vaultID), nil)
 	if err != nil {
 		return 0, fmt.Errorf("create request: %w", err)
 	}
@@ -510,7 +511,7 @@ func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string)
 	}
 	if copyErr != nil {
 		if removeErr := os.Remove(outputPath); removeErr != nil {
-			slog.Warn("failed to clean up partial backup file", "path", outputPath, "error", removeErr)
+			logutil.FromCtx(ctx).Warn("failed to clean up partial export file", "path", outputPath, "error", removeErr)
 		}
 		return 0, fmt.Errorf("write output file: %w", copyErr)
 	}
