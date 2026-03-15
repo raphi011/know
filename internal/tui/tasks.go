@@ -160,7 +160,9 @@ func (m TaskModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m TaskModel) View() tea.View {
-	return tea.NewView(m.list.View())
+	v := tea.NewView(m.list.View())
+	v.AltScreen = true
+	return v
 }
 
 // toggleTaskCmd returns a command that toggles a task via the API.
