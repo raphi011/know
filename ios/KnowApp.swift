@@ -57,5 +57,8 @@ struct KnowApp: App {
             }
         }
         .modelContainer(modelContainer)
+        #if os(macOS)
+        .defaultSize(width: 900, height: 600)
+        #endif
     }
 }
