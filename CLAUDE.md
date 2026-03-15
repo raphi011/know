@@ -130,6 +130,7 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `POST /api/conversations` — create conversation
 - `DELETE /api/conversations/{id}` — delete conversation
 - `PATCH /api/conversations/{id}` — rename conversation
+- `POST /api/move` — move document or folder (`{vaultId, source, destination, dryRun}`)
 - `GET /api/ls?vault={id}&path={path}&recursive=true` — list files and folders
 - `GET /api/documents?vault={id}&path={path}` — get document by vault+path
 - `POST /api/documents` — create/update document

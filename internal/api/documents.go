@@ -179,6 +179,128 @@ func (s *Server) deleteDocuments(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type moveRequest struct {
+	VaultID     string `json:"vaultId"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	DryRun      bool   `json:"dryRun"`
+}
+
+type moveResponse struct {
+	Type   string   `json:"type"` // "document" or "folder"
+	Moved  []string `json:"moved"`
+	Count  int      `json:"count"`
+	DryRun bool     `json:"dryRun"`
+}
+
+func (s *Server) move(w http.ResponseWriter, r *http.Request) {
+	body, ok := decodeBody[moveRequest](w, r, 1*1024*1024)
+	if !ok {
+		return
+	}
+	if body.VaultID == "" || body.Source == "" || body.Destination == "" {
+		writeError(w, http.StatusBadRequest, "vaultId, source, and destination are required")
+		return
+	}
+
+	if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	source := models.NormalizePath(body.Source)
+	destination := models.NormalizePath(body.Destination)
+
+	if source == destination {
+		writeError(w, http.StatusBadRequest, "source and destination must be different")
+		return
+	}
+
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
+
+	// Check if source is a document
+	doc, err := s.app.DBClient().GetDocumentByPath(ctx, body.VaultID, source)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check source: %s", source))
+		logger.Error("move: get document", "source", source, "error", err)
+		return
+	}
+	if doc != nil {
+		// Check for destination conflict
+		existing, err := s.app.DBClient().GetDocumentByPath(ctx, body.VaultID, destination)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination: %s", destination))
+			logger.Error("move: check destination", "destination", destination, "error", err)
+			return
+		}
+		if existing != nil {
+			writeError(w, http.StatusConflict, fmt.Sprintf("destination already exists: %s", destination))
+			return
+		}
+
+		if !body.DryRun {
+			if _, err := s.app.DocumentService().Move(ctx, body.VaultID, source, destination); err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to move document: %s", source))
+				logger.Error("move document", "source", source, "destination", destination, "error", err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, moveResponse{
+			Type:   "document",
+			Moved:  []string{source},
+			Count:  1,
+			DryRun: body.DryRun,
+		})
+		return
+	}
+
+	// Check if source is a folder
+	folder, err := s.app.DBClient().GetFolderByPath(ctx, body.VaultID, source)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check source folder: %s", source))
+		logger.Error("move: get folder", "source", source, "error", err)
+		return
+	}
+	if folder == nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("source not found: %s", source))
+		return
+	}
+
+	// List folder contents for response
+	prefix := source + "/"
+	metas, err := s.app.DBClient().ListDocumentMetas(ctx, db.ListDocumentsFilter{
+		VaultID: body.VaultID,
+		Folder:  &prefix,
+		Limit:   10000,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list folder contents: %s", source))
+		logger.Error("move: list metas", "source", source, "error", err)
+		return
+	}
+
+	moved := make([]string, len(metas))
+	for i, m := range metas {
+		moved[i] = m.Path
+	}
+
+	if !body.DryRun {
+		if err := s.app.VaultService().MoveFolder(ctx, body.VaultID, source, destination); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to move folder: %s", source))
+			logger.Error("move folder", "source", source, "destination", destination, "error", err)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, moveResponse{
+		Type:   "folder",
+		Moved:  moved,
+		Count:  len(moved),
+		DryRun: body.DryRun,
+	})
+}
+
 func documentFromModel(d *models.Document) Document {
 	id, err := models.RecordIDString(d.ID)
 	if err != nil {

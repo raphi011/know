@@ -196,6 +196,29 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// MoveResult is the response from the move endpoint.
+type MoveResult struct {
+	Type   string   `json:"type"`
+	Moved  []string `json:"moved"`
+	Count  int      `json:"count"`
+	DryRun bool     `json:"dryRun"`
+}
+
+// Move moves a document or folder to a new path within the same vault.
+func (c *Client) Move(ctx context.Context, vaultID, source, destination string, dryRun bool) (*MoveResult, error) {
+	body := map[string]any{
+		"vaultId":     vaultID,
+		"source":      source,
+		"destination": destination,
+		"dryRun":      dryRun,
+	}
+	var result MoveResult
+	if err := c.Post(ctx, "/api/move", body, &result); err != nil {
+		return nil, fmt.Errorf("move: %w", err)
+	}
+	return &result, nil
+}
+
 // Vault is the JSON representation of a vault from the REST API.
 type Vault struct {
 	ID          string  `json:"id"`
