@@ -20,8 +20,8 @@ func chunk(docID, content string, score float64) db.ChunkWithScore {
 	return db.ChunkWithScore{
 		Chunk: models.Chunk{
 			ID:       rid("chunk", docID+"-0"),
-			Document: rid("document", docID),
-			Content:  content,
+			File:     rid("document", docID),
+			Text:     content,
 			Position: 0,
 		},
 		Score:    score,
@@ -34,8 +34,8 @@ func chunkPos(docID, content string, position int, score float64) db.ChunkWithSc
 	return db.ChunkWithScore{
 		Chunk: models.Chunk{
 			ID:       rid("chunk", fmt.Sprintf("%s-%d", docID, position)),
-			Document: rid("document", docID),
-			Content:  content,
+			File:     rid("document", docID),
+			Text:     content,
 			Position: position,
 		},
 		Score:    score,
@@ -52,7 +52,7 @@ func chunkWithLabels(docID, content string, score float64, labels []string) db.C
 
 func chunkWithHeading(docID, content string, heading string, score float64) db.ChunkWithScore {
 	ch := chunk(docID, content, score)
-	ch.Chunk.HeadingPath = &heading
+	ch.Chunk.SourceLoc = &heading
 	return ch
 }
 

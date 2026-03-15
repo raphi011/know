@@ -16,29 +16,29 @@ func TestBM25ChunkSearch(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	goDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	goDoc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/search-go.md", Title: "Go Programming",
-		Content: "---\ntitle: Go\n---\nGo is a statically typed language", ContentBody: "Go is a statically typed language",
-		Labels: []string{"programming"},
+		Content: "---\ntitle: Go\n---\nGo is a statically typed language",
+		Labels:  []string{"programming"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument go failed: %v", err)
+		t.Fatalf("CreateFile go failed: %v", err)
 	}
 	goDocID := models.MustRecordIDString(goDoc.ID)
 
-	pyDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	pyDoc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/search-python.md", Title: "Python Programming",
-		Content: "---\ntitle: Python\n---\nPython is a dynamic language", ContentBody: "Python is a dynamic language",
-		Labels: []string{"programming"},
+		Content: "---\ntitle: Python\n---\nPython is a dynamic language",
+		Labels:  []string{"programming"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument python failed: %v", err)
+		t.Fatalf("CreateFile python failed: %v", err)
 	}
 	pyDocID := models.MustRecordIDString(pyDoc.ID)
 
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: goDocID, Content: "Go is a statically typed language", Position: 0},
-		{DocumentID: pyDocID, Content: "Python is a dynamic language", Position: 0},
+		{FileID: goDocID, Text: "Go is a statically typed language", Position: 0},
+		{FileID: pyDocID, Text: "Python is a dynamic language", Position: 0},
 	}); err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
 	}
@@ -62,29 +62,29 @@ func TestSearchWithLabelFilter(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	webDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	webDoc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/label-a.md", Title: "Web Doc",
-		Content: "Web frameworks are great", ContentBody: "Web frameworks are great",
-		Labels: []string{"web"},
+		Content: "Web frameworks are great",
+		Labels:  []string{"web"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument web failed: %v", err)
+		t.Fatalf("CreateFile web failed: %v", err)
 	}
 	webDocID := models.MustRecordIDString(webDoc.ID)
 
-	cliDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	cliDoc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/label-b.md", Title: "CLI Doc",
-		Content: "CLI tools are useful frameworks", ContentBody: "CLI tools are useful frameworks",
-		Labels: []string{"cli"},
+		Content: "CLI tools are useful frameworks",
+		Labels:  []string{"cli"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument cli failed: %v", err)
+		t.Fatalf("CreateFile cli failed: %v", err)
 	}
 	cliDocID := models.MustRecordIDString(cliDoc.ID)
 
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: webDocID, Content: "Web frameworks are great", Position: 0},
-		{DocumentID: cliDocID, Content: "CLI tools are useful frameworks", Position: 0},
+		{FileID: webDocID, Text: "Web frameworks are great", Position: 0},
+		{FileID: cliDocID, Text: "CLI tools are useful frameworks", Position: 0},
 	}); err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSearchWithLabelFilter(t *testing.T) {
 		t.Error("BM25ChunkSearch with label filter should return results")
 	}
 	for _, r := range results {
-		docID, err := models.RecordIDString(r.Document)
+		docID, err := models.RecordIDString(r.File)
 		if err != nil {
 			t.Fatalf("extract doc ID: %v", err)
 		}
@@ -118,29 +118,29 @@ func TestSearchWithFolderFilter(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	guidesDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	guidesDoc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/guides/setup.md", Title: "Setup Guide",
-		Content: "Install the software first", ContentBody: "Install the software first",
-		Labels: []string{},
+		Content: "Install the software first",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument guides failed: %v", err)
+		t.Fatalf("CreateFile guides failed: %v", err)
 	}
 	guidesDocID := models.MustRecordIDString(guidesDoc.ID)
 
-	notesDoc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	notesDoc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/notes/install.md", Title: "Install Notes",
-		Content: "Notes about installing software", ContentBody: "Notes about installing software",
-		Labels: []string{},
+		Content: "Notes about installing software",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument notes failed: %v", err)
+		t.Fatalf("CreateFile notes failed: %v", err)
 	}
 	notesDocID := models.MustRecordIDString(notesDoc.ID)
 
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: guidesDocID, Content: "Install the software first", Position: 0},
-		{DocumentID: notesDocID, Content: "Notes about installing software", Position: 0},
+		{FileID: guidesDocID, Text: "Install the software first", Position: 0},
+		{FileID: notesDocID, Text: "Notes about installing software", Position: 0},
 	}); err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestSearchWithFolderFilter(t *testing.T) {
 		t.Error("BM25ChunkSearch with folder filter should return results")
 	}
 	for _, r := range results {
-		docID, err := models.RecordIDString(r.Document)
+		docID, err := models.RecordIDString(r.File)
 		if err != nil {
 			t.Fatalf("extract doc ID: %v", err)
 		}
@@ -176,22 +176,21 @@ func TestHybridSearch(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/hybrid-search-" + suffix + ".md",
-		Title:       "Hybrid Search Doc",
-		Content:     "hybrid search content for testing",
-		ContentBody: "hybrid search content for testing",
-		Labels:      []string{"test"},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/hybrid-search-" + suffix + ".md",
+		Title:   "Hybrid Search Doc",
+		Content: "hybrid search content for testing",
+		Labels:  []string{"test"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	embedding := dummyEmbedding()
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "hybrid search content for testing", Position: 0, Embedding: embedding},
+		{FileID: docID, Text: "hybrid search content for testing", Position: 0, Embedding: embedding},
 	}); err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
 	}
@@ -219,7 +218,7 @@ func TestHybridSearch(t *testing.T) {
 	}
 }
 
-func TestGetDocumentsByIDs(t *testing.T) {
+func TestGetFilesByIDs(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -229,25 +228,24 @@ func TestGetDocumentsByIDs(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	var docIDs []string
 	for i, path := range []string{"/byids-" + suffix + "/a.md", "/byids-" + suffix + "/b.md"} {
-		doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        path,
-			Title:       fmt.Sprintf("ByIDs Doc %d", i),
-			Content:     "content " + path,
-			ContentBody: "content " + path,
-			Labels:      []string{},
+		doc, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    path,
+			Title:   fmt.Sprintf("ByIDs Doc %d", i),
+			Content: "content " + path,
+			Labels:  []string{},
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument %s failed: %v", path, err)
+			t.Fatalf("CreateFile %s failed: %v", path, err)
 		}
 		docIDs = append(docIDs, models.MustRecordIDString(doc.ID))
 	}
 
-	docs, err := testDB.GetDocumentsByIDs(ctx, docIDs)
+	docs, err := testDB.GetFilesByIDs(ctx, docIDs)
 	if err != nil {
-		t.Fatalf("GetDocumentsByIDs failed: %v", err)
+		t.Fatalf("GetFilesByIDs failed: %v", err)
 	}
 	if len(docs) != 2 {
-		t.Errorf("Expected 2 documents, got %d", len(docs))
+		t.Errorf("Expected 2 files, got %d", len(docs))
 	}
 }

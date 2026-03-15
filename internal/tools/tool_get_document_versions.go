@@ -60,7 +60,7 @@ func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJ
 		limit = *input.Limit
 	}
 
-	doc, err := t.db.GetDocumentByPath(ctx, o.VaultID, input.Path)
+	doc, err := t.db.GetFileByPath(ctx, o.VaultID, input.Path)
 	if err != nil {
 		return "", fmt.Errorf("get document for versions: %w", err)
 	}

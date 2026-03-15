@@ -100,8 +100,7 @@ func (c *Client) DeleteVault(ctx context.Context, id string) error {
 		name string
 		sql  string
 	}{
-		{"document", `DELETE FROM document WHERE vault = type::record("vault", $id)`},
-		{"folder", `DELETE FROM folder WHERE vault = type::record("vault", $id)`},
+		{"file", `DELETE FROM file WHERE vault = type::record("vault", $id)`},
 		{"vault", `DELETE type::record("vault", $id)`},
 	} {
 		if _, err := surrealdb.Query[any](ctx, tx, t.sql, vars); err != nil {
@@ -130,10 +129,10 @@ func (c *Client) UpdateVaultSettings(ctx context.Context, vaultID string, settin
 	return firstResult(results, "update vault settings")
 }
 
-// ListDocumentPaths returns all document paths in a vault (for folder derivation).
+// ListDocumentPaths returns all non-folder file paths in a vault (for folder derivation).
 func (c *Client) ListDocumentPaths(ctx context.Context, vaultID string) ([]string, error) {
 	defer c.logOp(ctx, "vault.list_document_paths", time.Now())
-	sql := `SELECT path FROM document WHERE vault = type::record("vault", $vault_id)`
+	sql := `SELECT path FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = false`
 	results, err := surrealdb.Query[[]struct {
 		Path string `json:"path"`
 	}](ctx, c.DB(), sql, map[string]any{
@@ -183,13 +182,13 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	sql := `
 		-- 0: document count + unprocessed
 		SELECT count() AS total, math::sum(IF processed = false THEN 1 ELSE 0 END) AS unprocessed
-			FROM document WHERE vault = type::record("vault", $vid) GROUP ALL;
+			FROM file WHERE vault = type::record("vault", $vid) AND is_folder = false GROUP ALL;
 
-		-- 1: chunk stats (join through document)
+		-- 1: chunk stats (join through file)
 		SELECT count() AS total,
 			   math::sum(IF embedding IS NOT NONE THEN 1 ELSE 0 END) AS embedded,
 			   math::sum(IF embedding IS NONE THEN 1 ELSE 0 END) AS pending
-			FROM chunk WHERE document.vault = type::record("vault", $vid) GROUP ALL;
+			FROM chunk WHERE file.vault = type::record("vault", $vid) GROUP ALL;
 
 		-- 2: label count
 		SELECT count() AS total FROM label WHERE vault = type::record("vault", $vid) GROUP ALL;
@@ -204,14 +203,14 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 
 		-- 5: asset count + total size
 		SELECT count() AS total, math::sum(size) AS total_size
-			FROM asset WHERE vault = type::record("vault", $vid) GROUP ALL;
+			FROM file WHERE vault = type::record("vault", $vid) AND is_folder = false AND data IS NOT NONE GROUP ALL;
 
 		-- 6: wiki-link total + broken
-		SELECT count() AS total, math::sum(IF to_doc IS NONE THEN 1 ELSE 0 END) AS broken
+		SELECT count() AS total, math::sum(IF to_file IS NONE THEN 1 ELSE 0 END) AS broken
 			FROM wiki_link WHERE vault = type::record("vault", $vid) GROUP ALL;
 
 		-- 7: version count
-		SELECT count() AS total FROM document_version WHERE vault = type::record("vault", $vid) GROUP ALL;
+		SELECT count() AS total FROM file_version WHERE vault = type::record("vault", $vid) GROUP ALL;
 
 		-- 8: conversation count + tokens
 		SELECT count() AS total, math::sum(token_input) AS token_input, math::sum(token_output) AS token_output

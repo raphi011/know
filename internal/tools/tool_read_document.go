@@ -47,7 +47,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	start := time.Now()
-	doc, err := t.db.GetDocumentByPath(ctx, o.VaultID, input.Path)
+	doc, err := t.db.GetFileByPath(ctx, o.VaultID, input.Path)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("read document: %w", err)
@@ -65,7 +65,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	if input.Sections {
-		parsed := parser.ParseMarkdown(doc.ContentBody)
+		parsed := parser.ParseMarkdown(doc.Content)
 		if len(parsed.Sections) > 0 {
 			outline := parser.SectionOutline(parsed)
 			sb.WriteString("## Sections\n")
@@ -82,9 +82,9 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		}
 	}
 
-	sb.WriteString(doc.ContentBody)
+	sb.WriteString(doc.Content)
 
-	contentLen := len(doc.ContentBody)
+	contentLen := len(doc.Content)
 	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,

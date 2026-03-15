@@ -1,4 +1,4 @@
-package document
+package file
 
 import (
 	"context"
@@ -23,10 +23,10 @@ import (
 // VersionConfig holds versioning settings.
 type VersionConfig struct {
 	CoalesceMinutes int // minutes between version snapshots
-	RetentionCount  int // max versions per document
+	RetentionCount  int // max versions per file
 }
 
-// Service manages document lifecycle: parse → extract → store → link → embed.
+// Service manages file lifecycle: parse → extract → store → link → embed.
 type Service struct {
 	db                 *db.Client
 	embedder           atomic.Pointer[llm.Embedder] // optional — nil disables embedding
@@ -53,7 +53,7 @@ func (s *Service) getEmbedder() *llm.Embedder {
 	return s.embedder.Load()
 }
 
-// NewService creates a new document service.
+// NewService creates a new file service.
 // embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
 func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
 	if versionConfig.RetentionCount < 1 {
@@ -76,13 +76,13 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 	return s
 }
 
-func (s *Service) publishDocEvent(eventType string, vaultID string, doc *models.Document) {
+func (s *Service) publishFileEvent(eventType string, vaultID string, doc *models.File) {
 	if s.bus == nil {
 		return
 	}
-	docID, err := models.RecordIDString(doc.ID)
+	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		slog.Warn("failed to extract doc ID for event", "error", err)
+		slog.Warn("failed to extract file ID for event", "event", eventType, "error", err)
 		return
 	}
 	var contentHash string
@@ -93,35 +93,35 @@ func (s *Service) publishDocEvent(eventType string, vaultID string, doc *models.
 		Type:    eventType,
 		VaultID: vaultID,
 		Payload: event.DocumentPayload{
-			DocID:       docID,
+			DocID:       fileID,
 			Path:        doc.Path,
 			ContentHash: contentHash,
 		},
 	})
 }
 
-func (s *Service) publishDocDeleteEvent(vaultID, docID, path, contentHash string) {
+func (s *Service) publishFileDeleteEvent(vaultID, fileID, path, contentHash string) {
 	if s.bus == nil {
 		return
 	}
 	s.bus.Publish(event.ChangeEvent{
-		Type:    "document.deleted",
+		Type:    "file.deleted",
 		VaultID: vaultID,
 		Payload: event.DocumentPayload{
-			DocID:       docID,
+			DocID:       fileID,
 			Path:        path,
 			ContentHash: contentHash,
 		},
 	})
 }
 
-func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldPath string) {
+func (s *Service) publishFileMoveEvent(vaultID string, doc *models.File, oldPath string) {
 	if s.bus == nil {
 		return
 	}
-	docID, err := models.RecordIDString(doc.ID)
+	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		slog.Warn("failed to extract doc ID for move event", "error", err)
+		slog.Warn("failed to extract file ID for move event", "error", err)
 		return
 	}
 	var contentHash string
@@ -129,10 +129,10 @@ func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldP
 		contentHash = *doc.ContentHash
 	}
 	s.bus.Publish(event.ChangeEvent{
-		Type:    "document.moved",
+		Type:    "file.moved",
 		VaultID: vaultID,
 		Payload: event.DocumentPayload{
-			DocID:       docID,
+			DocID:       fileID,
 			Path:        doc.Path,
 			OldPath:     oldPath,
 			ContentHash: contentHash,
@@ -140,96 +140,119 @@ func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldP
 	})
 }
 
-// Create stores a document with fast-path parsing and defers heavy processing
+// Create stores a file with fast-path parsing and defers heavy processing
 // (chunks, wiki-links, relations) to the async ProcessingWorker.
-func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
-	// 1. Parse frontmatter
-	parsed := parser.ParseMarkdown(input.Content)
-
-	// 2. Extract title (frontmatter > h1 > filename)
-	title := parsed.Title
-	if title == "" {
-		title = filenameTitle(input.Path)
+func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.File, error) {
+	if err := input.Validate(); err != nil {
+		return nil, fmt.Errorf("validate input: %w", err)
 	}
 
-	// 3. Extract labels: frontmatter + inline #tags
-	fmLabels := parsed.GetFrontmatterStringSlice("labels")
-	if fmLabels == nil {
-		fmLabels = parsed.GetFrontmatterStringSlice("tags")
+	// Auto-detect MimeType from file extension when not provided.
+	if input.MimeType == "" {
+		input.MimeType = models.DetectMimeType(input.Path)
 	}
-	allLabels := MergeLabels(parsed.InlineLabels, append(fmLabels, input.Labels...))
 
-	// 4. Extract doc_type from frontmatter if not set
-	docType := input.DocType
-	if docType == nil {
-		if dt := parsed.GetFrontmatterString("type"); dt != "" {
-			docType = &dt
+	isBinary := len(input.Data) > 0
+
+	var (
+		title    string
+		labels   []string
+		docType  *string
+		metadata map[string]any
+	)
+
+	if !isBinary {
+		// Text file: parse frontmatter, extract labels/title/metadata
+		parsed := parser.ParseMarkdown(input.Content)
+
+		title = parsed.Title
+		if title == "" {
+			title = filenameTitle(input.Path)
 		}
+
+		fmLabels := parsed.GetFrontmatterStringSlice("labels")
+		if fmLabels == nil {
+			fmLabels = parsed.GetFrontmatterStringSlice("tags")
+		}
+		labels = MergeLabels(parsed.InlineLabels, append(fmLabels, input.Labels...))
+
+		docType = input.DocType
+		if docType == nil {
+			if dt := parsed.GetFrontmatterString("type"); dt != "" {
+				docType = &dt
+			}
+		}
+
+		metadata = input.Metadata
+		if metadata == nil {
+			metadata = extractMetadata(parsed.Frontmatter)
+		}
+	} else {
+		// Binary file: skip markdown parsing, use input values directly
+		title = filenameTitle(input.Path)
+		labels = input.Labels
+		docType = input.DocType
+		metadata = input.Metadata
 	}
 
-	// 5. Extract metadata from frontmatter
-	metadata := input.Metadata
-	if metadata == nil {
-		metadata = extractMetadata(parsed.Frontmatter)
-	}
-
-	// 6. Compute content_body (without frontmatter) and content_hash
-	contentBody := parsed.Content
+	// Compute content_hash
 	contentHash := models.ContentHash(input.Content)
 
-	// 7. Normalize path
+	// Normalize path
 	path := models.NormalizePath(input.Path)
 
-	// 8. Store document
-	dbInput := models.DocumentInput{
+	// Store file
+	dbInput := models.FileInput{
 		VaultID:     input.VaultID,
 		Path:        path,
 		Title:       title,
 		Content:     input.Content,
-		ContentBody: contentBody,
 		ContentHash: &contentHash,
-		Labels:      allLabels,
+		Labels:      labels,
 		DocType:     docType,
 		Metadata:    metadata,
+		Data:        input.Data,
+		MimeType:    input.MimeType,
+		IsFolder:    input.IsFolder,
 	}
 
-	// Auto-create parent folders before document upsert
+	// Auto-create parent folders before file upsert
 	if err := s.db.EnsureFolders(ctx, input.VaultID, path); err != nil {
 		return nil, fmt.Errorf("ensure parent folders: %w", err)
 	}
 
-	doc, created, previousDoc, err := s.db.UpsertDocument(ctx, dbInput)
+	doc, created, previousFile, err := s.db.UpsertFile(ctx, dbInput)
 	if err != nil {
-		return nil, fmt.Errorf("upsert document: %w", err)
+		return nil, fmt.Errorf("upsert file: %w", err)
 	}
 
 	// Create version snapshot of old content (if this was an update with changed content)
-	if !created && previousDoc != nil {
-		docID, idErr := models.RecordIDString(doc.ID)
+	if !created && previousFile != nil {
+		fileID, idErr := models.RecordIDString(doc.ID)
 		if idErr != nil {
-			logutil.FromCtx(ctx).Warn("failed to extract doc ID for versioning", "error", idErr)
+			logutil.FromCtx(ctx).Warn("failed to extract file ID for versioning", "error", idErr)
 		} else {
-			s.maybeCreateVersion(ctx, docID, input.VaultID, previousDoc, contentHash)
+			s.maybeCreateVersion(ctx, fileID, input.VaultID, previousFile, contentHash)
 		}
 	}
 
-	// Publish change event (document is stored but not yet processed)
+	// Publish change event (file is stored but not yet processed)
 	if created {
-		s.publishDocEvent("document.created", input.VaultID, doc)
+		s.publishFileEvent("file.created", input.VaultID, doc)
 	} else {
-		s.publishDocEvent("document.updated", input.VaultID, doc)
+		s.publishFileEvent("file.updated", input.VaultID, doc)
 	}
 
 	return doc, nil
 }
 
-// ProcessDocument runs the deferred heavy processing pipeline for a document:
+// ProcessFile runs the deferred heavy processing pipeline for a file:
 // chunks, wiki-links, dangling link resolution, and relations.
-// Called by the ProcessingWorker for documents with processed = false.
-func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) error {
-	docID, err := models.RecordIDString(doc.ID)
+// Called by the ProcessingWorker for files with processed = false.
+func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
+	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		return fmt.Errorf("extract doc id: %w", err)
+		return fmt.Errorf("extract file id: %w", err)
 	}
 
 	vaultID, err := models.RecordIDString(doc.Vault)
@@ -244,64 +267,69 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 		return fmt.Errorf("check template path: %w", err)
 	}
 	if isTpl {
-		if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
+		if err := s.db.SyncFileLabels(ctx, fileID, vaultID, doc.Labels); err != nil {
 			return fmt.Errorf("sync labels for template %s: %w", doc.Path, err)
 		}
-		if err := s.db.MarkDocumentProcessed(ctx, docID); err != nil {
+		if err := s.db.MarkFileProcessed(ctx, fileID); err != nil {
 			return fmt.Errorf("mark template processed: %w", err)
 		}
-		s.publishDocEvent("document.processed", vaultID, doc)
+		s.publishFileEvent("file.processed", vaultID, doc)
 		return nil
 	}
 
-	parsed := parser.ParseMarkdown(doc.Content)
+	// Skip markdown-specific processing for binary files
+	isBinary := len(doc.Data) > 0
 
-	// 1. Sync chunks (with smart diffing — only re-embed changed chunks)
-	if err := s.syncChunks(ctx, docID, parsed, doc.Labels); err != nil {
-		return fmt.Errorf("sync chunks for %s: %w", doc.Path, err)
+	if !isBinary {
+		parsed := parser.ParseMarkdown(doc.Content)
+
+		// 1. Sync chunks (with smart diffing — only re-embed changed chunks)
+		if err := s.syncChunks(ctx, fileID, parsed, doc.Labels); err != nil {
+			return fmt.Errorf("sync chunks for %s: %w", doc.Path, err)
+		}
+
+		// 2. Extract and store wiki-links
+		if err := s.processWikiLinks(ctx, fileID, vaultID, parsed.WikiLinks); err != nil {
+			return fmt.Errorf("process wiki-links for %s: %w", doc.Path, err)
+		}
+
+		// 3. Resolve dangling links that might point to this file
+		if err := s.resolveDanglingForFile(ctx, vaultID, doc); err != nil {
+			return fmt.Errorf("resolve dangling links for %s: %w", doc.Path, err)
+		}
+
+		// 4. Process explicit relates_to from frontmatter
+		if err := s.processRelatesTo(ctx, fileID, vaultID, parsed.Frontmatter); err != nil {
+			return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
+		}
+
+		// 5.5. Sync tasks (extract checkboxes, diff with DB)
+		if err := s.syncTasks(ctx, fileID, vaultID, parsed.Tasks); err != nil {
+			return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)
+		}
 	}
 
-	// 2. Extract and store wiki-links
-	if err := s.processWikiLinks(ctx, docID, vaultID, parsed.WikiLinks); err != nil {
-		return fmt.Errorf("process wiki-links for %s: %w", doc.Path, err)
-	}
-
-	// 3. Resolve dangling links that might point to this document
-	if err := s.resolveDanglingForDoc(ctx, vaultID, doc); err != nil {
-		return fmt.Errorf("resolve dangling links for %s: %w", doc.Path, err)
-	}
-
-	// 4. Process explicit relates_to from frontmatter
-	if err := s.processRelatesTo(ctx, docID, vaultID, parsed.Frontmatter); err != nil {
-		return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
-	}
-
-	// 5. Sync label graph (has_label edges)
-	if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
+	// 5. Sync label graph (has_label edges) — applies to all file types
+	if err := s.db.SyncFileLabels(ctx, fileID, vaultID, doc.Labels); err != nil {
 		return fmt.Errorf("sync labels for %s: %w", doc.Path, err)
 	}
 
-	// 5.5. Sync tasks (extract checkboxes, diff with DB)
-	if err := s.syncTasks(ctx, docID, vaultID, parsed.Tasks); err != nil {
-		return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)
-	}
-
 	// 6. Mark as processed
-	if err := s.db.MarkDocumentProcessed(ctx, docID); err != nil {
+	if err := s.db.MarkFileProcessed(ctx, fileID); err != nil {
 		return fmt.Errorf("mark processed: %w", err)
 	}
 
 	// 7. Publish processed event
-	s.publishDocEvent("document.processed", vaultID, doc)
+	s.publishFileEvent("file.processed", vaultID, doc)
 
 	return nil
 }
 
-// ProcessAllPending processes all unprocessed documents synchronously.
+// ProcessAllPending processes all unprocessed files synchronously.
 // Intended for tests and CLI commands that need immediate processing.
 func (s *Service) ProcessAllPending(ctx context.Context) error {
 	for {
-		docs, err := s.db.ListUnprocessedDocuments(ctx, 100)
+		docs, err := s.db.ListUnprocessedFiles(ctx, 100)
 		if err != nil {
 			return fmt.Errorf("list unprocessed: %w", err)
 		}
@@ -309,7 +337,7 @@ func (s *Service) ProcessAllPending(ctx context.Context) error {
 			return nil
 		}
 		for _, doc := range docs {
-			if err := s.ProcessDocument(ctx, &doc); err != nil {
+			if err := s.ProcessFile(ctx, &doc); err != nil {
 				return fmt.Errorf("process %s: %w", doc.Path, err)
 			}
 		}
@@ -323,7 +351,7 @@ type embeddingTask struct {
 }
 
 // EmbedPendingChunks claims chunks that are due for embedding and embeds them.
-// Uses contextual retrieval: prepends document title and section path to chunk
+// Uses contextual retrieval: prepends file title and section path to chunk
 // content before embedding, improving semantic precision without altering stored content.
 // Attempts batch embedding first for efficiency; falls back to one-at-a-time on batch failure.
 // Returns the number of chunks successfully embedded.
@@ -341,8 +369,8 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 		return 0, nil
 	}
 
-	// Batch-fetch document titles for contextual embedding
-	docTitles := s.fetchDocTitles(ctx, chunks)
+	// Batch-fetch file titles for contextual embedding
+	fileTitles := s.fetchFileTitles(ctx, chunks)
 
 	// Build embedding texts for all chunks
 	logger := logutil.FromCtx(ctx)
@@ -353,14 +381,14 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 			logger.Warn("failed to extract chunk ID for embedding", "error", err)
 			continue
 		}
-		docID, err := models.RecordIDString(chunk.Document)
+		fileID, err := models.RecordIDString(chunk.File)
 		if err != nil {
-			logger.Warn("failed to extract document ID for contextual embedding", "chunk_id", chunkID, "error", err)
+			logger.Warn("failed to extract file ID for contextual embedding", "chunk_id", chunkID, "error", err)
 			continue
 		}
 		pending = append(pending, embeddingTask{
 			chunkID: chunkID,
-			text:    buildEmbeddingContext(chunk, docTitles[docID], s.embedMaxInputChars),
+			text:    buildEmbeddingContext(chunk, fileTitles[fileID], s.embedMaxInputChars),
 		})
 	}
 	if len(pending) == 0 {
@@ -441,61 +469,61 @@ func (s *Service) embedChunksOneByOne(ctx context.Context, embedder *llm.Embedde
 	return stored, nil
 }
 
-// fetchDocTitles collects unique document IDs from a batch of chunks and
-// batch-fetches their titles. Returns a map of docID → title.
-func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map[string]string {
+// fetchFileTitles collects unique file IDs from a batch of chunks and
+// batch-fetches their titles. Returns a map of fileID → title.
+func (s *Service) fetchFileTitles(ctx context.Context, chunks []models.Chunk) map[string]string {
 	logger := logutil.FromCtx(ctx)
 	titles := make(map[string]string)
 
-	// Collect unique doc IDs
-	docIDSet := make(map[string]struct{})
+	// Collect unique file IDs
+	fileIDSet := make(map[string]struct{})
 	for _, chunk := range chunks {
-		docID, err := models.RecordIDString(chunk.Document)
+		fileID, err := models.RecordIDString(chunk.File)
 		if err != nil {
-			logger.Warn("failed to extract document ID for title lookup", "error", err)
+			logger.Warn("failed to extract file ID for title lookup", "error", err)
 			continue
 		}
-		docIDSet[docID] = struct{}{}
+		fileIDSet[fileID] = struct{}{}
 	}
-	docIDs := make([]string, 0, len(docIDSet))
-	for id := range docIDSet {
-		docIDs = append(docIDs, id)
+	fileIDs := make([]string, 0, len(fileIDSet))
+	for id := range fileIDSet {
+		fileIDs = append(fileIDs, id)
 	}
 
-	if len(docIDs) == 0 {
+	if len(fileIDs) == 0 {
 		return titles
 	}
 
-	docs, err := s.db.GetDocumentsByIDs(ctx, docIDs)
+	docs, err := s.db.GetFilesByIDs(ctx, fileIDs)
 	if err != nil {
-		logger.Warn("failed to fetch document titles for contextual embedding", "error", err)
+		logger.Warn("failed to fetch file titles for contextual embedding", "error", err)
 		return titles
 	}
 
 	for _, doc := range docs {
-		docID, err := models.RecordIDString(doc.ID)
+		fileID, err := models.RecordIDString(doc.ID)
 		if err != nil {
-			logger.Warn("failed to extract document ID from fetched doc", "error", err)
+			logger.Warn("failed to extract file ID from fetched file", "error", err)
 			continue
 		}
-		titles[docID] = doc.Title
+		titles[fileID] = doc.Title
 	}
 
 	return titles
 }
 
-// buildEmbeddingContext prepends document and section context to chunk content
+// buildEmbeddingContext prepends file and section context to chunk content
 // for better embedding quality (contextual retrieval technique).
 // The context prefix is only used at embedding time, not stored in the chunk.
 // If maxChars > 0 and the assembled string exceeds maxChars, the content is
 // truncated at a word boundary (the prefix is preserved).
-func buildEmbeddingContext(chunk models.Chunk, docTitle string, maxChars int) string {
+func buildEmbeddingContext(chunk models.Chunk, fileTitle string, maxChars int) string {
 	var b strings.Builder
-	if docTitle != "" {
-		fmt.Fprintf(&b, "Document: %s\n", docTitle)
+	if fileTitle != "" {
+		fmt.Fprintf(&b, "File: %s\n", fileTitle)
 	}
-	if chunk.HeadingPath != nil && *chunk.HeadingPath != "" {
-		section := stripMarkdownHeadingPrefixes(*chunk.HeadingPath)
+	if chunk.SourceLoc != nil && *chunk.SourceLoc != "" {
+		section := stripMarkdownHeadingPrefixes(*chunk.SourceLoc)
 		fmt.Fprintf(&b, "Section: %s\n", section)
 	}
 	if b.Len() > 0 {
@@ -503,7 +531,7 @@ func buildEmbeddingContext(chunk models.Chunk, docTitle string, maxChars int) st
 	}
 	prefixLen := b.Len()
 
-	b.WriteString(chunk.Content)
+	b.WriteString(chunk.Text)
 	result := b.String()
 
 	if maxChars > 0 && len(result) > maxChars {
@@ -515,7 +543,7 @@ func buildEmbeddingContext(chunk models.Chunk, docTitle string, maxChars int) st
 		} else {
 			// Truncate content at word boundary, keeping prefix intact.
 			contentBudget := maxChars - prefixLen
-			result = result[:prefixLen] + truncateAtWordBoundary(chunk.Content, contentBudget)
+			result = result[:prefixLen] + truncateAtWordBoundary(chunk.Text, contentBudget)
 		}
 	}
 	return result
@@ -560,29 +588,44 @@ func (s *Service) rescheduleChunk(logger *slog.Logger, chunkID string) {
 	}
 }
 
-// Update re-runs the document pipeline on existing content.
-func (s *Service) Update(ctx context.Context, vaultID, path, content string) (*models.Document, error) {
-	return s.Create(ctx, models.DocumentInput{
+// Get returns a file by vault+path, or nil if not found.
+func (s *Service) Get(ctx context.Context, vaultID, path string) (*models.File, error) {
+	return s.db.GetFileByPath(ctx, vaultID, path)
+}
+
+// GetMeta returns lightweight file metadata, or nil if not found.
+func (s *Service) GetMeta(ctx context.Context, vaultID, path string) (*models.FileMeta, error) {
+	return s.db.GetFileMetaByPath(ctx, vaultID, path)
+}
+
+// ListMetas returns lightweight metadata for files matching a filter.
+func (s *Service) ListMetas(ctx context.Context, filter db.ListFilesFilter) ([]models.FileMeta, error) {
+	return s.db.ListFileMetas(ctx, filter)
+}
+
+// Update re-runs the file pipeline on existing content.
+func (s *Service) Update(ctx context.Context, vaultID, path, content string) (*models.File, error) {
+	return s.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    path,
 		Content: content,
 	})
 }
 
-// Delete removes a document and its associated data.
+// Delete removes a file and all its associated data.
 func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	path = models.NormalizePath(path)
-	doc, err := s.db.GetDocumentByPath(ctx, vaultID, path)
+	doc, err := s.db.GetFileByPath(ctx, vaultID, path)
 	if err != nil {
-		return fmt.Errorf("get document: %w", err)
+		return fmt.Errorf("get file: %w", err)
 	}
 	if doc == nil {
-		return fmt.Errorf("document not found: %s", path)
+		return fmt.Errorf("file not found: %s", path)
 	}
 
-	docID, err := models.RecordIDString(doc.ID)
+	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		return fmt.Errorf("extract doc id: %w", err)
+		return fmt.Errorf("extract file id: %w", err)
 	}
 
 	var contentHash string
@@ -591,30 +634,30 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	}
 
 	// Synchronous cleanup — async cascade events are a safety net, not primary.
-	if err := s.db.DeleteWikiLinks(ctx, docID); err != nil {
+	if err := s.db.DeleteWikiLinks(ctx, fileID); err != nil {
 		return fmt.Errorf("delete wiki links: %w", err)
 	}
-	if _, err := s.db.UnresolveWikiLinksToDoc(ctx, docID); err != nil {
+	if _, err := s.db.UnresolveWikiLinksToFile(ctx, fileID); err != nil {
 		return fmt.Errorf("unresolve incoming wiki links: %w", err)
 	}
-	if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, nil); err != nil {
+	if err := s.db.SyncFileLabels(ctx, fileID, vaultID, nil); err != nil {
 		return fmt.Errorf("delete label edges: %w", err)
 	}
-	if err := s.db.DeleteChunks(ctx, docID); err != nil {
+	if err := s.db.DeleteChunks(ctx, fileID); err != nil {
 		return fmt.Errorf("delete chunks: %w", err)
 	}
 
-	if err := s.db.DeleteDocument(ctx, docID); err != nil {
-		return fmt.Errorf("delete document: %w", err)
+	if err := s.db.DeleteFile(ctx, fileID); err != nil {
+		return fmt.Errorf("delete file: %w", err)
 	}
 
-	s.publishDocDeleteEvent(vaultID, docID, path, contentHash)
+	s.publishFileDeleteEvent(vaultID, fileID, path, contentHash)
 
 	return nil
 }
 
-// DeleteByPrefix removes all documents whose path starts with the given prefix.
-// Returns the number of deleted documents. The prefix is normalized and ensured
+// DeleteByPrefix removes all files whose path starts with the given prefix.
+// Returns the number of deleted files. The prefix is normalized and ensured
 // to end with "/" to avoid matching paths like "/guides-extra" when deleting "/guides".
 //
 // Cleanup of chunks, wiki-links, and relations relies on SurrealDB's async cascade
@@ -627,7 +670,7 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 	if prefix == "/" {
 		return 0, fmt.Errorf("delete by prefix: refusing to delete root prefix")
 	}
-	count, err := s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix)
+	count, err := s.db.DeleteFilesByPrefix(ctx, vaultID, prefix)
 	if err != nil {
 		return 0, fmt.Errorf("delete by prefix: %w", err)
 	}
@@ -640,8 +683,8 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 	return count, nil
 }
 
-// MoveByPrefix renames all documents whose path starts with oldPrefix,
-// replacing oldPrefix with newPrefix. Returns the number of moved documents.
+// MoveByPrefix renames all files whose path starts with oldPrefix,
+// replacing oldPrefix with newPrefix. Returns the number of moved files.
 // Both prefixes are normalized and ensured to end with "/" to avoid partial matches.
 //
 // Updates wiki-link raw_targets referencing paths under the old prefix.
@@ -661,7 +704,7 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	if oldNorm == newNorm {
 		return 0, nil
 	}
-	count, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldNorm, newNorm)
+	count, err := s.db.MoveFilesByPrefix(ctx, vaultID, oldNorm, newNorm)
 	if err != nil {
 		return 0, fmt.Errorf("move by prefix: %w", err)
 	}
@@ -683,26 +726,26 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	return count, nil
 }
 
-// Move changes a document's path.
-func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*models.Document, error) {
+// Move changes a file's path.
+func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*models.File, error) {
 	oldPath = models.NormalizePath(oldPath)
-	doc, err := s.db.GetDocumentByPath(ctx, vaultID, oldPath)
+	doc, err := s.db.GetFileByPath(ctx, vaultID, oldPath)
 	if err != nil {
-		return nil, fmt.Errorf("get document: %w", err)
+		return nil, fmt.Errorf("get file: %w", err)
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("document not found: %s", oldPath)
+		return nil, fmt.Errorf("file not found: %s", oldPath)
 	}
 
-	docID, err := models.RecordIDString(doc.ID)
+	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		return nil, fmt.Errorf("extract doc id: %w", err)
+		return nil, fmt.Errorf("extract file id: %w", err)
 	}
 
 	normalizedNew := models.NormalizePath(newPath)
-	doc, err = s.db.MoveDocument(ctx, docID, normalizedNew)
+	doc, err = s.db.MoveFile(ctx, fileID, normalizedNew)
 	if err != nil {
-		return nil, fmt.Errorf("move document: %w", err)
+		return nil, fmt.Errorf("move file: %w", err)
 	}
 
 	// Update raw_targets in wiki_links referencing the old path
@@ -723,16 +766,16 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 		return nil, fmt.Errorf("ensure destination folders: %w", err)
 	}
 
-	s.publishDocMoveEvent(vaultID, doc, oldPath)
+	s.publishFileMoveEvent(vaultID, doc, oldPath)
 
 	return doc, nil
 }
 
-func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, targets []string) error {
+func (s *Service) processWikiLinks(ctx context.Context, fileID, vaultID string, targets []string) error {
 	logger := logutil.FromCtx(ctx)
 
-	// Delete existing links from this doc
-	if err := s.db.DeleteWikiLinks(ctx, docID); err != nil {
+	// Delete existing links from this file
+	if err := s.db.DeleteWikiLinks(ctx, fileID); err != nil {
 		return fmt.Errorf("delete old wiki-links: %w", err)
 	}
 
@@ -742,38 +785,38 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, t
 
 	links := make([]db.WikiLinkInput, 0, len(targets))
 	for _, target := range targets {
-		var toDocID *string
+		var toFileID *string
 		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
 		if err != nil {
 			logger.Warn("failed to resolve wiki-link", "target", target, "error", err)
 		} else if resolved != nil {
 			id, err := models.RecordIDString(resolved.ID)
 			if err != nil {
-				logger.Warn("failed to extract resolved document ID for wiki-link", "target", target, "error", err)
+				logger.Warn("failed to extract resolved file ID for wiki-link", "target", target, "error", err)
 			} else {
-				toDocID = &id
+				toFileID = &id
 			}
 		}
 		links = append(links, db.WikiLinkInput{
 			RawTarget: target,
-			ToDocID:   toDocID,
+			ToFileID:  toFileID,
 		})
 	}
 
-	return s.db.CreateWikiLinks(ctx, docID, vaultID, links)
+	return s.db.CreateWikiLinks(ctx, fileID, vaultID, links)
 }
 
-func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc *models.Document) error {
+func (s *Service) resolveDanglingForFile(ctx context.Context, vaultID string, doc *models.File) error {
 	logger := logutil.FromCtx(ctx)
 
-	docID, err := models.RecordIDString(doc.ID)
+	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		return fmt.Errorf("extract document id: %w", err)
+		return fmt.Errorf("extract file id: %w", err)
 	}
 
 	// Try to resolve by title
 	if doc.Title != "" {
-		n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Title, docID)
+		n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Title, fileID)
 		if err != nil {
 			return fmt.Errorf("resolve by title %q: %w", doc.Title, err)
 		}
@@ -783,7 +826,7 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 	}
 
 	// Try to resolve by path
-	n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Path, docID)
+	n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Path, fileID)
 	if err != nil {
 		return fmt.Errorf("resolve by path %q: %w", doc.Path, err)
 	}
@@ -797,11 +840,11 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 // syncChunks performs smart chunk diffing: compares new chunks against existing ones
 // by content, preserving embeddings for unchanged chunks and scheduling embedding
 // only for new/changed chunks.
-func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.MarkdownDoc, labels []string) error {
+func (s *Service) syncChunks(ctx context.Context, fileID string, parsed *parser.MarkdownDoc, labels []string) error {
 	logger := logutil.FromCtx(ctx)
 	newChunkResults := parser.ChunkMarkdown(parsed, s.chunkConfig)
 
-	oldChunks, err := s.db.GetChunks(ctx, docID)
+	oldChunks, err := s.db.GetChunks(ctx, fileID)
 	if err != nil {
 		return fmt.Errorf("get existing chunks: %w", err)
 	}
@@ -822,8 +865,8 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 		}
 		allOldIDs = append(allOldIDs, id)
 		// Only store first occurrence per content (handles duplicates)
-		if _, exists := oldByContent[c.Content]; !exists {
-			oldByContent[c.Content] = &oldChunkEntry{chunk: c, id: id}
+		if _, exists := oldByContent[c.Text]; !exists {
+			oldByContent[c.Text] = &oldChunkEntry{chunk: c, id: id}
 		}
 	}
 
@@ -848,12 +891,13 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 			}
 
 			input := models.ChunkInput{
-				DocumentID:  docID,
-				Content:     newChunk.Content,
-				Position:    i,
-				HeadingPath: headingPath,
-				Labels:      labels,
-				Embedding:   nil, // nil until worker fills it
+				FileID:    fileID,
+				Text:      newChunk.Content,
+				Position:  i,
+				SourceLoc: headingPath,
+				Labels:    labels,
+				MimeType:  "text/plain",
+				Embedding: nil, // nil until worker fills it
 			}
 
 			// Only schedule embedding if embedder is configured
@@ -885,9 +929,9 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 	return nil
 }
 
-func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, frontmatter map[string]any) error {
+func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, frontmatter map[string]any) error {
 	// Delete existing frontmatter-derived relations before recreating
-	if err := s.db.DeleteRelationsBySource(ctx, docID, string(models.RelSourceFrontmatter)); err != nil {
+	if err := s.db.DeleteRelationsBySource(ctx, fileID, string(models.RelSourceFrontmatter)); err != nil {
 		return fmt.Errorf("delete old frontmatter relations: %w", err)
 	}
 
@@ -917,13 +961,13 @@ func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, f
 			logutil.FromCtx(ctx).Info("relates_to target not found", "target", target)
 			continue
 		}
-		toDocID, err := models.RecordIDString(resolved.ID)
+		toFileID, err := models.RecordIDString(resolved.ID)
 		if err != nil {
-			return fmt.Errorf("extract resolved document id for %q: %w", target, err)
+			return fmt.Errorf("extract resolved file id for %q: %w", target, err)
 		}
-		if _, err := s.db.CreateRelation(ctx, models.DocRelationInput{
-			FromDocID: docID,
-			ToDocID:   toDocID,
+		if _, err := s.db.CreateRelation(ctx, models.FileRelationInput{
+			FromFileID: fileID,
+			ToFileID:   toFileID,
 			RelType:   string(models.RelRelatesTo),
 			Source:    string(models.RelSourceFrontmatter),
 		}); err != nil {

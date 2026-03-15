@@ -18,8 +18,8 @@ type TaskFilter struct {
 	Labels    []string           // CONTAINSANY
 	DueBefore *string            // inclusive upper bound (YYYY-MM-DD)
 	DueAfter  *string            // inclusive lower bound (YYYY-MM-DD)
-	Folder    *string            // document path prefix
-	DocPath   *string            // exact document path
+	Folder    *string            // file path prefix
+	FilePath  *string            // exact file path
 	Limit     int
 	Offset    int
 }
@@ -49,7 +49,7 @@ func (c *Client) CreateTask(ctx context.Context, input models.TaskInput) (*model
 	}
 
 	sql := `CREATE task SET
-		document = type::record("document", $doc_id),
+		file = type::record("file", $file_id),
 		vault = type::record("vault", $vault_id),
 		status = $status,
 		raw_line = $raw_line,
@@ -61,7 +61,7 @@ func (c *Client) CreateTask(ctx context.Context, input models.TaskInput) (*model
 		content_hash = $content_hash`
 
 	results, err := surrealdb.Query[[]models.Task](ctx, c.DB(), sql, map[string]any{
-		"doc_id":       bareID("document", input.DocumentID),
+		"file_id":      bareID("file", input.FileID),
 		"vault_id":     bareID("vault", input.VaultID),
 		"status":       string(input.Status),
 		"raw_line":     input.RawLine,
@@ -127,14 +127,14 @@ func (c *Client) DeleteTask(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteTasksByDocument removes all tasks belonging to a document.
-func (c *Client) DeleteTasksByDocument(ctx context.Context, docID string) error {
-	defer c.logOp(ctx, "task.delete_by_document", time.Now())
+// DeleteTasksByFile removes all tasks belonging to a file.
+func (c *Client) DeleteTasksByFile(ctx context.Context, fileID string) error {
+	defer c.logOp(ctx, "task.delete_by_file", time.Now())
 
-	sql := `DELETE FROM task WHERE document = type::record("document", $doc_id)`
-	_, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"doc_id": bareID("document", docID)})
+	sql := `DELETE FROM task WHERE file = type::record("file", $file_id)`
+	_, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"file_id": bareID("file", fileID)})
 	if err != nil {
-		return fmt.Errorf("delete tasks by document: %w", err)
+		return fmt.Errorf("delete tasks by file: %w", err)
 	}
 	return nil
 }
@@ -151,19 +151,19 @@ func (c *Client) GetTaskByID(ctx context.Context, id string) (*models.Task, erro
 	return firstResultOpt(results), nil
 }
 
-// GetTasksByDocument returns all tasks for a document, ordered by line number.
-func (c *Client) GetTasksByDocument(ctx context.Context, docID string) ([]models.Task, error) {
-	defer c.logOp(ctx, "task.get_by_document", time.Now())
+// GetTasksByFile returns all tasks for a file, ordered by line number.
+func (c *Client) GetTasksByFile(ctx context.Context, fileID string) ([]models.Task, error) {
+	defer c.logOp(ctx, "task.get_by_file", time.Now())
 
-	sql := `SELECT * FROM task WHERE document = type::record("document", $doc_id) ORDER BY line_number ASC`
-	results, err := surrealdb.Query[[]models.Task](ctx, c.DB(), sql, map[string]any{"doc_id": bareID("document", docID)})
+	sql := `SELECT * FROM task WHERE file = type::record("file", $file_id) ORDER BY line_number ASC`
+	results, err := surrealdb.Query[[]models.Task](ctx, c.DB(), sql, map[string]any{"file_id": bareID("file", fileID)})
 	if err != nil {
-		return nil, fmt.Errorf("get tasks by document: %w", err)
+		return nil, fmt.Errorf("get tasks by file: %w", err)
 	}
 	return allResults(results), nil
 }
 
-// ListTasks returns tasks matching the filter, with denormalized document info.
+// ListTasks returns tasks matching the filter, with denormalized file info.
 func (c *Client) ListTasks(ctx context.Context, filter TaskFilter) ([]models.TaskWithDoc, error) {
 	defer c.logOp(ctx, "task.list", time.Now())
 
@@ -177,7 +177,7 @@ func (c *Client) ListTasks(ctx context.Context, filter TaskFilter) ([]models.Tas
 	where := strings.Join(conditions, " AND ")
 	vars["limit"] = limit
 	vars["start"] = filter.Offset
-	sql := fmt.Sprintf(`SELECT *, document.path AS doc_path, document.title AS doc_title
+	sql := fmt.Sprintf(`SELECT *, file.path AS doc_path, file.title AS doc_title
 		FROM task WHERE %s
 		ORDER BY due_date IS NONE ASC, due_date ASC, line_number ASC
 		LIMIT $limit START $start`, where)
@@ -236,12 +236,12 @@ func buildTaskFilter(filter TaskFilter) ([]string, map[string]any) {
 		vars["due_after"] = *filter.DueAfter
 	}
 	if filter.Folder != nil {
-		conditions = append(conditions, `string::starts_with(document.path, $folder)`)
+		conditions = append(conditions, `string::starts_with(file.path, $folder)`)
 		vars["folder"] = *filter.Folder
 	}
-	if filter.DocPath != nil {
-		conditions = append(conditions, `document.path = $doc_path`)
-		vars["doc_path"] = *filter.DocPath
+	if filter.FilePath != nil {
+		conditions = append(conditions, `file.path = $file_path`)
+		vars["file_path"] = *filter.FilePath
 	}
 
 	return conditions, vars

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"path"
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/logutil"
@@ -34,7 +35,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	parent := r.URL.Query().Get("parent")
 	if parent != "" {
 		parent = pathutil.NormalizeFolderPath(parent)
-		var filtered []models.Folder
+		var filtered []models.File
 		for _, f := range folders {
 			if pathutil.IsImmediateChildFolder(parent, f.Path) {
 				filtered = append(filtered, f)
@@ -47,7 +48,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	for i, f := range folders {
 		resp[i] = FolderResponse{
 			Path: f.Path,
-			Name: f.Name,
+			Name: path.Base(f.Path),
 		}
 	}
 

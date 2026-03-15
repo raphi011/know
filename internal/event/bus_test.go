@@ -12,7 +12,7 @@ func TestBus_PublishSubscribe(t *testing.T) {
 	defer unsub()
 
 	want := ChangeEvent{
-		Type:    "document.created",
+		Type:    "file.created",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{
 			DocID:       "doc:1",
@@ -53,7 +53,7 @@ func TestBus_MultipleSubscribers(t *testing.T) {
 	defer unsub2()
 
 	event := ChangeEvent{
-		Type:    "document.updated",
+		Type:    "file.updated",
 		VaultID: "vault:a",
 		Payload: DocumentPayload{DocID: "doc:2", Path: "readme.md", ContentHash: "def"},
 	}
@@ -82,7 +82,7 @@ func TestBus_VaultIsolation(t *testing.T) {
 	defer unsubB()
 
 	bus.Publish(ChangeEvent{
-		Type:    "document.created",
+		Type:    "file.created",
 		VaultID: "vault:a",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
 	})
@@ -119,7 +119,7 @@ func TestBus_Unsubscribe(t *testing.T) {
 
 	// Publishing after unsubscribe should not panic.
 	bus.Publish(ChangeEvent{
-		Type:    "document.deleted",
+		Type:    "file.deleted",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "gone.md", ContentHash: "z"},
 	})
@@ -137,7 +137,7 @@ func TestBus_SlowConsumer(t *testing.T) {
 	// Fill the channel buffer (capacity 64).
 	for i := range 64 {
 		bus.Publish(ChangeEvent{
-			Type:    "document.updated",
+			Type:    "file.updated",
 			VaultID: "vault:default",
 			Payload: DocumentPayload{DocID: "doc:fill", Path: "fill.md", ContentHash: string(rune('a' + i%26))},
 		})
@@ -145,7 +145,7 @@ func TestBus_SlowConsumer(t *testing.T) {
 
 	// Next publish should evict the slow consumer and close the channel.
 	bus.Publish(ChangeEvent{
-		Type:    "document.updated",
+		Type:    "file.updated",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{DocID: "doc:overflow", Path: "overflow.md", ContentHash: "over"},
 	})
@@ -176,14 +176,14 @@ func TestBus_SubscribeByPath(t *testing.T) {
 
 	// Publish event for matching path
 	bus.Publish(ChangeEvent{
-		Type:    "document.updated",
+		Type:    "file.updated",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/readme.md", ContentHash: "abc"},
 	})
 
 	// Publish event for non-matching path
 	bus.Publish(ChangeEvent{
-		Type:    "document.updated",
+		Type:    "file.updated",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{DocID: "doc:2", Path: "/docs/other.md", ContentHash: "def"},
 	})
@@ -216,7 +216,7 @@ func TestBus_SubscribeByPath_OldPath(t *testing.T) {
 
 	// Publish move event where OldPath matches
 	bus.Publish(ChangeEvent{
-		Type:    "document.moved",
+		Type:    "file.moved",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/new.md", OldPath: "/docs/old.md", ContentHash: "abc"},
 	})
@@ -269,7 +269,7 @@ func TestBus_ConcurrentPublish(t *testing.T) {
 			defer pubWg.Done()
 			for j := range eventsPerPublisher {
 				bus.Publish(ChangeEvent{
-					Type:    "document.updated",
+					Type:    "file.updated",
 					VaultID: "vault:concurrent",
 					Payload: DocumentPayload{
 						DocID:       "doc:concurrent",
@@ -312,12 +312,12 @@ func TestBus_SubscribeGlobal(t *testing.T) {
 
 	// Publish to two different vaults
 	bus.Publish(ChangeEvent{
-		Type:    "document.created",
+		Type:    "file.created",
 		VaultID: "vault:a",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
 	})
 	bus.Publish(ChangeEvent{
-		Type:    "document.updated",
+		Type:    "file.updated",
 		VaultID: "vault:b",
 		Payload: DocumentPayload{DocID: "doc:2", Path: "b.md", ContentHash: "y"},
 	})
@@ -349,7 +349,7 @@ func TestBus_SubscribeGlobal_Unsubscribe(t *testing.T) {
 
 	// Publish after unsubscribe should not panic
 	bus.Publish(ChangeEvent{
-		Type:    "document.created",
+		Type:    "file.created",
 		VaultID: "vault:a",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
 	})
@@ -398,7 +398,7 @@ func TestBus_Close(t *testing.T) {
 
 	// Publish after Close should not panic.
 	bus.Publish(ChangeEvent{
-		Type:    "document.created",
+		Type:    "file.created",
 		VaultID: "vault:a",
 		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
 	})
@@ -438,7 +438,7 @@ func TestBus_Close_ConcurrentPublish(t *testing.T) {
 		wg.Go(func() {
 			for i := range 100 {
 				bus.Publish(ChangeEvent{
-					Type:    "document.updated",
+					Type:    "file.updated",
 					VaultID: "vault:a",
 					Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: string(rune(i))},
 				})

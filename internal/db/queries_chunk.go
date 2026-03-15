@@ -34,12 +34,14 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 		}
 
 		row := map[string]any{
-			"document":     surrealmodels.RecordID{Table: "document", ID: bareID("document", ch.DocumentID)},
-			"content":      ch.Content,
-			"position":     ch.Position,
-			"heading_path": optionalString(ch.HeadingPath),
-			"labels":       labels,
-			"embed_at":     embedAt,
+			"file":       surrealmodels.RecordID{Table: "file", ID: bareID("file", ch.FileID)},
+			"text":       ch.Text,
+			"position":   ch.Position,
+			"source_loc": optionalString(ch.SourceLoc),
+			"labels":     labels,
+			"embed_at":   embedAt,
+			"mime_type":  ch.MimeType,
+			"data":       optionalBytes(ch.Data),
 		}
 
 		if len(ch.Embedding) > 0 {
@@ -78,11 +80,11 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 	return nil
 }
 
-func (c *Client) GetChunks(ctx context.Context, documentID string) ([]models.Chunk, error) {
+func (c *Client) GetChunks(ctx context.Context, fileID string) ([]models.Chunk, error) {
 	defer c.logOp(ctx, "chunk.get", time.Now())
-	sql := `SELECT * FROM chunk WHERE document = type::record("document", $doc_id) ORDER BY position ASC`
+	sql := `SELECT * FROM chunk WHERE file = type::record("file", $file_id) ORDER BY position ASC`
 	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
-		"doc_id": documentID,
+		"file_id": fileID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get chunks: %w", err)
@@ -90,11 +92,11 @@ func (c *Client) GetChunks(ctx context.Context, documentID string) ([]models.Chu
 	return allResults(results), nil
 }
 
-func (c *Client) DeleteChunks(ctx context.Context, documentID string) error {
+func (c *Client) DeleteChunks(ctx context.Context, fileID string) error {
 	defer c.logOp(ctx, "chunk.delete", time.Now())
-	sql := `DELETE FROM chunk WHERE document = type::record("document", $doc_id)`
+	sql := `DELETE FROM chunk WHERE file = type::record("file", $file_id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"doc_id": documentID,
+		"file_id": fileID,
 	}); err != nil {
 		return fmt.Errorf("delete chunks: %w", err)
 	}

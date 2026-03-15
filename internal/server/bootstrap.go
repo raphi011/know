@@ -15,12 +15,11 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/joho/godotenv"
 	"github.com/raphi011/know/internal/agent"
-	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
 	"github.com/raphi011/know/internal/event"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
@@ -55,11 +54,11 @@ type ServerConfig struct {
 // App holds all application services and dependencies.
 // mu protects serverConfig, workerCancel, and workerDone.
 type App struct {
-	mu                       sync.RWMutex
-	db                       *db.Client
-	vaultService             *vault.Service
-	documentService          *document.Service
-	assetService             *asset.Service
+	mu           sync.RWMutex
+	db           *db.Client
+	vaultService *vault.Service
+	fileService  *file.Service
+
 	searchService            *search.Service
 	agentService             *agent.Service
 	agentRunner              *agent.Runner
@@ -159,12 +158,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		"chunk_max", chunkConfig.MaxSize,
 	)
 
-	versionConfig := document.VersionConfig{
+	versionConfig := file.VersionConfig{
 		CoalesceMinutes: cfg.VersionCoalesceMinutes,
 		RetentionCount:  cfg.VersionRetentionCount,
 	}
 	bus := event.New()
-	docService := document.NewService(dbClient, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
+	fileSvc := file.NewService(dbClient, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
 
 	// workerDone defaults to a closed channel so <-workerDone is a no-op in Close
 	embeddingWorkerDone := make(chan struct{})
@@ -173,30 +172,28 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	close(processingWorkerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
-	assetSvc := asset.NewService(dbClient, bus)
 	remoteSvc := remote.NewService(dbClient)
 
 	// Build multi-vault tool resolvers for the agent.
 	localExecutor := &tools.Executor{
-		DB:         dbClient,
-		Search:     searchSvc,
-		DocService: docService,
+		DB:      dbClient,
+		Search:  searchSvc,
+		FileSvc: fileSvc,
 	}
 	vaultSvc := vault.NewService(dbClient)
 	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
 	agentSvc := agent.NewService(dbClient, model, agentTools, cfg.TavilyAPIKey)
 	agentRunner := agent.NewRunner(agentSvc, dbClient)
-	memorySvc := memory.NewService(dbClient, docService, model)
+	memorySvc := memory.NewService(dbClient, fileSvc, model)
 
 	app := &App{
 		db:                       dbClient,
 		vaultService:             vaultSvc,
 		remoteService:            remoteSvc,
 		memoryService:            memorySvc,
-		assetService:             assetSvc,
 		processingWorkerInterval: time.Duration(cfg.ProcessingWorkerInterval) * time.Second,
 		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
-		documentService:          docService,
+		fileService:              fileSvc,
 		searchService:            searchSvc,
 		agentService:             agentSvc,
 		agentRunner:              agentRunner,
@@ -265,19 +262,14 @@ func (a *App) SearchService() *search.Service {
 	return a.searchService
 }
 
-// DocumentService returns the document service.
-func (a *App) DocumentService() *document.Service {
-	return a.documentService
+// FileService returns the file service.
+func (a *App) FileService() *file.Service {
+	return a.fileService
 }
 
 // VaultService returns the vault service.
 func (a *App) VaultService() *vault.Service {
 	return a.vaultService
-}
-
-// AssetService returns the asset service.
-func (a *App) AssetService() *asset.Service {
-	return a.assetService
 }
 
 // RemoteService returns the remote federation service.
@@ -292,12 +284,11 @@ func (a *App) MemoryService() *memory.Service {
 
 // NewForTest creates a minimal App for integration tests — no background workers,
 // no embedder, no LLM. Only the services needed for handler tests are wired up.
-func NewForTest(dbClient *db.Client, docSvc *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service) *App {
+func NewForTest(dbClient *db.Client, fileSvc *file.Service, vaultSvc *vault.Service) *App {
 	return &App{
-		db:              dbClient,
-		documentService: docSvc,
-		assetService:    assetSvc,
-		vaultService:    vaultSvc,
+		db:           dbClient,
+		fileService:  fileSvc,
+		vaultService: vaultSvc,
 	}
 }
 
@@ -430,12 +421,12 @@ func (a *App) ReloadLLM() error {
 	if err := chunkConfig.Validate(); err != nil {
 		errs = append(errs, fmt.Sprintf("chunk config: %v", err))
 	} else {
-		a.documentService.SetChunkConfig(chunkConfig, cfg.EmbedMaxInputChars)
+		a.fileService.SetChunkConfig(chunkConfig, cfg.EmbedMaxInputChars)
 	}
 
 	// Only swap providers that were successfully (re)created
 	if embedderChanged {
-		a.documentService.SetEmbedder(newEmbedder)
+		a.fileService.SetEmbedder(newEmbedder)
 		a.searchService.SetEmbedder(newEmbedder)
 	}
 	if modelChanged {
@@ -514,7 +505,7 @@ func (a *App) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
 	a.mu.Unlock()
 
 	interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
-	worker := document.NewEmbeddingWorker(a.documentService, interval, cfg.EmbedWorkerBatch, a.bus)
+	worker := file.NewEmbeddingWorker(a.fileService, interval, cfg.EmbedWorkerBatch, a.bus)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)
@@ -543,7 +534,7 @@ func (a *App) startProcessingWorker() {
 	a.processingWorkerDone = done
 	a.mu.Unlock()
 
-	worker := document.NewProcessingWorker(a.documentService, a.processingWorkerInterval, a.processingWorkerBatch, a.bus)
+	worker := file.NewProcessingWorker(a.fileService, a.processingWorkerInterval, a.processingWorkerBatch, a.bus)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)

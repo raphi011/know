@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/api"
-	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/auth"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/server"
 )
@@ -38,10 +37,9 @@ func setupMoveServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "move-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
-	assetSvc := asset.NewService(testDB, nil)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	app := server.NewForTest(testDB, docSvc, assetSvc, vaultSvc)
+	app := server.NewForTest(testDB, fileSvc, vaultSvc)
 	apiSrv := api.NewServer(app)
 
 	mux := http.NewServeMux()
@@ -189,7 +187,7 @@ func TestMove_FolderToNewPath_Success(t *testing.T) {
 	// Verify documents moved
 	ctx := context.Background()
 	for _, p := range []string{"/dst/a.md", "/dst/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, p)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, p)
 		if err != nil {
 			t.Fatalf("get %s: %v", p, err)
 		}
@@ -198,7 +196,7 @@ func TestMove_FolderToNewPath_Success(t *testing.T) {
 		}
 	}
 	for _, p := range []string{"/src/a.md", "/src/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, p)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, p)
 		if err != nil {
 			t.Fatalf("get %s: %v", p, err)
 		}
@@ -244,7 +242,7 @@ func TestMove_DocumentToNewPath_Success(t *testing.T) {
 
 	// Verify the document moved
 	ctx := context.Background()
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/renamed.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/renamed.md")
 	if err != nil {
 		t.Fatalf("get renamed doc: %v", err)
 	}
@@ -252,7 +250,7 @@ func TestMove_DocumentToNewPath_Success(t *testing.T) {
 		t.Error("expected document at /renamed.md")
 	}
 
-	old, err := testDB.GetDocumentByPath(ctx, vaultID, "/original.md")
+	old, err := testDB.GetFileByPath(ctx, vaultID, "/original.md")
 	if err != nil {
 		t.Fatalf("get original doc: %v", err)
 	}

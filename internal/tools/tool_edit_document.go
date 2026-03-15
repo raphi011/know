@@ -8,14 +8,14 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 )
 
 // EditDocumentTool implements tool.InvokableTool for editing a document's full content.
 type EditDocumentTool struct {
 	db         *db.Client
-	docService *document.Service
+	docService *file.Service
 }
 
 func (t *EditDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -59,7 +59,7 @@ func (t *EditDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("content is required")
 	}
 
-	existing, err := t.db.GetDocumentByPath(ctx, o.VaultID, args.Path)
+	existing, err := t.db.GetFileByPath(ctx, o.VaultID, args.Path)
 	if err != nil {
 		return "", fmt.Errorf("check document: %w", err)
 	}
@@ -71,7 +71,7 @@ func (t *EditDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	start := time.Now()
-	doc, err := t.docService.Create(ctx, models.DocumentInput{
+	doc, err := t.docService.Create(ctx, models.FileInput{
 		VaultID: o.VaultID,
 		Path:    args.Path,
 		Content: args.Content,

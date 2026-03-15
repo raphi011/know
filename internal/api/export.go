@@ -35,28 +35,24 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	// Phase 1: Build manifest — collect all paths without content.
 	const pageSize = 1000
 
-	var docMetas []models.DocumentMeta
+	isNotFolder := false
+	var fileMetas []models.FileMeta
 	for offset := 0; ; offset += pageSize {
-		batch, err := dbClient.ListDocumentMetas(ctx, db.ListDocumentsFilter{
-			VaultID: vaultID,
-			OrderBy: db.OrderByPathAsc,
-			Limit:   pageSize,
-			Offset:  offset,
+		batch, err := dbClient.ListFileMetas(ctx, db.ListFilesFilter{
+			VaultID:  vaultID,
+			IsFolder: &isNotFolder,
+			OrderBy:  db.OrderByPathAsc,
+			Limit:    pageSize,
+			Offset:   offset,
 		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("list documents: %v", err))
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("list files: %v", err))
 			return
 		}
-		docMetas = append(docMetas, batch...)
+		fileMetas = append(fileMetas, batch...)
 		if len(batch) < pageSize {
 			break
 		}
-	}
-
-	assetMetas, err := dbClient.ListAssetMetas(ctx, vaultID, nil)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("list assets: %v", err))
-		return
 	}
 
 	// Phase 2: Write tar.gz to temp file.
@@ -71,34 +67,25 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	gzw := gzip.NewWriter(tmp)
 	tw := tar.NewWriter(gzw)
 
-	for _, meta := range docMetas {
-		doc, err := dbClient.GetDocumentByPath(ctx, vaultID, meta.Path)
+	for _, meta := range fileMetas {
+		f, err := dbClient.GetFileByPath(ctx, vaultID, meta.Path)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("get document %s: %v", meta.Path, err))
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("get file %s: %v", meta.Path, err))
 			return
 		}
-		if doc == nil {
-			logger.Warn("document deleted since manifest", "path", meta.Path)
+		if f == nil {
+			logger.Warn("file deleted since manifest", "path", meta.Path)
 			continue
 		}
-		if err := writeTarEntry(tw, doc.Path, []byte(doc.Content), doc.UpdatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write document %s: %v", meta.Path, err))
-			return
+		// Binary files use Data; text files use Content
+		var data []byte
+		if len(f.Data) > 0 {
+			data = f.Data
+		} else {
+			data = []byte(f.Content)
 		}
-	}
-
-	for _, meta := range assetMetas {
-		asset, err := dbClient.GetAssetByPath(ctx, vaultID, meta.Path)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("get asset %s: %v", meta.Path, err))
-			return
-		}
-		if asset == nil {
-			logger.Warn("asset deleted since manifest", "path", meta.Path)
-			continue
-		}
-		if err := writeTarEntry(tw, asset.Path, asset.Data, asset.UpdatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write asset %s: %v", meta.Path, err))
+		if err := writeTarEntry(tw, f.Path, data, f.UpdatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write file %s: %v", meta.Path, err))
 			return
 		}
 	}

@@ -11,7 +11,7 @@ import (
 
 	billy "github.com/go-git/go-billy/v5"
 
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -72,7 +72,7 @@ type writeFile struct {
 	name       string
 	path       string
 	vaultID    string
-	docService *document.Service
+	docService *file.Service
 	logger     *slog.Logger
 	buf        bytes.Buffer
 	closed     bool
@@ -107,7 +107,7 @@ func (f *writeFile) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := f.docService.Create(ctx, models.DocumentInput{
+	_, err := f.docService.Create(ctx, models.FileInput{
 		VaultID: f.vaultID,
 		Path:    f.path,
 		Content: content,

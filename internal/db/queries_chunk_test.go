@@ -17,23 +17,22 @@ func TestCreateAndGetChunks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/chunk-test.md",
-		Title:       "Chunk Test",
-		Content:     "long content",
-		ContentBody: "long content",
-		Labels:      []string{"test"},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/chunk-test.md",
+		Title:   "Chunk Test",
+		Content: "long content",
+		Labels:  []string{"test"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	heading := "## Section 1"
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Chunk 1", Position: 0, HeadingPath: &heading, Labels: []string{"test"}, Embedding: dummyEmbedding()},
-		{DocumentID: docID, Content: "Chunk 2", Position: 1, Labels: []string{"test"}, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Chunk 1", Position: 0, SourceLoc: &heading, Labels: []string{"test"}, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Chunk 2", Position: 1, Labels: []string{"test"}, Embedding: dummyEmbedding()},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -58,21 +57,20 @@ func TestDeleteChunks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/chunk-delete-test.md",
-		Title:       "Chunk Delete",
-		Content:     "content",
-		ContentBody: "content",
-		Labels:      []string{},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/chunk-delete-test.md",
+		Title:   "Chunk Delete",
+		Content: "content",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "To delete", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "To delete", Position: 0, Embedding: dummyEmbedding()},
 	}); err != nil {
 		t.Fatalf("CreateChunks setup failed: %v", err)
 	}
@@ -91,35 +89,34 @@ func TestDeleteChunks(t *testing.T) {
 	}
 }
 
-func TestCascadeDeleteChunksOnDocumentDelete(t *testing.T) {
+func TestCascadeDeleteChunksOnFileDelete(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/cascade-test.md",
-		Title:       "Cascade",
-		Content:     "content",
-		ContentBody: "content",
-		Labels:      []string{},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/cascade-test.md",
+		Title:   "Cascade",
+		Content: "content",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Cascade chunk", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Cascade chunk", Position: 0, Embedding: dummyEmbedding()},
 	}); err != nil {
 		t.Fatalf("CreateChunks setup failed: %v", err)
 	}
 
-	err = testDB.DeleteDocument(ctx, docID)
+	err = testDB.DeleteFile(ctx, docID)
 	if err != nil {
-		t.Fatalf("DeleteDocument failed: %v", err)
+		t.Fatalf("DeleteFile failed: %v", err)
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -140,19 +137,19 @@ func TestCreateChunks_WithEmbedAt(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/embed-at-test.md", Title: "Embed At Test",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	now := time.Now().UTC()
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Chunk with embed_at", Position: 0, Embedding: nil, EmbedAt: &now},
-		{DocumentID: docID, Content: "Chunk without embed_at", Position: 1, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Chunk with embed_at", Position: 0, Embedding: nil, EmbedAt: &now},
+		{FileID: docID, Text: "Chunk without embed_at", Position: 1, Embedding: dummyEmbedding()},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -180,19 +177,19 @@ func TestClaimChunksForEmbedding(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/claim-test.md", Title: "Claim Test",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	past := time.Now().UTC().Add(-time.Minute)
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Ready chunk 1", Position: 0, Embedding: nil, EmbedAt: &past},
-		{DocumentID: docID, Content: "Ready chunk 2", Position: 1, Embedding: nil, EmbedAt: &past},
+		{FileID: docID, Text: "Ready chunk 1", Position: 0, Embedding: nil, EmbedAt: &past},
+		{FileID: docID, Text: "Ready chunk 2", Position: 1, Embedding: nil, EmbedAt: &past},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -205,7 +202,7 @@ func TestClaimChunksForEmbedding(t *testing.T) {
 
 	var ourClaimed []models.Chunk
 	for _, c := range claimed {
-		cDocID := models.MustRecordIDString(c.Document)
+		cDocID := models.MustRecordIDString(c.File)
 		if cDocID == docID {
 			ourClaimed = append(ourClaimed, c)
 		}
@@ -235,7 +232,7 @@ func TestClaimChunksForEmbedding(t *testing.T) {
 		t.Fatalf("Second ClaimChunksForEmbedding failed: %v", err)
 	}
 	for _, c := range claimed2 {
-		cDocID := models.MustRecordIDString(c.Document)
+		cDocID := models.MustRecordIDString(c.File)
 		if cDocID == docID {
 			t.Error("Should not re-claim already-claimed chunks")
 		}
@@ -249,18 +246,18 @@ func TestClaimChunksForEmbedding_SkipsFutureEmbedAt(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/future-embed-test.md", Title: "Future Embed",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	future := time.Now().UTC().Add(time.Hour)
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Future chunk", Position: 0, Embedding: nil, EmbedAt: &future},
+		{FileID: docID, Text: "Future chunk", Position: 0, Embedding: nil, EmbedAt: &future},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -272,7 +269,7 @@ func TestClaimChunksForEmbedding_SkipsFutureEmbedAt(t *testing.T) {
 	}
 
 	for _, c := range claimed {
-		cDocID := models.MustRecordIDString(c.Document)
+		cDocID := models.MustRecordIDString(c.File)
 		if cDocID == docID {
 			t.Error("Should not claim chunks with future embed_at")
 		}
@@ -286,17 +283,17 @@ func TestUpdateChunkEmbedding(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/update-embed-test.md", Title: "Update Embed",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "To embed", Position: 0, Embedding: nil},
+		{FileID: docID, Text: "To embed", Position: 0, Embedding: nil},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -333,17 +330,17 @@ func TestRescheduleChunkEmbedding(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/reschedule-test.md", Title: "Reschedule",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Reschedule me", Position: 0, Embedding: nil},
+		{FileID: docID, Text: "Reschedule me", Position: 0, Embedding: nil},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -380,18 +377,18 @@ func TestDeleteChunkByID(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delete-chunk-byid.md", Title: "Delete Chunk",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Keep", Position: 0, Embedding: dummyEmbedding()},
-		{DocumentID: docID, Content: "Delete", Position: 1, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Keep", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Delete", Position: 1, Embedding: dummyEmbedding()},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -418,8 +415,8 @@ func TestDeleteChunkByID(t *testing.T) {
 	if len(remaining) != 1 {
 		t.Errorf("Expected 1 chunk after delete, got %d", len(remaining))
 	}
-	if remaining[0].Content != "Keep" {
-		t.Errorf("Wrong chunk remaining: got %q", remaining[0].Content)
+	if remaining[0].Text != "Keep" {
+		t.Errorf("Wrong chunk remaining: got %q", remaining[0].Text)
 	}
 }
 
@@ -430,17 +427,17 @@ func TestUpdateChunkPosition(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/update-pos-test.md", Title: "Update Pos",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Move me", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Move me", Position: 0, Embedding: dummyEmbedding()},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -473,19 +470,19 @@ func TestClaimChunksForEmbedding_RespectsLimit(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/limit-test.md", Title: "Limit Test",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	past := time.Now().UTC().Add(-time.Minute)
 	for i := range 5 {
 		err := testDB.CreateChunks(ctx, []models.ChunkInput{
-			{DocumentID: docID, Content: fmt.Sprintf("Limit chunk %d", i), Position: i, Embedding: nil, EmbedAt: &past},
+			{FileID: docID, Text: fmt.Sprintf("Limit chunk %d", i), Position: i, Embedding: nil, EmbedAt: &past},
 		})
 		if err != nil {
 			t.Fatalf("CreateChunks %d failed: %v", i, err)
@@ -499,7 +496,7 @@ func TestClaimChunksForEmbedding_RespectsLimit(t *testing.T) {
 
 	var ours int
 	for _, c := range claimed {
-		if models.MustRecordIDString(c.Document) == docID {
+		if models.MustRecordIDString(c.File) == docID {
 			ours++
 		}
 	}
@@ -513,7 +510,7 @@ func TestClaimChunksForEmbedding_RespectsLimit(t *testing.T) {
 	}
 	var ours2 int
 	for _, c := range claimed2 {
-		if models.MustRecordIDString(c.Document) == docID {
+		if models.MustRecordIDString(c.File) == docID {
 			ours2++
 		}
 	}
@@ -529,18 +526,18 @@ func TestRescheduleAndReclaimRoundTrip(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/roundtrip-test.md", Title: "Roundtrip",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	past := time.Now().UTC().Add(-time.Minute)
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{DocumentID: docID, Content: "Roundtrip chunk", Position: 0, Embedding: nil, EmbedAt: &past},
+		{FileID: docID, Text: "Roundtrip chunk", Position: 0, Embedding: nil, EmbedAt: &past},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -552,7 +549,7 @@ func TestRescheduleAndReclaimRoundTrip(t *testing.T) {
 	}
 	var claimedChunkID string
 	for _, c := range claimed {
-		if models.MustRecordIDString(c.Document) == docID {
+		if models.MustRecordIDString(c.File) == docID {
 			claimedChunkID = models.MustRecordIDString(c.ID)
 		}
 	}

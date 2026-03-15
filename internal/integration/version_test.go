@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/vault"
@@ -14,12 +14,8 @@ import (
 
 func itoa(i int) string { return strconv.Itoa(i) }
 
-// TestVersionLifecycle exercises: version creation on update, coalescing,
-// retention cap, rollback, and cascade delete.
 func TestVersionLifecycle(t *testing.T) {
 	ctx := context.Background()
-
-	// --- Bootstrap ---
 
 	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "version-test-user"})
 	if err != nil {
@@ -40,15 +36,12 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	// Use 0 coalesce minutes so every content change creates a version
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 0,
 		RetentionCount:  50,
 	}, nil, 0)
 
-	// --- Test: first create does NOT create a version ---
-
-	doc, err := docSvc.Create(ctx, models.DocumentInput{
+	doc, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 1\n\nOriginal content.\n",
@@ -69,9 +62,7 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 versions after first create, got %d", len(versions))
 	}
 
-	// --- Test: update creates version of old content ---
-
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 2\n\nUpdated content.\n",
@@ -94,9 +85,7 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Errorf("version title: got %q, want %q", versions[0].Title, "Version 1")
 	}
 
-	// --- Test: second update creates second version ---
-
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 3\n\nThird revision.\n",
@@ -113,9 +102,7 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Fatalf("expected 2 versions, got %d", len(versions))
 	}
 
-	// --- Test: update with same content does NOT create version ---
-
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/versioned.md",
 		Content: "# Version 3\n\nThird revision.\n",
@@ -132,16 +119,13 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Errorf("expected 2 versions after no-op update, got %d", count)
 	}
 
-	// --- Test: rollback restores old content and creates version of pre-rollback state ---
-
-	// Get the first version to rollback to
-	v1 := versions[len(versions)-1] // oldest (version 1)
+	v1 := versions[len(versions)-1]
 	v1ID, err := models.RecordIDString(v1.ID)
 	if err != nil {
 		t.Fatalf("v1 ID: %v", err)
 	}
 
-	restored, err := docSvc.Rollback(ctx, vaultID, docID, v1ID)
+	restored, err := fileSvc.Rollback(ctx, vaultID, docID, v1ID)
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
@@ -149,7 +133,6 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Errorf("rollback content mismatch:\ngot:  %q\nwant: %q", restored.Content, v1.Content)
 	}
 
-	// Should have 3 versions now (v1=original, v2=first update, v3=pre-rollback)
 	count, err = testDB.CountVersions(ctx, docID)
 	if err != nil {
 		t.Fatalf("count after rollback: %v", err)
@@ -158,14 +141,10 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Errorf("expected 3 versions after rollback, got %d", count)
 	}
 
-	// --- Test: cascade delete ---
-
-	if err := docSvc.Delete(ctx, vaultID, "/docs/versioned.md"); err != nil {
+	if err := fileSvc.Delete(ctx, vaultID, "/docs/versioned.md"); err != nil {
 		t.Fatalf("delete doc: %v", err)
 	}
 
-	// Versions should be gone via cascade event
-	// Give SurrealDB a moment for async cascade
 	time.Sleep(100 * time.Millisecond)
 
 	afterDelete, err := testDB.ListVersions(ctx, docID, 100, 0)
@@ -176,15 +155,11 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Errorf("versions after cascade: got %d, want 0", len(afterDelete))
 	}
 
-	// --- Cleanup ---
-
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
 		t.Fatalf("delete vault: %v", err)
 	}
 }
 
-// TestVersionCoalescing verifies that rapid updates within the coalesce window
-// do not create versions.
 func TestVersionCoalescing(t *testing.T) {
 	ctx := context.Background()
 
@@ -207,14 +182,12 @@ func TestVersionCoalescing(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	// Use a very large coalesce window (60 min) to prevent versions
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 60,
 		RetentionCount:  50,
 	}, nil, 0)
 
-	// Create initial document
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/coalesce.md",
 		Content: "v1\n",
@@ -223,7 +196,7 @@ func TestVersionCoalescing(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/docs/coalesce.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/docs/coalesce.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -232,8 +205,7 @@ func TestVersionCoalescing(t *testing.T) {
 		t.Fatalf("doc ID: %v", err)
 	}
 
-	// First update creates version 1 (no prior version exists)
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/coalesce.md",
 		Content: "v2\n",
@@ -250,8 +222,7 @@ func TestVersionCoalescing(t *testing.T) {
 		t.Fatalf("expected 1 version after first update, got %d", count)
 	}
 
-	// Second update should be coalesced (version was just created)
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/coalesce.md",
 		Content: "v3\n",
@@ -268,9 +239,7 @@ func TestVersionCoalescing(t *testing.T) {
 		t.Errorf("expected 1 version after coalesced update, got %d", count)
 	}
 
-	// --- Cleanup ---
-
-	if err := docSvc.Delete(ctx, vaultID, "/docs/coalesce.md"); err != nil {
+	if err := fileSvc.Delete(ctx, vaultID, "/docs/coalesce.md"); err != nil {
 		t.Fatalf("delete doc: %v", err)
 	}
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
@@ -278,7 +247,6 @@ func TestVersionCoalescing(t *testing.T) {
 	}
 }
 
-// TestVersionRetention verifies that the retention cap prunes old versions.
 func TestVersionRetention(t *testing.T) {
 	ctx := context.Background()
 
@@ -301,14 +269,12 @@ func TestVersionRetention(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	// Retention cap of 3
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 0,
 		RetentionCount:  3,
 	}, nil, 0)
 
-	// Create document
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/docs/retention.md",
 		Content: "v0\n",
@@ -317,7 +283,7 @@ func TestVersionRetention(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/docs/retention.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/docs/retention.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -326,9 +292,8 @@ func TestVersionRetention(t *testing.T) {
 		t.Fatalf("doc ID: %v", err)
 	}
 
-	// Create 5 updates (should produce 5 versions, but retention keeps only 3)
 	for i := 1; i <= 5; i++ {
-		_, err = docSvc.Create(ctx, models.DocumentInput{
+		_, err = fileSvc.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    "/docs/retention.md",
 			Content: "v" + itoa(i) + "\n",
@@ -346,7 +311,6 @@ func TestVersionRetention(t *testing.T) {
 		t.Errorf("expected 3 versions (retention cap), got %d", count)
 	}
 
-	// Verify newest versions are kept (highest version numbers)
 	versions, err := testDB.ListVersions(ctx, docID, 100, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -354,7 +318,6 @@ func TestVersionRetention(t *testing.T) {
 	if len(versions) != 3 {
 		t.Fatalf("expected 3 versions, got %d", len(versions))
 	}
-	// versions are newest first, so version 5, 4, 3
 	if versions[0].Version != 5 {
 		t.Errorf("newest version: got %d, want 5", versions[0].Version)
 	}
@@ -362,9 +325,7 @@ func TestVersionRetention(t *testing.T) {
 		t.Errorf("oldest kept version: got %d, want 3", versions[2].Version)
 	}
 
-	// --- Cleanup ---
-
-	if err := docSvc.Delete(ctx, vaultID, "/docs/retention.md"); err != nil {
+	if err := fileSvc.Delete(ctx, vaultID, "/docs/retention.md"); err != nil {
 		t.Fatalf("delete doc: %v", err)
 	}
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {

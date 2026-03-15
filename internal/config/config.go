@@ -43,6 +43,13 @@ type Config struct {
 	EmbedDimension            int
 	BedrockEmbedModelProvider string // e.g., "amazon" for Titan, "cohere" for Cohere
 
+	// Multimodal embedding (optional, for native image/audio/PDF embedding)
+	MultimodalEmbedProvider LLMProvider // KNOW_MULTIMODAL_EMBED_PROVIDER (default: "none")
+	MultimodalEmbedModel    string      // KNOW_MULTIMODAL_EMBED_MODEL
+
+	// Audio chunking
+	AudioSegmentSeconds int // max audio segment duration in seconds (default: 60, max 80 for Gemini)
+
 	// LLM configuration (for ask, extract-graph, render)
 	LLMProvider      LLMProvider
 	LLMModel         string
@@ -173,6 +180,13 @@ func Load() Config {
 		EmbedModel:                getEnv("KNOW_EMBED_MODEL", ""),
 		EmbedDimension:            getEnvInt("KNOW_EMBED_DIMENSION", 768),
 		BedrockEmbedModelProvider: getEnv("KNOW_BEDROCK_EMBED_MODEL_PROVIDER", ""),
+
+		// Multimodal embedding
+		MultimodalEmbedProvider: LLMProvider(getEnv("KNOW_MULTIMODAL_EMBED_PROVIDER", "none")),
+		MultimodalEmbedModel:    getEnv("KNOW_MULTIMODAL_EMBED_MODEL", ""),
+
+		// Audio chunking
+		AudioSegmentSeconds: getEnvInt("KNOW_AUDIO_SEGMENT_SECONDS", 60),
 
 		// LLM (default to Anthropic)
 		LLMProvider:      LLMProvider(getEnv("KNOW_LLM_PROVIDER", "anthropic")),

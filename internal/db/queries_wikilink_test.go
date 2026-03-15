@@ -14,12 +14,12 @@ func TestCreateWikiLinks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/link-source.md", Title: "Link Source",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
@@ -47,25 +47,25 @@ func TestGetBacklinks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/backlink-a.md", Title: "Doc A",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument docA failed: %v", err)
+		t.Fatalf("CreateFile docA failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/backlink-b.md", Title: "Doc B",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument docB failed: %v", err)
+		t.Fatalf("CreateFile docB failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 
 	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
-		{RawTarget: "Doc B", ToDocID: &docBID},
+		{RawTarget: "Doc B", ToFileID: &docBID},
 	}); err != nil {
 		t.Fatalf("CreateWikiLinks failed: %v", err)
 	}
@@ -86,12 +86,12 @@ func TestResolveDanglingLinks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/dangling-source.md", Title: "Source",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument docA failed: %v", err)
+		t.Fatalf("CreateFile docA failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 
@@ -108,16 +108,16 @@ func TestResolveDanglingLinks(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("Expected 1 link, got %d", len(links))
 	}
-	if links[0].ToDoc != nil {
-		t.Fatal("Link should be dangling (to_doc nil)")
+	if links[0].ToFile != nil {
+		t.Fatal("Link should be dangling (to_file nil)")
 	}
 
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/future-doc.md", Title: "Future Doc",
-		Content: "arrived", ContentBody: "arrived", Labels: []string{},
+		Content: "arrived", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument docB failed: %v", err)
+		t.Fatalf("CreateFile docB failed: %v", err)
 	}
 	docBID := models.MustRecordIDString(docB.ID)
 
@@ -136,38 +136,38 @@ func TestResolveDanglingLinks(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("Expected 1 link, got %d", len(links))
 	}
-	if links[0].ToDoc == nil {
+	if links[0].ToFile == nil {
 		t.Error("Link should now be resolved")
 	}
 }
 
-func TestUnresolveWikiLinksToDoc(t *testing.T) {
+func TestUnresolveWikiLinksToFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/unresolve-a.md", Title: "Unresolve A",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument A failed: %v", err)
+		t.Fatalf("CreateFile A failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/unresolve-b.md", Title: "Unresolve B",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument B failed: %v", err)
+		t.Fatalf("CreateFile B failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 
 	// Create a resolved link from A -> B
 	if err := testDB.CreateWikiLinks(ctx, docAID, vaultID, []WikiLinkInput{
-		{RawTarget: "Unresolve B", ToDocID: &docBID},
+		{RawTarget: "Unresolve B", ToFileID: &docBID},
 	}); err != nil {
 		t.Fatalf("CreateWikiLinks failed: %v", err)
 	}
@@ -177,14 +177,14 @@ func TestUnresolveWikiLinksToDoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWikiLinks failed: %v", err)
 	}
-	if len(links) != 1 || links[0].ToDoc == nil {
+	if len(links) != 1 || links[0].ToFile == nil {
 		t.Fatal("Link should be resolved initially")
 	}
 
 	// Unresolve links pointing to B
-	count, err := testDB.UnresolveWikiLinksToDoc(ctx, docBID)
+	count, err := testDB.UnresolveWikiLinksToFile(ctx, docBID)
 	if err != nil {
-		t.Fatalf("UnresolveWikiLinksToDoc failed: %v", err)
+		t.Fatalf("UnresolveWikiLinksToFile failed: %v", err)
 	}
 	if count != 1 {
 		t.Errorf("Expected 1 unresolved link, got %d", count)
@@ -198,7 +198,7 @@ func TestUnresolveWikiLinksToDoc(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("Expected 1 link (preserved), got %d", len(links))
 	}
-	if links[0].ToDoc != nil {
+	if links[0].ToFile != nil {
 		t.Error("Link should be dangling after unresolve")
 	}
 	if links[0].RawTarget != "Unresolve B" {
@@ -213,12 +213,12 @@ func TestUpdateWikiLinkRawTargets(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/raw-target-src.md", Title: "Raw Target Source",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
@@ -262,12 +262,12 @@ func TestUpdateWikiLinkRawTargetsByPrefix(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/prefix-src.md", Title: "Prefix Source",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
@@ -313,12 +313,12 @@ func TestDeleteWikiLinks(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delete-links-test.md", Title: "Delete Links",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 

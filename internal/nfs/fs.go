@@ -17,7 +17,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -36,14 +36,14 @@ const maxListEntries = 10000
 // The root directory lists all accessible vaults; subdirectories are vault contents.
 type FS struct {
 	dbClient   *db.Client
-	docService *document.Service
+	docService *file.Service
 	vaultSvc   *vault.Service
 	ac         auth.AuthContext
 	logger     *slog.Logger
 }
 
 // NewFS creates a new billy.Filesystem backed by Know services.
-func NewFS(dbClient *db.Client, docService *document.Service, vaultSvc *vault.Service, ac auth.AuthContext, logger *slog.Logger) billy.Filesystem {
+func NewFS(dbClient *db.Client, docService *file.Service, vaultSvc *vault.Service, ac auth.AuthContext, logger *slog.Logger) billy.Filesystem {
 	return &FS{
 		dbClient:   dbClient,
 		docService: docService,
@@ -140,7 +140,7 @@ func (f *FS) OpenFile(filename string, flag int, _ os.FileMode) (billy.File, err
 	}
 
 	// Read path: try document first
-	doc, err := f.dbClient.GetDocumentByPath(ctx, vaultID, docPath)
+	doc, err := f.dbClient.GetFileByPath(ctx, vaultID, docPath)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", filename, err)
 	}
@@ -182,14 +182,14 @@ func (f *FS) Stat(filename string) (os.FileInfo, error) {
 	}
 
 	// Try as document
-	meta, err := f.dbClient.GetDocumentMetaByPath(ctx, vaultID, docPath)
+	meta, err := f.dbClient.GetFileMetaByPath(ctx, vaultID, docPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", filename, err)
 	}
 	if meta != nil {
 		return &fileInfo{
 			name:    path.Base(docPath),
-			size:    int64(meta.ContentLength),
+			size:    int64(meta.Size),
 			modTime: meta.UpdatedAt,
 		}, nil
 	}
@@ -230,7 +230,7 @@ func (f *FS) Rename(oldpath, newpath string) error {
 	}
 
 	// Try as document
-	doc, err := f.dbClient.GetDocumentByPath(ctx, vaultID, oldDoc)
+	doc, err := f.dbClient.GetFileByPath(ctx, vaultID, oldDoc)
 	if err != nil {
 		return fmt.Errorf("rename %s: %w", oldpath, err)
 	}
@@ -279,7 +279,7 @@ func (f *FS) Remove(filename string) error {
 	}
 
 	// Try as document
-	doc, err := f.dbClient.GetDocumentByPath(ctx, vaultID, docPath)
+	doc, err := f.dbClient.GetFileByPath(ctx, vaultID, docPath)
 	if err != nil {
 		return fmt.Errorf("remove %s: %w", filename, err)
 	}
@@ -427,15 +427,17 @@ func (f *FS) listDirEntries(ctx context.Context, vaultID, dirPath string) ([]os.
 		})
 	}
 
-	// List immediate child documents
+	// List immediate child documents (exclude folders to avoid duplicates)
 	folderFilter := dirPath
 	if folderFilter != "/" {
 		folderFilter += "/"
 	}
-	metas, err := f.dbClient.ListDocumentMetas(ctx, db.ListDocumentsFilter{
-		VaultID: vaultID,
-		Folder:  &folderFilter,
-		Limit:   maxListEntries,
+	isNotFolder := false
+	metas, err := f.dbClient.ListFileMetas(ctx, db.ListFilesFilter{
+		VaultID:  vaultID,
+		Folder:   &folderFilter,
+		IsFolder: &isNotFolder,
+		Limit:    maxListEntries,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list documents in %s: %w", dirPath, err)
@@ -450,7 +452,7 @@ func (f *FS) listDirEntries(ctx context.Context, vaultID, dirPath string) ([]os.
 		}
 		entries = append(entries, &fileInfo{
 			name:    path.Base(meta.Path),
-			size:    int64(meta.ContentLength),
+			size:    int64(meta.Size),
 			modTime: meta.UpdatedAt,
 		})
 	}

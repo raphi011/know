@@ -79,19 +79,18 @@ func TestDeleteVault(t *testing.T) {
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	// Create a document in the vault to test cascade
+	// Create a file in the vault to test cascade
 	hash := "testhash"
-	_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	_, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID:     vaultID,
 		Path:        "/test.md",
 		Title:       "Test",
 		Content:     "content",
-		ContentBody: "content",
 		ContentHash: &hash,
 		Labels:      []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 
 	err = testDB.DeleteVault(ctx, vaultID)
@@ -173,17 +172,16 @@ func TestListDocumentPaths(t *testing.T) {
 	paths := []string{"/docs/a.md", "/docs/b.md", "/notes/c.md"}
 	for i, p := range paths {
 		hash := fmt.Sprintf("hash-%d-%d", i, time.Now().UnixNano())
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
+		_, err := testDB.CreateFile(ctx, models.FileInput{
 			VaultID:     vaultID,
 			Path:        p,
 			Title:       fmt.Sprintf("Doc %d", i),
 			Content:     "content",
-			ContentBody: "content",
 			ContentHash: &hash,
 			Labels:      []string{},
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument for path %q failed: %v", p, err)
+			t.Fatalf("CreateFile for path %q failed: %v", p, err)
 		}
 	}
 

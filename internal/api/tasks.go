@@ -59,7 +59,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		filter.Folder = &v
 	}
 	if v := r.URL.Query().Get("path"); v != "" {
-		filter.DocPath = &v
+		filter.FilePath = &v
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -149,7 +149,7 @@ func (s *Server) toggleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := s.app.DocumentService().ToggleTask(r.Context(), taskID)
+	updated, err := s.app.FileService().ToggleTask(r.Context(), taskID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to toggle task")
 		logger.Error("toggle task", "task_id", taskID, "error", err)

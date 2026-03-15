@@ -180,9 +180,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if cfg.MCPEnabled {
 		mcpHandler := mcptools.NewHandler(
 			&tools.Executor{
-				DB:         app.DBClient(),
-				Search:     app.SearchService(),
-				DocService: app.DocumentService(),
+				DB:      app.DBClient(),
+				Search:  app.SearchService(),
+				FileSvc: app.FileService(),
 			},
 			app.DBClient(),
 			app.VaultService(),
@@ -198,8 +198,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		serverCtx,
 		"/dav/",
 		app.DBClient(),
-		app.DocumentService(),
-		app.AssetService(),
+		app.FileService(),
 		app.VaultService(),
 		cfg.NoAuth,
 		10*1024*1024, // 10 MB max PUT body
@@ -231,7 +230,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		sshSrv, err = sshd.NewServer(
 			sshLn,
 			app.DBClient(),
-			app.DocumentService(),
+			app.FileService(),
 			app.VaultService(),
 			cfg.SSHHostKeyPath,
 			cfg.NoAuth,
@@ -253,7 +252,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		nfsSrv = knownfs.NewServer(
 			nfsLn,
 			app.DBClient(),
-			app.DocumentService(),
+			app.FileService(),
 			app.VaultService(),
 		)
 		go nfsSrv.Serve()

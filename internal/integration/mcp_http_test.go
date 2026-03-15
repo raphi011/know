@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/know/internal/auth"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/mcptools"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/search"
@@ -20,18 +20,18 @@ import (
 
 // setupMCPServer creates a vault, executor, MCP handler, and httptest.Server.
 // Auth is bypassed via NoAuthMiddleware.
-func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *document.Service) {
+func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *file.Service) {
 	t.Helper()
 	ctx := context.Background()
 	vaultID, _ := setupVault(t, ctx, "mcp-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 
 	searchSvc := search.NewService(testDB, nil)
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	docSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 	vaultSvc := vault.NewService(testDB)
 	executor := &tools.Executor{
-		DB:         testDB,
-		Search:     searchSvc,
-		DocService: docSvc,
+		DB:      testDB,
+		Search:  searchSvc,
+		FileSvc: docSvc,
 	}
 
 	handler := mcptools.NewHandler(executor, testDB, vaultSvc, nil, nil)

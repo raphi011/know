@@ -67,10 +67,10 @@ func (c *Client) EnsureLabel(ctx context.Context, vaultID, name string) (string,
 	return "", fmt.Errorf("ensure label: exhausted %d retries due to concurrent writes", maxRetries)
 }
 
-// SyncDocumentLabels replaces all has_label edges for a document with edges
+// SyncFileLabels replaces all has_label edges for a file with edges
 // to the given labels. Labels are upserted and edges are created in a single
 // database round-trip to avoid N+1 query overhead.
-func (c *Client) SyncDocumentLabels(ctx context.Context, docID, vaultID string, labels []string) error {
+func (c *Client) SyncFileLabels(ctx context.Context, fileID, vaultID string, labels []string) error {
 	defer c.logOp(ctx, "label.sync", time.Now())
 
 	// Normalize labels in Go
@@ -83,11 +83,11 @@ func (c *Client) SyncDocumentLabels(ctx context.Context, docID, vaultID string, 
 	}
 
 	// Delete old edges first; if no labels remain we're done
-	deleteSQL := `DELETE FROM has_label WHERE in = type::record("document", $doc_id)`
+	deleteSQL := `DELETE FROM has_label WHERE in = type::record("file", $file_id)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), deleteSQL, map[string]any{
-		"doc_id": bareID("document", docID),
+		"file_id": bareID("file", fileID),
 	}); err != nil {
-		return fmt.Errorf("sync document labels: delete old edges: %w", err)
+		return fmt.Errorf("sync file labels: delete old edges: %w", err)
 	}
 
 	if len(normalized) == 0 {
@@ -105,52 +105,52 @@ func (c *Client) SyncDocumentLabels(ctx context.Context, docID, vaultID string, 
 	}
 
 	// Single query: upsert all labels, then create all edges.
-	// LET $doc outside the FOR loop because type::record() isn't allowed inside FOR.
+	// LET $file outside the FOR loop because type::record() isn't allowed inside FOR.
 	sql := `
-		LET $doc = type::record("document", $doc_id);
+		LET $file = type::record("file", $file_id);
 		LET $labels = INSERT INTO label $label_rows ON DUPLICATE KEY UPDATE id = id RETURN AFTER;
 		FOR $lbl IN $labels {
-			RELATE $doc->has_label->$lbl.id;
+			RELATE $file->has_label->$lbl.id;
 		};
 	`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"doc_id":     bareID("document", docID),
+		"file_id":    bareID("file", fileID),
 		"label_rows": labelRows,
 	}); err != nil {
-		return fmt.Errorf("sync document labels: upsert and relate %v: %w", normalized, err)
+		return fmt.Errorf("sync file labels: upsert and relate %v: %w", normalized, err)
 	}
 
 	return nil
 }
 
-// GetDocumentsByLabel returns all documents in a vault that have a specific label,
+// GetFilesByLabel returns all files in a vault that have a specific label,
 // using graph traversal through has_label edges.
-func (c *Client) GetDocumentsByLabel(ctx context.Context, vaultID, labelName string) ([]models.Document, error) {
-	defer c.logOp(ctx, "label.get_documents", time.Now())
+func (c *Client) GetFilesByLabel(ctx context.Context, vaultID, labelName string) ([]models.File, error) {
+	defer c.logOp(ctx, "label.get_files", time.Now())
 	sql := `
-		SELECT * FROM document WHERE
+		SELECT * FROM file WHERE
 			vault = type::record("vault", $vault_id)
 			AND count(->has_label->label[WHERE name = $label_name]) > 0
 	`
-	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
 		"vault_id":   bareID("vault", vaultID),
 		"label_name": labelName,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get documents by label: %w", err)
+		return nil, fmt.Errorf("get files by label: %w", err)
 	}
 	return allResults(results), nil
 }
 
-// GetLabelsForDocument returns all label names for a document using graph traversal.
-func (c *Client) GetLabelsForDocument(ctx context.Context, docID string) ([]string, error) {
-	defer c.logOp(ctx, "label.get_for_document", time.Now())
-	sql := `SELECT VALUE ->has_label->label.name FROM type::record("document", $doc_id)`
+// GetLabelsForFile returns all label names for a file using graph traversal.
+func (c *Client) GetLabelsForFile(ctx context.Context, fileID string) ([]string, error) {
+	defer c.logOp(ctx, "label.get_for_file", time.Now())
+	sql := `SELECT VALUE ->has_label->label.name FROM type::record("file", $file_id)`
 	results, err := surrealdb.Query[[][]string](ctx, c.DB(), sql, map[string]any{
-		"doc_id": bareID("document", docID),
+		"file_id": bareID("file", fileID),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get labels for document: %w", err)
+		return nil, fmt.Errorf("get labels for file: %w", err)
 	}
 	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
 		return nil, nil

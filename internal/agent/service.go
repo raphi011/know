@@ -569,7 +569,7 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 		Path:   args.Path,
 	}
 
-	doc, err := s.db.GetDocumentByPath(ctx, vaultID, args.Path)
+	doc, err := s.db.GetFileByPath(ctx, vaultID, args.Path)
 	if err != nil {
 		return nil, fmt.Errorf("check document: %w", err)
 	}

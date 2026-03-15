@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -56,7 +57,7 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 		logger.Warn("failed to load vault for template listing", "vault_id", m.vaultID, "error", err)
 	} else {
 		tplPath := vault.TemplatePath()
-		tplDocs, tplErr := m.db.ListDocuments(ctx, db.ListDocumentsFilter{
+		tplDocs, tplErr := m.db.ListFiles(ctx, db.ListFilesFilter{
 			VaultID: m.vaultID,
 			Folder:  &tplPath,
 		})
@@ -85,7 +86,7 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 }
 
 // formatFolderTree renders a vault's folder structure as a code block, or "" if empty.
-func formatFolderTree(folders []models.Folder) string {
+func formatFolderTree(folders []models.File) string {
 	if len(folders) == 0 {
 		return ""
 	}
@@ -97,7 +98,7 @@ func formatFolderTree(folders []models.Folder) string {
 		sb.WriteString(indent)
 		sb.WriteString("├── ")
 		// Escape curly braces to prevent FString interpolation of user-controlled folder names.
-		sb.WriteString(strings.NewReplacer("{", "{{", "}", "}}").Replace(f.Name))
+		sb.WriteString(strings.NewReplacer("{", "{{", "}", "}}").Replace(path.Base(f.Path)))
 		sb.WriteString("/\n")
 	}
 	sb.WriteString("```")
@@ -122,7 +123,7 @@ func formatLabels(labelCounts []models.LabelCount) string {
 // formatTemplates renders available templates as a list for the system prompt,
 // or "" if none exist. Escapes curly braces to prevent FString interpolation
 // of user-controlled paths and titles.
-func formatTemplates(docs []models.Document) string {
+func formatTemplates(docs []models.File) string {
 	if len(docs) == 0 {
 		return ""
 	}
@@ -152,14 +153,14 @@ func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context
 	if len(m.docRefs) > 0 {
 		var refContext strings.Builder
 		for _, ref := range m.docRefs {
-			doc, docErr := m.db.GetDocumentByPath(ctx, m.vaultID, ref)
+			doc, docErr := m.db.GetFileByPath(ctx, m.vaultID, ref)
 			if docErr != nil {
 				logutil.FromCtx(ctx).Warn("failed to read referenced doc", "path", ref, "error", docErr)
 				m.emit(StreamEvent{Type: "error", Content: fmt.Sprintf("could not read referenced document: %s", ref)})
 				continue
 			}
 			if doc != nil {
-				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, doc.ContentBody)
+				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, doc.Content)
 			}
 		}
 		if refContext.Len() > 0 {

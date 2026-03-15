@@ -16,10 +16,9 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/net/webdav"
 
-	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
@@ -57,8 +56,7 @@ func NewHandler(
 	ctx context.Context,
 	pathPrefix string,
 	dbClient *db.Client,
-	docService *document.Service,
-	assetSvc *asset.Service,
+	fileSvc *file.Service,
 	vaultSvc *vault.Service,
 	noAuth bool,
 	maxPutBytes int64,
@@ -187,7 +185,7 @@ func NewHandler(
 		}
 
 		// Create per-request WebDAV handler with the resolved vault
-		davFS := NewFS(vaultID, dbClient, docService, assetSvc, vaultSvc, pendingSets.Get(vaultID))
+		davFS := NewFS(vaultID, dbClient, fileSvc, vaultSvc, pendingSets.Get(vaultID))
 		reqLogger := logutil.FromCtx(r.Context())
 		davHandler := &webdav.Handler{
 			FileSystem: davFS,

@@ -1,4 +1,4 @@
-package document
+package file
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 )
 
 // EmbeddingWorker processes pending chunk embeddings in the background.
-// When an event bus is provided, wakes immediately on document.processed events.
+// When an event bus is provided, wakes immediately on file.processed events.
 type EmbeddingWorker struct {
 	service  *Service
 	batch    int
@@ -18,7 +18,7 @@ type EmbeddingWorker struct {
 }
 
 // NewEmbeddingWorker creates a worker that polls for pending chunk embeddings.
-// If bus is non-nil, the worker also wakes immediately on document.processed events.
+// If bus is non-nil, the worker also wakes immediately on file.processed events.
 // Panics if service is nil, interval <= 0, or batchSize <= 0 (programmer errors).
 func NewEmbeddingWorker(service *Service, interval time.Duration, batchSize int, bus *event.Bus) *EmbeddingWorker {
 	if service == nil {
@@ -43,7 +43,7 @@ func NewEmbeddingWorker(service *Service, interval time.Duration, batchSize int,
 // Subscribes to bus events here (not in constructor) to avoid goroutine leaks
 // if the worker is constructed but never started.
 func (w *EmbeddingWorker) Run(ctx context.Context) {
-	notify, unsub := eventNotify(w.bus, "document.processed")
+	notify, unsub := eventNotify(w.bus, "file.processed")
 	defer unsub()
 	loop := NewWorkerLoop("embedding worker", w.interval, w.tick, notify)
 	loop.Run(ctx)

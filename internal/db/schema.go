@@ -40,107 +40,114 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_vault_name ON vault FIELDS name UNIQUE;
 
     -- ==========================================================================
-    -- DOCUMENT TABLE
+    -- FILE TABLE (unified: documents, assets, folders)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS document SCHEMAFULL;
+    DEFINE TABLE IF NOT EXISTS file SCHEMAFULL;
 
-    DEFINE FIELD IF NOT EXISTS vault        ON document TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS path         ON document TYPE string;
-    DEFINE FIELD IF NOT EXISTS title        ON document TYPE string;
-    DEFINE FIELD IF NOT EXISTS content      ON document TYPE string;
-    DEFINE FIELD IF NOT EXISTS content_body    ON document TYPE string;
-    DEFINE FIELD IF NOT EXISTS content_length  ON document TYPE int;
-    DEFINE FIELD IF NOT EXISTS labels       ON document TYPE array<string> DEFAULT [];
-    DEFINE FIELD IF NOT EXISTS doc_type     ON document TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
-    REMOVE FIELD IF EXISTS sections ON document;
-    REMOVE FIELD IF EXISTS source ON document;
-    REMOVE FIELD IF EXISTS source_path ON document;
-    DEFINE FIELD IF NOT EXISTS processed       ON document TYPE bool DEFAULT false;
-    DEFINE FIELD IF NOT EXISTS last_accessed_at ON document TYPE option<datetime>;
-    DEFINE FIELD IF NOT EXISTS access_count     ON document TYPE int DEFAULT 0;
-    DEFINE FIELD IF NOT EXISTS created_at       ON document TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at       ON document TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS vault          ON file TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS path           ON file TYPE string;
+    DEFINE FIELD IF NOT EXISTS title          ON file TYPE string DEFAULT "";
+    DEFINE FIELD IF NOT EXISTS is_folder      ON file TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS mime_type      ON file TYPE string DEFAULT "application/octet-stream";
+    DEFINE FIELD IF NOT EXISTS content        ON file TYPE string DEFAULT "";
+    DEFINE FIELD IF NOT EXISTS content_length ON file TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS labels         ON file TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS doc_type       ON file TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS content_hash   ON file TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS metadata       ON file TYPE option<object> FLEXIBLE;
+    DEFINE FIELD IF NOT EXISTS data           ON file TYPE option<bytes>;
+    DEFINE FIELD IF NOT EXISTS size           ON file TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS processed      ON file TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS last_accessed_at ON file TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS access_count   ON file TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at     ON file TYPE datetime VALUE time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_document_vault_path    ON document FIELDS vault, path UNIQUE;
-    DEFINE INDEX IF NOT EXISTS idx_document_labels        ON document FIELDS labels;
-    DEFINE INDEX IF NOT EXISTS idx_document_vault_doctype ON document FIELDS vault, doc_type;
+    DEFINE INDEX IF NOT EXISTS idx_file_vault_path    ON file FIELDS vault, path UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_file_labels        ON file FIELDS labels;
+    DEFINE INDEX IF NOT EXISTS idx_file_vault_doctype ON file FIELDS vault, doc_type;
+    DEFINE INDEX IF NOT EXISTS idx_file_vault_folder  ON file FIELDS vault, is_folder;
 
-    -- Cascade delete chunks, wiki_links, and versions when document deleted.
-    -- ASYNC: runs after commit, eventually consistent. If all retries fail,
-    -- orphaned records may remain — acceptable trade-off for write performance.
-    DEFINE EVENT IF NOT EXISTS cascade_delete_document_chunks ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM chunk WHERE document = $before.id
+    -- Cascade delete chunks, versions, wiki_links, relations, tasks, labels
+    -- when a non-folder file is deleted.
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_chunks ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        DELETE FROM chunk WHERE file = $before.id
     };
 
-    DEFINE EVENT IF NOT EXISTS cascade_delete_document_versions ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM document_version WHERE document = $before.id
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_versions ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        DELETE FROM file_version WHERE file = $before.id
     };
 
-    DEFINE EVENT IF NOT EXISTS cascade_delete_document_wiki_links ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        -- Outgoing links: delete (the doc's own links)
-        DELETE FROM wiki_link WHERE from_doc = $before.id;
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_wiki_links ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        -- Outgoing links: delete (the file's own links)
+        DELETE FROM wiki_link WHERE from_file = $before.id;
         -- Incoming links: unresolve (preserve the dangling reference)
-        UPDATE wiki_link SET to_doc = NONE WHERE to_doc = $before.id
+        UPDATE wiki_link SET to_file = NONE WHERE to_file = $before.id
     };
 
-    DEFINE EVENT IF NOT EXISTS cascade_delete_doc_relations ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM doc_relation WHERE in = $before.id OR out = $before.id
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_relations ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        DELETE FROM file_relation WHERE in = $before.id OR out = $before.id
+    };
+
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_tasks ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        DELETE FROM task WHERE file = $before.id
+    };
+
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_label_edges ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        DELETE FROM has_label WHERE in = $before.id
+    };
+
+    -- Auto-create tombstone when a non-folder file is deleted
+    DEFINE EVENT IF NOT EXISTS create_tombstone_on_delete ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        CREATE file_tombstone SET
+            vault = $before.vault,
+            file_id = type::string($before.id),
+            path = $before.path
     };
 
     -- ==========================================================================
-    -- DOCUMENT_VERSION TABLE
+    -- FILE_VERSION TABLE (historical snapshots)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS document_version SCHEMAFULL;
+    DEFINE TABLE IF NOT EXISTS file_version SCHEMAFULL;
 
-    DEFINE FIELD IF NOT EXISTS document     ON document_version TYPE record<document>;
-    DEFINE FIELD IF NOT EXISTS vault        ON document_version TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS version      ON document_version TYPE int;
-    DEFINE FIELD IF NOT EXISTS content      ON document_version TYPE string;
-    DEFINE FIELD IF NOT EXISTS content_hash ON document_version TYPE string;
-    DEFINE FIELD IF NOT EXISTS title        ON document_version TYPE string;
-    DEFINE FIELD IF NOT EXISTS created_at   ON document_version TYPE datetime DEFAULT time::now();
-    REMOVE FIELD IF EXISTS source ON document_version;
+    DEFINE FIELD IF NOT EXISTS file         ON file_version TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS vault        ON file_version TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS version      ON file_version TYPE int;
+    DEFINE FIELD IF NOT EXISTS content      ON file_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS content_hash ON file_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS title        ON file_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_at   ON file_version TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_version_document        ON document_version FIELDS document;
-    DEFINE INDEX IF NOT EXISTS idx_version_document_version ON document_version FIELDS document, version UNIQUE;
-    DEFINE INDEX IF NOT EXISTS idx_version_vault            ON document_version FIELDS vault;
-
-    -- ==========================================================================
-    -- FOLDER TABLE
-    -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS folder SCHEMAFULL;
-
-    DEFINE FIELD IF NOT EXISTS vault      ON folder TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS path       ON folder TYPE string;
-    DEFINE FIELD IF NOT EXISTS name       ON folder TYPE string;
-    DEFINE FIELD IF NOT EXISTS created_at ON folder TYPE datetime DEFAULT time::now();
-
-    DEFINE INDEX IF NOT EXISTS idx_folder_vault_path ON folder FIELDS vault, path UNIQUE;
-    DEFINE INDEX IF NOT EXISTS idx_folder_vault      ON folder FIELDS vault;
+    DEFINE INDEX IF NOT EXISTS idx_version_file          ON file_version FIELDS file;
+    DEFINE INDEX IF NOT EXISTS idx_version_file_version   ON file_version FIELDS file, version UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_version_vault          ON file_version FIELDS vault;
 
     -- ==========================================================================
-    -- CHUNK TABLE
+    -- CHUNK TABLE (enhanced with multimodal support)
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS chunk SCHEMAFULL;
 
-    DEFINE FIELD IF NOT EXISTS document     ON chunk TYPE record<document>;
-    DEFINE FIELD IF NOT EXISTS content      ON chunk TYPE string;
-    DEFINE FIELD IF NOT EXISTS position     ON chunk TYPE int;
-    DEFINE FIELD IF NOT EXISTS heading_path ON chunk TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS labels       ON chunk TYPE array<string> DEFAULT [];
-    DEFINE FIELD IF NOT EXISTS embedding    ON chunk TYPE option<array<float>>;
-    DEFINE FIELD IF NOT EXISTS embed_at     ON chunk TYPE option<datetime>;
-    DEFINE FIELD IF NOT EXISTS created_at   ON chunk TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS file       ON chunk TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS text       ON chunk TYPE string;
+    DEFINE FIELD IF NOT EXISTS mime_type  ON chunk TYPE string DEFAULT "text/plain";
+    DEFINE FIELD IF NOT EXISTS data       ON chunk TYPE option<bytes>;
+    DEFINE FIELD IF NOT EXISTS position   ON chunk TYPE int;
+    DEFINE FIELD IF NOT EXISTS source_loc ON chunk TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS labels     ON chunk TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS embedding  ON chunk TYPE option<array<float>>;
+    DEFINE FIELD IF NOT EXISTS embed_at   ON chunk TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS created_at ON chunk TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_chunk_document   ON chunk FIELDS document;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_file      ON chunk FIELDS file;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embed_at   ON chunk FIELDS embed_at;
-    DEFINE INDEX IF NOT EXISTS idx_chunk_content_ft ON chunk FIELDS content FULLTEXT ANALYZER know_analyzer BM25;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_text_ft    ON chunk FIELDS text FULLTEXT ANALYZER know_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding  ON chunk FIELDS embedding
         HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12 HASHED_VECTOR;
 
@@ -149,26 +156,26 @@ func SchemaSQL(dimension int) string {
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS wiki_link SCHEMAFULL;
 
-    DEFINE FIELD IF NOT EXISTS from_doc   ON wiki_link TYPE record<document>;
-    DEFINE FIELD IF NOT EXISTS to_doc     ON wiki_link TYPE option<record<document>>;
+    DEFINE FIELD IF NOT EXISTS from_file  ON wiki_link TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS to_file    ON wiki_link TYPE option<record<file>>;
     DEFINE FIELD IF NOT EXISTS raw_target ON wiki_link TYPE string;
     DEFINE FIELD IF NOT EXISTS vault      ON wiki_link TYPE record<vault>;
 
-    DEFINE INDEX IF NOT EXISTS idx_wiki_link_from_doc         ON wiki_link FIELDS from_doc;
-    DEFINE INDEX IF NOT EXISTS idx_wiki_link_to_doc           ON wiki_link FIELDS to_doc;
-    DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault            ON wiki_link FIELDS vault;
-    DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault_raw_target ON wiki_link FIELDS vault, raw_target;
+    DEFINE INDEX IF NOT EXISTS idx_wiki_link_from_file        ON wiki_link FIELDS from_file;
+    DEFINE INDEX IF NOT EXISTS idx_wiki_link_to_file          ON wiki_link FIELDS to_file;
+    DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault             ON wiki_link FIELDS vault;
+    DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault_raw_target  ON wiki_link FIELDS vault, raw_target;
 
     -- ==========================================================================
-    -- DOC_RELATION TABLE (RELATION: document -> document)
+    -- FILE_RELATION TABLE (RELATION: file -> file)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS doc_relation SCHEMAFULL TYPE RELATION FROM document TO document;
+    DEFINE TABLE IF NOT EXISTS file_relation SCHEMAFULL TYPE RELATION FROM file TO file;
 
-    DEFINE FIELD IF NOT EXISTS rel_type   ON doc_relation TYPE string;
-    DEFINE FIELD IF NOT EXISTS source     ON doc_relation TYPE string DEFAULT "manual";
-    DEFINE FIELD IF NOT EXISTS created_at ON doc_relation TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS rel_type   ON file_relation TYPE string;
+    DEFINE FIELD IF NOT EXISTS source     ON file_relation TYPE string DEFAULT "manual";
+    DEFINE FIELD IF NOT EXISTS created_at ON file_relation TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_doc_relation_unique ON doc_relation FIELDS in, out, rel_type UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_file_relation_unique ON file_relation FIELDS in, out, rel_type UNIQUE;
 
     -- ==========================================================================
     -- LABEL TABLE
@@ -182,23 +189,18 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_label_vault_name ON label FIELDS vault, name UNIQUE;
 
     -- ==========================================================================
-    -- HAS_LABEL RELATION (document -> label)
+    -- HAS_LABEL RELATION (file -> label)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS has_label SCHEMAFULL TYPE RELATION FROM document TO label;
+    DEFINE TABLE IF NOT EXISTS has_label SCHEMAFULL TYPE RELATION FROM file TO label;
 
     DEFINE FIELD IF NOT EXISTS created_at ON has_label TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_has_label_unique ON has_label FIELDS in, out UNIQUE;
 
-    -- Cascade: clean up edges when label or document deleted
+    -- Cascade: clean up edges when label deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_label_edges ON label
     WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM has_label WHERE out = $before.id
-    };
-
-    DEFINE EVENT IF NOT EXISTS cascade_delete_document_label_edges ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM has_label WHERE in = $before.id
     };
 
     -- ==========================================================================
@@ -235,7 +237,7 @@ func SchemaSQL(dimension int) string {
     };
 
     -- ==========================================================================
-    -- SHARE_LINK TABLE (read-only share links for docs/folders)
+    -- SHARE_LINK TABLE (read-only share links for files/folders)
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS share_link SCHEMAFULL;
 
@@ -319,25 +321,39 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_search_query_query ON search_query FIELDS query UNIQUE;
 
     -- ==========================================================================
-    -- DOCUMENT_TOMBSTONE TABLE (tracks deleted documents for sync)
+    -- FILE_TOMBSTONE TABLE (tracks deleted files for sync)
     -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS document_tombstone SCHEMAFULL;
+    DEFINE TABLE IF NOT EXISTS file_tombstone SCHEMAFULL;
 
-    DEFINE FIELD IF NOT EXISTS vault      ON document_tombstone TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS doc_id     ON document_tombstone TYPE string;
-    DEFINE FIELD IF NOT EXISTS path       ON document_tombstone TYPE string;
-    DEFINE FIELD IF NOT EXISTS deleted_at ON document_tombstone TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS vault      ON file_tombstone TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS file_id    ON file_tombstone TYPE string;
+    DEFINE FIELD IF NOT EXISTS path       ON file_tombstone TYPE string;
+    DEFINE FIELD IF NOT EXISTS deleted_at ON file_tombstone TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_tombstone_vault_since ON document_tombstone FIELDS vault, deleted_at;
+    DEFINE INDEX IF NOT EXISTS idx_tombstone_vault_since ON file_tombstone FIELDS vault, deleted_at;
 
-    -- Auto-create tombstone when a document is deleted
-    DEFINE EVENT IF NOT EXISTS create_tombstone_on_delete ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        CREATE document_tombstone SET
-            vault = $before.vault,
-            doc_id = type::string($before.id),
-            path = $before.path
-    };
+    -- ==========================================================================
+    -- TASK TABLE (extracted from markdown file checkboxes)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS task SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS file         ON task TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS vault        ON task TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS status       ON task TYPE string ASSERT $value IN ["open", "done"];
+    DEFINE FIELD IF NOT EXISTS raw_line     ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS text         ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS labels       ON task TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS due_date     ON task TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS line_number  ON task TYPE int;
+    DEFINE FIELD IF NOT EXISTS heading_path ON task TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS content_hash ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_at   ON task TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at   ON task TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_task_file          ON task FIELDS file;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_status   ON task FIELDS vault, status;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_due_date ON task FIELDS vault, due_date;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_labels   ON task FIELDS vault, labels;
 
     -- ==========================================================================
     -- REMOTE TABLE (federation: connections to other know servers)
@@ -352,57 +368,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS updated_at ON remote TYPE datetime VALUE time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_remote_name ON remote FIELDS name UNIQUE;
-
-    -- ==========================================================================
-    -- ASSET TABLE (binary image storage)
-    -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS asset SCHEMAFULL;
-
-    DEFINE FIELD IF NOT EXISTS vault        ON asset TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS path         ON asset TYPE string;
-    DEFINE FIELD IF NOT EXISTS mime_type    ON asset TYPE string;
-    DEFINE FIELD IF NOT EXISTS size         ON asset TYPE int;
-    DEFINE FIELD IF NOT EXISTS content_hash ON asset TYPE string;
-    DEFINE FIELD IF NOT EXISTS data         ON asset TYPE bytes;
-    DEFINE FIELD IF NOT EXISTS created_at   ON asset TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at   ON asset TYPE datetime VALUE time::now();
-
-    DEFINE INDEX IF NOT EXISTS idx_asset_vault_path ON asset FIELDS vault, path UNIQUE;
-
-    -- Cascade: delete assets when vault deleted
-    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_assets ON vault
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM asset WHERE vault = $before.id
-    };
-
-    -- ==========================================================================
-    -- TASK TABLE (extracted from document checkboxes)
-    -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS task SCHEMAFULL;
-
-    DEFINE FIELD IF NOT EXISTS document     ON task TYPE record<document>;
-    DEFINE FIELD IF NOT EXISTS vault        ON task TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS status       ON task TYPE string ASSERT $value IN ["open", "done"];
-    DEFINE FIELD IF NOT EXISTS raw_line     ON task TYPE string;
-    DEFINE FIELD IF NOT EXISTS text         ON task TYPE string;
-    DEFINE FIELD IF NOT EXISTS labels       ON task TYPE array<string> DEFAULT [];
-    DEFINE FIELD IF NOT EXISTS due_date     ON task TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS line_number  ON task TYPE int;
-    DEFINE FIELD IF NOT EXISTS heading_path ON task TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS content_hash ON task TYPE string;
-    DEFINE FIELD IF NOT EXISTS created_at   ON task TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at   ON task TYPE datetime VALUE time::now();
-
-    DEFINE INDEX IF NOT EXISTS idx_task_document       ON task FIELDS document;
-    DEFINE INDEX IF NOT EXISTS idx_task_vault_status    ON task FIELDS vault, status;
-    DEFINE INDEX IF NOT EXISTS idx_task_vault_due_date  ON task FIELDS vault, due_date;
-    DEFINE INDEX IF NOT EXISTS idx_task_vault_labels    ON task FIELDS vault, labels;
-
-    -- Cascade: delete tasks when document deleted
-    DEFINE EVENT IF NOT EXISTS cascade_delete_document_tasks ON document
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM task WHERE document = $before.id
-    };
 
     -- ==========================================================================
     -- AGENT_CHECKPOINT TABLE (eino interrupt/resume checkpoint persistence)

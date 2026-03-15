@@ -9,18 +9,17 @@ import (
 	"github.com/raphi011/know/internal/models"
 )
 
-func createTestDocument(t *testing.T, ctx context.Context, vaultID string) *models.Document {
+func createTestFile(t *testing.T, ctx context.Context, vaultID string) *models.File {
 	t.Helper()
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        fmt.Sprintf("/version-test-%d.md", time.Now().UnixNano()),
-		Title:       "Version Test Doc",
-		Content:     "version test content",
-		ContentBody: "version test content",
-		Labels:      []string{},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    fmt.Sprintf("/version-test-%d.md", time.Now().UnixNano()),
+		Title:   "Version Test Doc",
+		Content: "version test content",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("Failed to create test document: %v", err)
+		t.Fatalf("Failed to create test file: %v", err)
 	}
 	return doc
 }
@@ -31,11 +30,11 @@ func TestCreateVersion(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
-	v, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-		DocumentID:  docID,
+	v, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+		FileID:      docID,
 		VaultID:     vaultID,
 		Content:     "version 1 content",
 		ContentHash: "hash1",
@@ -64,11 +63,11 @@ func TestGetVersion(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
-	created, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-		DocumentID:  docID,
+	created, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+		FileID:      docID,
 		VaultID:     vaultID,
 		Content:     "get version content",
 		ContentHash: "hash-get",
@@ -100,11 +99,11 @@ func TestGetVersionByNumber(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
-	_, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-		DocumentID:  docID,
+	_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+		FileID:      docID,
 		VaultID:     vaultID,
 		Content:     "by number content",
 		ContentHash: "hash-num",
@@ -135,12 +134,12 @@ func TestListVersions(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
 	for i := 1; i <= 3; i++ {
-		_, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-			DocumentID:  docID,
+		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+			FileID:      docID,
 			VaultID:     vaultID,
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
@@ -166,12 +165,12 @@ func TestGetLatestVersion(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
 	for i := 1; i <= 2; i++ {
-		_, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-			DocumentID:  docID,
+		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+			FileID:      docID,
 			VaultID:     vaultID,
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
@@ -200,12 +199,12 @@ func TestCountVersions(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
 	for i := 1; i <= 3; i++ {
-		_, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-			DocumentID:  docID,
+		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+			FileID:      docID,
 			VaultID:     vaultID,
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
@@ -231,12 +230,12 @@ func TestDeleteOldestVersions(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
 	for i := 1; i <= 5; i++ {
-		_, err := testDB.CreateVersion(ctx, models.DocumentVersionInput{
-			DocumentID:  docID,
+		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+			FileID:      docID,
 			VaultID:     vaultID,
 			Content:     fmt.Sprintf("content v%d", i),
 			ContentHash: fmt.Sprintf("hash-%d", i),
@@ -270,7 +269,7 @@ func TestNextVersionNumber(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
-	doc := createTestDocument(t, ctx, vaultID)
+	doc := createTestFile(t, ctx, vaultID)
 	docID := models.MustRecordIDString(doc.ID)
 
 	// No versions yet — should return 1
@@ -283,8 +282,8 @@ func TestNextVersionNumber(t *testing.T) {
 	}
 
 	// Create version 1
-	_, err = testDB.CreateVersion(ctx, models.DocumentVersionInput{
-		DocumentID:  docID,
+	_, err = testDB.CreateVersion(ctx, models.FileVersionInput{
+		FileID:      docID,
 		VaultID:     vaultID,
 		Content:     "content v1",
 		ContentHash: "hash-1",

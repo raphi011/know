@@ -8,7 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 )
@@ -16,7 +16,7 @@ import (
 // EditDocumentSectionTool implements tool.InvokableTool for section-level document editing.
 type EditDocumentSectionTool struct {
 	db         *db.Client
-	docService *document.Service
+	docService *file.Service
 }
 
 func (t *EditDocumentSectionTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -92,7 +92,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 		return "", &ToolError{Message: fmt.Sprintf("unknown operation: %q. Valid operations: replace, insert_after, insert_before, delete, append", args.Operation)}
 	}
 
-	existing, err := t.db.GetDocumentByPath(ctx, o.VaultID, args.Path)
+	existing, err := t.db.GetFileByPath(ctx, o.VaultID, args.Path)
 	if err != nil {
 		return "", fmt.Errorf("check document: %w", err)
 	}
@@ -120,7 +120,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 	}
 
 	start := time.Now()
-	doc, err := t.docService.Create(ctx, models.DocumentInput{
+	doc, err := t.docService.Create(ctx, models.FileInput{
 		VaultID: o.VaultID,
 		Path:    args.Path,
 		Content: newContent,

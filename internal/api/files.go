@@ -28,7 +28,7 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
-	doc, err := s.app.DBClient().GetDocumentByPath(ctx, vaultID, path)
+	doc, err := s.app.DBClient().GetFileByPath(ctx, vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get document")
 		logger.Error("get document", "error", err)
@@ -65,7 +65,7 @@ func (s *Server) upsertDocument(w http.ResponseWriter, r *http.Request) {
 
 	logger := logutil.FromCtx(r.Context())
 
-	doc, err := s.app.DocumentService().Create(r.Context(), models.DocumentInput{
+	doc, err := s.app.FileService().Create(r.Context(), models.FileInput{
 		VaultID: body.VaultID,
 		Path:    body.Path,
 		Content: body.Content,
@@ -106,16 +106,22 @@ func (s *Server) deleteDocuments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
-	// Check if path is a document
-	doc, err := s.app.DBClient().GetDocumentByPath(ctx, vaultID, path)
+	// Check if path exists (documents and folders are in the same table)
+	doc, err := s.app.DBClient().GetFileByPath(ctx, vaultID, path)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check document")
-		logger.Error("delete documents: get document", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check file")
+		logger.Error("delete documents: get file", "error", err)
 		return
 	}
-	if doc != nil {
+	if doc == nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	// Single file (not a folder) — delete directly
+	if !doc.IsFolder {
 		if !dryRun {
-			if err := s.app.DocumentService().Delete(ctx, vaultID, path); err != nil {
+			if err := s.app.FileService().Delete(ctx, vaultID, path); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to delete document")
 				logger.Error("delete document", "path", path, "error", err)
 				return
@@ -129,29 +135,19 @@ func (s *Server) deleteDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if path is a folder
-	folder, err := s.app.DBClient().GetFolderByPath(ctx, vaultID, path)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check folder")
-		logger.Error("delete documents: get folder", "error", err)
-		return
-	}
-	if folder == nil {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-
 	if !recursive {
 		writeError(w, http.StatusBadRequest, "path is a directory, use recursive=true")
 		return
 	}
 
-	// List folder contents for response
+	// List folder contents for response (non-folder files only)
 	prefix := path + "/"
-	metas, err := s.app.DBClient().ListDocumentMetas(ctx, db.ListDocumentsFilter{
-		VaultID: vaultID,
-		Folder:  &prefix,
-		Limit:   10000,
+	isNotFolder := false
+	metas, err := s.app.DBClient().ListFileMetas(ctx, db.ListFilesFilter{
+		VaultID:  vaultID,
+		Folder:   &prefix,
+		IsFolder: &isNotFolder,
+		Limit:    10000,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list folder contents")
@@ -219,40 +215,42 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
-	// Check if source is a document
-	doc, err := s.app.DBClient().GetDocumentByPath(ctx, body.VaultID, source)
+	// Single lookup — documents and folders are in the same table
+	sourceFile, err := s.app.DBClient().GetFileByPath(ctx, body.VaultID, source)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check source: %s", source))
-		logger.Error("move: get document", "source", source, "error", err)
+		logger.Error("move: get source", "source", source, "error", err)
 		return
 	}
-	if doc != nil {
-		// Check for destination conflict
-		existing, err := s.app.DBClient().GetDocumentByPath(ctx, body.VaultID, destination)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination: %s", destination))
-			logger.Error("move: check destination", "destination", destination, "error", err)
-			return
-		}
-		if existing != nil {
+	if sourceFile == nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("source not found: %s", source))
+		return
+	}
+
+	// Check for destination conflict (same table — covers both docs and folders)
+	existing, err := s.app.DBClient().GetFileByPath(ctx, body.VaultID, destination)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination: %s", destination))
+		logger.Error("move: check destination", "destination", destination, "error", err)
+		return
+	}
+	if existing != nil {
+		if sourceFile.IsFolder != existing.IsFolder {
+			if sourceFile.IsFolder {
+				writeError(w, http.StatusConflict, fmt.Sprintf("cannot move folder to existing document path: %s", destination))
+			} else {
+				writeError(w, http.StatusConflict, fmt.Sprintf("cannot move document to existing folder path: %s", destination))
+			}
+		} else {
 			writeError(w, http.StatusConflict, fmt.Sprintf("destination already exists: %s", destination))
-			return
 		}
+		return
+	}
 
-		// Check for cross-type conflict: document → folder
-		destFolder, err := s.app.DBClient().GetFolderByPath(ctx, body.VaultID, destination)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination folder: %s", destination))
-			logger.Error("move: check destination folder", "destination", destination, "error", err)
-			return
-		}
-		if destFolder != nil {
-			writeError(w, http.StatusConflict, fmt.Sprintf("cannot move document to existing folder path: %s", destination))
-			return
-		}
-
+	// Document move
+	if !sourceFile.IsFolder {
 		if !body.DryRun {
-			if _, err := s.app.DocumentService().Move(ctx, body.VaultID, source, destination); err != nil {
+			if _, err := s.app.FileService().Move(ctx, body.VaultID, source, destination); err != nil {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to move document: %s", source))
 				logger.Error("move document", "source", source, "destination", destination, "error", err)
 				return
@@ -267,36 +265,14 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if source is a folder
-	folder, err := s.app.DBClient().GetFolderByPath(ctx, body.VaultID, source)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check source folder: %s", source))
-		logger.Error("move: get folder", "source", source, "error", err)
-		return
-	}
-	if folder == nil {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("source not found: %s", source))
-		return
-	}
-
-	// Check for cross-type conflict: folder → document
-	destDoc, err := s.app.DBClient().GetDocumentByPath(ctx, body.VaultID, destination)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination document: %s", destination))
-		logger.Error("move: check destination document", "destination", destination, "error", err)
-		return
-	}
-	if destDoc != nil {
-		writeError(w, http.StatusConflict, fmt.Sprintf("cannot move folder to existing document path: %s", destination))
-		return
-	}
-
-	// List folder contents for response
+	// Folder move — list contents for response
 	prefix := source + "/"
-	metas, err := s.app.DBClient().ListDocumentMetas(ctx, db.ListDocumentsFilter{
-		VaultID: body.VaultID,
-		Folder:  &prefix,
-		Limit:   10000,
+	isNotFolder := false
+	metas, err := s.app.DBClient().ListFileMetas(ctx, db.ListFilesFilter{
+		VaultID:  body.VaultID,
+		Folder:   &prefix,
+		IsFolder: &isNotFolder,
+		Limit:    10000,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list folder contents: %s", source))
@@ -325,15 +301,15 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func documentFromModel(d *models.Document) Document {
+func documentFromModel(d *models.File) Document {
 	id, err := models.RecordIDString(d.ID)
 	if err != nil {
-		slog.Warn("unexpected document ID format", "path", d.Path, "error", err)
+		slog.Warn("unexpected file ID format", "path", d.Path, "error", err)
 		id = fmt.Sprintf("%v", d.ID.ID)
 	}
 	vaultID, err := models.RecordIDString(d.Vault)
 	if err != nil {
-		slog.Warn("unexpected document vault ID format", "path", d.Path, "error", err)
+		slog.Warn("unexpected file vault ID format", "path", d.Path, "error", err)
 		vaultID = fmt.Sprintf("%v", d.Vault.ID)
 	}
 	return Document{
@@ -342,7 +318,6 @@ func documentFromModel(d *models.Document) Document {
 		Path:        d.Path,
 		Title:       d.Title,
 		Content:     d.Content,
-		ContentBody: d.ContentBody,
 		Labels:      nonNilLabels(d.Labels),
 		DocType:     d.DocType,
 		ContentHash: d.ContentHash,

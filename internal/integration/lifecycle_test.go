@@ -10,7 +10,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/search"
@@ -84,7 +84,7 @@ func TestMain(m *testing.M) {
 }
 
 // TestFullLifecycle exercises the complete v2 pipeline:
-// user → vault → token → documents → wiki-links → search → delete cascade
+// user → vault → token → files → wiki-links → search → delete cascade
 func TestFullLifecycle(t *testing.T) {
 	ctx := context.Background()
 
@@ -131,11 +131,11 @@ func TestFullLifecycle(t *testing.T) {
 		t.Fatal("expected token, got nil")
 	}
 
-	// --- Documents with wiki-links ---
+	// --- Files with wiki-links ---
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0) // no embedder
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0) // no embedder
 
-	doc1, err := docSvc.Create(ctx, models.DocumentInput{
+	doc1, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/projects/alpha.md",
 		Content: `---
@@ -159,8 +159,8 @@ See also [[Beta Notes]] and [[missing-page]].
 		t.Fatalf("doc1 ID: %v", err)
 	}
 
-	// Process pending documents (deferred pipeline: chunks, wiki-links, etc.)
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	// Process pending files (deferred pipeline: chunks, wiki-links, etc.)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -182,14 +182,14 @@ See also [[Beta Notes]] and [[missing-page]].
 		t.Fatalf("wiki-links: got %d, want 2", len(links))
 	}
 	for _, l := range links {
-		if l.ToDoc != nil {
+		if l.ToFile != nil {
 			t.Errorf("wiki-link %q should be dangling", l.RawTarget)
 		}
 	}
 
 	// --- Create second doc that resolves "Beta Notes" ---
 
-	doc2, err := docSvc.Create(ctx, models.DocumentInput{
+	doc2, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/notes/beta-notes.md",
 		Content: `---
@@ -210,7 +210,7 @@ Some notes about the beta project.
 		t.Fatalf("doc2 ID: %v", err)
 	}
 
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending after doc2: %v", err)
 	}
 
@@ -222,11 +222,11 @@ Some notes about the beta project.
 
 	var resolvedCount int
 	for _, l := range links {
-		if l.ToDoc != nil {
+		if l.ToFile != nil {
 			resolvedCount++
-			toID, err := models.RecordIDString(*l.ToDoc)
+			toID, err := models.RecordIDString(*l.ToFile)
 			if err != nil {
-				t.Fatalf("extract toDoc ID: %v", err)
+				t.Fatalf("extract toFile ID: %v", err)
 			}
 			if toID != doc2ID {
 				t.Errorf("resolved link points to %q, want %q", toID, doc2ID)
@@ -247,7 +247,7 @@ Some notes about the beta project.
 	if len(doc1Chunks) == 0 {
 		t.Fatal("expected chunks for doc1, got none")
 	}
-	t.Logf("doc1 has %d chunks, first chunk content: %q", len(doc1Chunks), doc1Chunks[0].Content[:min(80, len(doc1Chunks[0].Content))])
+	t.Logf("doc1 has %d chunks, first chunk content: %q", len(doc1Chunks), doc1Chunks[0].Text[:min(80, len(doc1Chunks[0].Text))])
 
 	// Also verify direct BM25 chunk search at DB level
 	directResults, err := testDB.BM25ChunkSearch(ctx, "alpha", db.SearchFilter{
@@ -306,7 +306,7 @@ Some notes about the beta project.
 
 	// --- Delete doc1 → cascade should remove wiki-links, chunks ---
 
-	if err := docSvc.Delete(ctx, vaultID, "/projects/alpha.md"); err != nil {
+	if err := fileSvc.Delete(ctx, vaultID, "/projects/alpha.md"); err != nil {
 		t.Fatalf("delete doc1: %v", err)
 	}
 
@@ -320,7 +320,7 @@ Some notes about the beta project.
 	}
 
 	// doc1 should be gone
-	gone, err := testDB.GetDocumentByID(ctx, doc1ID)
+	gone, err := testDB.GetFileByID(ctx, doc1ID)
 	if err != nil {
 		t.Fatalf("get deleted doc1: %v", err)
 	}
@@ -329,7 +329,7 @@ Some notes about the beta project.
 	}
 
 	// doc2 should still exist
-	still, err := testDB.GetDocumentByID(ctx, doc2ID)
+	still, err := testDB.GetFileByID(ctx, doc2ID)
 	if err != nil {
 		t.Fatalf("get doc2 after doc1 delete: %v", err)
 	}
@@ -339,7 +339,7 @@ Some notes about the beta project.
 
 	// --- Upsert (update via create) ---
 
-	doc2Updated, err := docSvc.Create(ctx, models.DocumentInput{
+	doc2Updated, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/notes/beta-notes.md",
 		Content: `---
@@ -366,8 +366,8 @@ Updated content for beta.
 	}
 }
 
-// TestDeleteByPrefix verifies that DeleteByPrefix removes all documents under
-// a path prefix while leaving documents outside the prefix untouched.
+// TestDeleteByPrefix verifies that DeleteByPrefix removes all files under
+// a path prefix while leaving files outside the prefix untouched.
 func TestDeleteByPrefix(t *testing.T) {
 	ctx := context.Background()
 
@@ -384,11 +384,10 @@ func TestDeleteByPrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create 3 documents: 2 under /test-prefix/, 1 under /other/
 	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md", "/other/c.md"} {
-		_, err := docSvc.Create(ctx, models.DocumentInput{
+		_, err := fileSvc.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
@@ -398,8 +397,7 @@ func TestDeleteByPrefix(t *testing.T) {
 		}
 	}
 
-	// Delete by prefix
-	count, err := docSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
+	count, err := fileSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
 	if err != nil {
 		t.Fatalf("delete by prefix: %v", err)
 	}
@@ -407,9 +405,8 @@ func TestDeleteByPrefix(t *testing.T) {
 		t.Errorf("deleted count: got %d, want 2", count)
 	}
 
-	// Verify prefix docs are gone
 	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -418,8 +415,7 @@ func TestDeleteByPrefix(t *testing.T) {
 		}
 	}
 
-	// Verify /other/c.md still exists
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/other/c.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/other/c.md")
 	if err != nil {
 		t.Fatalf("get doc /other/c.md: %v", err)
 	}
@@ -427,14 +423,13 @@ func TestDeleteByPrefix(t *testing.T) {
 		t.Error("doc /other/c.md should still exist")
 	}
 
-	// Cleanup
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
 		t.Fatalf("cleanup vault: %v", err)
 	}
 }
 
-// TestMoveByPrefix verifies that MoveByPrefix renames all documents under a
-// path prefix while leaving documents outside the prefix untouched.
+// TestMoveByPrefix verifies that MoveByPrefix renames all files under a
+// path prefix while leaving files outside the prefix untouched.
 func TestMoveByPrefix(t *testing.T) {
 	ctx := context.Background()
 
@@ -451,11 +446,10 @@ func TestMoveByPrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create 2 documents under /old-folder/
 	for _, path := range []string{"/old-folder/a.md", "/old-folder/b.md"} {
-		_, err := docSvc.Create(ctx, models.DocumentInput{
+		_, err := fileSvc.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
@@ -465,8 +459,7 @@ func TestMoveByPrefix(t *testing.T) {
 		}
 	}
 
-	// Move /old-folder → /new-folder
-	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/old-folder", "/new-folder")
+	count, err := fileSvc.MoveByPrefix(ctx, vaultID, "/old-folder", "/new-folder")
 	if err != nil {
 		t.Fatalf("move by prefix: %v", err)
 	}
@@ -474,9 +467,8 @@ func TestMoveByPrefix(t *testing.T) {
 		t.Errorf("moved count: got %d, want 2", count)
 	}
 
-	// Verify old paths are gone
 	for _, path := range []string{"/old-folder/a.md", "/old-folder/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -485,9 +477,8 @@ func TestMoveByPrefix(t *testing.T) {
 		}
 	}
 
-	// Verify new paths exist
 	for _, path := range []string{"/new-folder/a.md", "/new-folder/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -496,14 +487,13 @@ func TestMoveByPrefix(t *testing.T) {
 		}
 	}
 
-	// Cleanup
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
 		t.Fatalf("cleanup vault: %v", err)
 	}
 }
 
 // TestDeleteByPrefix_BoundaryCollision verifies that deleting "/test-prefix" does not
-// affect documents under "/test-prefix-extra" or "/test-prefixed" — only "/test-prefix/".
+// affect files under "/test-prefix-extra" or "/test-prefixed".
 func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 	ctx := context.Background()
 
@@ -520,9 +510,8 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create docs under similar-looking prefixes
 	paths := []string{
 		"/test-prefix/a.md",
 		"/test-prefix/sub/b.md",
@@ -530,7 +519,7 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 		"/test-prefixed/d.md",
 	}
 	for _, path := range paths {
-		_, err := docSvc.Create(ctx, models.DocumentInput{
+		_, err := fileSvc.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
@@ -540,8 +529,7 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 		}
 	}
 
-	// Delete by prefix — should only affect /test-prefix/
-	count, err := docSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
+	count, err := fileSvc.DeleteByPrefix(ctx, vaultID, "/test-prefix")
 	if err != nil {
 		t.Fatalf("delete by prefix: %v", err)
 	}
@@ -549,9 +537,8 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 		t.Errorf("deleted count: got %d, want 2", count)
 	}
 
-	// Verify /test-prefix/ docs are gone
 	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/sub/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -560,9 +547,8 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 		}
 	}
 
-	// Verify similar-prefix docs are NOT deleted
 	for _, path := range []string{"/test-prefix-extra/c.md", "/test-prefixed/d.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -577,7 +563,7 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 }
 
 // TestMoveByPrefix_NestedSubfolders verifies that moving a prefix correctly
-// preserves the full relative path structure for deeply nested documents.
+// preserves the full relative path structure for deeply nested files.
 func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 	ctx := context.Background()
 
@@ -594,16 +580,11 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create deeply nested documents
-	paths := []string{
-		"/old-folder/a.md",
-		"/old-folder/sub/b.md",
-		"/old-folder/sub/deep/c.md",
-	}
+	paths := []string{"/old-folder/a.md", "/old-folder/sub/b.md", "/old-folder/sub/deep/c.md"}
 	for _, path := range paths {
-		_, err := docSvc.Create(ctx, models.DocumentInput{
+		_, err := fileSvc.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
@@ -613,7 +594,7 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 		}
 	}
 
-	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/old-folder", "/new-folder")
+	count, err := fileSvc.MoveByPrefix(ctx, vaultID, "/old-folder", "/new-folder")
 	if err != nil {
 		t.Fatalf("move by prefix: %v", err)
 	}
@@ -621,14 +602,8 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 		t.Errorf("moved count: got %d, want 3", count)
 	}
 
-	// Verify new paths preserve relative structure
-	expectedNewPaths := []string{
-		"/new-folder/a.md",
-		"/new-folder/sub/b.md",
-		"/new-folder/sub/deep/c.md",
-	}
-	for _, path := range expectedNewPaths {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+	for _, path := range []string{"/new-folder/a.md", "/new-folder/sub/b.md", "/new-folder/sub/deep/c.md"} {
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -643,7 +618,7 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 }
 
 // TestMoveByPrefix_BoundaryCollision verifies that moving "/guides" does not
-// affect documents under "/guides-extra".
+// affect files under "/guides-extra".
 func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 	ctx := context.Background()
 
@@ -660,14 +635,10 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	paths := []string{
-		"/guides/a.md",
-		"/guides-extra/b.md",
-	}
-	for _, path := range paths {
-		_, err := docSvc.Create(ctx, models.DocumentInput{
+	for _, path := range []string{"/guides/a.md", "/guides-extra/b.md"} {
+		_, err := fileSvc.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    path,
 			Content: "# Doc at " + path,
@@ -677,7 +648,7 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 		}
 	}
 
-	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/guides", "/tutorials")
+	count, err := fileSvc.MoveByPrefix(ctx, vaultID, "/guides", "/tutorials")
 	if err != nil {
 		t.Fatalf("move by prefix: %v", err)
 	}
@@ -685,8 +656,7 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 		t.Errorf("moved count: got %d, want 1", count)
 	}
 
-	// /guides-extra/b.md should be untouched
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/guides-extra/b.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/guides-extra/b.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -694,8 +664,7 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 		t.Error("doc /guides-extra/b.md should still exist")
 	}
 
-	// /tutorials/a.md should exist
-	doc, err = testDB.GetDocumentByPath(ctx, vaultID, "/tutorials/a.md")
+	doc, err = testDB.GetFileByPath(ctx, vaultID, "/tutorials/a.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -725,9 +694,9 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/folder/a.md",
 		Content: "# Doc",
@@ -736,8 +705,7 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 		t.Fatalf("create doc: %v", err)
 	}
 
-	// Move to same prefix — should return 0 (no-op)
-	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/folder", "/folder")
+	count, err := fileSvc.MoveByPrefix(ctx, vaultID, "/folder", "/folder")
 	if err != nil {
 		t.Fatalf("move by prefix: %v", err)
 	}
@@ -745,8 +713,7 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 		t.Errorf("moved count: got %d, want 0 (same prefix)", count)
 	}
 
-	// Document should still be at original path
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/folder/a.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/folder/a.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -759,8 +726,8 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 	}
 }
 
-// TestDeleteUnresolvesIncomingWikiLinks verifies that deleting a document makes
-// incoming wiki_links dangling (to_doc = NONE) rather than deleting them.
+// TestDeleteUnresolvesIncomingWikiLinks verifies that deleting a file makes
+// incoming wiki_links dangling (to_file = NONE) rather than deleting them.
 func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	ctx := context.Background()
 
@@ -777,10 +744,9 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create doc B (target)
-	docB, err := docSvc.Create(ctx, models.DocumentInput{
+	docB, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/target.md",
 		Content: "# Target\n\nTarget content.",
 	})
@@ -788,12 +754,11 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 		t.Fatalf("create target doc: %v", err)
 	}
 	docBID := models.MustRecordIDString(docB.ID)
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Create doc A (source) that links to Target
-	docA, err := docSvc.Create(ctx, models.DocumentInput{
+	docA, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/source.md",
 		Content: "# Source\n\nSee [[Target]].",
 	})
@@ -801,11 +766,10 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 		t.Fatalf("create source doc: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Verify link from A to B is resolved
 	links, err := testDB.GetWikiLinks(ctx, docAID)
 	if err != nil {
 		t.Fatalf("get wiki-links: %v", err)
@@ -813,17 +777,15 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("expected 1 wiki-link, got %d", len(links))
 	}
-	if links[0].ToDoc == nil {
+	if links[0].ToFile == nil {
 		t.Fatal("wiki-link should be resolved before delete")
 	}
 
-	// Delete doc B
-	if err := docSvc.Delete(ctx, vaultID, "/target.md"); err != nil {
+	if err := fileSvc.Delete(ctx, vaultID, "/target.md"); err != nil {
 		t.Fatalf("delete target doc: %v", err)
 	}
 
-	// Verify doc B is gone
-	gone, err := testDB.GetDocumentByID(ctx, docBID)
+	gone, err := testDB.GetFileByID(ctx, docBID)
 	if err != nil {
 		t.Fatalf("get deleted doc: %v", err)
 	}
@@ -831,7 +793,6 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 		t.Error("target doc should be deleted")
 	}
 
-	// Verify wiki-link from A still exists but is now dangling
 	links, err = testDB.GetWikiLinks(ctx, docAID)
 	if err != nil {
 		t.Fatalf("get wiki-links after delete: %v", err)
@@ -839,7 +800,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("expected 1 wiki-link preserved, got %d", len(links))
 	}
-	if links[0].ToDoc != nil {
+	if links[0].ToFile != nil {
 		t.Error("wiki-link should be dangling after target deleted")
 	}
 	if links[0].RawTarget != "Target" {
@@ -851,7 +812,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	}
 }
 
-// TestMoveUpdatesWikiLinkRawTargets verifies that moving a document updates
+// TestMoveUpdatesWikiLinkRawTargets verifies that moving a file updates
 // raw_target in wiki_links that reference the old path.
 func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	ctx := context.Background()
@@ -869,22 +830,20 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create target doc
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/old/target.md",
 		Content: "# Target",
 	})
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Create source doc linking by path
-	docA, err := docSvc.Create(ctx, models.DocumentInput{
+	docA, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/source.md",
 		Content: "# Source\n\nSee [[/old/target.md]].",
 	})
@@ -892,17 +851,15 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Move target doc
-	_, err = docSvc.Move(ctx, vaultID, "/old/target.md", "/new/target.md")
+	_, err = fileSvc.Move(ctx, vaultID, "/old/target.md", "/new/target.md")
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
 
-	// Verify wiki-link raw_target was updated
 	links, err := testDB.GetWikiLinks(ctx, docAID)
 	if err != nil {
 		t.Fatalf("get wiki-links after move: %v", err)
@@ -937,22 +894,20 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create docs under /old-dir/
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/old-dir/a.md",
 		Content: "# A",
 	})
 	if err != nil {
 		t.Fatalf("create a: %v", err)
 	}
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Create source that references paths under /old-dir/
-	src, err := docSvc.Create(ctx, models.DocumentInput{
+	src, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/source.md",
 		Content: "# Source\n\nSee [[/old-dir/a.md]].",
 	})
@@ -960,12 +915,11 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	srcID := models.MustRecordIDString(src.ID)
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Move by prefix
-	count, err := docSvc.MoveByPrefix(ctx, vaultID, "/old-dir", "/new-dir")
+	count, err := fileSvc.MoveByPrefix(ctx, vaultID, "/old-dir", "/new-dir")
 	if err != nil {
 		t.Fatalf("move by prefix: %v", err)
 	}
@@ -973,7 +927,6 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 		t.Errorf("expected 1 moved, got %d", count)
 	}
 
-	// Verify raw_target updated
 	links, err := testDB.GetWikiLinks(ctx, srcID)
 	if err != nil {
 		t.Fatalf("get wiki-links: %v", err)
@@ -990,7 +943,7 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	}
 }
 
-// TestProcessRelatesToDeleteThenRecreate verifies that updating a document's
+// TestProcessRelatesToDeleteThenRecreate verifies that updating a file's
 // relates_to frontmatter removes stale relations and creates new ones.
 func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	ctx := context.Background()
@@ -1008,29 +961,27 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create target docs
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/target-a.md",
 		Content: "# Target A",
 	})
 	if err != nil {
 		t.Fatalf("create target-a: %v", err)
 	}
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/target-b.md",
 		Content: "# Target B",
 	})
 	if err != nil {
 		t.Fatalf("create target-b: %v", err)
 	}
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Create source doc with relates_to: [Target A]
-	src, err := docSvc.Create(ctx, models.DocumentInput{
+	src, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relto-src.md",
 		Content: "---\ntitle: Source\nrelates_to:\n  - Target A\n---\n# Source",
 	})
@@ -1038,11 +989,10 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	srcID := models.MustRecordIDString(src.ID)
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Verify relation to Target A exists
 	rels, err := testDB.GetRelations(ctx, srcID)
 	if err != nil {
 		t.Fatalf("get relations: %v", err)
@@ -1051,19 +1001,17 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 		t.Fatalf("expected 1 relation, got %d", len(rels))
 	}
 
-	// Update source to relates_to: [Target B] (removing Target A)
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relto-src.md",
 		Content: "---\ntitle: Source\nrelates_to:\n  - Target B\n---\n# Source Updated",
 	})
 	if err != nil {
 		t.Fatalf("update source: %v", err)
 	}
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending after update: %v", err)
 	}
 
-	// Verify: only relation to Target B exists (Target A was cleaned up)
 	rels, err = testDB.GetRelations(ctx, srcID)
 	if err != nil {
 		t.Fatalf("get relations after update: %v", err)
@@ -1072,19 +1020,17 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 		t.Fatalf("expected 1 relation after update, got %d", len(rels))
 	}
 
-	// Update source to remove all relates_to
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relto-src.md",
 		Content: "---\ntitle: Source\n---\n# Source No Relations",
 	})
 	if err != nil {
 		t.Fatalf("update source no rels: %v", err)
 	}
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending after remove: %v", err)
 	}
 
-	// Verify: no frontmatter relations remain
 	rels, err = testDB.GetRelations(ctx, srcID)
 	if err != nil {
 		t.Fatalf("get relations after remove: %v", err)
@@ -1116,10 +1062,9 @@ func TestLabelGraph(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create docs with labels
-	doc1, err := docSvc.Create(ctx, models.DocumentInput{
+	doc1, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/labeled-1.md",
 		Content: "---\nlabels: [go, backend]\n---\n# Doc 1",
 	})
@@ -1128,7 +1073,7 @@ func TestLabelGraph(t *testing.T) {
 	}
 	doc1ID := models.MustRecordIDString(doc1.ID)
 
-	doc2, err := docSvc.Create(ctx, models.DocumentInput{
+	doc2, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/labeled-2.md",
 		Content: "---\nlabels: [go, frontend]\n---\n# Doc 2",
 	})
@@ -1137,12 +1082,11 @@ func TestLabelGraph(t *testing.T) {
 	}
 	doc2ID := models.MustRecordIDString(doc2.ID)
 
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Verify labels for doc1
-	labels, err := testDB.GetLabelsForDocument(ctx, doc1ID)
+	labels, err := testDB.GetLabelsForFile(ctx, doc1ID)
 	if err != nil {
 		t.Fatalf("get labels for doc1: %v", err)
 	}
@@ -1150,8 +1094,7 @@ func TestLabelGraph(t *testing.T) {
 		t.Errorf("expected 2 labels for doc1, got %d: %v", len(labels), labels)
 	}
 
-	// Verify labels for doc2
-	labels, err = testDB.GetLabelsForDocument(ctx, doc2ID)
+	labels, err = testDB.GetLabelsForFile(ctx, doc2ID)
 	if err != nil {
 		t.Fatalf("get labels for doc2: %v", err)
 	}
@@ -1159,8 +1102,7 @@ func TestLabelGraph(t *testing.T) {
 		t.Errorf("expected 2 labels for doc2, got %d: %v", len(labels), labels)
 	}
 
-	// Query by "go" — should return both
-	docs, err := testDB.GetDocumentsByLabel(ctx, vaultID, "go")
+	docs, err := testDB.GetFilesByLabel(ctx, vaultID, "go")
 	if err != nil {
 		t.Fatalf("get docs by label 'go': %v", err)
 	}
@@ -1168,8 +1110,7 @@ func TestLabelGraph(t *testing.T) {
 		t.Errorf("expected 2 docs with 'go' label, got %d", len(docs))
 	}
 
-	// Query by "backend" — should return only doc1
-	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "backend")
+	docs, err = testDB.GetFilesByLabel(ctx, vaultID, "backend")
 	if err != nil {
 		t.Fatalf("get docs by label 'backend': %v", err)
 	}
@@ -1177,20 +1118,18 @@ func TestLabelGraph(t *testing.T) {
 		t.Errorf("expected 1 doc with 'backend' label, got %d", len(docs))
 	}
 
-	// Update doc1 to change labels (remove "backend", add "infra")
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/labeled-1.md",
 		Content: "---\nlabels: [go, infra]\n---\n# Doc 1 Updated",
 	})
 	if err != nil {
 		t.Fatalf("update doc1: %v", err)
 	}
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending after update: %v", err)
 	}
 
-	// Verify "backend" no longer returns doc1
-	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "backend")
+	docs, err = testDB.GetFilesByLabel(ctx, vaultID, "backend")
 	if err != nil {
 		t.Fatalf("get docs by label 'backend' after update: %v", err)
 	}
@@ -1198,8 +1137,7 @@ func TestLabelGraph(t *testing.T) {
 		t.Errorf("expected 0 docs with 'backend' label after update, got %d", len(docs))
 	}
 
-	// Verify "infra" returns doc1
-	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "infra")
+	docs, err = testDB.GetFilesByLabel(ctx, vaultID, "infra")
 	if err != nil {
 		t.Fatalf("get docs by label 'infra': %v", err)
 	}
@@ -1207,12 +1145,11 @@ func TestLabelGraph(t *testing.T) {
 		t.Errorf("expected 1 doc with 'infra' label, got %d", len(docs))
 	}
 
-	// Delete doc1 — has_label edges should be cleaned up
-	if err := docSvc.Delete(ctx, vaultID, "/labeled-1.md"); err != nil {
+	if err := fileSvc.Delete(ctx, vaultID, "/labeled-1.md"); err != nil {
 		t.Fatalf("delete doc1: %v", err)
 	}
 
-	labels, err = testDB.GetLabelsForDocument(ctx, doc1ID)
+	labels, err = testDB.GetLabelsForFile(ctx, doc1ID)
 	if err != nil {
 		t.Fatalf("get labels for deleted doc1: %v", err)
 	}
@@ -1225,8 +1162,7 @@ func TestLabelGraph(t *testing.T) {
 	}
 }
 
-// TestSyncChunks_PreservesUnchangedChunks verifies the content-based chunk diffing:
-// unchanged chunks keep their embeddings, changed chunks get new embed_at, removed chunks are deleted.
+// TestSyncChunks_PreservesUnchangedChunks verifies the content-based chunk diffing.
 func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	ctx := context.Background()
 
@@ -1243,11 +1179,9 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	// nil embedder — embed_at should NOT be set on any chunks
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// --- Step 1: Create a document with initial content ---
-	doc, err := docSvc.Create(ctx, models.DocumentInput{
+	doc, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/sync-test.md",
 		Content: "# Title\n\nFirst paragraph content.\n\nSecond paragraph content.",
@@ -1257,11 +1191,10 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	// Get initial chunks
 	initialChunks, err := testDB.GetChunks(ctx, docID)
 	if err != nil {
 		t.Fatalf("get initial chunks: %v", err)
@@ -1270,18 +1203,16 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatal("expected at least 1 chunk after create")
 	}
 
-	// Verify nil embedder means no embed_at set
 	for _, c := range initialChunks {
 		if c.EmbedAt != nil {
 			t.Error("with nil embedder, embed_at should be nil")
 		}
 	}
 
-	initialContent := initialChunks[0].Content
+	initialContent := initialChunks[0].Text
 	initialID := models.MustRecordIDString(initialChunks[0].ID)
 
-	// --- Step 2: Update with same content — chunks should be preserved ---
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/sync-test.md",
 		Content: "# Title\n\nFirst paragraph content.\n\nSecond paragraph content.",
@@ -1290,7 +1221,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatalf("upsert same content: %v", err)
 	}
 
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending step 2: %v", err)
 	}
 
@@ -1302,17 +1233,15 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Errorf("chunk count changed on same content: was %d, now %d", len(initialChunks), len(afterSameUpdate))
 	}
 
-	// The first chunk should have the same ID (preserved, not recreated)
 	afterID := models.MustRecordIDString(afterSameUpdate[0].ID)
 	if afterID != initialID {
 		t.Errorf("chunk ID changed on same content: was %q, now %q", initialID, afterID)
 	}
-	if afterSameUpdate[0].Content != initialContent {
+	if afterSameUpdate[0].Text != initialContent {
 		t.Error("chunk content should be unchanged")
 	}
 
-	// --- Step 3: Update with different content — old chunks deleted, new created ---
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/sync-test.md",
 		Content: "# New Title\n\nCompletely different content here.",
@@ -1321,7 +1250,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatalf("upsert new content: %v", err)
 	}
 
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending step 3: %v", err)
 	}
 
@@ -1333,7 +1262,6 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatal("expected chunks after content update")
 	}
 
-	// Old chunk ID should no longer exist (content changed → deleted + new created)
 	for _, c := range afterNewContent {
 		cID := models.MustRecordIDString(c.ID)
 		if cID == initialID {
@@ -1341,14 +1269,12 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		}
 	}
 
-	// --- Cleanup ---
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
 		t.Fatalf("cleanup vault: %v", err)
 	}
 }
 
-// TestSyncChunks_PartialUpdate verifies that when some chunks change and others don't,
-// only the changed chunks get new IDs (deleted + created).
+// TestSyncChunks_PartialUpdate verifies partial chunk updates preserve unchanged chunks.
 func TestSyncChunks_PartialUpdate(t *testing.T) {
 	ctx := context.Background()
 
@@ -1365,12 +1291,11 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	// Create document with content that uses heading-based splitting.
 	longContent := "# Section A\n\nContent of section A that is preserved across updates.\n\n# Section B\n\nContent of section B that will change."
 
-	doc, err := docSvc.Create(ctx, models.DocumentInput{
+	doc, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/partial-sync.md",
 		Content: longContent,
@@ -1385,16 +1310,14 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 		t.Fatalf("get initial chunks: %v", err)
 	}
 
-	// Build content→ID map for initial state
 	initialByContent := make(map[string]string)
 	for _, c := range initialChunks {
-		initialByContent[c.Content] = models.MustRecordIDString(c.ID)
+		initialByContent[c.Text] = models.MustRecordIDString(c.ID)
 	}
 
-	// Update: keep section A, change section B
 	updatedContent := "# Section A\n\nContent of section A that is preserved across updates.\n\n# Section B\n\nThis is completely new content for section B."
 
-	_, err = docSvc.Create(ctx, models.DocumentInput{
+	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/partial-sync.md",
 		Content: updatedContent,
@@ -1408,13 +1331,11 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 		t.Fatalf("get updated chunks: %v", err)
 	}
 
-	// Check which chunks were preserved vs recreated
 	for _, c := range updatedChunks {
 		cID := models.MustRecordIDString(c.ID)
-		if oldID, existed := initialByContent[c.Content]; existed {
-			// Content existed before — should have same ID (preserved)
+		if oldID, existed := initialByContent[c.Text]; existed {
 			if cID != oldID {
-				t.Errorf("unchanged chunk should keep ID: content=%q, old=%q, new=%q", c.Content[:min(30, len(c.Content))], oldID, cID)
+				t.Errorf("unchanged chunk should keep ID: content=%q, old=%q, new=%q", c.Text[:min(30, len(c.Text))], oldID, cID)
 			}
 		}
 	}

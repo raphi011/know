@@ -98,7 +98,7 @@ func (t *ListTasksTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		DueBefore: input.DueBefore,
 		DueAfter:  input.DueAfter,
 		Folder:    input.Folder,
-		DocPath:   input.Path,
+		FilePath:  input.Path,
 	}
 	if input.Limit != nil {
 		filter.Limit = *input.Limit

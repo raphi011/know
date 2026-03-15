@@ -8,14 +8,14 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 )
 
 // CreateDocumentTool implements tool.InvokableTool for creating new documents.
 type CreateDocumentTool struct {
 	db         *db.Client
-	docService *document.Service
+	docService *file.Service
 }
 
 func (t *CreateDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -54,7 +54,7 @@ func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON s
 		return "", fmt.Errorf("content is required")
 	}
 
-	existing, err := t.db.GetDocumentByPath(ctx, o.VaultID, args.Path)
+	existing, err := t.db.GetFileByPath(ctx, o.VaultID, args.Path)
 	if err != nil {
 		return "", fmt.Errorf("check existing document: %w", err)
 	}
@@ -63,7 +63,7 @@ func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON s
 	}
 
 	start := time.Now()
-	doc, err := t.docService.Create(ctx, models.DocumentInput{
+	doc, err := t.docService.Create(ctx, models.FileInput{
 		VaultID: o.VaultID,
 		Path:    args.Path,
 		Content: args.Content,

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
@@ -22,20 +22,20 @@ import (
 
 // ScoredMemory is a memory document with its computed relevance score.
 type ScoredMemory struct {
-	Document models.Document `json:"document"`
-	Score    float64         `json:"score"`
+	Document models.File `json:"document"`
+	Score    float64     `json:"score"`
 }
 
 // Service manages project-scoped memories with decay, archiving, and consolidation.
 type Service struct {
 	db         *db.Client
-	docService *document.Service
+	docService *file.Service
 	model      *llm.Model
 }
 
 // NewService creates a new memory service. model may be nil to disable consolidation.
 // Panics if dbClient or docService are nil.
-func NewService(dbClient *db.Client, docService *document.Service, model *llm.Model) *Service {
+func NewService(dbClient *db.Client, docService *file.Service, model *llm.Model) *Service {
 	if dbClient == nil {
 		panic("memory.NewService: dbClient must not be nil")
 	}
@@ -51,10 +51,10 @@ func NewService(dbClient *db.Client, docService *document.Service, model *llm.Mo
 
 // Create stores a memory document, optionally scoped to a project.
 // If project is empty, the memory is global (stored directly under the memory path).
-func (s *Service) Create(ctx context.Context, vaultID, project, title, content string, labels []string, settings models.VaultSettings) (*models.Document, error) {
+func (s *Service) Create(ctx context.Context, vaultID, project, title, content string, labels []string, settings models.VaultSettings) (*models.File, error) {
 	path, fullContent := BuildMemoryDocument(project, title, content, labels, settings)
 
-	doc, err := s.docService.Create(ctx, models.DocumentInput{
+	doc, err := s.docService.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    path,
 		Content: fullContent,
@@ -81,14 +81,14 @@ func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLa
 		labels = appendUnique(labels, l)
 	}
 
-	docs, err := s.db.GetDocumentsByAllLabels(ctx, vaultID, labels)
+	docs, err := s.db.GetFilesByAllLabels(ctx, vaultID, labels)
 	if err != nil {
 		return nil, fmt.Errorf("retrieve: %w", err)
 	}
 
 	now := time.Now()
 	var active []ScoredMemory
-	var toArchive []models.Document
+	var toArchive []models.File
 
 	for _, doc := range docs {
 		isArchived := hasLabel(doc.Labels, "archived")
@@ -121,7 +121,7 @@ func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLa
 			continue
 		}
 		newLabels := appendUnique(doc.Labels, "archived")
-		if err := s.db.SyncDocumentLabels(ctx, docID, vID, newLabels); err != nil {
+		if err := s.db.SyncFileLabels(ctx, docID, vID, newLabels); err != nil {
 			logger.Warn("archive: sync labels", "doc_id", docID, "vault_id", vID, "path", doc.Path, "error", err)
 		}
 	}
@@ -148,7 +148,7 @@ func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLa
 			logger.Warn("update access: extract id", "path", m.Document.Path, "error", err)
 			continue
 		}
-		if err := s.db.UpdateDocumentAccess(ctx, docID); err != nil {
+		if err := s.db.UpdateFileAccess(ctx, docID); err != nil {
 			logger.Warn("update access", "path", m.Document.Path, "error", err)
 		}
 	}
@@ -236,7 +236,7 @@ func (s *Service) consolidate(ctx context.Context, vaultID string, memories []Sc
 
 		mergedContent, err := s.model.GenerateWithSystem(ctx,
 			"You are a memory consolidation agent. Merge these two overlapping memories into a single, concise memory that preserves all unique information. Output only the merged memory content in markdown, no frontmatter.",
-			fmt.Sprintf("Memory 1 (title: %s):\n%s\n\nMemory 2 (title: %s):\n%s", m1.Title, m1.ContentBody, m2.Title, m2.ContentBody),
+			fmt.Sprintf("Memory 1 (title: %s):\n%s\n\nMemory 2 (title: %s):\n%s", m1.Title, m1.Content, m2.Title, m2.Content),
 		)
 		if err != nil {
 			logger.Warn("consolidation LLM merge failed", "error", err)
@@ -257,7 +257,7 @@ func (s *Service) consolidate(ctx context.Context, vaultID string, memories []Sc
 			settings,
 		)
 
-		doc, err := s.docService.Create(ctx, models.DocumentInput{
+		doc, err := s.docService.Create(ctx, models.FileInput{
 			VaultID: vaultID,
 			Path:    path,
 			Content: fullContent,
@@ -272,13 +272,13 @@ func (s *Service) consolidate(ctx context.Context, vaultID string, memories []Sc
 			docID, err := models.RecordIDString(doc.ID)
 			if err != nil {
 				logger.Warn("consolidation: extract merged doc id", "path", doc.Path, "error", err)
-			} else if err := s.db.SetDocumentAccessCount(ctx, docID, combinedAccess); err != nil {
+			} else if err := s.db.SetFileAccessCount(ctx, docID, combinedAccess); err != nil {
 				logger.Warn("consolidation: set access count", "path", doc.Path, "error", err)
 			}
 		}
 
 		// Delete originals
-		for _, orig := range []models.Document{m1, m2} {
+		for _, orig := range []models.File{m1, m2} {
 			origVaultID, err := models.RecordIDString(orig.Vault)
 			if err != nil {
 				logger.Warn("consolidation: extract vault id for delete", "path", orig.Path, "error", err)
@@ -311,7 +311,7 @@ func (s *Service) consolidate(ctx context.Context, vaultID string, memories []Sc
 // score = recency + access_boost where:
 //   - recency = e^(-age_days / half_life) based on last_accessed_at
 //   - access_boost = min(access_count * 0.1, 2.0)
-func ComputeScore(doc models.Document, now time.Time, halfLifeDays int) float64 {
+func ComputeScore(doc models.File, now time.Time, halfLifeDays int) float64 {
 	// Use last_accessed_at if available, otherwise fall back to created_at
 	refTime := doc.CreatedAt
 	if doc.LastAccessedAt != nil {

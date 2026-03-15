@@ -11,20 +11,19 @@ import (
 	"path"
 	"time"
 
-	"github.com/raphi011/know/internal/asset"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 )
 
 // readFile provides read-only access to a document's content.
 type readFile struct {
 	name    string
-	doc     *models.Document
+	doc     *models.File
 	reader  *bytes.Reader
 	closeFn func()
 }
 
-func newReadFile(name string, doc *models.Document) *readFile {
+func newReadFile(name string, doc *models.File) *readFile {
 	return &readFile{
 		name:   name,
 		doc:    doc,
@@ -37,7 +36,7 @@ func newReadFile(name string, doc *models.Document) *readFile {
 func newEmptyReadFile(name string) *readFile {
 	return &readFile{
 		name:   name,
-		doc:    &models.Document{Content: "", UpdatedAt: time.Now()},
+		doc:    &models.File{Content: "", UpdatedAt: time.Now()},
 		reader: bytes.NewReader(nil),
 	}
 }
@@ -68,14 +67,14 @@ func (f *readFile) Stat() (fs.FileInfo, error) {
 type writeFile struct {
 	name       string
 	vaultID    string
-	docService *document.Service
+	docService *file.Service
 	pending    *pendingSet
 	isNew      bool
 	buf        bytes.Buffer
 	modTime    time.Time
 }
 
-func newWriteFile(name, vaultID string, docService *document.Service, initial []byte, modTime time.Time, isNew bool, pending *pendingSet) *writeFile {
+func newWriteFile(name, vaultID string, docService *file.Service, initial []byte, modTime time.Time, isNew bool, pending *pendingSet) *writeFile {
 	wf := &writeFile{
 		name:       name,
 		vaultID:    vaultID,
@@ -121,7 +120,7 @@ func (f *writeFile) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := f.docService.Create(ctx, models.DocumentInput{
+	_, err := f.docService.Create(ctx, models.FileInput{
 		VaultID: f.vaultID,
 		Path:    f.name,
 		Content: content,
@@ -217,11 +216,11 @@ func (f *nopFile) Stat() (fs.FileInfo, error) {
 // assetReadFile provides read-only access to an asset's binary data.
 type assetReadFile struct {
 	name   string
-	asset  *models.Asset
+	asset  *models.File
 	reader *bytes.Reader
 }
 
-func newAssetReadFile(name string, a *models.Asset) *assetReadFile {
+func newAssetReadFile(name string, a *models.File) *assetReadFile {
 	return &assetReadFile{
 		name:   name,
 		asset:  a,
@@ -242,29 +241,29 @@ func (f *assetReadFile) Stat() (fs.FileInfo, error) {
 		size:        int64(f.asset.Size),
 		modTime:     f.asset.UpdatedAt,
 		contentType: f.asset.MimeType,
-		etag:        `"` + f.asset.ContentHash + `"`,
+		etag:        contentHashETag(f.asset.ContentHash),
 	}, nil
 }
 
 // assetWriteFile buffers writes and stores the asset on Close().
 type assetWriteFile struct {
-	name     string
-	vaultID  string
-	assetSvc *asset.Service
-	pending  *pendingSet
-	isNew    bool
-	buf      bytes.Buffer
-	modTime  time.Time
+	name    string
+	vaultID string
+	fileSvc *file.Service
+	pending *pendingSet
+	isNew   bool
+	buf     bytes.Buffer
+	modTime time.Time
 }
 
-func newAssetWriteFile(name, vaultID string, assetSvc *asset.Service, modTime time.Time, isNew bool, pending *pendingSet) *assetWriteFile {
+func newAssetWriteFile(name, vaultID string, fileSvc *file.Service, modTime time.Time, isNew bool, pending *pendingSet) *assetWriteFile {
 	return &assetWriteFile{
-		name:     name,
-		vaultID:  vaultID,
-		assetSvc: assetSvc,
-		pending:  pending,
-		isNew:    isNew,
-		modTime:  modTime,
+		name:    name,
+		vaultID: vaultID,
+		fileSvc: fileSvc,
+		pending: pending,
+		isNew:   isNew,
+		modTime: modTime,
 	}
 }
 
@@ -292,7 +291,7 @@ func (f *assetWriteFile) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := f.assetSvc.Create(ctx, models.AssetInput{
+	_, err := f.fileSvc.Create(ctx, models.FileInput{
 		VaultID: f.vaultID,
 		Path:    f.name,
 		Data:    data,

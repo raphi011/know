@@ -9,7 +9,7 @@ import (
 func TestFormatTemplates(t *testing.T) {
 	tests := []struct {
 		name string
-		docs []models.Document
+		docs []models.File
 		want string
 	}{
 		{
@@ -19,22 +19,22 @@ func TestFormatTemplates(t *testing.T) {
 		},
 		{
 			name: "single doc with title",
-			docs: []models.Document{{Path: "/templates/meeting.md", Title: "Meeting Notes"}},
+			docs: []models.File{{Path: "/templates/meeting.md", Title: "Meeting Notes"}},
 			want: "\n\nAvailable templates (read with read_document to use):\n- /templates/meeting.md — Meeting Notes\n",
 		},
 		{
 			name: "single doc without title",
-			docs: []models.Document{{Path: "/templates/scratch.md"}},
+			docs: []models.File{{Path: "/templates/scratch.md"}},
 			want: "\n\nAvailable templates (read with read_document to use):\n- /templates/scratch.md\n",
 		},
 		{
 			name: "curly braces in path and title are escaped",
-			docs: []models.Document{{Path: "/templates/{daily}.md", Title: "Daily {note}"}},
+			docs: []models.File{{Path: "/templates/{daily}.md", Title: "Daily {note}"}},
 			want: "\n\nAvailable templates (read with read_document to use):\n- /templates/{{daily}}.md — Daily {{note}}\n",
 		},
 		{
 			name: "multiple docs",
-			docs: []models.Document{
+			docs: []models.File{
 				{Path: "/templates/a.md", Title: "Alpha"},
 				{Path: "/templates/b.md"},
 			},

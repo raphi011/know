@@ -121,7 +121,7 @@ func (s *Server) processBulkDocument(r *http.Request, path, content string, meta
 	logger := logutil.FromCtx(r.Context())
 	hash := models.ContentHash(content)
 
-	existing, err := s.app.DBClient().GetDocumentByPath(r.Context(), meta.VaultID, path)
+	existing, err := s.app.DBClient().GetFileByPath(r.Context(), meta.VaultID, path)
 	if err != nil {
 		logger.Error("bulk: check existing document", "vault", meta.VaultID, "path", path, "error", err)
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("check existing document: %v", err)}
@@ -143,7 +143,7 @@ func (s *Server) processBulkDocument(r *http.Request, path, content string, meta
 		return bulkFileResult{Path: path, Status: "created"}
 	}
 
-	_, err = s.app.DocumentService().Create(r.Context(), models.DocumentInput{
+	_, err = s.app.FileService().Create(r.Context(), models.FileInput{
 		VaultID: meta.VaultID,
 		Path:    path,
 		Content: content,
@@ -163,14 +163,14 @@ func (s *Server) processBulkAsset(r *http.Request, path string, data []byte, met
 	logger := logutil.FromCtx(r.Context())
 	hash := models.ContentHash(string(data))
 
-	existing, err := s.app.DBClient().GetAssetMetaByPath(r.Context(), meta.VaultID, path)
+	existing, err := s.app.DBClient().GetFileMetaByPath(r.Context(), meta.VaultID, path)
 	if err != nil {
 		logger.Error("bulk: check existing asset", "vault", meta.VaultID, "path", path, "error", err)
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("check existing asset: %v", err)}
 	}
 
 	if existing != nil {
-		if existing.ContentHash == hash {
+		if existing.ContentHash != nil && *existing.ContentHash == hash {
 			return bulkFileResult{Path: path, Status: "skipped", Reason: "hash_match"}
 		}
 		if !meta.Force {
@@ -185,7 +185,7 @@ func (s *Server) processBulkAsset(r *http.Request, path string, data []byte, met
 		return bulkFileResult{Path: path, Status: "created"}
 	}
 
-	_, err = s.app.AssetService().Create(r.Context(), models.AssetInput{
+	_, err = s.app.FileService().Create(r.Context(), models.FileInput{
 		VaultID: meta.VaultID,
 		Path:    path,
 		Data:    data,

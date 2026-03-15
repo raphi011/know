@@ -6,11 +6,11 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// DocumentVersion represents a historical snapshot of a document's content.
+// FileVersion represents a historical snapshot of a file's content.
 // Versions store the OLD content that was replaced during an update.
-type DocumentVersion struct {
+type FileVersion struct {
 	ID          surrealmodels.RecordID `json:"id"`
-	Document    surrealmodels.RecordID `json:"document"`
+	File        surrealmodels.RecordID `json:"file"`
 	Vault       surrealmodels.RecordID `json:"vault"`
 	Version     int                    `json:"version"`
 	Content     string                 `json:"content"`
@@ -19,9 +19,9 @@ type DocumentVersion struct {
 	CreatedAt   time.Time              `json:"created_at"`
 }
 
-// DocumentVersionInput holds the data needed to create a version snapshot.
-type DocumentVersionInput struct {
-	DocumentID  string
+// FileVersionInput holds the data needed to create a version snapshot.
+type FileVersionInput struct {
+	FileID      string
 	VaultID     string
 	Content     string
 	ContentHash string

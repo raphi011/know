@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/apiclient"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -169,8 +169,8 @@ func dailyNoteContent(ctx context.Context, client *apiclient.Client, vaultID, da
 	if err != nil {
 		return "", fmt.Errorf("parse date for template vars: %w", err)
 	}
-	vars := document.DefaultTemplateVars(now, date, vaultID)
-	return document.ApplyTemplateVars(tplDoc.Content, vars), nil
+	vars := file.DefaultTemplateVars(now, date, vaultID)
+	return file.ApplyTemplateVars(tplDoc.Content, vars), nil
 }
 
 // agentAppend sends a prompt to the agent to update the daily note.

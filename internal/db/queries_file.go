@@ -1,0 +1,898 @@
+package db
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/raphi011/know/internal/models"
+	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
+)
+
+// fileSize returns the appropriate size for a file input: len(Data) for binary
+// files, len(Content) for text files. This ensures FileMeta.Size is non-zero
+// for markdown documents.
+func fileSize(input models.FileInput) int {
+	if len(input.Data) > 0 {
+		return len(input.Data)
+	}
+	return len(input.Content)
+}
+
+// ---------------------------------------------------------------------------
+// Order / filter types
+// ---------------------------------------------------------------------------
+
+// FileOrderBy defines allowed ORDER BY clauses for file queries.
+type FileOrderBy string
+
+const (
+	OrderByPathAsc       FileOrderBy = "path ASC"
+	OrderByUpdatedAtDesc FileOrderBy = "updated_at DESC"
+	OrderByUpdatedAtAsc  FileOrderBy = "updated_at ASC"
+	OrderByCreatedAtDesc FileOrderBy = "created_at DESC"
+)
+
+var validOrderBy = map[FileOrderBy]bool{
+	OrderByPathAsc:       true,
+	OrderByUpdatedAtDesc: true,
+	OrderByUpdatedAtAsc:  true,
+	OrderByCreatedAtDesc: true,
+}
+
+// ListFilesFilter controls filtering, ordering, and pagination for file list queries.
+type ListFilesFilter struct {
+	VaultID  string
+	Folder   *string
+	Labels   []string
+	DocType  *string
+	MimeType *string
+	IsFolder *bool
+	OrderBy  FileOrderBy // defaults to OrderByPathAsc
+	Limit    int
+	Offset   int
+}
+
+// buildFileFilter constructs the WHERE clause, variables, and pagination
+// suffix shared by ListFiles and ListFileMetas.
+func buildFileFilter(filter ListFilesFilter) (whereClause string, vars map[string]any, suffix string, err error) {
+	var conditions []string
+	vars = map[string]any{
+		"vault_id": bareID("vault", filter.VaultID),
+	}
+
+	conditions = append(conditions, `vault = type::record("vault", $vault_id)`)
+
+	if filter.Folder != nil {
+		conditions = append(conditions, `string::starts_with(path, $folder)`)
+		vars["folder"] = *filter.Folder
+	}
+	if len(filter.Labels) > 0 {
+		conditions = append(conditions, `labels CONTAINSANY $labels`)
+		vars["labels"] = filter.Labels
+	}
+	if filter.DocType != nil {
+		conditions = append(conditions, `doc_type = $doc_type`)
+		vars["doc_type"] = *filter.DocType
+	}
+	if filter.MimeType != nil {
+		conditions = append(conditions, `mime_type = $mime_type`)
+		vars["mime_type"] = *filter.MimeType
+	}
+	if filter.IsFolder != nil {
+		conditions = append(conditions, `is_folder = $is_folder`)
+		vars["is_folder"] = *filter.IsFolder
+	}
+
+	limit := 100
+	if filter.Limit > 0 {
+		limit = filter.Limit
+	}
+
+	orderBy := OrderByPathAsc
+	if filter.OrderBy != "" {
+		if !validOrderBy[filter.OrderBy] {
+			return "", nil, "", fmt.Errorf("unsupported order by: %q", string(filter.OrderBy))
+		}
+		orderBy = filter.OrderBy
+	}
+
+	whereClause = strings.Join(conditions, " AND ")
+	suffix = fmt.Sprintf("ORDER BY %s LIMIT %d START %d", string(orderBy), limit, filter.Offset)
+	return
+}
+
+// ---------------------------------------------------------------------------
+// Sync types
+// ---------------------------------------------------------------------------
+
+// SyncMeta is lightweight file metadata used for sync.
+type SyncMeta struct {
+	ID          surrealmodels.RecordID `json:"id"`
+	Path        string                 `json:"path"`
+	ContentHash *string                `json:"content_hash"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
+// SyncTombstone represents a deleted file for sync.
+type SyncTombstone struct {
+	FileID    string    `json:"file_id"`
+	Path      string    `json:"path"`
+	DeletedAt time.Time `json:"deleted_at"`
+}
+
+// ---------------------------------------------------------------------------
+// File CRUD
+// ---------------------------------------------------------------------------
+
+func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*models.File, error) {
+	defer c.logOp(ctx, "file.create", time.Now())
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	sql := `
+		CREATE file SET
+			vault = type::record("vault", $vault_id),
+			path = $path,
+			title = $title,
+			content = $content,
+			content_length = $content_length,
+			labels = $labels,
+			doc_type = $doc_type,
+			content_hash = $content_hash,
+			metadata = $metadata,
+			is_folder = $is_folder,
+			mime_type = $mime_type,
+			data = $data,
+			size = $size,
+			processed = false
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id":       bareID("vault", input.VaultID),
+		"path":           input.Path,
+		"title":          input.Title,
+		"content":        input.Content,
+		"content_length": len(input.Content),
+		"labels":         labels,
+		"doc_type":       optionalString(input.DocType),
+		"content_hash":   optionalString(input.ContentHash),
+		"metadata":       optionalObject(input.Metadata),
+		"is_folder":      input.IsFolder,
+		"mime_type":      input.MimeType,
+		"data":           optionalBytes(input.Data),
+		"size":           fileSize(input),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create file: %w", err)
+	}
+	return firstResult(results, "create file")
+}
+
+func (c *Client) GetFileByPath(ctx context.Context, vaultID, path string) (*models.File, error) {
+	defer c.logOp(ctx, "file.get_by_path", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     path,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get file by path: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
+func (c *Client) GetFileByID(ctx context.Context, id string) (*models.File, error) {
+	defer c.logOp(ctx, "file.get_by_id", time.Now())
+	sql := `SELECT * FROM type::record("file", $id)`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id": id,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get file by id: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
+// ListFiles returns files matching the filter. By default only non-folder files are returned.
+func (c *Client) ListFiles(ctx context.Context, filter ListFilesFilter) ([]models.File, error) {
+	defer c.logOp(ctx, "file.list", time.Now())
+	// Default to non-folder files only.
+	if filter.IsFolder == nil {
+		filter.IsFolder = new(false)
+	}
+	where, vars, suffix, err := buildFileFilter(filter)
+	if err != nil {
+		return nil, fmt.Errorf("list files: %w", err)
+	}
+	sql := fmt.Sprintf("SELECT * FROM file WHERE %s %s", where, suffix)
+
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list files: %w", err)
+	}
+	return allResults(results), nil
+}
+
+func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInput) (*models.File, error) {
+	defer c.logOp(ctx, "file.update", time.Now())
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	sql := `
+		UPDATE type::record("file", $id) SET
+			content = $content,
+			content_length = $content_length,
+			title = $title,
+			labels = $labels,
+			content_hash = $content_hash,
+			metadata = $metadata,
+			mime_type = $mime_type,
+			data = $data,
+			size = $size,
+			processed = false
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":             id,
+		"content":        input.Content,
+		"content_length": len(input.Content),
+		"title":          input.Title,
+		"labels":         labels,
+		"content_hash":   optionalString(input.ContentHash),
+		"metadata":       optionalObject(input.Metadata),
+		"mime_type":      input.MimeType,
+		"data":           optionalBytes(input.Data),
+		"size":           fileSize(input),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("update file: %w", err)
+	}
+	return firstResult(results, "update file")
+}
+
+func (c *Client) DeleteFile(ctx context.Context, id string) error {
+	defer c.logOp(ctx, "file.delete", time.Now())
+	sql := `DELETE type::record("file", $id)`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": id}); err != nil {
+		return fmt.Errorf("delete file: %w", err)
+	}
+	return nil
+}
+
+// DeleteFilesByPrefix deletes all non-folder files in a vault whose path starts with the given prefix.
+// Returns the number of deleted files. Folder cleanup is handled separately by DeleteFoldersByPrefix.
+func (c *Client) DeleteFilesByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
+	defer c.logOp(ctx, "file.delete_by_prefix", time.Now())
+	sql := `DELETE FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = false AND string::starts_with(path, $prefix) RETURN BEFORE`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   pathPrefix,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("delete files by prefix: %w", err)
+	}
+	return countResults(results), nil
+}
+
+// MoveFilesByPrefix updates all non-folder files in a vault whose path starts with oldPrefix,
+// replacing oldPrefix with newPrefix. Returns the count of moved files.
+// Folder moves are handled separately by MoveFoldersByPrefix.
+func (c *Client) MoveFilesByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
+	defer c.logOp(ctx, "file.move_by_prefix", time.Now())
+	sql := `
+		UPDATE file
+		SET path = string::concat($new_prefix, string::slice(path, string::len($old_prefix)))
+		WHERE vault = type::record("vault", $vault_id)
+		  AND is_folder = false
+		  AND string::starts_with(path, $old_prefix)
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"old_prefix": oldPrefix,
+		"new_prefix": newPrefix,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("move files by prefix: %w", err)
+	}
+	return countResults(results), nil
+}
+
+func (c *Client) MoveFile(ctx context.Context, id, newPath string) (*models.File, error) {
+	defer c.logOp(ctx, "file.move", time.Now())
+	sql := `
+		UPDATE type::record("file", $id) SET
+			path = $new_path
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":       id,
+		"new_path": newPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("move file: %w", err)
+	}
+	return firstResult(results, "move file")
+}
+
+// ListUnprocessedFiles returns non-folder files that have not yet been processed by the async worker.
+func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.File, error) {
+	defer c.logOp(ctx, "file.list_unprocessed", time.Now())
+	if limit <= 0 {
+		limit = 20
+	}
+	sql := `SELECT * FROM file WHERE processed = false AND is_folder = false ORDER BY updated_at ASC LIMIT $limit`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"limit": limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list unprocessed: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// MarkFileProcessed sets processed = true on a file.
+func (c *Client) MarkFileProcessed(ctx context.Context, fileID string) error {
+	defer c.logOp(ctx, "file.mark_processed", time.Now())
+	sql := `UPDATE type::record("file", $id) SET processed = true`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": fileID}); err != nil {
+		return fmt.Errorf("mark processed: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Upsert (unified create-or-update for documents and binary files)
+// ---------------------------------------------------------------------------
+
+// UpsertFile creates or updates a file by vault+path.
+// On update, previousFile contains the file state before the update (for versioning).
+// Handles concurrent creates gracefully: if CreateFile hits a unique constraint
+// violation (another request created the same path between our check and insert),
+// we retry as an update.
+//
+// For binary files (non-empty Data), content_hash and size are computed from the data.
+func (c *Client) UpsertFile(ctx context.Context, input models.FileInput) (file *models.File, created bool, previousFile *models.File, err error) {
+	defer c.logOp(ctx, "file.upsert", time.Now())
+
+	// For binary files, compute content_hash and size from the data.
+	if len(input.Data) > 0 {
+		h := sha256.Sum256(input.Data)
+		hash := hex.EncodeToString(h[:])
+		input.ContentHash = &hash
+	}
+
+	const maxRetries = 3
+
+	for attempt := range maxRetries {
+		existing, err := c.GetFileByPath(ctx, input.VaultID, input.Path)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("check existing file: %w", err)
+		}
+
+		if existing == nil {
+			file, err := c.CreateFile(ctx, input)
+			if err != nil {
+				// Unique constraint violation — another concurrent request created
+				// the same vault+path between our check and insert.
+				// Re-check so the next iteration finds the existing file.
+				if isUniqueViolation(err) && attempt < maxRetries-1 {
+					continue
+				}
+				return nil, false, nil, err
+			}
+			return file, true, nil, nil
+		}
+
+		// Found existing file — update it
+		idStr, err := models.RecordIDString(existing.ID)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("extract file id: %w", err)
+		}
+
+		file, err = c.UpdateFile(ctx, idStr, input)
+		if err != nil {
+			return nil, false, nil, err
+		}
+		return file, false, existing, nil
+	}
+
+	// Should not be reached — the loop always returns or continues
+	return nil, false, nil, fmt.Errorf("upsert exhausted %d retries due to concurrent writes", maxRetries)
+}
+
+// ---------------------------------------------------------------------------
+// Access tracking
+// ---------------------------------------------------------------------------
+
+// UpdateFileAccess increments access_count and sets last_accessed_at to now.
+func (c *Client) UpdateFileAccess(ctx context.Context, fileID string) error {
+	defer c.logOp(ctx, "file.update_access", time.Now())
+	sql := `UPDATE type::record("file", $id) SET last_accessed_at = time::now(), access_count += 1`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": fileID}); err != nil {
+		return fmt.Errorf("update file access: %w", err)
+	}
+	return nil
+}
+
+// SetFileAccessCount sets access_count to a specific value and updates last_accessed_at.
+func (c *Client) SetFileAccessCount(ctx context.Context, fileID string, count int) error {
+	defer c.logOp(ctx, "file.set_access_count", time.Now())
+	sql := `UPDATE type::record("file", $id) SET last_accessed_at = time::now(), access_count = $count`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": fileID, "count": count}); err != nil {
+		return fmt.Errorf("set file access count: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Labels
+// ---------------------------------------------------------------------------
+
+// ListLabels returns all distinct labels used by files in the given vault.
+func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
+	defer c.logOp(ctx, "file.list_labels", time.Now())
+	sql := `RETURN array::distinct(array::flatten(
+		(SELECT labels FROM file WHERE vault = type::record("vault", $vault_id)).labels
+	))`
+	results, err := surrealdb.Query[[]string](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list labels: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return []string{}, nil
+	}
+	labels := (*results)[0].Result
+	if labels == nil {
+		return []string{}, nil
+	}
+	return labels, nil
+}
+
+// ListLabelsWithCounts returns labels with their file counts for the given vault.
+func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]models.LabelCount, error) {
+	defer c.logOp(ctx, "file.list_labels_with_counts", time.Now())
+	sql := `SELECT label, count() AS count FROM (SELECT labels AS label FROM file WHERE vault = type::record("vault", $vault_id) AND array::len(labels) > 0 SPLIT labels) GROUP BY label ORDER BY count DESC`
+	results, err := surrealdb.Query[[]models.LabelCount](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list labels with counts: %w", err)
+	}
+	if results == nil || len(*results) == 0 {
+		return []models.LabelCount{}, nil
+	}
+	counts := (*results)[0].Result
+	if counts == nil {
+		return []models.LabelCount{}, nil
+	}
+	return counts, nil
+}
+
+// GetFilesByAllLabels returns files in a vault that have ALL of the specified labels
+// (AND filter). Uses graph traversal through has_label edges.
+func (c *Client) GetFilesByAllLabels(ctx context.Context, vaultID string, labels []string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.get_by_all_labels", time.Now())
+	if len(labels) == 0 {
+		return nil, nil
+	}
+
+	// Build conditions for each label: count(->has_label->label[WHERE name = $l0]) > 0 AND ...
+	var conditions []string
+	vars := map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	}
+	for i, l := range labels {
+		paramName := fmt.Sprintf("l%d", i)
+		conditions = append(conditions, fmt.Sprintf(`count(->has_label->label[WHERE name = $%s]) > 0`, paramName))
+		vars[paramName] = strings.ToLower(strings.TrimSpace(l))
+	}
+
+	sql := fmt.Sprintf(`SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND %s`,
+		strings.Join(conditions, " AND "))
+
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("get files by all labels: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// ---------------------------------------------------------------------------
+// Metadata projections
+// ---------------------------------------------------------------------------
+
+// GetFileMetaByPath returns lightweight metadata for a file (no content/data).
+// Returns nil if the file doesn't exist.
+func (c *Client) GetFileMetaByPath(ctx context.Context, vaultID, filePath string) (*models.FileMeta, error) {
+	defer c.logOp(ctx, "file.get_meta_by_path", time.Now())
+	sql := `SELECT path, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
+	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     filePath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get file meta by path: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
+// ListFileMetas returns lightweight metadata (no content/data) for files matching the filter.
+func (c *Client) ListFileMetas(ctx context.Context, filter ListFilesFilter) ([]models.FileMeta, error) {
+	defer c.logOp(ctx, "file.list_metas", time.Now())
+	where, vars, suffix, err := buildFileFilter(filter)
+	if err != nil {
+		return nil, fmt.Errorf("list file metas: %w", err)
+	}
+	sql := fmt.Sprintf("SELECT path, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE %s %s", where, suffix)
+
+	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list file metas: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// ---------------------------------------------------------------------------
+// Sync
+// ---------------------------------------------------------------------------
+
+// ListSyncMetadata returns lightweight metadata for files in a vault,
+// optionally filtered by updated_at > since. Used for incremental sync.
+func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *string, limit, offset int) ([]SyncMeta, error) {
+	defer c.logOp(ctx, "file.list_sync_metadata", time.Now())
+	if limit <= 0 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	vars := map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"limit":    limit,
+		"offset":   offset,
+	}
+
+	var sql string
+	if since != nil {
+		sql = `SELECT id, path, content_hash ?? null AS content_hash, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND updated_at > type::datetime($since) ORDER BY path ASC LIMIT $limit START $offset`
+		vars["since"] = *since
+	} else {
+		sql = `SELECT id, path, content_hash ?? null AS content_hash, updated_at FROM file WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC LIMIT $limit START $offset`
+	}
+
+	results, err := surrealdb.Query[[]SyncMeta](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return nil, fmt.Errorf("list sync metadata: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// ListTombstones returns tombstones for deleted files in a vault since the given time.
+func (c *Client) ListTombstones(ctx context.Context, vaultID string, since string, limit, offset int) ([]SyncTombstone, error) {
+	defer c.logOp(ctx, "file.list_tombstones", time.Now())
+	if limit <= 0 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	sql := `SELECT file_id, path, deleted_at FROM file_tombstone WHERE vault = type::record("vault", $vault_id) AND deleted_at > type::datetime($since) ORDER BY deleted_at ASC LIMIT $limit START $offset`
+	results, err := surrealdb.Query[[]SyncTombstone](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"since":    since,
+		"limit":    limit,
+		"offset":   offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list tombstones: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// ---------------------------------------------------------------------------
+// Folder operations (files with is_folder = true)
+// ---------------------------------------------------------------------------
+
+// CreateFolder creates a single folder record (file with is_folder=true).
+// Returns the created folder.
+func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (*models.File, error) {
+	defer c.logOp(ctx, "file.create_folder", time.Now())
+
+	sql := `
+		INSERT INTO file {
+			vault: type::record("vault", $vault_id),
+			path: $path,
+			title: $title,
+			is_folder: true,
+			mime_type: "inode/directory",
+			content: "",
+			content_length: 0,
+			labels: [],
+			size: 0,
+			processed: true
+		} ON DUPLICATE KEY UPDATE id = id
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+		"title":    path.Base(folderPath),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create folder: %w", err)
+	}
+	return firstResult(results, "create folder")
+}
+
+// EnsureFolders idempotently creates all ancestor folders for a file path,
+// caching recent calls to skip redundant DB round-trips (60s TTL).
+// For example, given "/guides/sub/file.md", it creates "/guides" and "/guides/sub".
+func (c *Client) EnsureFolders(ctx context.Context, vaultID, filePath string) error {
+	defer c.logOp(ctx, "file.ensure_folders", time.Now())
+	filePath = models.NormalizePath(filePath)
+	dir := path.Dir(filePath)
+	if dir == "/" || dir == "." {
+		return nil // root-level file, no folders to create
+	}
+
+	// Check cache — skip DB call if this folder was recently ensured
+	cacheKey := vaultID + ":" + dir
+	if expiry, ok := c.folderCache.Load(cacheKey); ok {
+		if t, ok := expiry.(time.Time); ok && t.After(time.Now()) {
+			return nil
+		}
+		c.folderCache.Delete(cacheKey)
+	}
+
+	if err := c.EnsureFolderPath(ctx, vaultID, dir); err != nil {
+		return fmt.Errorf("ensure folders for %s: %w", filePath, err)
+	}
+
+	// Cache for 60 seconds
+	c.folderCache.Store(cacheKey, time.Now().Add(60*time.Second))
+	return nil
+}
+
+// EnsureFolderPath idempotently creates a folder and all its ancestors.
+// For example, given "/guides/sub", it creates "/guides" and "/guides/sub".
+// All folders are inserted in a single batched query to avoid N+1 round-trips.
+func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath string) error {
+	defer c.logOp(ctx, "file.ensure_folder_path", time.Now())
+	folderPath = models.NormalizePath(folderPath)
+	if folderPath == "/" || folderPath == "." {
+		return nil
+	}
+
+	// Collect the target folder and all its ancestors
+	var folders []string
+	for cur := folderPath; cur != "/" && cur != "."; cur = path.Dir(cur) {
+		folders = append(folders, cur)
+	}
+
+	// Build batch of folder rows for a single INSERT
+	rows := make([]map[string]any, len(folders))
+	vid := bareID("vault", vaultID)
+	for i, fp := range folders {
+		rows[i] = map[string]any{
+			"vault":          newRecordID("vault", vid),
+			"path":           fp,
+			"title":          path.Base(fp),
+			"is_folder":      true,
+			"mime_type":      "inode/directory",
+			"content":        "",
+			"content_length": 0,
+			"labels":         []string{},
+			"size":           0,
+			"processed":      true,
+		}
+	}
+
+	sql := `INSERT INTO file $folders ON DUPLICATE KEY UPDATE id = id`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"folders": rows,
+	}); err != nil {
+		return fmt.Errorf("ensure folder path %q: %w", folderPath, err)
+	}
+
+	return nil
+}
+
+// ListFolders returns all folders in a vault, ordered by path.
+func (c *Client) ListFolders(ctx context.Context, vaultID string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.list_folders", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = true ORDER BY path ASC`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list folders: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// ListChildFolders returns immediate child folders of parentPath in a vault.
+// Only folders whose path starts with parentPath+"/" are fetched from the DB,
+// then filtered in Go to exclude nested descendants (much faster than loading all folders).
+func (c *Client) ListChildFolders(ctx context.Context, vaultID, parentPath string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.list_child_folders", time.Now())
+	prefix := parentPath
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND string::starts_with(path, $prefix) ORDER BY path ASC`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   prefix,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list child folders: %w", err)
+	}
+	all := allResults(results)
+	if all == nil {
+		return nil, nil
+	}
+
+	// Filter to immediate children only (no additional "/" after prefix)
+	var children []models.File
+	for _, f := range all {
+		rel := strings.TrimPrefix(f.Path, prefix)
+		if rel != "" && !strings.Contains(rel, "/") {
+			children = append(children, f)
+		}
+	}
+	return children, nil
+}
+
+// GetFolderByPath returns a single folder by vault and path, or nil if not found.
+func (c *Client) GetFolderByPath(ctx context.Context, vaultID, folderPath string) (*models.File, error) {
+	defer c.logOp(ctx, "file.get_folder_by_path", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND path = $path LIMIT 1`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get folder by path: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
+// DeleteFolder deletes a single folder and all its children (paths starting with folderPath + "/").
+func (c *Client) DeleteFolder(ctx context.Context, vaultID, folderPath string) error {
+	defer c.logOp(ctx, "file.delete_folder", time.Now())
+	if _, err := c.deleteFolderTree(ctx, vaultID, folderPath); err != nil {
+		return fmt.Errorf("delete folder: %w", err)
+	}
+	return nil
+}
+
+// DeleteFoldersByPrefix deletes all folders whose path starts with the given prefix
+// or matches the prefix itself (without trailing slash). Returns the number of deleted folders.
+func (c *Client) DeleteFoldersByPrefix(ctx context.Context, vaultID, prefix string) (int, error) {
+	defer c.logOp(ctx, "file.delete_folders_by_prefix", time.Now())
+	folderPath := strings.TrimSuffix(prefix, "/")
+	return c.deleteFolderTree(ctx, vaultID, folderPath)
+}
+
+// InvalidateFolderCache removes cached folder entries for a vault+path prefix.
+// Scans all cached entries (expected to be small — one entry per recently-used folder).
+func (c *Client) InvalidateFolderCache(vaultID, folderPath string) {
+	prefix := vaultID + ":" + folderPath
+	c.folderCache.Range(func(key, _ any) bool {
+		k, ok := key.(string)
+		if !ok {
+			return true
+		}
+		if k == prefix || strings.HasPrefix(k, prefix+"/") {
+			c.folderCache.Delete(key)
+		}
+		return true
+	})
+}
+
+// deleteFolderTree deletes a folder and all its children in a transaction.
+// Two statements are needed because SurrealDB v3 doesn't support parenthesized OR in WHERE.
+// Returns the total number of deleted folders.
+func (c *Client) deleteFolderTree(ctx context.Context, vaultID, folderPath string) (int, error) {
+	defer c.logOp(ctx, "file.delete_folder_tree", time.Now())
+	c.InvalidateFolderCache(vaultID, folderPath)
+	prefix := folderPath + "/"
+	vars := map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+		"prefix":   prefix,
+	}
+
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("delete folder tree begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit; rollback failure is unrecoverable
+
+	r1, err := surrealdb.Query[[]models.File](ctx, tx,
+		`DELETE FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND path = $path RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("delete folder tree %q: %w", folderPath, err)
+	}
+	r2, err := surrealdb.Query[[]models.File](ctx, tx,
+		`DELETE FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND string::starts_with(path, $prefix) RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("delete folder tree children %q: %w", folderPath, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("delete folder tree commit: %w", err)
+	}
+
+	return countResults(r1) + countResults(r2), nil
+}
+
+// MoveFoldersByPrefix renames all folders whose path starts with oldPrefix,
+// replacing oldPrefix with newPrefix. Also updates the title field.
+// Accepts folder paths (e.g. "/guides", "/docs") — trailing slashes are handled internally.
+// Returns the number of moved folders.
+func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newPath string) (int, error) {
+	defer c.logOp(ctx, "file.move_folders_by_prefix", time.Now())
+	oldFolderPath := strings.TrimSuffix(oldPath, "/")
+	newFolderPath := strings.TrimSuffix(newPath, "/")
+
+	c.InvalidateFolderCache(vaultID, oldFolderPath)
+	c.InvalidateFolderCache(vaultID, newFolderPath)
+
+	oldPrefix := oldFolderPath + "/"
+	newPrefix := newFolderPath + "/"
+
+	vars := map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"old_path":   oldFolderPath,
+		"new_path":   newFolderPath,
+		"new_title":  path.Base(newFolderPath),
+		"old_prefix": oldPrefix,
+		"new_prefix": newPrefix,
+	}
+
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("move folders begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit; rollback failure is unrecoverable
+
+	r1, err := surrealdb.Query[[]models.File](ctx, tx,
+		`UPDATE file SET path = $new_path, title = $new_title WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND path = $old_path RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("move folder root: %w", err)
+	}
+	r2, err := surrealdb.Query[[]models.File](ctx, tx,
+		`UPDATE file SET
+			path = string::concat($new_prefix, string::slice(path, string::len($old_prefix))),
+			title = array::last(string::split(string::concat($new_prefix, string::slice(path, string::len($old_prefix))), "/"))
+		WHERE vault = type::record("vault", $vault_id)
+		AND is_folder = true
+		AND string::starts_with(path, $old_prefix)
+		RETURN BEFORE`, vars)
+	if err != nil {
+		return 0, fmt.Errorf("move folder children: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("move folders commit: %w", err)
+	}
+
+	return countResults(r1) + countResults(r2), nil
+}

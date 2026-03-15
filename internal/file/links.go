@@ -1,4 +1,4 @@
-package document
+package file
 
 import (
 	"context"
@@ -26,10 +26,10 @@ func NewLinkResolver(db dbQuerier) *LinkResolver {
 // Resolve resolves a wiki-link target within a vault.
 // Tries exact path match first, then title match (shallowest path wins).
 // Returns nil if not found (dangling link).
-func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*models.Document, error) {
+func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*models.File, error) {
 	// Try exact path match
-	sql := `SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND path = $target LIMIT 1`
-	results, err := surrealdb.Query[[]models.Document](ctx, r.db.DB(), sql, map[string]any{
+	sql := `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND path = $target LIMIT 1`
+	results, err := surrealdb.Query[[]models.File](ctx, r.db.DB(), sql, map[string]any{
 		"vault_id": vaultID,
 		"target":   target,
 	})
@@ -41,8 +41,8 @@ func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*mo
 	}
 
 	// Try title match (shallowest path wins)
-	sql = `SELECT * FROM document WHERE vault = type::record("vault", $vault_id) AND title = $target ORDER BY path ASC LIMIT 1`
-	results, err = surrealdb.Query[[]models.Document](ctx, r.db.DB(), sql, map[string]any{
+	sql = `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND title = $target ORDER BY path ASC LIMIT 1`
+	results, err = surrealdb.Query[[]models.File](ctx, r.db.DB(), sql, map[string]any{
 		"vault_id": vaultID,
 		"target":   target,
 	})

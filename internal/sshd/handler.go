@@ -17,7 +17,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -28,12 +28,12 @@ const maxDocSize = 10 << 20
 // handler satisfies the sftp.Handlers callback interfaces for FileGet, FilePut, FileCmd, and FileList.
 type handler struct {
 	dbClient   *db.Client
-	docService *document.Service
+	docService *file.Service
 	vaultSvc   *vault.Service
 	ac         auth.AuthContext
 }
 
-func newHandler(dbClient *db.Client, docService *document.Service, vaultSvc *vault.Service, ac auth.AuthContext) *handler {
+func newHandler(dbClient *db.Client, docService *file.Service, vaultSvc *vault.Service, ac auth.AuthContext) *handler {
 	return &handler{
 		dbClient:   dbClient,
 		docService: docService,
@@ -100,7 +100,7 @@ func (h *handler) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 		return nil, os.ErrPermission
 	}
 
-	doc, err := h.dbClient.GetDocumentByPath(r.Context(), vaultID, docPath)
+	doc, err := h.dbClient.GetFileByPath(r.Context(), vaultID, docPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", r.Filepath, err)
 	}
@@ -202,7 +202,7 @@ func (h *handler) Filecmd(r *sftp.Request) error {
 		}
 
 		// Try as document first
-		doc, err := h.dbClient.GetDocumentByPath(r.Context(), vaultID, docPath)
+		doc, err := h.dbClient.GetFileByPath(r.Context(), vaultID, docPath)
 		if err != nil {
 			return fmt.Errorf("rename %s: %w", docPath, err)
 		}
@@ -268,7 +268,7 @@ func (h *handler) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 		}
 
 		// Try as document
-		meta, err := h.dbClient.GetDocumentMetaByPath(r.Context(), vaultID, docPath)
+		meta, err := h.dbClient.GetFileMetaByPath(r.Context(), vaultID, docPath)
 		if err != nil {
 			return nil, fmt.Errorf("stat %s: %w", docPath, err)
 		}
@@ -276,7 +276,7 @@ func (h *handler) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 			return &listAt{entries: []os.FileInfo{
 				&fileInfo{
 					name:    path.Base(docPath),
-					size:    int64(meta.ContentLength),
+					size:    int64(meta.Size),
 					modTime: meta.UpdatedAt,
 				},
 			}}, nil
@@ -372,15 +372,17 @@ func (h *handler) listDirEntries(ctx context.Context, vaultID, dirPath string) (
 		})
 	}
 
-	// List immediate child documents
+	// List immediate child documents (exclude folders to avoid duplicates)
 	folderFilter := dirPath
 	if folderFilter != "/" {
 		folderFilter += "/"
 	}
-	metas, err := h.dbClient.ListDocumentMetas(ctx, db.ListDocumentsFilter{
-		VaultID: vaultID,
-		Folder:  &folderFilter,
-		Limit:   maxListEntries,
+	isNotFolder := false
+	metas, err := h.dbClient.ListFileMetas(ctx, db.ListFilesFilter{
+		VaultID:  vaultID,
+		Folder:   &folderFilter,
+		IsFolder: &isNotFolder,
+		Limit:    maxListEntries,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list documents in %s: %w", dirPath, err)
@@ -395,7 +397,7 @@ func (h *handler) listDirEntries(ctx context.Context, vaultID, dirPath string) (
 		}
 		entries = append(entries, &fileInfo{
 			name:    path.Base(meta.Path),
-			size:    int64(meta.ContentLength),
+			size:    int64(meta.Size),
 			modTime: meta.UpdatedAt,
 		})
 	}
@@ -408,7 +410,7 @@ func (h *handler) listDirEntries(ctx context.Context, vaultID, dirPath string) (
 type writeBuffer struct {
 	path       string
 	vaultID    string
-	docService *document.Service
+	docService *file.Service
 	buf        []byte
 }
 
@@ -434,7 +436,7 @@ func (w *writeBuffer) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := w.docService.Create(ctx, models.DocumentInput{
+	_, err := w.docService.Create(ctx, models.FileInput{
 		VaultID: w.vaultID,
 		Path:    w.path,
 		Content: content,
