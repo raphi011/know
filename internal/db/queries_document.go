@@ -229,8 +229,9 @@ func (c *Client) ListDocuments(ctx context.Context, filter ListDocumentsFilter) 
 	return allResults(results), nil
 }
 
-func (c *Client) UpdateDocument(ctx context.Context, id string, content, contentBody, title string, labels []string, contentHash *string, metadata map[string]any) (*models.Document, error) {
+func (c *Client) UpdateDocument(ctx context.Context, id string, input models.DocumentInput) (*models.Document, error) {
 	defer c.logOp(ctx, "document.update", time.Now())
+	labels := input.Labels
 	if labels == nil {
 		labels = []string{}
 	}
@@ -249,13 +250,13 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, content, content
 	`
 	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
 		"id":             id,
-		"content":        content,
-		"content_body":   contentBody,
-		"content_length": len(content),
-		"title":          title,
+		"content":        input.Content,
+		"content_body":   input.ContentBody,
+		"content_length": len(input.Content),
+		"title":          input.Title,
 		"labels":         labels,
-		"content_hash":   optionalString(contentHash),
-		"metadata":       optionalObject(metadata),
+		"content_hash":   optionalString(input.ContentHash),
+		"metadata":       optionalObject(input.Metadata),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update document: %w", err)
@@ -460,7 +461,7 @@ func (c *Client) UpsertDocument(ctx context.Context, input models.DocumentInput)
 			return nil, false, nil, fmt.Errorf("extract document id: %w", err)
 		}
 
-		doc, err = c.UpdateDocument(ctx, idStr, input.Content, input.ContentBody, input.Title, input.Labels, input.ContentHash, input.Metadata)
+		doc, err = c.UpdateDocument(ctx, idStr, input)
 		if err != nil {
 			return nil, false, nil, err
 		}

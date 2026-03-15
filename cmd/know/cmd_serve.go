@@ -14,6 +14,7 @@ import (
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/config"
+	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/mcptools"
 	knownfs "github.com/raphi011/know/internal/nfs"
 	"github.com/raphi011/know/internal/server"
@@ -167,6 +168,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	mux.Handle("GET /agent/events/{id}", authMw(app.AgentRunner().HandleEvents()))
 	mux.Handle("POST /agent/cancel/{id}", authMw(app.AgentRunner().HandleCancel()))
 	mux.Handle("POST /agent/approval", authMw(app.AgentRunner().HandleApproval()))
+
+	// Document change events (SSE)
+	mux.Handle("GET /events", authMw(event.HandleEvents(app.EventBus())))
 
 	// REST API
 	apiServer := api.NewServer(app)

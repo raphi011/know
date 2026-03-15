@@ -54,6 +54,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS doc_type     ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
+    REMOVE FIELD IF EXISTS sections ON document;
     REMOVE FIELD IF EXISTS source ON document;
     REMOVE FIELD IF EXISTS source_path ON document;
     DEFINE FIELD IF NOT EXISTS processed       ON document TYPE bool DEFAULT false;

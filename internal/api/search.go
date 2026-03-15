@@ -53,9 +53,9 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := make([]SearchResultResponse, len(results))
-	for i, r := range results {
-		chunks := make([]ChunkMatchResponse, len(r.MatchedChunks))
-		for j, c := range r.MatchedChunks {
+	for i, res := range results {
+		chunks := make([]ChunkMatchResponse, len(res.MatchedChunks))
+		for j, c := range res.MatchedChunks {
 			chunks[j] = ChunkMatchResponse{
 				Snippet:     c.Snippet,
 				HeadingPath: c.HeadingPath,
@@ -64,9 +64,12 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp[i] = SearchResultResponse{
-			Path:          r.Path,
-			Title:         r.Title,
-			Score:         r.Score,
+			DocumentID:    res.DocumentID,
+			Path:          res.Path,
+			Title:         res.Title,
+			Labels:        nonNilLabels(res.Labels),
+			DocType:       res.DocType,
+			Score:         res.Score,
 			MatchedChunks: chunks,
 		}
 	}

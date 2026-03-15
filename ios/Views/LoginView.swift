@@ -15,13 +15,17 @@ struct LoginView: View {
                     TextField("Server URL", text: $serverURL)
                         .textContentType(.URL)
                         .autocorrectionDisabled()
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
+                        #endif
 
                     SecureField("API Token", text: $token)
                         .textContentType(.password)
                         .autocorrectionDisabled()
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
+                        #endif
                 } header: {
                     Text("Connection")
                 } footer: {

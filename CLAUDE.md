@@ -135,6 +135,7 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `GET /api/documents?vault={id}&path={path}` — get document by vault+path
 - `POST /api/documents` — create/update document
 - `DELETE /api/documents?vault={id}&path={path}&recursive=true&dry-run=true` — delete document or folder
+- `GET /api/export?vault={id}` — download vault export as .tar.gz archive
 - `GET /api/config` — server configuration
 - `GET /api/tasks?vault={id}&status=open&labels=work&due_before=2026-03-20&folder=/daily/` — list tasks
 - `POST /api/tasks/{id}/toggle` — toggle task status (modifies source document)

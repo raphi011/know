@@ -14,9 +14,9 @@ import (
 
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/event"
-	"github.com/raphi011/know/internal/models"
-
 	"github.com/raphi011/know/internal/llm"
+	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 )
 
@@ -207,7 +207,7 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	if !created && previousDoc != nil {
 		docID, idErr := models.RecordIDString(doc.ID)
 		if idErr != nil {
-			slog.Warn("failed to extract doc ID for versioning", "error", idErr)
+			logutil.FromCtx(ctx).Warn("failed to extract doc ID for versioning", "error", idErr)
 		} else {
 			s.maybeCreateVersion(ctx, docID, input.VaultID, previousDoc, contentHash)
 		}
@@ -316,9 +316,16 @@ func (s *Service) ProcessAllPending(ctx context.Context) error {
 	}
 }
 
+// embeddingTask pairs a chunk ID with its embedding text.
+type embeddingTask struct {
+	chunkID string
+	text    string
+}
+
 // EmbedPendingChunks claims chunks that are due for embedding and embeds them.
 // Uses contextual retrieval: prepends document title and section path to chunk
 // content before embedding, improving semantic precision without altering stored content.
+// Attempts batch embedding first for efficiency; falls back to one-at-a-time on batch failure.
 // Returns the number of chunks successfully embedded.
 func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error) {
 	embedder := s.getEmbedder()
@@ -330,47 +337,114 @@ func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error
 	if err != nil {
 		return 0, fmt.Errorf("claim chunks for embedding: %w", err)
 	}
+	if len(chunks) == 0 {
+		return 0, nil
+	}
 
 	// Batch-fetch document titles for contextual embedding
 	docTitles := s.fetchDocTitles(ctx, chunks)
 
-	embedded := 0
+	// Build embedding texts for all chunks
+	logger := logutil.FromCtx(ctx)
+	var pending []embeddingTask
 	for _, chunk := range chunks {
 		chunkID, err := models.RecordIDString(chunk.ID)
 		if err != nil {
-			slog.Warn("failed to extract chunk ID for embedding", "error", err)
+			logger.Warn("failed to extract chunk ID for embedding", "error", err)
 			continue
 		}
-
 		docID, err := models.RecordIDString(chunk.Document)
 		if err != nil {
-			slog.Warn("failed to extract document ID for contextual embedding", "chunk_id", chunkID, "error", err)
+			logger.Warn("failed to extract document ID for contextual embedding", "chunk_id", chunkID, "error", err)
 			continue
 		}
-		embeddingText := buildEmbeddingContext(chunk, docTitles[docID], s.embedMaxInputChars)
-
-		emb, err := embedder.Embed(ctx, embeddingText)
-		if err != nil {
-			slog.Warn("failed to embed chunk", "chunk_id", chunkID, "error", err)
-			s.rescheduleChunk(chunkID)
-			continue
-		}
-
-		if err := s.db.UpdateChunkEmbedding(ctx, chunkID, emb); err != nil {
-			slog.Warn("failed to store chunk embedding", "chunk_id", chunkID, "error", err)
-			s.rescheduleChunk(chunkID)
-			continue
-		}
-
-		embedded++
+		pending = append(pending, embeddingTask{
+			chunkID: chunkID,
+			text:    buildEmbeddingContext(chunk, docTitles[docID], s.embedMaxInputChars),
+		})
+	}
+	if len(pending) == 0 {
+		return 0, nil
 	}
 
-	return embedded, nil
+	// Try batch embedding first
+	texts := make([]string, len(pending))
+	for i, p := range pending {
+		texts[i] = p.text
+	}
+
+	vectors, batchErr := embedder.EmbedBatch(ctx, texts)
+	if batchErr != nil {
+		logger.Warn("batch embedding failed, falling back to one-at-a-time", "batch_size", len(texts), "error", batchErr)
+		return s.embedChunksOneByOne(ctx, embedder, pending)
+	}
+
+	// Guard against embedder returning wrong number of vectors
+	if len(vectors) != len(pending) {
+		logger.Error("batch embedding returned wrong vector count", "expected", len(pending), "got", len(vectors))
+		return s.embedChunksOneByOne(ctx, embedder, pending)
+	}
+
+	// Batch succeeded — store all embeddings in a single transaction
+	updates := make([]db.ChunkEmbeddingUpdate, len(vectors))
+	for i, vec := range vectors {
+		updates[i] = db.ChunkEmbeddingUpdate{
+			ID:        pending[i].chunkID,
+			Embedding: vec,
+		}
+	}
+
+	if err := s.db.BatchUpdateChunkEmbeddings(ctx, updates); err != nil {
+		logger.Warn("batch store failed, falling back to individual updates", "error", err)
+		return s.storeEmbeddings(ctx, updates), nil
+	}
+
+	return len(vectors), nil
+}
+
+// storeEmbeddings stores pre-computed embeddings one-by-one, rescheduling
+// failed chunks. Returns the number of successfully stored embeddings.
+func (s *Service) storeEmbeddings(ctx context.Context, updates []db.ChunkEmbeddingUpdate) int {
+	logger := logutil.FromCtx(ctx)
+	stored := 0
+	for _, u := range updates {
+		if err := s.db.UpdateChunkEmbedding(ctx, u.ID, u.Embedding); err != nil {
+			logger.Warn("failed to store chunk embedding", "chunk_id", u.ID, "error", err)
+			s.rescheduleChunk(logger, u.ID)
+			continue
+		}
+		stored++
+	}
+	return stored
+}
+
+// embedChunksOneByOne embeds and stores chunks individually as a fallback
+// when batch embedding fails.
+func (s *Service) embedChunksOneByOne(ctx context.Context, embedder *llm.Embedder, pending []embeddingTask) (int, error) {
+	logger := logutil.FromCtx(ctx)
+	var updates []db.ChunkEmbeddingUpdate
+	var lastErr error
+	for _, p := range pending {
+		emb, err := embedder.Embed(ctx, p.text)
+		if err != nil {
+			logger.Warn("failed to embed chunk", "chunk_id", p.chunkID, "error", err)
+			lastErr = err
+			s.rescheduleChunk(logger, p.chunkID)
+			continue
+		}
+		updates = append(updates, db.ChunkEmbeddingUpdate{ID: p.chunkID, Embedding: emb})
+	}
+	stored := s.storeEmbeddings(ctx, updates)
+	if stored == 0 && lastErr != nil {
+		return 0, fmt.Errorf("all %d chunks failed to embed: %w", len(pending), lastErr)
+	}
+	return stored, nil
 }
 
 // fetchDocTitles collects unique document IDs from a batch of chunks and
 // batch-fetches their titles. Returns a map of docID → title.
 func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map[string]string {
+	logger := logutil.FromCtx(ctx)
 	titles := make(map[string]string)
 
 	// Collect unique doc IDs
@@ -378,7 +452,7 @@ func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map
 	for _, chunk := range chunks {
 		docID, err := models.RecordIDString(chunk.Document)
 		if err != nil {
-			slog.Warn("failed to extract document ID for title lookup", "error", err)
+			logger.Warn("failed to extract document ID for title lookup", "error", err)
 			continue
 		}
 		docIDSet[docID] = struct{}{}
@@ -394,14 +468,14 @@ func (s *Service) fetchDocTitles(ctx context.Context, chunks []models.Chunk) map
 
 	docs, err := s.db.GetDocumentsByIDs(ctx, docIDs)
 	if err != nil {
-		slog.Warn("failed to fetch document titles for contextual embedding", "error", err)
+		logger.Warn("failed to fetch document titles for contextual embedding", "error", err)
 		return titles
 	}
 
 	for _, doc := range docs {
 		docID, err := models.RecordIDString(doc.ID)
 		if err != nil {
-			slog.Warn("failed to extract document ID from fetched doc", "error", err)
+			logger.Warn("failed to extract document ID from fetched doc", "error", err)
 			continue
 		}
 		titles[docID] = doc.Title
@@ -476,11 +550,12 @@ func stripMarkdownHeadingPrefixes(path string) string {
 // rescheduleChunk re-schedules a chunk for embedding after a failure, using a
 // background context so it succeeds even if the parent context is cancelled.
 // Uses a 30s backoff to avoid tight retry storms during outages.
-func (s *Service) rescheduleChunk(chunkID string) {
+// Accepts the caller's logger to preserve request-scoped context fields.
+func (s *Service) rescheduleChunk(logger *slog.Logger, chunkID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.db.RescheduleChunkEmbedding(ctx, chunkID); err != nil {
-		slog.Error("failed to reschedule chunk embedding — chunk will not be retried",
+		logger.Error("failed to reschedule chunk embedding — chunk will not be retried",
 			"chunk_id", chunkID, "error", err)
 	}
 }
@@ -654,6 +729,8 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 }
 
 func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, targets []string) error {
+	logger := logutil.FromCtx(ctx)
+
 	// Delete existing links from this doc
 	if err := s.db.DeleteWikiLinks(ctx, docID); err != nil {
 		return fmt.Errorf("delete old wiki-links: %w", err)
@@ -668,11 +745,11 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, t
 		var toDocID *string
 		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
 		if err != nil {
-			slog.Warn("failed to resolve wiki-link", "target", target, "error", err)
+			logger.Warn("failed to resolve wiki-link", "target", target, "error", err)
 		} else if resolved != nil {
 			id, err := models.RecordIDString(resolved.ID)
 			if err != nil {
-				slog.Warn("failed to extract resolved document ID for wiki-link", "target", target, "error", err)
+				logger.Warn("failed to extract resolved document ID for wiki-link", "target", target, "error", err)
 			} else {
 				toDocID = &id
 			}
@@ -687,6 +764,8 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, t
 }
 
 func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc *models.Document) error {
+	logger := logutil.FromCtx(ctx)
+
 	docID, err := models.RecordIDString(doc.ID)
 	if err != nil {
 		return fmt.Errorf("extract document id: %w", err)
@@ -699,7 +778,7 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 			return fmt.Errorf("resolve by title %q: %w", doc.Title, err)
 		}
 		if n > 0 {
-			slog.Info("resolved dangling wiki-links", "title", doc.Title, "count", n)
+			logger.Info("resolved dangling wiki-links", "title", doc.Title, "count", n)
 		}
 	}
 
@@ -709,7 +788,7 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 		return fmt.Errorf("resolve by path %q: %w", doc.Path, err)
 	}
 	if n > 0 {
-		slog.Info("resolved dangling wiki-links", "path", doc.Path, "count", n)
+		logger.Info("resolved dangling wiki-links", "path", doc.Path, "count", n)
 	}
 
 	return nil
@@ -719,6 +798,7 @@ func (s *Service) resolveDanglingForDoc(ctx context.Context, vaultID string, doc
 // by content, preserving embeddings for unchanged chunks and scheduling embedding
 // only for new/changed chunks.
 func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.MarkdownDoc, labels []string) error {
+	logger := logutil.FromCtx(ctx)
 	newChunkResults := parser.ChunkMarkdown(parsed, s.chunkConfig)
 
 	oldChunks, err := s.db.GetChunks(ctx, docID)
@@ -737,7 +817,7 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 	for _, c := range oldChunks {
 		id, err := models.RecordIDString(c.ID)
 		if err != nil {
-			slog.Warn("failed to extract chunk ID during sync", "error", err)
+			logger.Warn("failed to extract chunk ID during sync", "error", err)
 			continue
 		}
 		allOldIDs = append(allOldIDs, id)
@@ -757,7 +837,7 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 			// Update position if it changed
 			if entry.chunk.Position != i {
 				if err := s.db.UpdateChunkPosition(ctx, entry.id, i); err != nil {
-					slog.Warn("failed to update chunk position", "chunk_id", entry.id, "error", err)
+					logger.Warn("failed to update chunk position", "chunk_id", entry.id, "error", err)
 				}
 			}
 		} else {
@@ -790,7 +870,7 @@ func (s *Service) syncChunks(ctx context.Context, docID string, parsed *parser.M
 	for _, id := range allOldIDs {
 		if !matchedOldIDs[id] {
 			if err := s.db.DeleteChunkByID(ctx, id); err != nil {
-				slog.Warn("failed to delete removed chunk", "chunk_id", id, "error", err)
+				logger.Warn("failed to delete removed chunk", "chunk_id", id, "error", err)
 			}
 		}
 	}
@@ -834,7 +914,7 @@ func (s *Service) processRelatesTo(ctx context.Context, docID, vaultID string, f
 			return fmt.Errorf("resolve relates_to target %q: %w", target, err)
 		}
 		if resolved == nil {
-			slog.Info("relates_to target not found", "target", target)
+			logutil.FromCtx(ctx).Info("relates_to target not found", "target", target)
 			continue
 		}
 		toDocID, err := models.RecordIDString(resolved.ID)

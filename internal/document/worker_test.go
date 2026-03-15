@@ -9,7 +9,7 @@ import (
 func TestEmbeddingWorker_StopsOnContextCancel(t *testing.T) {
 	// Use a nil-embedder service — EmbedPendingChunks returns 0 immediately
 	svc := &Service{}
-	worker := NewEmbeddingWorker(svc, 50*time.Millisecond, 10)
+	worker := NewEmbeddingWorker(svc, 50*time.Millisecond, 10, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -33,8 +33,8 @@ func TestEmbeddingWorker_StopsOnContextCancel(t *testing.T) {
 func TestEmbeddingWorker_TicksImmediatelyOnStartup(t *testing.T) {
 	// Verify that the worker processes a tick immediately before entering the ticker loop,
 	// not waiting for the first interval to elapse.
-	svc := &Service{}                                     // nil embedder → EmbedPendingChunks returns (0, nil)
-	worker := NewEmbeddingWorker(svc, 10*time.Second, 10) // very long interval
+	svc := &Service{}                                          // nil embedder → EmbedPendingChunks returns (0, nil)
+	worker := NewEmbeddingWorker(svc, 10*time.Second, 10, nil) // very long interval
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -59,7 +59,7 @@ func TestEmbeddingWorker_TicksImmediatelyOnStartup(t *testing.T) {
 func TestProcessingWorker_StopsOnContextCancel(t *testing.T) {
 	// nil db → tick panics → restart loop catches it → context cancel stops it
 	svc := &Service{}
-	worker := NewProcessingWorker(svc, 50*time.Millisecond, 10)
+	worker := NewProcessingWorker(svc, 50*time.Millisecond, 10, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -82,7 +82,7 @@ func TestProcessingWorker_StopsOnContextCancel(t *testing.T) {
 func TestEmbeddingWorker_RestartsAfterPanic(t *testing.T) {
 	// Create a service that will panic on the first call
 	svc := &Service{}
-	worker := NewEmbeddingWorker(svc, 50*time.Millisecond, 10)
+	worker := NewEmbeddingWorker(svc, 50*time.Millisecond, 10, nil)
 
 	// We test the restart behavior indirectly: runLoop should recover from panics
 	// and Run should continue. Since we can't easily inject a panic through the

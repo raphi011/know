@@ -140,7 +140,12 @@ func TestUpdateDocument(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	updated, err := testDB.UpdateDocument(ctx, docID, "new content", "new content", "Updated Title", []string{"new"}, nil, nil)
+	updated, err := testDB.UpdateDocument(ctx, docID, models.DocumentInput{
+		Content:     "new content",
+		ContentBody: "new content",
+		Title:       "Updated Title",
+		Labels:      []string{"new"},
+	})
 	if err != nil {
 		t.Fatalf("UpdateDocument failed: %v", err)
 	}
