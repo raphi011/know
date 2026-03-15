@@ -59,7 +59,8 @@ var versionCmd = &cobra.Command{
 }
 
 func main() {
-	rootCmd.AddCommand(cpCmd)
+	rootCmd.AddCommand(importCmd)
+	rootCmd.AddCommand(mvCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(dbCmd)
 	rootCmd.AddCommand(versionCmd)

@@ -41,6 +41,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("POST /api/documents", authMw(http.HandlerFunc(s.upsertDocument)))
 	mux.Handle("DELETE /api/documents", authMw(http.HandlerFunc(s.deleteDocuments)))
 
+	// Move (document or folder)
+	mux.Handle("POST /api/move", authMw(http.HandlerFunc(s.move)))
+
 	// Assets
 	mux.Handle("POST /api/assets", authMw(http.HandlerFunc(s.uploadAsset)))
 	mux.Handle("GET /api/assets", authMw(http.HandlerFunc(s.getAsset)))
