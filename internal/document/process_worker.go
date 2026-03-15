@@ -4,26 +4,30 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"time"
 
+	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
 
 // ProcessingWorker polls for unprocessed documents and runs the deferred
-// pipeline (chunks, wiki-links, relations). Mirrors the EmbeddingWorker pattern.
+// pipeline (chunks, wiki-links, relations). Uses WorkerLoop for the
+// run/restart/tick pattern. When an event bus is provided, also wakes
+// immediately on document.created/document.updated events.
 type ProcessingWorker struct {
 	service    *Service
-	interval   time.Duration
 	batch      int
+	interval   time.Duration
+	bus        *event.Bus
 	failures   map[string]int // docID → consecutive failure count
 	maxRetries int
 }
 
 // NewProcessingWorker creates a worker that polls for unprocessed documents.
+// If bus is non-nil, the worker also wakes immediately on document create/update events.
 // Panics if service is nil, interval <= 0, or batchSize <= 0 (programmer errors).
-func NewProcessingWorker(service *Service, interval time.Duration, batchSize int) *ProcessingWorker {
+func NewProcessingWorker(service *Service, interval time.Duration, batchSize int, bus *event.Bus) *ProcessingWorker {
 	if service == nil {
 		panic("ProcessingWorker: nil service")
 	}
@@ -33,59 +37,25 @@ func NewProcessingWorker(service *Service, interval time.Duration, batchSize int
 	if batchSize <= 0 {
 		panic("ProcessingWorker: batchSize must be positive")
 	}
+
 	return &ProcessingWorker{
 		service:    service,
-		interval:   interval,
 		batch:      batchSize,
+		interval:   interval,
+		bus:        bus,
 		failures:   make(map[string]int),
 		maxRetries: 5,
 	}
 }
 
 // Run starts the processing worker loop. It blocks until the context is cancelled.
-// If the worker panics, it logs the stack trace and restarts after a short delay.
+// Subscribes to bus events here (not in constructor) to avoid goroutine leaks
+// if the worker is constructed but never started.
 func (w *ProcessingWorker) Run(ctx context.Context) {
-	logutil.FromCtx(ctx).Info("document processing worker started", "interval", w.interval, "batch_size", w.batch)
-
-	for {
-		stopped := w.runLoop(ctx)
-		if stopped {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			logutil.FromCtx(ctx).Info("document processing worker stopped")
-			return
-		case <-time.After(5 * time.Second):
-			logutil.FromCtx(ctx).Info("document processing worker restarting after panic")
-		}
-	}
-}
-
-func (w *ProcessingWorker) runLoop(ctx context.Context) (stopped bool) {
-	defer func() {
-		if p := recover(); p != nil {
-			logutil.FromCtx(ctx).Error("document processing worker panicked",
-				"error", p, "stack", string(debug.Stack()))
-			stopped = false
-		}
-	}()
-
-	// Process any pending documents immediately on startup
-	w.tick(ctx)
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logutil.FromCtx(ctx).Info("document processing worker stopped")
-			return true
-		case <-ticker.C:
-			w.tick(ctx)
-		}
-	}
+	notify, unsub := eventNotify(w.bus, "document.created", "document.updated")
+	defer unsub()
+	loop := NewWorkerLoop("document processing worker", w.interval, w.tick, notify)
+	loop.Run(ctx)
 }
 
 func (w *ProcessingWorker) tick(ctx context.Context) {
@@ -116,7 +86,7 @@ func (w *ProcessingWorker) tick(ctx context.Context) {
 			continue
 		}
 
-		if err := w.processOne(ctx, &doc); err != nil {
+		if err := w.processOne(ctx, docID, &doc); err != nil {
 			w.failures[docID]++
 			level := slog.LevelWarn
 			if w.failures[docID] >= w.maxRetries {
@@ -137,13 +107,8 @@ func (w *ProcessingWorker) tick(ctx context.Context) {
 	}
 }
 
-func (w *ProcessingWorker) processOne(ctx context.Context, doc *models.Document) error {
+func (w *ProcessingWorker) processOne(ctx context.Context, docID string, doc *models.Document) error {
 	// Re-fetch to get the latest version (another write may have happened)
-	docID, err := models.RecordIDString(doc.ID)
-	if err != nil {
-		return fmt.Errorf("extract document ID: %w", err)
-	}
-
 	latest, err := w.service.db.GetDocumentByID(ctx, docID)
 	if err != nil {
 		return fmt.Errorf("process document %s: %w", docID, err)

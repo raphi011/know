@@ -304,6 +304,82 @@ func TestBus_ConcurrentPublish(t *testing.T) {
 	}
 }
 
+func TestBus_SubscribeGlobal(t *testing.T) {
+	bus := New()
+
+	ch, unsub := bus.SubscribeGlobal()
+	defer unsub()
+
+	// Publish to two different vaults
+	bus.Publish(ChangeEvent{
+		Type:    "document.created",
+		VaultID: "vault:a",
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+	})
+	bus.Publish(ChangeEvent{
+		Type:    "document.updated",
+		VaultID: "vault:b",
+		Payload: DocumentPayload{DocID: "doc:2", Path: "b.md", ContentHash: "y"},
+	})
+
+	// Global subscriber should receive both events
+	for _, want := range []string{"vault:a", "vault:b"} {
+		select {
+		case got := <-ch:
+			if got.VaultID != want {
+				t.Errorf("VaultID = %q, want %q", got.VaultID, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for event from %s", want)
+		}
+	}
+}
+
+func TestBus_SubscribeGlobal_Unsubscribe(t *testing.T) {
+	bus := New()
+
+	ch, unsub := bus.SubscribeGlobal()
+	unsub()
+
+	// Channel should be closed
+	_, ok := <-ch
+	if ok {
+		t.Fatal("expected channel to be closed after unsubscribe")
+	}
+
+	// Publish after unsubscribe should not panic
+	bus.Publish(ChangeEvent{
+		Type:    "document.created",
+		VaultID: "vault:a",
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+	})
+
+	// Double unsubscribe is safe
+	unsub()
+}
+
+func TestBus_Close_GlobalSubs(t *testing.T) {
+	bus := New()
+
+	ch, _ := bus.SubscribeGlobal()
+
+	bus.Close()
+
+	// Channel should be closed
+	_, ok := <-ch
+	if ok {
+		t.Error("global subscriber channel should be closed after Close")
+	}
+
+	// SubscribeGlobal after Close returns a closed channel
+	ch2, unsub2 := bus.SubscribeGlobal()
+	defer unsub2()
+	_, ok = <-ch2
+	if ok {
+		t.Error("global subscriber channel should be closed when subscribing to a closed bus")
+	}
+}
+
 func TestBus_Close(t *testing.T) {
 	bus := New()
 

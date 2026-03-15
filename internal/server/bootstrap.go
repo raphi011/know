@@ -514,7 +514,7 @@ func (a *App) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
 	a.mu.Unlock()
 
 	interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
-	worker := document.NewEmbeddingWorker(a.documentService, interval, cfg.EmbedWorkerBatch)
+	worker := document.NewEmbeddingWorker(a.documentService, interval, cfg.EmbedWorkerBatch, a.bus)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)
@@ -543,7 +543,7 @@ func (a *App) startProcessingWorker() {
 	a.processingWorkerDone = done
 	a.mu.Unlock()
 
-	worker := document.NewProcessingWorker(a.documentService, a.processingWorkerInterval, a.processingWorkerBatch)
+	worker := document.NewProcessingWorker(a.documentService, a.processingWorkerInterval, a.processingWorkerBatch, a.bus)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)

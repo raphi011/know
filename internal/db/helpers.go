@@ -33,6 +33,16 @@ func optionalObject(m map[string]any) any {
 	return m
 }
 
+// optionalJSONString returns NONE for nil, otherwise returns the string.
+// Used for fields stored as JSON strings in SurrealDB to avoid strict-mode
+// schema validation of nested object fields.
+func optionalJSONString(s *string) any {
+	if s == nil {
+		return surrealmodels.None
+	}
+	return *s
+}
+
 // firstResult returns the first row from a query result, or an error if no rows were returned.
 // Use for CREATE/UPDATE queries that must return exactly one row.
 func firstResult[T any](results *[]surrealdb.QueryResult[[]T], op string) (*T, error) {

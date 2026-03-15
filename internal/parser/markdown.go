@@ -2,7 +2,7 @@
 package parser
 
 import (
-	"log/slog"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -37,35 +37,42 @@ type Section struct {
 	CodeBlock bool   // True if section is primarily a code block (treat as atomic)
 }
 
-// ParseMarkdown parses a Markdown document into structured form.
-func ParseMarkdown(content string) (*MarkdownDoc, error) {
-	doc := &MarkdownDoc{
-		Frontmatter: make(map[string]any),
-	}
+// ExtractFrontmatter parses only the YAML frontmatter from markdown content,
+// returning the frontmatter map and the remaining content after the frontmatter
+// block. This is cheaper than ParseMarkdown because it skips goldmark AST parsing.
+// Returns an error if YAML frontmatter is present but malformed.
+func ExtractFrontmatter(content string) (fm map[string]any, remaining string, err error) {
+	fm = make(map[string]any)
+	remaining = content
 
-	// Parse frontmatter if present
-	remaining := content
 	if strings.HasPrefix(content, "---\n") {
 		endIdx := strings.Index(content[4:], "\n---")
 		if endIdx > 0 {
 			frontmatterYAML := content[4 : 4+endIdx]
 			remaining = strings.TrimPrefix(content[4+endIdx+4:], "\n")
 
-			if err := yaml.Unmarshal([]byte(frontmatterYAML), &doc.Frontmatter); err != nil {
-				// Log YAML parse error but continue with empty frontmatter
-				slog.Warn("failed to parse frontmatter YAML", "error", err)
-				doc.Frontmatter = make(map[string]any)
+			if err := yaml.Unmarshal([]byte(frontmatterYAML), &fm); err != nil {
+				return nil, remaining, fmt.Errorf("parse frontmatter YAML: %w", err)
 			}
 		}
 	}
 
-	doc.Content = remaining
+	return fm, remaining, nil
+}
 
-	// Extract title
-	doc.Title = extractTitle(doc.Frontmatter, remaining)
+// ParseMarkdown parses a Markdown document into structured form.
+func ParseMarkdown(content string) (*MarkdownDoc, error) {
+	fm, remaining, err := ExtractFrontmatter(content)
+	if err != nil {
+		return nil, err
+	}
 
-	// Parse sections
-	doc.Sections = parseSections(remaining)
+	doc := &MarkdownDoc{
+		Frontmatter: fm,
+		Content:     remaining,
+		Title:       extractTitle(fm, remaining),
+		Sections:    parseSections(remaining),
+	}
 
 	return doc, nil
 }
