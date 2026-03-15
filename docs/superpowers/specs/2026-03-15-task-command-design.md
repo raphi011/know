@@ -10,12 +10,12 @@ A new `know task` CLI command that opens an interactive Bubbletea v2 TUI for bro
 know task [flags]
 
 Flags:
-  --labels strings     Filter by labels (comma-separated)
-  --status string      Filter by status: open, done, all (default "open")
-  --due-before date    Only tasks due on or before this date
-  --due-after date     Only tasks due on or after this date
-  --path string        Filter by document path (exact) or folder (prefix)
-  --vault string       Vault name (default from env/config)
+  --labels strings       Filter by labels (comma-separated)
+  --status string        Filter by status: open, done, all (default "open")
+  --due-before string    Only tasks due on or before this date (YYYY-MM-DD)
+  --due-after string     Only tasks due on or after this date (YYYY-MM-DD)
+  --path string          Filter by document path or folder (see Path Resolution)
+  --vault string         Vault name (default from env/config)
 ```
 
 Examples:
@@ -27,15 +27,20 @@ know task --path /daily/            # tasks from docs under /daily/
 know task --due-before 2026-03-20   # due within 5 days
 ```
 
+### Status flag behavior
+
+- `--status open` (default) → sends `status=open` to API
+- `--status done` → sends `status=done` to API
+- `--status all` → omits `status` param (API returns all tasks when unset)
+
 ## Path Resolution
 
-The `--path` flag accepts any path. The server determines whether it's a document or folder:
+Path resolution is done **client-side** in the CLI:
 
-1. CLI sends `path` to `GET /api/tasks`
-2. API handler checks if path matches an existing document → uses `path` filter (exact)
-3. If no document match → uses `folder` filter (prefix match)
+- Path ends with `/` → sent as `folder` query param (prefix match)
+- Otherwise → sent as `path` query param (exact document match)
 
-This keeps the CLI simple — one flag, server decides. Requires a small API change: accept a generic `path` param and resolve it server-side, instead of separate `path`/`folder` params.
+No API changes needed — the existing `path` and `folder` params are used directly.
 
 ## TUI Layout
 
@@ -65,13 +70,26 @@ Tasks (12 open)
 - `Esc` / `Ctrl+C` — quit
 - `/` — enter filter mode (built-in fuzzy search over task text)
 - `j`/`k`, arrows — navigate
-- `q` — disabled as quit key
+- `q` — unbound (no action); default list quit binding disabled
 
 ## Architecture
 
 ### Component: `bubbles/v2/list`
 
 Uses the bubbles v2 list component with a custom `ItemDelegate` for rendering. The list provides cursor navigation, fuzzy filtering, pagination, and in-place item updates out of the box.
+
+### Data loading
+
+All matching tasks are fetched upfront in a single API call with `limit=1000`. This is sufficient for the expected scale of personal knowledge bases.
+
+### Toggle response handling
+
+The toggle API (`POST /api/tasks/{id}/toggle`) returns two possible response shapes:
+
+1. **Task object** (has `id` field) — task was toggled, ID unchanged. Deserialize into `TaskResponse`, update item in-place via `m.SetItem(globalIdx, updatedItem)`.
+2. **Message object** (has `message` field, no `id`) — task was toggled but ID changed due to re-ingestion. Refetch the full task list and rebuild the list items, preserving the cursor index.
+
+Deserialization strategy: unmarshal into a struct with all fields optional; check if `ID` is non-empty to distinguish.
 
 ### Data Flow
 
@@ -90,6 +108,7 @@ User presses enter/space on item:
                                                     response with updated task
                                                               ↓
                                                     m.SetItem(globalIdx, updatedItem)
+                                                    OR refetch list if ID changed
 ```
 
 ### New Files
@@ -100,7 +119,6 @@ User presses enter/space on item:
 
 ### Modified Files
 
-- `internal/api/tasks.go` — merge `path`/`folder` param into single `path` with auto-resolution
 - `cmd/know/main.go` — register `taskCmd`
 
 ## Error Handling
@@ -108,4 +126,4 @@ User presses enter/space on item:
 - **API unreachable**: TUI doesn't start, CLI prints error and exits
 - **Toggle fails**: Show as status message in the list title bar (built-in `NewStatusMessage`), keep cursor position, don't change checkbox state
 - **Empty result set**: Show list with "No tasks found" empty state (built-in in `list.Model`)
-- **Toggle returns changed ID**: Task re-ingestion can change IDs. On toggle response, if the API returns the updated task, update the item. If it returns the "ID may have changed" message, refetch the full list.
+- **Toggle returns changed ID**: Refetch full list, preserve cursor index (see Toggle response handling above)
