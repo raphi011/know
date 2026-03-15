@@ -35,6 +35,18 @@ final class KnowService: Sendable {
 		return try await client.get(path: "api/ls", query: query)
 	}
 
+	func createDocument(vaultId: String, path: String, content: String = "") async throws -> Document {
+		struct Body: Encodable {
+			let vaultId: String
+			let path: String
+			let content: String
+		}
+		return try await client.post(
+			path: "api/documents",
+			body: Body(vaultId: vaultId, path: path, content: content)
+		)
+	}
+
 	func search(vaultId: String, query: String, labels: [String]? = nil, limit: Int? = nil) async throws -> [SearchResult] {
 		var params = ["vault": vaultId, "query": query]
 		if let labels, !labels.isEmpty {

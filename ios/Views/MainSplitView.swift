@@ -16,6 +16,9 @@ struct MainSplitView: View {
 	@State private var vaultLoadError: String?
 	@State private var columnVisibility = NavigationSplitViewVisibility.automatic
 
+	// Quick picker
+	@State private var showQuickPicker = false
+
 	// Search state
 	@State private var searchQuery = ""
 	@State private var isSearchPresented = false
@@ -68,6 +71,43 @@ struct MainSplitView: View {
 			} else if case .error(let message) = syncEngine.status {
 				SyncErrorBanner(message: message)
 			}
+		}
+		.sheet(isPresented: $showQuickPicker) {
+			if let vaultId = vaults.first?.id {
+				QuickPickerView(
+					vaultId: vaultId,
+					service: service,
+					onSelect: { path in
+						selectedDocumentId = path
+						showQuickPicker = false
+					},
+					onDismiss: {
+						showQuickPicker = false
+					}
+				)
+			} else {
+				ContentUnavailableView("No Vault", systemImage: "tray")
+			}
+		}
+		.toolbar {
+			ToolbarItem(placement: .automatic) {
+				Button {
+					showQuickPicker = true
+				} label: {
+					Image(systemName: "magnifyingglass")
+				}
+				.keyboardShortcut("o", modifiers: .command)
+			}
+		}
+		.onChange(of: selectedDocumentId) { _, newId in
+			guard let newId, let vaultId = vaults.first?.id else { return }
+			let title = CachedDocument.titleFromPath(newId)
+			RecentDocument.recordAccess(
+				vaultId: vaultId,
+				path: newId,
+				title: title,
+				modelContext: modelContext
+			)
 		}
 	}
 
@@ -216,6 +256,7 @@ private struct SidebarVaultSection: View {
 	@Environment(\.modelContext) private var modelContext
 	@Query private var allDocuments: [CachedDocument]
 	@Query private var syncStates: [SyncState]
+	@State private var expandedFolders: Set<String> = []
 
 	init(
 		service: KnowService,
@@ -247,7 +288,8 @@ private struct SidebarVaultSection: View {
 			} else {
 				SidebarFolderTree(
 					documents: allDocuments,
-					folder: "/"
+					folder: "/",
+					expandedFolders: $expandedFolders
 				)
 			}
 		}
@@ -263,6 +305,7 @@ private struct SidebarVaultSection: View {
 private struct SidebarFolderTree: View {
 	let documents: [CachedDocument]
 	let folder: String
+	@Binding var expandedFolders: Set<String>
 
 	private var documentsInFolder: [CachedDocument] {
 		documents.filter { parentFolder(of: $0.path) == folder }
@@ -289,10 +332,11 @@ private struct SidebarFolderTree: View {
 
 	var body: some View {
 		ForEach(subfolders, id: \.path) { subfolder in
-			DisclosureGroup {
+			DisclosureGroup(isExpanded: binding(for: subfolder.path)) {
 				SidebarFolderTree(
 					documents: documents,
-					folder: subfolder.path
+					folder: subfolder.path,
+					expandedFolders: $expandedFolders
 				)
 			} label: {
 				Label(subfolder.name, systemImage: "folder")
@@ -304,6 +348,19 @@ private struct SidebarFolderTree: View {
 				.tag(doc.path)
 				.lineLimit(1)
 		}
+	}
+
+	private func binding(for path: String) -> Binding<Bool> {
+		Binding(
+			get: { expandedFolders.contains(path) },
+			set: { isExpanded in
+				if isExpanded {
+					expandedFolders.insert(path)
+				} else {
+					expandedFolders.remove(path)
+				}
+			}
+		)
 	}
 
 	private func parentFolder(of path: String) -> String {

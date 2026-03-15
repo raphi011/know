@@ -13,7 +13,7 @@ struct KnowApp: App {
 
     init() {
         do {
-            modelContainer = try ModelContainer(for: CachedDocument.self, SyncState.self)
+            modelContainer = try ModelContainer(for: CachedDocument.self, SyncState.self, RecentDocument.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
