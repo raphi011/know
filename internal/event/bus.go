@@ -23,16 +23,18 @@ type DocumentPayload struct {
 // Bus is an in-process pub/sub event bus that fans out change events
 // to subscribers grouped by vault ID.
 type Bus struct {
-	mu     sync.Mutex
-	subs   map[string]map[uint64]chan ChangeEvent // vaultID → subID → channel
-	next   uint64
-	closed bool
+	mu         sync.Mutex
+	subs       map[string]map[uint64]chan ChangeEvent // vaultID → subID → channel
+	globalSubs map[uint64]chan ChangeEvent            // cross-vault subscribers
+	next       uint64
+	closed     bool
 }
 
 // New creates a new event bus.
 func New() *Bus {
 	return &Bus{
-		subs: make(map[string]map[uint64]chan ChangeEvent),
+		subs:       make(map[string]map[uint64]chan ChangeEvent),
+		globalSubs: make(map[uint64]chan ChangeEvent),
 	}
 }
 
@@ -74,6 +76,41 @@ func (b *Bus) Subscribe(vaultID string) (ch <-chan ChangeEvent, unsubscribe func
 				if len(b.subs[vaultID]) == 0 {
 					delete(b.subs, vaultID)
 				}
+			}
+		})
+	}
+
+	return c, unsubscribe
+}
+
+// SubscribeGlobal registers a subscriber that receives events from all vaults.
+// Same buffering and slow-consumer eviction rules as Subscribe.
+// Returns a closed channel and a no-op unsubscribe if the bus is closed.
+func (b *Bus) SubscribeGlobal() (ch <-chan ChangeEvent, unsubscribe func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.closed {
+		c := make(chan ChangeEvent)
+		close(c)
+		return c, func() {}
+	}
+
+	id := b.next
+	b.next++
+
+	c := make(chan ChangeEvent, 64)
+	b.globalSubs[id] = c
+
+	var once sync.Once
+	unsubscribe = func() {
+		once.Do(func() {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+
+			if _, ok := b.globalSubs[id]; ok {
+				close(c)
+				delete(b.globalSubs, id)
 			}
 		})
 	}
@@ -126,7 +163,7 @@ func (b *Bus) SubscribeByPath(vaultID, docPath string) (ch <-chan ChangeEvent, u
 	return filtered, unsubscribe
 }
 
-// Publish fans out the event to all subscribers registered for the event's VaultID.
+// Publish fans out the event to all vault-scoped and global subscribers.
 // If a subscriber's channel buffer is full, the channel is closed and the subscriber
 // is evicted (slow consumer eviction). No-ops if the bus is closed.
 func (b *Bus) Publish(event ChangeEvent) {
@@ -137,27 +174,34 @@ func (b *Bus) Publish(event ChangeEvent) {
 		return
 	}
 
-	vaultSubs, ok := b.subs[event.VaultID]
-	if !ok {
-		return
-	}
-
-	for id, ch := range vaultSubs {
-		select {
-		case ch <- event:
-		default:
-			// Slow consumer: close channel and remove subscription.
-			slog.Warn("evicting slow consumer",
-				"vaultID", event.VaultID,
-				"subID", id,
-			)
-			close(ch)
-			delete(vaultSubs, id)
+	// Fan out to vault-scoped subscribers
+	if vaultSubs, ok := b.subs[event.VaultID]; ok {
+		for id, ch := range vaultSubs {
+			select {
+			case ch <- event:
+			default:
+				slog.Warn("evicting slow consumer",
+					"vaultID", event.VaultID,
+					"subID", id,
+				)
+				close(ch)
+				delete(vaultSubs, id)
+			}
+		}
+		if len(vaultSubs) == 0 {
+			delete(b.subs, event.VaultID)
 		}
 	}
 
-	if len(vaultSubs) == 0 {
-		delete(b.subs, event.VaultID)
+	// Fan out to global subscribers
+	for id, ch := range b.globalSubs {
+		select {
+		case ch <- event:
+		default:
+			slog.Warn("evicting slow global consumer", "subID", id)
+			close(ch)
+			delete(b.globalSubs, id)
+		}
 	}
 }
 
@@ -180,5 +224,10 @@ func (b *Bus) Close() {
 			delete(vaultSubs, id)
 		}
 		delete(b.subs, vaultID)
+	}
+
+	for id, ch := range b.globalSubs {
+		close(ch)
+		delete(b.globalSubs, id)
 	}
 }

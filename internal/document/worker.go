@@ -2,21 +2,25 @@ package document
 
 import (
 	"context"
-	"log/slog"
-	"runtime/debug"
 	"time"
+
+	"github.com/raphi011/know/internal/event"
+	"github.com/raphi011/know/internal/logutil"
 )
 
 // EmbeddingWorker processes pending chunk embeddings in the background.
+// When an event bus is provided, wakes immediately on document.processed events.
 type EmbeddingWorker struct {
 	service  *Service
-	interval time.Duration
 	batch    int
+	interval time.Duration
+	bus      *event.Bus
 }
 
 // NewEmbeddingWorker creates a worker that polls for pending chunk embeddings.
+// If bus is non-nil, the worker also wakes immediately on document.processed events.
 // Panics if service is nil, interval <= 0, or batchSize <= 0 (programmer errors).
-func NewEmbeddingWorker(service *Service, interval time.Duration, batchSize int) *EmbeddingWorker {
+func NewEmbeddingWorker(service *Service, interval time.Duration, batchSize int, bus *event.Bus) *EmbeddingWorker {
 	if service == nil {
 		panic("EmbeddingWorker: nil service")
 	}
@@ -26,69 +30,32 @@ func NewEmbeddingWorker(service *Service, interval time.Duration, batchSize int)
 	if batchSize <= 0 {
 		panic("EmbeddingWorker: batchSize must be positive")
 	}
+
 	return &EmbeddingWorker{
 		service:  service,
-		interval: interval,
 		batch:    batchSize,
+		interval: interval,
+		bus:      bus,
 	}
 }
 
 // Run starts the embedding worker loop. It blocks until the context is cancelled.
-// If the worker panics, it logs the stack trace and restarts after a short delay.
+// Subscribes to bus events here (not in constructor) to avoid goroutine leaks
+// if the worker is constructed but never started.
 func (w *EmbeddingWorker) Run(ctx context.Context) {
-	slog.Info("embedding worker started", "interval", w.interval, "batch_size", w.batch)
-
-	for {
-		stopped := w.runLoop(ctx)
-		if stopped {
-			return
-		}
-		// Panic recovery — wait before restarting to avoid a tight loop
-		select {
-		case <-ctx.Done():
-			slog.Info("embedding worker stopped")
-			return
-		case <-time.After(5 * time.Second):
-			slog.Info("embedding worker restarting after panic")
-		}
-	}
-}
-
-// runLoop runs the tick loop, returning true if the context was cancelled (clean stop)
-// or false if a panic occurred and the worker should restart.
-func (w *EmbeddingWorker) runLoop(ctx context.Context) (stopped bool) {
-	defer func() {
-		if p := recover(); p != nil {
-			slog.Error("embedding worker panicked",
-				"error", p, "stack", string(debug.Stack()))
-			stopped = false
-		}
-	}()
-
-	// Process any pending embeddings immediately on startup
-	w.tick(ctx)
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("embedding worker stopped")
-			return true
-		case <-ticker.C:
-			w.tick(ctx)
-		}
-	}
+	notify, unsub := eventNotify(w.bus, "document.processed")
+	defer unsub()
+	loop := NewWorkerLoop("embedding worker", w.interval, w.tick, notify)
+	loop.Run(ctx)
 }
 
 func (w *EmbeddingWorker) tick(ctx context.Context) {
 	n, err := w.service.EmbedPendingChunks(ctx, w.batch)
 	if err != nil {
-		slog.Error("embedding worker error", "error", err)
+		logutil.FromCtx(ctx).Error("embedding worker error", "error", err)
 		return
 	}
 	if n > 0 {
-		slog.Info("embedding worker processed chunks", "count", n)
+		logutil.FromCtx(ctx).Info("embedding worker processed chunks", "count", n)
 	}
 }

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/raphi011/know/internal/models"
@@ -159,6 +160,38 @@ func (c *Client) UpdateChunkEmbedding(ctx context.Context, id string, embedding 
 		"embedding": embedding,
 	}); err != nil {
 		return fmt.Errorf("update chunk embedding: %w", err)
+	}
+	return nil
+}
+
+// ChunkEmbeddingUpdate pairs a chunk ID with its embedding vector for batch updates.
+type ChunkEmbeddingUpdate struct {
+	ID        string
+	Embedding []float32
+}
+
+// BatchUpdateChunkEmbeddings updates multiple chunk embeddings in a single transaction.
+func (c *Client) BatchUpdateChunkEmbeddings(ctx context.Context, updates []ChunkEmbeddingUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "chunk.batch_update_embedding", time.Now())
+
+	// Build a single transaction with one UPDATE per chunk
+	var b strings.Builder
+	vars := make(map[string]any, len(updates)*2)
+	b.WriteString("BEGIN TRANSACTION;\n")
+	for i, u := range updates {
+		idKey := fmt.Sprintf("id_%d", i)
+		embKey := fmt.Sprintf("emb_%d", i)
+		fmt.Fprintf(&b, "UPDATE type::record(\"chunk\", $%s) SET embedding = $%s;\n", idKey, embKey)
+		vars[idKey] = u.ID
+		vars[embKey] = u.Embedding
+	}
+	b.WriteString("COMMIT TRANSACTION;")
+
+	if _, err := surrealdb.Query[any](ctx, c.DB(), b.String(), vars); err != nil {
+		return fmt.Errorf("batch update embeddings: %w", err)
 	}
 	return nil
 }
