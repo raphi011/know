@@ -136,6 +136,8 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `POST /api/documents` — create/update document
 - `DELETE /api/documents?vault={id}&path={path}&recursive=true&dry-run=true` — delete document or folder
 - `GET /api/config` — server configuration
+- `GET /api/tasks?vault={id}&status=open&labels=work&due_before=2026-03-20&folder=/daily/` — list tasks
+- `POST /api/tasks/{id}/toggle` — toggle task status (modifies source document)
 
 Agent endpoints (background execution):
 - `POST /agent/chat` — start agent, returns 202 `{conversationId, status}`
@@ -160,6 +162,7 @@ Each major feature has its own documentation file:
 - `docs/feature-remotes.md` - Multi-server federation, namespace routing
 - `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-nfs.md` - NFS file access, mount instructions for macOS/Linux/Windows
+- `docs/feature-tasks.md` - Task extraction from checkboxes, filtering, toggling, API
 
 ### Project-Specific Docs (`docs/`)
 

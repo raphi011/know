@@ -375,6 +375,35 @@ func SchemaSQL(dimension int) string {
     };
 
     -- ==========================================================================
+    -- TASK TABLE (extracted from document checkboxes)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS task SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS document     ON task TYPE record<document>;
+    DEFINE FIELD IF NOT EXISTS vault        ON task TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS status       ON task TYPE string ASSERT $value IN ["open", "done"];
+    DEFINE FIELD IF NOT EXISTS raw_line     ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS text         ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS labels       ON task TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS due_date     ON task TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS line_number  ON task TYPE int;
+    DEFINE FIELD IF NOT EXISTS heading_path ON task TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS content_hash ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_at   ON task TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at   ON task TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_task_document       ON task FIELDS document;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_status    ON task FIELDS vault, status;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_due_date  ON task FIELDS vault, due_date;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_labels    ON task FIELDS vault, labels;
+
+    -- Cascade: delete tasks when document deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_document_tasks ON document
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM task WHERE document = $before.id
+    };
+
+    -- ==========================================================================
     -- AGENT_CHECKPOINT TABLE (eino interrupt/resume checkpoint persistence)
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS agent_checkpoint SCHEMAFULL;

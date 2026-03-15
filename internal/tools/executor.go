@@ -42,6 +42,7 @@ func (e *Executor) initRegistry() {
 			"list_folders":          &ListFoldersTool{db: e.DB},
 			"list_folder_contents":  &ListFolderContentsTool{db: e.DB},
 			"get_document_versions": &GetDocumentVersionsTool{db: e.DB},
+			"list_tasks":            &ListTasksTool{db: e.DB},
 		}
 
 		if e.DocService != nil {
@@ -49,6 +50,7 @@ func (e *Executor) initRegistry() {
 			e.registry["edit_document"] = &EditDocumentTool{db: e.DB, docService: e.DocService}
 			e.registry["edit_document_section"] = &EditDocumentSectionTool{db: e.DB, docService: e.DocService}
 			e.registry["create_memory"] = &CreateMemoryTool{db: e.DB, docService: e.DocService}
+			e.registry["toggle_task"] = &ToggleTaskTool{docService: e.DocService}
 		}
 	})
 }

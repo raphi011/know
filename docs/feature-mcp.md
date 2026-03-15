@@ -71,6 +71,15 @@ Add to `.cursor/mcp.json`:
 - "Update /docs/architecture.md to add the new caching section"
 - "Replace the Installation section of /docs/setup.md with the new Docker instructions"
 
+### Tasks
+
+- "Show me all my open tasks"
+- "What tasks are due this week?"
+- "List open tasks in my daily notes folder"
+- "Show me tasks labeled #work"
+- "Mark the PR review task as done"
+- "Complete the deploy staging task"
+
 ### Memories
 
 - "Remember that the deploy pipeline requires manual approval for production"
@@ -88,6 +97,7 @@ Add to `.cursor/mcp.json`:
 | `list_folders` | Browse the folder structure of a vault (cached 60s). |
 | `list_folder_contents` | List documents and subfolders in a specific folder. |
 | `get_document_versions` | List version history of a document. |
+| `list_tasks` | List tasks (markdown checkboxes) extracted from documents, with filters for status, labels, due dates, and folders. |
 
 ### Write tools
 
@@ -99,3 +109,4 @@ Add to `.cursor/mcp.json`:
 | `create_memory` | Create a project-scoped memory with decay scoring. Auto-adds date prefix and memory label. |
 | `retrieve_memories` | Retrieve project memories sorted by relevance, with auto-archive and consolidation. |
 | `delete_memory` | Delete a specific project memory. |
+| `toggle_task` | Toggle a task's checkbox status (open ↔ done) in the source markdown document. |

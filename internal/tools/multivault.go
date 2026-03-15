@@ -255,6 +255,23 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 			},
 			merge: mergeFirstHit,
 		},
+		{
+			info: &schema.ToolInfo{
+				Name: "list_tasks",
+				Desc: "List tasks (markdown checkboxes) extracted from documents. Returns tasks grouped by document with status, labels, and due dates.",
+				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+					"status":     {Type: schema.String, Desc: "Filter by status: 'open' or 'done'"},
+					"labels":     {Type: schema.Array, Desc: "Filter by task labels", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
+					"due_before": {Type: schema.String, Desc: "Filter tasks due on or before this date (YYYY-MM-DD)"},
+					"due_after":  {Type: schema.String, Desc: "Filter tasks due on or after this date (YYYY-MM-DD)"},
+					"folder":     {Type: schema.String, Desc: "Filter by document folder path prefix (e.g. /daily/)"},
+					"path":       {Type: schema.String, Desc: "Filter by exact document path"},
+					"limit":      {Type: schema.Integer, Desc: "Max results (default 100)"},
+					"offset":     {Type: schema.Integer, Desc: "Pagination offset"},
+				}),
+			},
+			merge: mergeConcat,
+		},
 	}
 
 	writeTools := []*schema.ToolInfo{
@@ -301,6 +318,14 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 				"project": {Type: schema.String, Desc: "Project identifier (git remote URL or repo folder name). Omit for global memories."},
 				"labels":  {Type: schema.Array, Desc: "Labels for categorization (e.g. golang, docker). Call list_labels to discover existing labels.", ElemInfo: &schema.ParameterInfo{Type: schema.String}},
 				"vault":   {Type: schema.String, Desc: "Target vault (e.g. remote-name/vault-name). Defaults to first local vault."},
+			}),
+		},
+		{
+			Name: "toggle_task",
+			Desc: "Toggle a task's status between open and done. Modifies the source markdown document. Use list_tasks to find task IDs.",
+			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+				"task_id": {Type: schema.String, Desc: "The task ID to toggle (from list_tasks output)", Required: true},
+				"vault":   {Type: schema.String, Desc: "Target vault. Defaults to first local vault."},
 			}),
 		},
 	}

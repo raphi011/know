@@ -65,6 +65,10 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	// Labels
 	mux.Handle("GET /api/labels", authMw(http.HandlerFunc(s.listLabels)))
 
+	// Tasks
+	mux.Handle("GET /api/tasks", authMw(http.HandlerFunc(s.listTasks)))
+	mux.Handle("POST /api/tasks/{id}/toggle", authMw(http.HandlerFunc(s.toggleTask)))
+
 	// Remotes (federation)
 	mux.Handle("GET /api/remotes", authMw(http.HandlerFunc(s.listRemotes)))
 	mux.Handle("POST /api/remotes", authMw(http.HandlerFunc(s.addRemote)))

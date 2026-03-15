@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 
 	"github.com/raphi011/know/internal/apiclient"
 )
+
+const maxTaskListHeight = 20
 
 // taskItem wraps a TaskResponse for the list component.
 type taskItem struct {
@@ -103,7 +106,8 @@ func (m TaskModel) Init() tea.Cmd {
 func (m TaskModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.list.SetSize(msg.Width, msg.Height)
+		h := min(msg.Height, maxTaskListHeight)
+		m.list.SetSize(msg.Width, h)
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -160,9 +164,7 @@ func (m TaskModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m TaskModel) View() tea.View {
-	v := tea.NewView(m.list.View())
-	v.AltScreen = true
-	return v
+	return tea.NewView(m.list.View())
 }
 
 // toggleTaskCmd returns a command that toggles a task via the API.
@@ -206,6 +208,8 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		return
 	}
 
+	selected := index == m.Index()
+
 	// Checkbox
 	checkbox := "☐ "
 	checkboxStyle := lipgloss.NewStyle().Foreground(mutedColor)
@@ -214,11 +218,13 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		checkboxStyle = lipgloss.NewStyle().Foreground(accentColor)
 	}
 
-	// Task text
+	// Task text with search highlighting
 	textStyle := lipgloss.NewStyle()
 	if t.Status == "done" {
 		textStyle = textStyle.Foreground(mutedColor).Strikethrough(true)
 	}
+	highlightStyle := textStyle.UnsetForeground().Foreground(primaryColor).Bold(true)
+	taskText := highlightRunes(t.Text, m.MatchesForItem(index), textStyle, highlightStyle)
 
 	// Labels
 	var labelParts []string
@@ -237,18 +243,25 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		duePart = dueStyle.Render("due:" + *t.DueDate)
 	}
 
+	// Doc path (last folder + filename, dimmed)
+	docPart := shortDocPath(t.DocumentPath)
+	docStyle := lipgloss.NewStyle().Foreground(mutedColor)
+
 	// Build line
-	line := checkboxStyle.Render(checkbox) + textStyle.Render(t.Text)
+	line := checkboxStyle.Render(checkbox) + taskText
 	if len(labelParts) > 0 {
 		line += "  " + strings.Join(labelParts, " ")
 	}
 	if duePart != "" {
 		line += "  " + duePart
 	}
+	if docPart != "" {
+		line += "  " + docStyle.Render(docPart)
+	}
 
 	// Cursor / selection
 	cursor := "  "
-	if index == m.Index() {
+	if selected {
 		cursor = "> "
 		line = lipgloss.NewStyle().Bold(true).Render(line)
 	}
@@ -256,7 +269,46 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	fmt.Fprint(w, cursor+line)
 }
 
+// highlightRunes renders text with matched rune positions highlighted.
+func highlightRunes(text string, matches []int, normal, highlight lipgloss.Style) string {
+	if len(matches) == 0 {
+		return normal.Render(text)
+	}
+
+	matchSet := make(map[int]bool, len(matches))
+	for _, m := range matches {
+		matchSet[m] = true
+	}
+
+	var sb strings.Builder
+	for i, r := range text {
+		s := string(r)
+		if matchSet[i] {
+			sb.WriteString(highlight.Render(s))
+		} else {
+			sb.WriteString(normal.Render(s))
+		}
+	}
+	return sb.String()
+}
+
+// shortDocPath returns the last folder + filename from a document path.
+// e.g. "/02 Notes/Programming/Next.js Best Practices.md" → "Programming/Next.js Best Practices.md"
+func shortDocPath(docPath string) string {
+	if docPath == "" {
+		return ""
+	}
+	dir, file := path.Split(docPath)
+	dir = strings.TrimSuffix(dir, "/")
+	parent := path.Base(dir)
+	if parent == "." || parent == "/" {
+		return file
+	}
+	return parent + "/" + file
+}
+
 // isOverdue checks if a YYYY-MM-DD date is before today.
+// Parse errors return false — dates are validated upstream by the parser regex.
 func isOverdue(dateStr string) bool {
 	d, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {

@@ -24,16 +24,16 @@ export KNOW_CHUNK_THRESHOLD := env_var_or_default("KNOW_CHUNK_THRESHOLD", "1200"
 export KNOW_CHUNK_TARGET_SIZE := env_var_or_default("KNOW_CHUNK_TARGET_SIZE", "1000")
 export KNOW_CHUNK_MAX_SIZE := env_var_or_default("KNOW_CHUNK_MAX_SIZE", "1500")
 
-# Server defaults
-export KNOW_SERVER_PORT := env_var_or_default("KNOW_SERVER_PORT", "4001")
-export KNOW_SERVER_URL := env_var_or_default("KNOW_SERVER_URL", "http://localhost:4001")
+# Server defaults (hardcoded to local dev — ignore shell env)
+export KNOW_SERVER_PORT := "4001"
+export KNOW_SERVER_URL := "http://localhost:4001"
 export KNOW_DAV_DEBUG_LOG := env_var_or_default("KNOW_DAV_DEBUG_LOG", "/tmp/dav-debug.log")
 
-# Bootstrap / CLI defaults (stable dev token + vault)
-export KNOW_BOOTSTRAP_TOKEN := env_var_or_default("KNOW_BOOTSTRAP_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
-export KNOW_BOOTSTRAP_VAULT_ID := env_var_or_default("KNOW_BOOTSTRAP_VAULT_ID", "default")
-export KNOW_BOOTSTRAP_VAULT_NAME := env_var_or_default("KNOW_BOOTSTRAP_VAULT_NAME", "default")
-export KNOW_TOKEN := env_var_or_default("KNOW_TOKEN", "kh_0000000000000000000000000000000000000000000000000000000000000000")
+# Bootstrap / CLI defaults (hardcoded to local dev — ignore shell env)
+export KNOW_BOOTSTRAP_TOKEN := "kh_0000000000000000000000000000000000000000000000000000000000000000"
+export KNOW_BOOTSTRAP_VAULT_ID := "default"
+export KNOW_BOOTSTRAP_VAULT_NAME := "default"
+export KNOW_TOKEN := "kh_0000000000000000000000000000000000000000000000000000000000000000"
 
 # Build directories
 build_dir := "./bin"
