@@ -20,6 +20,7 @@ func init() {
 	mdParser = goldmark.New(
 		goldmark.WithExtensions(
 			extension.TaskList,
+			extension.Linkify,
 			&wikilink.Extender{},
 			meta.Meta,
 		),

@@ -575,3 +575,129 @@ func TestParseMarkdown_OnlyFrontmatter(t *testing.T) {
 		t.Errorf("expected 0 tasks, got %d", len(doc.Tasks))
 	}
 }
+
+func TestParseMarkdown_ExternalLinks_MarkdownLink(t *testing.T) {
+	content := "Check [GitHub](https://github.com/repo) and [Docs](https://docs.example.com/guide)."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 2 {
+		t.Fatalf("expected 2 external links, got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+	if doc.ExternalLinks[0].URL != "https://github.com/repo" {
+		t.Errorf("first link URL = %q, want https://github.com/repo", doc.ExternalLinks[0].URL)
+	}
+	if doc.ExternalLinks[0].LinkText != "GitHub" {
+		t.Errorf("first link text = %q, want GitHub", doc.ExternalLinks[0].LinkText)
+	}
+	if doc.ExternalLinks[1].URL != "https://docs.example.com/guide" {
+		t.Errorf("second link URL = %q, want https://docs.example.com/guide", doc.ExternalLinks[1].URL)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_BareURL(t *testing.T) {
+	content := "Visit https://example.com/page for more info."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 1 {
+		t.Fatalf("expected 1 external link, got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+	if doc.ExternalLinks[0].URL != "https://example.com/page" {
+		t.Errorf("link URL = %q, want https://example.com/page", doc.ExternalLinks[0].URL)
+	}
+	if doc.ExternalLinks[0].LinkText != "" {
+		t.Errorf("bare URL should have empty link text, got %q", doc.ExternalLinks[0].LinkText)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_InsideCodeBlock(t *testing.T) {
+	content := "See [real](https://real.com) here.\n\n```\n[fake](https://fake.com)\nhttps://also-fake.com\n```\n\nEnd."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 1 {
+		t.Fatalf("expected 1 external link (code block excluded), got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+	if doc.ExternalLinks[0].URL != "https://real.com" {
+		t.Errorf("link URL = %q, want https://real.com", doc.ExternalLinks[0].URL)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_RelativeIgnored(t *testing.T) {
+	content := "See [local](/docs/foo) and [external](https://example.com)."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 1 {
+		t.Fatalf("expected 1 external link (relative excluded), got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+	if doc.ExternalLinks[0].URL != "https://example.com" {
+		t.Errorf("link URL = %q, want https://example.com", doc.ExternalLinks[0].URL)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_Dedup(t *testing.T) {
+	content := "Link [first](https://example.com) and [second](https://example.com) again."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 1 {
+		t.Fatalf("expected 1 external link after dedup, got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+	if doc.ExternalLinks[0].LinkText != "first" {
+		t.Errorf("dedup should keep first occurrence text, got %q", doc.ExternalLinks[0].LinkText)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_HttpAndHttps(t *testing.T) {
+	content := "Both [http](http://example.com) and [https](https://example.com/secure)."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 2 {
+		t.Fatalf("expected 2 external links, got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_MailtoIgnored(t *testing.T) {
+	content := "Email <user@example.com> and visit [site](https://example.com)."
+
+	doc := ParseMarkdown(content)
+
+	for _, l := range doc.ExternalLinks {
+		if strings.Contains(l.URL, "mailto") || strings.Contains(l.URL, "@") {
+			t.Errorf("mailto should not be extracted, got %q", l.URL)
+		}
+	}
+	// Should have at least the https link
+	found := false
+	for _, l := range doc.ExternalLinks {
+		if l.URL == "https://example.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected https://example.com in external links")
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_InListItems(t *testing.T) {
+	content := "# Resources\n\n- [Go docs](https://go.dev)\n- [Rust docs](https://doc.rust-lang.org)\n"
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.ExternalLinks) != 2 {
+		t.Fatalf("expected 2 external links from list items, got %d: %v", len(doc.ExternalLinks), doc.ExternalLinks)
+	}
+}
+
+func TestParseMarkdown_ExternalLinks_Empty(t *testing.T) {
+	content := "No links here, just text."
+
+	doc := ParseMarkdown(content)
+
+	if doc.ExternalLinks != nil {
+		t.Errorf("expected nil external links, got %v", doc.ExternalLinks)
+	}
+}

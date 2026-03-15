@@ -14,6 +14,12 @@ import (
 	wlast "go.abhg.dev/goldmark/wikilink"
 )
 
+// ExtractedLink represents an external URL found in markdown content.
+type ExtractedLink struct {
+	URL      string // full URL (scheme + host + path + query + fragment)
+	LinkText string // anchor text (empty for bare/autolinked URLs)
+}
+
 // mentionRegex matches @mentions. Applied only to text nodes (not code blocks).
 var mentionRegex = regexp.MustCompile(`@([a-zA-Z0-9_-]+)`)
 
@@ -45,6 +51,9 @@ type MarkdownDoc struct {
 
 	// Inline #labels found outside code blocks
 	InlineLabels []string
+
+	// External URLs extracted from [text](url) and bare/autolinked URLs
+	ExternalLinks []ExtractedLink
 }
 
 // Section represents a heading and its content.
@@ -106,6 +115,9 @@ func ParseMarkdown(content string) *MarkdownDoc {
 	// Deduplicate wiki-links
 	doc.WikiLinks = dedup(w.wikiLinks)
 
+	// Deduplicate external links
+	doc.ExternalLinks = dedupExternalLinks(w.externalLinks)
+
 	// Extract mentions and labels from collected text (excludes code blocks)
 	doc.Mentions = extractMentions(w.textContent.String())
 	doc.InlineLabels = extractInlineLabels(w.textContent.String())
@@ -163,6 +175,9 @@ type astWalker struct {
 
 	// Wiki-links
 	wikiLinks []string
+
+	// External links
+	externalLinks []ExtractedLink
 
 	// Query blocks
 	queryBlocks []QueryBlock
@@ -419,6 +434,23 @@ func (w *astWalker) collectText(node ast.Node) {
 		case *ast.Text:
 			w.textContent.Write(t.Value(w.source))
 			w.textContent.WriteByte(' ')
+		case *ast.Link:
+			dest := string(t.Destination)
+			if isExternalURL(dest) {
+				w.externalLinks = append(w.externalLinks, ExtractedLink{
+					URL:      dest,
+					LinkText: inlineText(w.source, t),
+				})
+			}
+		case *ast.AutoLink:
+			if t.AutoLinkType == ast.AutoLinkURL {
+				url := string(t.URL(w.source))
+				if isExternalURL(url) {
+					w.externalLinks = append(w.externalLinks, ExtractedLink{
+						URL: url,
+					})
+				}
+			}
 		case *wlast.Node:
 			target := strings.TrimSpace(string(t.Target))
 			if target != "" {
@@ -685,6 +717,32 @@ func (d *MarkdownDoc) GetFrontmatterStringSlice(key string) []string {
 		return v
 	}
 	return nil
+}
+
+// isExternalURL returns true for http:// and https:// URLs.
+func isExternalURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// dedupExternalLinks deduplicates links by URL, keeping the first occurrence's link text.
+func dedupExternalLinks(links []ExtractedLink) []ExtractedLink {
+	if len(links) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	result := make([]ExtractedLink, 0, len(links))
+	for _, l := range links {
+		if !seen[l.URL] {
+			seen[l.URL] = true
+			result = append(result, l)
+		}
+	}
+	return result
+}
+
+// ExtractExternalLinks finds external URLs in content using AST parsing.
+func ExtractExternalLinks(content string) []ExtractedLink {
+	return ParseMarkdown(content).ExternalLinks
 }
 
 // ExtractWikiLinks finds [[wiki-style]] links in content using AST parsing.

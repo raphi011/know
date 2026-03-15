@@ -10,9 +10,9 @@ When a document is ingested via `know cp` or the WebDAV interface, it passes thr
 
 ### Pipeline Stages
 
-1. **Parse** -- Extract frontmatter metadata (title, labels, summary, relations) and markdown content. Wiki-links in the body are also detected during this phase.
+1. **Parse** -- Extract frontmatter metadata (title, labels, summary, relations) and markdown content. Wiki-links and external URLs in the body are also detected during this phase.
 2. **Embed** -- Generate vector embeddings for the document content using the configured embedding model.
-3. **Link** -- Resolve `relates_to` entries from frontmatter and wiki-links in the body. Relations are stored as SurrealDB graph edges with a unique constraint on `(from, to, rel_type)`. Frontmatter relations are created automatically; wiki-link resolution uses exact path match first, then title match (shortest path wins).
+3. **Link** -- Resolve `relates_to` entries from frontmatter and wiki-links in the body. Relations are stored as SurrealDB graph edges with a unique constraint on `(from, to, rel_type)`. Frontmatter relations are created automatically; wiki-link resolution uses exact path match first, then title match (shortest path wins). External URLs (both `[text](url)` markdown links and bare autolinked URLs) are stored in the `external_link` table with hostname, URL path, and source file reference.
 4. **Chunk** -- Split the document into heading-based chunks for retrieval. Each heading section becomes its own chunk. Large sections exceeding the max size are split at paragraph boundaries. Empty sections are skipped.
 
 ### Chunking Strategy
