@@ -174,7 +174,7 @@ Best practices, framework gotchas, and library references have been moved to the
 ### Project Structure
 
 ```
-cmd/know/            # Single binary: CLI (cp, config, ui, db seed, db wipe) + server (serve)
+cmd/know/            # Single binary: CLI (cp, info, ui, db seed, db wipe) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -206,7 +206,7 @@ internal/
 - **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
 - **REST API**: JSON endpoints at `/api/`, auth via `Authorization: Bearer` header
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
-- **CLI uses REST API**: `cp`/`config`/`ui` commands communicate via REST
+- **CLI uses REST API**: `cp`/`info`/`ui` commands communicate via REST
 - **`serve` connects directly to DB**: starts the HTTP server (REST API, WebDAV, MCP, SSH)
 - **`db` commands connect directly to DB**: `db seed` bootstraps schema + user/vault/token, `db wipe` clears all data
 

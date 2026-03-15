@@ -37,6 +37,12 @@ func addAPIFlags(cmd *cobra.Command) *apiFlags {
 	f := &apiFlags{}
 	cmd.Flags().StringVar(&f.URL, "api-url", envOrDefault("KNOW_SERVER_URL", "http://localhost:4001"), "REST API base URL")
 	cmd.Flags().StringVar(&f.Token, "token", os.Getenv("KNOW_TOKEN"), "API bearer token")
+	if err := cmd.RegisterFlagCompletionFunc("api-url", noFileCompletions); err != nil {
+		panic(fmt.Sprintf("register api-url completion: %v", err))
+	}
+	if err := cmd.RegisterFlagCompletionFunc("token", noFileCompletions); err != nil {
+		panic(fmt.Sprintf("register token completion: %v", err))
+	}
 	return f
 }
 
@@ -44,9 +50,12 @@ func (f *apiFlags) newClient() *apiclient.Client {
 	return apiclient.New(f.URL, f.Token)
 }
 
-func addVaultFlag(cmd *cobra.Command) *string {
+func addVaultFlag(cmd *cobra.Command, af *apiFlags) *string {
 	v := new(string)
 	cmd.Flags().StringVar(v, "vault", envOrDefault("KNOW_VAULT", "default"), "vault name (env: KNOW_VAULT)")
+	if err := cmd.RegisterFlagCompletionFunc("vault", completeVaultNames(af)); err != nil {
+		panic(fmt.Sprintf("register vault completion: %v", err))
+	}
 	return v
 }
 
@@ -61,7 +70,7 @@ var versionCmd = &cobra.Command{
 func main() {
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(mvCmd)
-	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(dbCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(agentCmd)
@@ -74,10 +83,46 @@ func main() {
 	rootCmd.AddCommand(rmCmd)
 	rootCmd.AddCommand(vaultCmd)
 	rootCmd.AddCommand(remoteCmd)
+	rootCmd.AddCommand(completionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish|powershell]",
+	Short: "Generate shell completion script",
+	Long: `Generate a shell completion script for the specified shell.
+
+Examples:
+  # Fish
+  know completion fish > ~/.config/fish/completions/know.fish
+
+  # Zsh
+  know completion zsh > "${fpath[1]}/_know"
+
+  # Bash
+  know completion bash > /etc/bash_completion.d/know
+
+  # PowerShell
+  know completion powershell | Out-String | Invoke-Expression`,
+	Args:      cobra.ExactArgs(1),
+	ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return rootCmd.GenBashCompletionV2(os.Stdout, true)
+		case "zsh":
+			return rootCmd.GenZshCompletion(os.Stdout)
+		case "fish":
+			return rootCmd.GenFishCompletion(os.Stdout, true)
+		case "powershell":
+			return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+		default:
+			return fmt.Errorf("unsupported shell: %s", args[0])
+		}
+	},
 }
 
 func envOrDefault(key, def string) string {

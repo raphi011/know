@@ -32,8 +32,14 @@ Examples:
 
 func init() {
 	mvAPI = addAPIFlags(mvCmd)
-	mvVaultID = addVaultFlag(mvCmd)
+	mvVaultID = addVaultFlag(mvCmd, mvAPI)
 	mvCmd.Flags().BoolVar(&mvDryRun, "dry-run", false, "show what would be moved without changes")
+	mvCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) >= 2 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return completeVaultPaths(mvAPI, mvVaultID, pathFilterAll)(cmd, args, toComplete)
+	}
 }
 
 func runMv(_ *cobra.Command, args []string) error {

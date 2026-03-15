@@ -36,7 +36,7 @@ Examples:
 
 func init() {
 	agentAPI = addAPIFlags(agentCmd)
-	agentVaultID = addVaultFlag(agentCmd)
+	agentVaultID = addVaultFlag(agentCmd, agentAPI)
 }
 
 func runAgent(_ *cobra.Command, _ []string) error {

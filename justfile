@@ -57,9 +57,12 @@ test:
 run *args: build
     "{{build_dir}}/{{binary}}" "$@"
 
-# Install binary to ~/go/bin (explicit GOBIN avoids mise's GOBIN override)
+# Install binary to ~/go/bin and shell completions
 install:
     GOBIN="$HOME/go/bin" CGO_ENABLED=0 go install -buildvcs=false ./cmd/know
+    @echo "Installing shell completions..."
+    "$HOME/go/bin/know" completion fish > ~/.config/fish/completions/know.fish
+    @echo "Installed fish completions to ~/.config/fish/completions/know.fish"
 
 # Install git pre-commit hook (auto-fixes: goimports, go fix, go mod tidy)
 install-hooks:

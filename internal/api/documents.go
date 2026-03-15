@@ -239,6 +239,18 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Check for cross-type conflict: document → folder
+		destFolder, err := s.app.DBClient().GetFolderByPath(ctx, body.VaultID, destination)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination folder: %s", destination))
+			logger.Error("move: check destination folder", "destination", destination, "error", err)
+			return
+		}
+		if destFolder != nil {
+			writeError(w, http.StatusConflict, fmt.Sprintf("cannot move document to existing folder path: %s", destination))
+			return
+		}
+
 		if !body.DryRun {
 			if _, err := s.app.DocumentService().Move(ctx, body.VaultID, source, destination); err != nil {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to move document: %s", source))
@@ -264,6 +276,18 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	}
 	if folder == nil {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("source not found: %s", source))
+		return
+	}
+
+	// Check for cross-type conflict: folder → document
+	destDoc, err := s.app.DBClient().GetDocumentByPath(ctx, body.VaultID, destination)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination document: %s", destination))
+		logger.Error("move: check destination document", "destination", destination, "error", err)
+		return
+	}
+	if destDoc != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("cannot move folder to existing document path: %s", destination))
 		return
 	}
 

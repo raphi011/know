@@ -28,7 +28,7 @@ Examples:
 
 func init() {
 	backupAPI = addAPIFlags(backupCmd)
-	backupVaultID = addVaultFlag(backupCmd)
+	backupVaultID = addVaultFlag(backupCmd, backupAPI)
 	backupCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "output file path (default: know-backup-{vault}.tar.gz)")
 }
 

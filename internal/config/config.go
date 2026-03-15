@@ -95,6 +95,10 @@ type Config struct {
 
 	// TLS settings
 	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOW_TLS_SKIP_VERIFY)
+
+	// Build info (set by ldflags, passed in by caller)
+	Version string
+	Commit  string
 }
 
 // ChunkConfig returns the raw chunking configuration as a parser.ChunkConfig.

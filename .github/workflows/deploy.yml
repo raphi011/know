@@ -68,7 +68,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build backend image
-        run: docker build -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }} -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest .
+        run: >
+          docker build
+          --build-arg VERSION=${{ steps.version.outputs.version }}
+          --build-arg COMMIT=${{ github.sha }}
+          -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.version }}
+          -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
+          .
 
       - name: Push backend image
         run: |

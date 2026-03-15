@@ -34,8 +34,9 @@ Examples:
 
 func init() {
 	lsAPI = addAPIFlags(lsCmd)
-	lsVaultID = addVaultFlag(lsCmd)
+	lsVaultID = addVaultFlag(lsCmd, lsAPI)
 	lsCmd.Flags().BoolVarP(&lsRecursive, "recursive", "R", false, "list files recursively")
+	lsCmd.ValidArgsFunction = completeVaultPaths(lsAPI, lsVaultID, pathFilterFolders)
 }
 
 func runLs(_ *cobra.Command, args []string) error {
