@@ -14,19 +14,34 @@ import (
 // TaskFilter controls which tasks are returned by ListTasks.
 type TaskFilter struct {
 	VaultID   string
-	Status    *string  // "open" or "done"
-	Labels    []string // CONTAINSANY
-	DueBefore *string  // inclusive upper bound (YYYY-MM-DD)
-	DueAfter  *string  // inclusive lower bound (YYYY-MM-DD)
-	Folder    *string  // document path prefix
-	DocPath   *string  // exact document path
+	Status    *models.TaskStatus // "open" or "done"
+	Labels    []string           // CONTAINSANY
+	DueBefore *string            // inclusive upper bound (YYYY-MM-DD)
+	DueAfter  *string            // inclusive lower bound (YYYY-MM-DD)
+	Folder    *string            // document path prefix
+	DocPath   *string            // exact document path
 	Limit     int
 	Offset    int
+}
+
+// TaskUpdate contains the mutable fields for updating an existing task.
+type TaskUpdate struct {
+	Status      models.TaskStatus
+	RawLine     string
+	Text        string
+	Labels      []string
+	DueDate     *string
+	LineNumber  int
+	HeadingPath *string
 }
 
 // CreateTask inserts a new task record.
 func (c *Client) CreateTask(ctx context.Context, input models.TaskInput) (*models.Task, error) {
 	defer c.logOp(ctx, "task.create", time.Now())
+
+	if err := input.Validate(); err != nil {
+		return nil, fmt.Errorf("create task: %w", err)
+	}
 
 	labels := input.Labels
 	if labels == nil {
@@ -48,7 +63,7 @@ func (c *Client) CreateTask(ctx context.Context, input models.TaskInput) (*model
 	results, err := surrealdb.Query[[]models.Task](ctx, c.DB(), sql, map[string]any{
 		"doc_id":       bareID("document", input.DocumentID),
 		"vault_id":     bareID("vault", input.VaultID),
-		"status":       input.Status,
+		"status":       string(input.Status),
 		"raw_line":     input.RawLine,
 		"text":         input.Text,
 		"labels":       labels,
@@ -64,9 +79,10 @@ func (c *Client) CreateTask(ctx context.Context, input models.TaskInput) (*model
 }
 
 // UpdateTask updates a task's mutable fields (status, line position, metadata).
-func (c *Client) UpdateTask(ctx context.Context, id string, status, rawLine, text string, labels []string, dueDate *string, lineNumber int, headingPath *string) error {
+func (c *Client) UpdateTask(ctx context.Context, id string, update TaskUpdate) error {
 	defer c.logOp(ctx, "task.update", time.Now())
 
+	labels := update.Labels
 	if labels == nil {
 		labels = []string{}
 	}
@@ -80,18 +96,21 @@ func (c *Client) UpdateTask(ctx context.Context, id string, status, rawLine, tex
 		line_number = $line_number,
 		heading_path = $heading_path`
 
-	_, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+	results, err := surrealdb.Query[[]models.Task](ctx, c.DB(), sql, map[string]any{
 		"id":           bareID("task", id),
-		"status":       status,
-		"raw_line":     rawLine,
-		"text":         text,
+		"status":       string(update.Status),
+		"raw_line":     update.RawLine,
+		"text":         update.Text,
 		"labels":       labels,
-		"due_date":     optionalString(dueDate),
-		"line_number":  lineNumber,
-		"heading_path": optionalString(headingPath),
+		"due_date":     optionalString(update.DueDate),
+		"line_number":  update.LineNumber,
+		"heading_path": optionalString(update.HeadingPath),
 	})
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
+	}
+	if len(allResults(results)) == 0 {
+		return fmt.Errorf("update task: not found (id: %s)", id)
 	}
 	return nil
 }
@@ -151,15 +170,17 @@ func (c *Client) ListTasks(ctx context.Context, filter TaskFilter) ([]models.Tas
 	conditions, vars := buildTaskFilter(filter)
 
 	limit := 100
-	if filter.Limit > 0 && filter.Limit < 1000 {
+	if filter.Limit > 0 && filter.Limit <= 999 {
 		limit = filter.Limit
 	}
 
 	where := strings.Join(conditions, " AND ")
+	vars["limit"] = limit
+	vars["start"] = filter.Offset
 	sql := fmt.Sprintf(`SELECT *, document.path AS doc_path, document.title AS doc_title
 		FROM task WHERE %s
-		ORDER BY due_date ASC, line_number ASC
-		LIMIT %d START %d`, where, limit, filter.Offset)
+		ORDER BY due_date IS NONE ASC, due_date ASC, line_number ASC
+		LIMIT $limit START $start`, where)
 
 	results, err := surrealdb.Query[[]models.TaskWithDoc](ctx, c.DB(), sql, vars)
 	if err != nil {
@@ -200,7 +221,7 @@ func buildTaskFilter(filter TaskFilter) ([]string, map[string]any) {
 
 	if filter.Status != nil {
 		conditions = append(conditions, `status = $status`)
-		vars["status"] = *filter.Status
+		vars["status"] = string(*filter.Status)
 	}
 	if len(filter.Labels) > 0 {
 		conditions = append(conditions, `labels CONTAINSANY $labels`)

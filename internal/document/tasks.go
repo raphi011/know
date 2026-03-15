@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
@@ -52,7 +53,15 @@ func (s *Service) syncTasks(ctx context.Context, docID, vaultID string, extracte
 			if idErr != nil {
 				return fmt.Errorf("corrupt task record id: %w", idErr)
 			}
-			if err := s.db.UpdateTask(ctx, taskID, ext.Status, ext.RawLine, ext.Text, ext.Labels, ext.DueDate, ext.LineNumber, headingPtr(ext.HeadingPath)); err != nil {
+			if err := s.db.UpdateTask(ctx, taskID, db.TaskUpdate{
+				Status:      ext.Status,
+				RawLine:     ext.RawLine,
+				Text:        ext.Text,
+				Labels:      ext.Labels,
+				DueDate:     ext.DueDate,
+				LineNumber:  ext.LineNumber,
+				HeadingPath: headingPtr(ext.HeadingPath),
+			}); err != nil {
 				return fmt.Errorf("update task: %w", err)
 			}
 		} else {

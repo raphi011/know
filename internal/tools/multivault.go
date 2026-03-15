@@ -351,7 +351,8 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 func isEmptyResult(result string) bool {
 	return result == "No results found." ||
 		result == "No labels found." ||
-		result == "No folders found."
+		result == "No folders found." ||
+		result == "No tasks found."
 }
 
 // isNotFoundResult checks for "not found" responses that indicate the item

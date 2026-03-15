@@ -3,6 +3,8 @@ package parser
 import (
 	"regexp"
 	"strings"
+
+	"github.com/raphi011/know/internal/models"
 )
 
 // CleanTaskText removes due:YYYY-MM-DD dates and #labels from raw task text,
@@ -23,12 +25,12 @@ var (
 
 // ExtractedTask represents a single task extracted from markdown content.
 type ExtractedTask struct {
-	Status      string   // "open" or "done"
-	RawLine     string   // original line (trimmed)
-	Text        string   // cleaned text (no checkbox marker, no due:, no #labels)
-	Labels      []string // inline #labels
-	DueDate     *string  // from due:YYYY-MM-DD
-	LineNumber  int      // 1-based
-	HeadingPath string   // section context, e.g. "Daily Note > Tasks"
-	ContentHash string   // SHA256 of cleaned text for stable identity
+	Status      models.TaskStatus // "open" or "done"
+	RawLine     string            // original line (trimmed)
+	Text        string            // cleaned text (no checkbox marker, no due:, no #labels)
+	Labels      []string          // inline #labels
+	DueDate     *string           // from due:YYYY-MM-DD
+	LineNumber  int               // 1-based
+	HeadingPath string            // section context, e.g. "Daily Note > Tasks"
+	ContentHash string            // SHA256 of cleaned text for stable identity
 }

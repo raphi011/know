@@ -88,9 +88,10 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 		return nil, fmt.Errorf("could not find checkbox for task %s in document %s", taskID, doc.Path)
 	}
 
-	// Reconstruct full content: replace ContentBody portion within raw Content.
+	// Reconstruct full content: ContentBody is always a suffix of Content.
 	newBody := strings.Join(lines, "\n")
-	newContent := strings.Replace(doc.Content, doc.ContentBody, newBody, 1)
+	prefix := doc.Content[:len(doc.Content)-len(doc.ContentBody)]
+	newContent := prefix + newBody
 	_, err = s.Create(ctx, models.DocumentInput{
 		VaultID: vaultID,
 		Path:    doc.Path,

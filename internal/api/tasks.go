@@ -31,19 +31,28 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if v := r.URL.Query().Get("status"); v != "" {
-		if v != models.TaskStatusOpen && v != models.TaskStatusDone {
+		status := models.TaskStatus(v)
+		if !status.Valid() {
 			writeError(w, http.StatusBadRequest, "status must be 'open' or 'done'")
 			return
 		}
-		filter.Status = &v
+		filter.Status = &status
 	}
 	if l := r.URL.Query().Get("labels"); l != "" {
 		filter.Labels = strings.Split(l, ",")
 	}
 	if v := r.URL.Query().Get("due_before"); v != "" {
+		if !models.IsValidDate(v) {
+			writeError(w, http.StatusBadRequest, "due_before must be YYYY-MM-DD")
+			return
+		}
 		filter.DueBefore = &v
 	}
 	if v := r.URL.Query().Get("due_after"); v != "" {
+		if !models.IsValidDate(v) {
+			writeError(w, http.StatusBadRequest, "due_after must be YYYY-MM-DD")
+			return
+		}
 		filter.DueAfter = &v
 	}
 	if v := r.URL.Query().Get("folder"); v != "" {
@@ -161,15 +170,15 @@ func (s *Server) toggleTask(w http.ResponseWriter, r *http.Request) {
 // TaskResponse is the JSON representation of a task, optionally with document context
 // (populated for list, empty for toggle).
 type TaskResponse struct {
-	ID            string   `json:"id"`
-	DocumentPath  string   `json:"documentPath,omitempty"`
-	DocumentTitle string   `json:"documentTitle,omitempty"`
-	Status        string   `json:"status"`
-	Text          string   `json:"text"`
-	Labels        []string `json:"labels"`
-	DueDate       *string  `json:"dueDate,omitempty"`
-	HeadingPath   *string  `json:"headingPath,omitempty"`
-	LineNumber    int      `json:"lineNumber"`
+	ID            string            `json:"id"`
+	DocumentPath  string            `json:"documentPath,omitempty"`
+	DocumentTitle string            `json:"documentTitle,omitempty"`
+	Status        models.TaskStatus `json:"status"`
+	Text          string            `json:"text"`
+	Labels        []string          `json:"labels"`
+	DueDate       *string           `json:"dueDate,omitempty"`
+	HeadingPath   *string           `json:"headingPath,omitempty"`
+	LineNumber    int               `json:"lineNumber"`
 }
 
 func taskResponseFromModel(t models.TaskWithDoc) (TaskResponse, error) {

@@ -76,13 +76,24 @@ func (t *ListTasksTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		return "", err
 	}
 
-	if input.Status != nil && *input.Status != models.TaskStatusOpen && *input.Status != models.TaskStatusDone {
-		return "", fmt.Errorf("invalid status %q: must be 'open' or 'done'", *input.Status)
+	var status *models.TaskStatus
+	if input.Status != nil {
+		s := models.TaskStatus(*input.Status)
+		if !s.Valid() {
+			return "", fmt.Errorf("invalid status %q: must be 'open' or 'done'", *input.Status)
+		}
+		status = &s
+	}
+	if input.DueBefore != nil && !models.IsValidDate(*input.DueBefore) {
+		return "", fmt.Errorf("invalid due_before %q: must be YYYY-MM-DD", *input.DueBefore)
+	}
+	if input.DueAfter != nil && !models.IsValidDate(*input.DueAfter) {
+		return "", fmt.Errorf("invalid due_after %q: must be YYYY-MM-DD", *input.DueAfter)
 	}
 
 	filter := db.TaskFilter{
 		VaultID:   o.VaultID,
-		Status:    input.Status,
+		Status:    status,
 		Labels:    input.Labels,
 		DueBefore: input.DueBefore,
 		DueAfter:  input.DueAfter,
@@ -147,7 +158,7 @@ func (t *ListTasksTool) InvokableRun(ctx context.Context, argumentsInJSON string
 
 		id, err := models.RecordIDString(task.ID)
 		if err != nil {
-			return "", fmt.Errorf("corrupt task record ID: %w", err)
+			return "", fmt.Errorf("corrupt task record id: %w", err)
 		}
 		line := strings.Join(parts, " ") + fmt.Sprintf(" (id:%s)", id)
 		groups[idx].tasks = append(groups[idx].tasks, line)
