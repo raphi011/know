@@ -1,8 +1,12 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,24 +27,28 @@ var (
 )
 
 var importCmd = &cobra.Command{
-	Use:   "import <local-dir> <vault-path>",
-	Short: "Import local files into a vault",
-	Long: `Import Markdown files and images from a local directory into a vault.
+	Use:   "import <source> [vault-path]",
+	Short: "Import local files or an export archive into a vault",
+	Long: `Import Markdown files and images from a local directory or export archive into a vault.
+
+The source can be a directory or a .tar.gz archive created by 'know export'.
+If vault-path is omitted, files are imported to / (root).
 
 Unchanged files are skipped by comparing content hashes, unless --force is set.
 Markdown files go through the full document pipeline (parse, embed, link, chunk).
 Image files (PNG, JPEG, GIF, SVG, WebP) are uploaded as binary assets.
 
-By default only top-level files are imported. Use -r to recurse into subdirectories.
+By default only top-level files are imported from directories. Use -r to recurse
+into subdirectories. Archives are always imported recursively.
 
 Examples:
-  know import ./docs / --vault default
+  know import ./docs --vault default -r
   know import ./docs /imported --vault default -r
   know import ./notes /notes --vault default --labels personal,notes
-  know import ./wiki /wiki --vault default --dry-run
-  know import ./docs /docs --vault default --force
-  know import ./docs /docs --vault default --yes`,
-	Args: cobra.ExactArgs(2),
+  know import ./export.tar.gz --vault default
+  know import ./export.tar.gz /restored --vault default --dry-run
+  know import ./docs /docs --vault default --force --yes`,
+	Args: cobra.RangeArgs(1, 2),
 	RunE: runImport,
 }
 
@@ -73,39 +81,56 @@ func init() {
 	}
 }
 
-func runImport(_ *cobra.Command, args []string) error {
-	dirPath := args[0]
-	vaultPath := args[1]
+// fileMapping describes a file to import with its source label and target vault path.
+type fileMapping struct {
+	sourceLabel string // display path (abs path for dirs, archive entry for archives)
+	targetPath  string
+}
 
-	info, err := os.Stat(dirPath)
-	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
+func runImport(cmd *cobra.Command, args []string) error {
+	sourcePath := args[0]
+	vaultPath := "/"
+	if len(args) >= 2 {
+		vaultPath = args[1]
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("path must be a directory: %s", dirPath)
-	}
+
 	if !strings.HasPrefix(vaultPath, "/") {
 		return fmt.Errorf("vault path must start with /: %s", vaultPath)
 	}
 
-	// Collect local files
-	filePaths, skippedDirs, err := collectImportFiles(dirPath, importRecursive)
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+
+	ctx := cmd.Context()
+
+	if info.IsDir() {
+		return importFromDirectory(ctx, sourcePath, vaultPath)
+	}
+	if isArchiveFile(sourcePath) {
+		return importFromArchive(ctx, sourcePath, vaultPath)
+	}
+	return fmt.Errorf("source must be a directory or .tar.gz archive: %s", sourcePath)
+}
+
+func importFromDirectory(ctx context.Context, dirPath, vaultPath string) error {
+	filePaths, skippedDirs, skippedArchives, err := collectImportFiles(dirPath, importRecursive)
 	if err != nil {
 		return fmt.Errorf("import: %w", err)
 	}
 	if skippedDirs > 0 {
 		fmt.Fprintf(os.Stderr, "Skipping %d subdirectories, use -r to include them\n", skippedDirs)
 	}
+	if skippedArchives > 0 {
+		fmt.Fprintf(os.Stderr, "Note: skipped %d archive file(s) (use 'know import <file>' to import archives)\n", skippedArchives)
+	}
 	if len(filePaths) == 0 {
 		fmt.Println("No files found")
 		return nil
 	}
 
-	// Build target path list for confirmation/dry-run display
-	type fileMapping struct {
-		absPath    string
-		targetPath string
-	}
+	// Build target path list
 	var mappings []fileMapping
 	var localErrors int
 	for _, absPath := range filePaths {
@@ -122,7 +147,7 @@ func runImport(_ *cobra.Command, args []string) error {
 		}
 		targetPath += filepath.ToSlash(rel)
 
-		mappings = append(mappings, fileMapping{absPath: absPath, targetPath: targetPath})
+		mappings = append(mappings, fileMapping{sourceLabel: absPath, targetPath: targetPath})
 	}
 
 	if len(mappings) == 0 {
@@ -130,16 +155,14 @@ func runImport(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Dry-run: show full file list and exit
 	if importDryRun {
 		for _, m := range mappings {
-			fmt.Printf("  %s -> %s\n", m.absPath, m.targetPath)
+			fmt.Printf("  %s -> %s\n", m.sourceLabel, m.targetPath)
 		}
 		fmt.Printf("\nDry run: %d files would be imported to %s in vault %s\n", len(mappings), vaultPath, importVaultID)
 		return nil
 	}
 
-	// Confirmation prompt (unless --yes)
 	if !importYes {
 		if !confirmPrompt(fmt.Sprintf("%d files will be imported to %s in vault %s. Proceed? [y/N] ", len(mappings), vaultPath, importVaultID)) {
 			fmt.Println("Aborted.")
@@ -147,19 +170,21 @@ func runImport(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Open files and build bulk upload list (streaming, not buffered)
+	// Open files and build bulk upload list
 	var bulkFiles []apiclient.BulkFile
 	var openFiles []*os.File
 	defer func() {
 		for _, f := range openFiles {
-			f.Close()
+			if err := f.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: close %s: %v\n", f.Name(), err)
+			}
 		}
 	}()
 
 	for _, m := range mappings {
-		f, err := os.Open(m.absPath)
+		f, err := os.Open(m.sourceLabel)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "- %s: %v\n", m.absPath, err)
+			fmt.Fprintf(os.Stderr, "- %s: %v\n", m.sourceLabel, err)
 			localErrors++
 			continue
 		}
@@ -170,6 +195,67 @@ func runImport(_ *cobra.Command, args []string) error {
 		})
 	}
 
+	return uploadAndPrintResults(ctx, bulkFiles, localErrors)
+}
+
+func importFromArchive(ctx context.Context, archivePath, vaultPath string) error {
+	if importRecursive {
+		fmt.Fprintf(os.Stderr, "Note: -r is ignored for archive imports\n")
+	}
+
+	entries, skippedFiles, err := collectArchiveEntries(archivePath)
+	if err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+	if skippedFiles > 0 {
+		fmt.Fprintf(os.Stderr, "Note: skipped %d unsupported file(s) in archive\n", skippedFiles)
+	}
+	if len(entries) == 0 {
+		fmt.Println("No supported files found in archive")
+		return nil
+	}
+
+	// Build mappings
+	var mappings []fileMapping
+	for _, e := range entries {
+		targetPath := vaultPath
+		if !strings.HasSuffix(targetPath, "/") {
+			targetPath += "/"
+		}
+		targetPath += e.path
+
+		mappings = append(mappings, fileMapping{sourceLabel: e.path, targetPath: targetPath})
+	}
+
+	if importDryRun {
+		for _, m := range mappings {
+			fmt.Printf("  %s -> %s\n", m.sourceLabel, m.targetPath)
+		}
+		fmt.Printf("\nDry run: %d files would be imported from archive to %s in vault %s\n", len(mappings), vaultPath, importVaultID)
+		return nil
+	}
+
+	if !importYes {
+		if !confirmPrompt(fmt.Sprintf("%d files will be imported from archive to %s in vault %s. Proceed? [y/N] ", len(mappings), vaultPath, importVaultID)) {
+			fmt.Println("Aborted.")
+			return nil
+		}
+	}
+
+	// Build bulk file list from archive entries
+	var bulkFiles []apiclient.BulkFile
+	for i, e := range entries {
+		bulkFiles = append(bulkFiles, apiclient.BulkFile{
+			Path: mappings[i].targetPath,
+			Data: bytes.NewReader(e.data),
+		})
+	}
+
+	return uploadAndPrintResults(ctx, bulkFiles, 0)
+}
+
+// uploadAndPrintResults uploads files via the bulk API and prints per-file results.
+func uploadAndPrintResults(ctx context.Context, bulkFiles []apiclient.BulkFile, localErrors int) error {
 	if len(bulkFiles) == 0 {
 		fmt.Println("No files to upload")
 		return nil
@@ -182,12 +268,11 @@ func runImport(_ *cobra.Command, args []string) error {
 		DryRun:  false,
 	}
 
-	results, err := client.BulkUpload(context.Background(), meta, bulkFiles)
+	results, err := client.BulkUpload(ctx, meta, bulkFiles)
 	if err != nil {
 		return fmt.Errorf("import: %w", err)
 	}
 
-	// Print per-file results
 	var created, updated, skipped, errCount int
 	for _, r := range results {
 		switch r.Status {
@@ -212,24 +297,103 @@ func runImport(_ *cobra.Command, args []string) error {
 	return nil
 }
 
+// maxArchiveEntrySize is the maximum size of a single file in an archive (100 MB).
+const maxArchiveEntrySize = 100 << 20
+
+// archiveEntry holds a file extracted from a tar.gz archive.
+type archiveEntry struct {
+	path string // relative path within the archive
+	data []byte
+}
+
+// collectArchiveEntries reads a tar.gz archive and returns supported file entries.
+// Returns the entries and the number of skipped (unsupported) files.
+func collectArchiveEntries(archivePath string) ([]archiveEntry, int, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("open archive: %w", err)
+	}
+	defer f.Close()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read gzip: %w", err)
+	}
+
+	tr := tar.NewReader(gr)
+	var entries []archiveEntry
+	var skipped int
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, 0, fmt.Errorf("read tar entry: %w", err)
+		}
+
+		// Only process regular files.
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			continue
+		}
+
+		// Sanitize path to prevent traversal attacks.
+		clean := filepath.ToSlash(filepath.Clean(hdr.Name))
+		if strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, "..") {
+			return nil, 0, fmt.Errorf("archive contains unsafe path: %s", hdr.Name)
+		}
+
+		if !isSupportedFile(clean) {
+			skipped++
+			continue
+		}
+
+		data, err := io.ReadAll(io.LimitReader(tr, maxArchiveEntrySize+1))
+		if err != nil {
+			return nil, 0, fmt.Errorf("read tar entry %s: %w", clean, err)
+		}
+		if len(data) > maxArchiveEntrySize {
+			return nil, 0, fmt.Errorf("tar entry %s exceeds maximum size of %s", clean, formatBytes(int64(maxArchiveEntrySize)))
+		}
+
+		entries = append(entries, archiveEntry{
+			path: clean,
+			data: data,
+		})
+	}
+
+	// Close verifies the gzip checksum — a failure means the archive may be corrupted.
+	if err := gr.Close(); err != nil {
+		return nil, 0, fmt.Errorf("verify archive integrity: %w", err)
+	}
+
+	return entries, skipped, nil
+}
+
 // collectImportFiles collects files from a directory. When recursive is false,
 // only top-level files are returned and the number of skipped subdirectories is reported.
-func collectImportFiles(dirPath string, recursive bool) (files []string, skippedDirs int, err error) {
+// Also counts skipped archive files (.tar.gz, .tgz).
+func collectImportFiles(dirPath string, recursive bool) (files []string, skippedDirs, skippedArchives int, err error) {
 	if !recursive {
 		entries, err := os.ReadDir(dirPath)
 		if err != nil {
-			return nil, 0, fmt.Errorf("read directory: %w", err)
+			return nil, 0, 0, fmt.Errorf("read directory: %w", err)
 		}
 		for _, e := range entries {
 			if e.IsDir() {
 				skippedDirs++
 				continue
 			}
+			if isArchiveFile(e.Name()) {
+				skippedArchives++
+				continue
+			}
 			if isSupportedFile(e.Name()) {
 				files = append(files, filepath.Join(dirPath, e.Name()))
 			}
 		}
-		return files, skippedDirs, nil
+		return files, skippedDirs, skippedArchives, nil
 	}
 
 	err = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
@@ -239,20 +403,29 @@ func collectImportFiles(dirPath string, recursive bool) (files []string, skipped
 		if d.IsDir() {
 			return nil
 		}
+		if isArchiveFile(path) {
+			skippedArchives++
+			return nil
+		}
 		if isSupportedFile(path) {
 			files = append(files, path)
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("scan directory: %w", err)
+		return nil, 0, 0, fmt.Errorf("scan directory: %w", err)
 	}
-	return files, 0, nil
+	return files, 0, skippedArchives, nil
 }
 
 func isSupportedFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".md" || ext == ".markdown" || models.IsImageFile(path)
+}
+
+func isArchiveFile(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
 }
 
 func confirmPrompt(msg string) bool {

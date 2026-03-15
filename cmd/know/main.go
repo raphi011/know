@@ -76,7 +76,7 @@ func main() {
 	rootCmd.AddCommand(agentCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(labelsCmd)
-	rootCmd.AddCommand(backupCmd)
+	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(catCmd)
 	rootCmd.AddCommand(noteCmd)
