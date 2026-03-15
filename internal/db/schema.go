@@ -103,6 +103,11 @@ func SchemaSQL(dimension int) string {
         DELETE FROM has_label WHERE in = $before.id
     };
 
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_external_links ON file
+    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
+        DELETE FROM external_link WHERE from_file = $before.id
+    };
+
     -- Auto-create tombstone when a non-folder file is deleted
     DEFINE EVENT IF NOT EXISTS create_tombstone_on_delete ON file
     WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
@@ -165,6 +170,21 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_wiki_link_to_file          ON wiki_link FIELDS to_file;
     DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault             ON wiki_link FIELDS vault;
     DEFINE INDEX IF NOT EXISTS idx_wiki_link_vault_raw_target  ON wiki_link FIELDS vault, raw_target;
+
+    -- ==========================================================================
+    -- EXTERNAL_LINK TABLE
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS external_link SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS from_file  ON external_link TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS vault      ON external_link TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS hostname   ON external_link TYPE string;
+    DEFINE FIELD IF NOT EXISTS url_path   ON external_link TYPE string;
+    DEFINE FIELD IF NOT EXISTS full_url   ON external_link TYPE string;
+    DEFINE FIELD IF NOT EXISTS link_text  ON external_link TYPE option<string>;
+
+    DEFINE INDEX IF NOT EXISTS idx_external_link_from_file  ON external_link FIELDS from_file;
+    DEFINE INDEX IF NOT EXISTS idx_external_link_vault_host ON external_link FIELDS vault, hostname;
 
     -- ==========================================================================
     -- FILE_RELATION TABLE (RELATION: file -> file)

@@ -307,6 +307,11 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 		if err := s.syncTasks(ctx, fileID, vaultID, parsed.Tasks); err != nil {
 			return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)
 		}
+
+		// 5.6. Extract and store external links
+		if err := s.processExternalLinks(ctx, fileID, vaultID, parsed.ExternalLinks); err != nil {
+			return fmt.Errorf("process external links for %s: %w", doc.Path, err)
+		}
 	}
 
 	// 5. Sync label graph (has_label edges) — applies to all file types
@@ -968,8 +973,8 @@ func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, 
 		if _, err := s.db.CreateRelation(ctx, models.FileRelationInput{
 			FromFileID: fileID,
 			ToFileID:   toFileID,
-			RelType:   string(models.RelRelatesTo),
-			Source:    string(models.RelSourceFrontmatter),
+			RelType:    string(models.RelRelatesTo),
+			Source:     string(models.RelSourceFrontmatter),
 		}); err != nil {
 			return fmt.Errorf("create relates_to relation for %q: %w", target, err)
 		}

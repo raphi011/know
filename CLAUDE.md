@@ -139,6 +139,8 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `GET /api/config` — server configuration
 - `GET /api/tasks?vault={id}&status=open&labels=work&due_before=2026-03-20&folder=/daily/` — list tasks
 - `POST /api/tasks/{id}/toggle` — toggle task status (modifies source document)
+- `GET /api/external-links/stats?vault={id}` — aggregated external link counts by hostname
+- `GET /api/external-links?vault={id}&hostname=...&limit=...&offset=...` — list external links
 
 Agent endpoints (background execution):
 - `POST /agent/chat` — start agent, returns 202 `{conversationId, status}`

@@ -74,6 +74,10 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("POST /api/remotes", authMw(http.HandlerFunc(s.addRemote)))
 	mux.Handle("DELETE /api/remotes/{name}", authMw(http.HandlerFunc(s.removeRemote)))
 
+	// External links
+	mux.Handle("GET /api/external-links/stats", authMw(http.HandlerFunc(s.externalLinkStats)))
+	mux.Handle("GET /api/external-links", authMw(http.HandlerFunc(s.listExternalLinks)))
+
 	// Export
 	mux.Handle("GET /api/export", authMw(http.HandlerFunc(s.export)))
 
