@@ -15,13 +15,13 @@ func TestComputeScore(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		doc     models.Document
+		doc     models.File
 		wantMin float64
 		wantMax float64
 	}{
 		{
 			name: "fresh, never re-accessed",
-			doc: models.Document{
+			doc: models.File{
 				CreatedAt:   now,
 				AccessCount: 1,
 			},
@@ -30,7 +30,7 @@ func TestComputeScore(t *testing.T) {
 		},
 		{
 			name: "30 days old, accessed 3x",
-			doc: models.Document{
+			doc: models.File{
 				LastAccessedAt: new(now.Add(-30 * 24 * time.Hour)),
 				AccessCount:    3,
 				CreatedAt:      now.Add(-60 * 24 * time.Hour),
@@ -40,7 +40,7 @@ func TestComputeScore(t *testing.T) {
 		},
 		{
 			name: "60 days old, accessed once",
-			doc: models.Document{
+			doc: models.File{
 				LastAccessedAt: new(now.Add(-60 * 24 * time.Hour)),
 				AccessCount:    1,
 				CreatedAt:      now.Add(-60 * 24 * time.Hour),
@@ -50,7 +50,7 @@ func TestComputeScore(t *testing.T) {
 		},
 		{
 			name: "90 days old, accessed once - should be below archive threshold",
-			doc: models.Document{
+			doc: models.File{
 				LastAccessedAt: new(now.Add(-90 * 24 * time.Hour)),
 				AccessCount:    1,
 				CreatedAt:      now.Add(-90 * 24 * time.Hour),
@@ -60,7 +60,7 @@ func TestComputeScore(t *testing.T) {
 		},
 		{
 			name: "60 days old, accessed 5x",
-			doc: models.Document{
+			doc: models.File{
 				LastAccessedAt: new(now.Add(-60 * 24 * time.Hour)),
 				AccessCount:    5,
 				CreatedAt:      now.Add(-60 * 24 * time.Hour),
@@ -70,7 +70,7 @@ func TestComputeScore(t *testing.T) {
 		},
 		{
 			name: "access boost capped at 2.0",
-			doc: models.Document{
+			doc: models.File{
 				LastAccessedAt: new(now),
 				AccessCount:    100,
 				CreatedAt:      now,
@@ -80,7 +80,7 @@ func TestComputeScore(t *testing.T) {
 		},
 		{
 			name: "uses created_at when last_accessed_at is nil",
-			doc: models.Document{
+			doc: models.File{
 				CreatedAt:   now.Add(-30 * 24 * time.Hour),
 				AccessCount: 0,
 			},
@@ -105,7 +105,7 @@ func TestComputeScore_ArchiveThreshold(t *testing.T) {
 	archiveThreshold := 0.2
 
 	// Memory accessed once, ~70 days ago should be below the threshold
-	doc := models.Document{
+	doc := models.File{
 		LastAccessedAt: new(now.Add(-70 * 24 * time.Hour)),
 		AccessCount:    1,
 		CreatedAt:      now.Add(-70 * 24 * time.Hour),

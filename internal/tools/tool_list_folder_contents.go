@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -47,7 +48,7 @@ func (t *ListFolderContentsTool) InvokableRun(ctx context.Context, argumentsInJS
 
 	start := time.Now()
 
-	docs, err := t.db.ListDocuments(ctx, db.ListDocumentsFilter{
+	docs, err := t.db.ListFiles(ctx, db.ListFilesFilter{
 		VaultID: o.VaultID,
 		Folder:  &folder,
 	})
@@ -65,7 +66,7 @@ func (t *ListFolderContentsTool) InvokableRun(ctx context.Context, argumentsInJS
 
 	for _, f := range allFolders {
 		if pathutil.IsImmediateChildFolder(folder, f.Path) {
-			fmt.Fprintf(&sb, "📁 %s/\n", f.Name)
+			fmt.Fprintf(&sb, "📁 %s/\n", path.Base(f.Path))
 			count++
 		}
 	}

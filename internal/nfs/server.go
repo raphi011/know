@@ -12,7 +12,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -34,7 +34,7 @@ type Server struct {
 func NewServer(
 	ln net.Listener,
 	dbClient *db.Client,
-	docService *document.Service,
+	docService *file.Service,
 	vaultSvc *vault.Service,
 ) *Server {
 	// Build an AuthContext granting system admin access since NFS

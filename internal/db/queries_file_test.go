@@ -9,7 +9,7 @@ import (
 	"github.com/raphi011/know/internal/models"
 )
 
-func TestCreateDocument(t *testing.T) {
+func TestCreateFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -17,17 +17,16 @@ func TestCreateDocument(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	hash := "abc123"
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID:     vaultID,
 		Path:        "/docs/hello.md",
 		Title:       "Hello World",
-		Content:     "---\ntitle: Hello\n---\nHello world content",
-		ContentBody: "Hello world content",
+		Content:  "---\ntitle: Hello\n---\nHello world content",
 		Labels:      []string{"test", "greeting"},
 		ContentHash: &hash,
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	if doc.Title != "Hello World" {
 		t.Errorf("Expected title 'Hello World', got %q", doc.Title)
@@ -40,46 +39,45 @@ func TestCreateDocument(t *testing.T) {
 	}
 }
 
-func TestGetDocumentByPath(t *testing.T) {
+func TestGetFileByPath(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/unique-path.md",
-		Title:       "Unique Path Doc",
-		Content:     "content",
-		ContentBody: "content",
-		Labels:      []string{},
+	_, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/unique-path.md",
+		Title:   "Unique Path Doc",
+		Content: "content",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/unique-path.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/unique-path.md")
 	if err != nil {
-		t.Fatalf("GetDocumentByPath failed: %v", err)
+		t.Fatalf("GetFileByPath failed: %v", err)
 	}
 	if doc == nil {
-		t.Fatal("GetDocumentByPath returned nil")
+		t.Fatal("GetFileByPath returned nil")
 	}
 	if doc.Title != "Unique Path Doc" {
 		t.Errorf("Expected title 'Unique Path Doc', got %q", doc.Title)
 	}
 
-	notFound, err := testDB.GetDocumentByPath(ctx, vaultID, "/nonexistent.md")
+	notFound, err := testDB.GetFileByPath(ctx, vaultID, "/nonexistent.md")
 	if err != nil {
-		t.Fatalf("GetDocumentByPath nonexistent error: %v", err)
+		t.Fatalf("GetFileByPath nonexistent error: %v", err)
 	}
 	if notFound != nil {
 		t.Error("Expected nil for nonexistent path")
 	}
 }
 
-func TestListDocuments(t *testing.T) {
+func TestListFiles(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -87,23 +85,22 @@ func TestListDocuments(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	for _, path := range []string{"/a/doc1.md", "/a/doc2.md", "/b/doc3.md"} {
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        path,
-			Title:       "Doc " + path,
-			Content:     "content of " + path,
-			ContentBody: "content of " + path,
-			Labels:      []string{"test"},
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    path,
+			Title:   "Doc " + path,
+			Content: "content of " + path,
+			Labels:  []string{"test"},
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument %s failed: %v", path, err)
+			t.Fatalf("CreateFile %s failed: %v", path, err)
 		}
 	}
 
 	// List all
-	docs, err := testDB.ListDocuments(ctx, ListDocumentsFilter{VaultID: vaultID})
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID})
 	if err != nil {
-		t.Fatalf("ListDocuments failed: %v", err)
+		t.Fatalf("ListFiles failed: %v", err)
 	}
 	if len(docs) != 3 {
 		t.Errorf("Expected 3 docs, got %d", len(docs))
@@ -111,116 +108,109 @@ func TestListDocuments(t *testing.T) {
 
 	// List by folder
 	folder := "/a/"
-	docs, err = testDB.ListDocuments(ctx, ListDocumentsFilter{VaultID: vaultID, Folder: &folder})
+	docs, err = testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, Folder: &folder})
 	if err != nil {
-		t.Fatalf("ListDocuments with folder failed: %v", err)
+		t.Fatalf("ListFiles with folder failed: %v", err)
 	}
 	if len(docs) != 2 {
 		t.Errorf("Expected 2 docs in /a/, got %d", len(docs))
 	}
 }
 
-func TestUpdateDocument(t *testing.T) {
+func TestUpdateFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/update-test.md",
-		Title:       "Original",
-		Content:     "original",
-		ContentBody: "original",
-		Labels:      []string{"old"},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/update-test.md",
+		Title:   "Original",
+		Content: "original",
+		Labels:  []string{"old"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	updated, err := testDB.UpdateDocument(ctx, docID, models.DocumentInput{
-		Content:     "new content",
-		ContentBody: "new content",
-		Title:       "Updated Title",
-		Labels:      []string{"new"},
+	updated, err := testDB.UpdateFile(ctx, docID, models.FileInput{
+		Content: "new content",
+		Title:   "Updated Title",
+		Labels:  []string{"new"},
 	})
 	if err != nil {
-		t.Fatalf("UpdateDocument failed: %v", err)
+		t.Fatalf("UpdateFile failed: %v", err)
 	}
 	if updated.Title != "Updated Title" {
 		t.Errorf("Expected title 'Updated Title', got %q", updated.Title)
 	}
-	if updated.ContentBody != "new content" {
-		t.Errorf("Expected content_body 'new content', got %q", updated.ContentBody)
-	}
 }
 
-func TestDeleteDocument(t *testing.T) {
+func TestDeleteFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/delete-test.md",
-		Title:       "Delete Me",
-		Content:     "content",
-		ContentBody: "content",
-		Labels:      []string{},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/delete-test.md",
+		Title:   "Delete Me",
+		Content: "content",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	err = testDB.DeleteDocument(ctx, docID)
+	err = testDB.DeleteFile(ctx, docID)
 	if err != nil {
-		t.Fatalf("DeleteDocument failed: %v", err)
+		t.Fatalf("DeleteFile failed: %v", err)
 	}
 
-	gone, err := testDB.GetDocumentByID(ctx, docID)
+	gone, err := testDB.GetFileByID(ctx, docID)
 	if err != nil {
-		t.Fatalf("GetDocumentByID after delete error: %v", err)
+		t.Fatalf("GetFileByID after delete error: %v", err)
 	}
 	if gone != nil {
-		t.Error("Document should be nil after delete")
+		t.Error("File should be nil after delete")
 	}
 }
 
-func TestMoveDocument(t *testing.T) {
+func TestMoveFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/old-path.md",
-		Title:       "Move Test",
-		Content:     "content",
-		ContentBody: "content",
-		Labels:      []string{},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/old-path.md",
+		Title:   "Move Test",
+		Content: "content",
+		Labels:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	moved, err := testDB.MoveDocument(ctx, docID, "/new-path.md")
+	moved, err := testDB.MoveFile(ctx, docID, "/new-path.md")
 	if err != nil {
-		t.Fatalf("MoveDocument failed: %v", err)
+		t.Fatalf("MoveFile failed: %v", err)
 	}
 	if moved.Path != "/new-path.md" {
 		t.Errorf("Expected path '/new-path.md', got %q", moved.Path)
 	}
 }
 
-func TestListDocuments_LabelFilter(t *testing.T) {
+func TestListFiles_LabelFilter(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -236,20 +226,19 @@ func TestListDocuments_LabelFilter(t *testing.T) {
 		{"/projects/rust-app.md", "Rust App", []string{"rust", "project"}},
 		{"/notes/setup.md", "Setup Guide", []string{"guide"}},
 	} {
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        doc.path,
-			Title:       doc.title,
-			Content:     "# " + doc.title,
-			ContentBody: doc.title,
-			Labels:      doc.labels,
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    doc.path,
+			Title:   doc.title,
+			Content: "# " + doc.title,
+			Labels:  doc.labels,
 		})
 		if err != nil {
 			t.Fatalf("create doc %s: %v", doc.path, err)
 		}
 	}
 
-	docs, err := testDB.ListDocuments(ctx, ListDocumentsFilter{
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{
 		VaultID: vaultID,
 		Labels:  []string{"go"},
 	})
@@ -261,7 +250,7 @@ func TestListDocuments_LabelFilter(t *testing.T) {
 	}
 
 	folder := "/projects/"
-	docs, err = testDB.ListDocuments(ctx, ListDocumentsFilter{
+	docs, err = testDB.ListFiles(ctx, ListFilesFilter{
 		VaultID: vaultID,
 		Folder:  &folder,
 		Labels:  []string{"project"},
@@ -274,7 +263,7 @@ func TestListDocuments_LabelFilter(t *testing.T) {
 	}
 }
 
-func TestGetDocumentByID(t *testing.T) {
+func TestGetFileByID(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -282,40 +271,39 @@ func TestGetDocumentByID(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        "/get-by-id-" + suffix + ".md",
-		Title:       "GetByID Test",
-		Content:     "get by id content",
-		ContentBody: "get by id content",
-		Labels:      []string{"test"},
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/get-by-id-" + suffix + ".md",
+		Title:   "GetByID Test",
+		Content: "get by id content",
+		Labels:  []string{"test"},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	fetched, err := testDB.GetDocumentByID(ctx, docID)
+	fetched, err := testDB.GetFileByID(ctx, docID)
 	if err != nil {
-		t.Fatalf("GetDocumentByID failed: %v", err)
+		t.Fatalf("GetFileByID failed: %v", err)
 	}
 	if fetched == nil {
-		t.Fatal("GetDocumentByID returned nil for existing document")
+		t.Fatal("GetFileByID returned nil for existing file")
 	}
 	if fetched.Title != "GetByID Test" {
 		t.Errorf("Expected title 'GetByID Test', got %q", fetched.Title)
 	}
 
-	notFound, err := testDB.GetDocumentByID(ctx, "document:nonexistent_"+suffix)
+	notFound, err := testDB.GetFileByID(ctx, "file:nonexistent_"+suffix)
 	if err != nil {
-		t.Fatalf("GetDocumentByID nonexistent error: %v", err)
+		t.Fatalf("GetFileByID nonexistent error: %v", err)
 	}
 	if notFound != nil {
-		t.Error("Expected nil for nonexistent document ID")
+		t.Error("Expected nil for nonexistent file ID")
 	}
 }
 
-func TestDeleteDocumentsByPrefix(t *testing.T) {
+func TestDeleteFilesByPrefix(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -329,37 +317,36 @@ func TestDeleteDocumentsByPrefix(t *testing.T) {
 		"/other-" + suffix + "/c.md",
 	}
 	for _, path := range paths {
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        path,
-			Title:       "Doc " + path,
-			Content:     "content of " + path,
-			ContentBody: "content of " + path,
-			Labels:      []string{},
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    path,
+			Title:   "Doc " + path,
+			Content: "content of " + path,
+			Labels:  []string{},
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument %s failed: %v", path, err)
+			t.Fatalf("CreateFile %s failed: %v", path, err)
 		}
 	}
 
-	count, err := testDB.DeleteDocumentsByPrefix(ctx, vaultID, "/prefix-"+suffix+"/")
+	count, err := testDB.DeleteFilesByPrefix(ctx, vaultID, "/prefix-"+suffix+"/")
 	if err != nil {
-		t.Fatalf("DeleteDocumentsByPrefix failed: %v", err)
+		t.Fatalf("DeleteFilesByPrefix failed: %v", err)
 	}
 	if count != 2 {
-		t.Errorf("Expected 2 deleted documents, got %d", count)
+		t.Errorf("Expected 2 deleted files, got %d", count)
 	}
 
-	remaining, err := testDB.GetDocumentByPath(ctx, vaultID, "/other-"+suffix+"/c.md")
+	remaining, err := testDB.GetFileByPath(ctx, vaultID, "/other-"+suffix+"/c.md")
 	if err != nil {
-		t.Fatalf("GetDocumentByPath failed: %v", err)
+		t.Fatalf("GetFileByPath failed: %v", err)
 	}
 	if remaining == nil {
-		t.Error("Document at /other/ path should still exist after prefix delete")
+		t.Error("File at /other/ path should still exist after prefix delete")
 	}
 }
 
-func TestMoveDocumentsByPrefix(t *testing.T) {
+func TestMoveFilesByPrefix(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -368,41 +355,40 @@ func TestMoveDocumentsByPrefix(t *testing.T) {
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	for _, path := range []string{"/old-" + suffix + "/a.md", "/old-" + suffix + "/b.md"} {
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        path,
-			Title:       "Doc " + path,
-			Content:     "content of " + path,
-			ContentBody: "content of " + path,
-			Labels:      []string{},
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    path,
+			Title:   "Doc " + path,
+			Content: "content of " + path,
+			Labels:  []string{},
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument %s failed: %v", path, err)
+			t.Fatalf("CreateFile %s failed: %v", path, err)
 		}
 	}
 
-	count, err := testDB.MoveDocumentsByPrefix(ctx, vaultID, "/old-"+suffix+"/", "/new-"+suffix+"/")
+	count, err := testDB.MoveFilesByPrefix(ctx, vaultID, "/old-"+suffix+"/", "/new-"+suffix+"/")
 	if err != nil {
-		t.Fatalf("MoveDocumentsByPrefix failed: %v", err)
+		t.Fatalf("MoveFilesByPrefix failed: %v", err)
 	}
 	if count != 2 {
-		t.Errorf("Expected 2 moved documents, got %d", count)
+		t.Errorf("Expected 2 moved files, got %d", count)
 	}
 
-	docA, err := testDB.GetDocumentByPath(ctx, vaultID, "/new-"+suffix+"/a.md")
+	docA, err := testDB.GetFileByPath(ctx, vaultID, "/new-"+suffix+"/a.md")
 	if err != nil {
-		t.Fatalf("GetDocumentByPath new/a.md failed: %v", err)
+		t.Fatalf("GetFileByPath new/a.md failed: %v", err)
 	}
 	if docA == nil {
-		t.Error("Document a.md should exist at new path after move")
+		t.Error("File a.md should exist at new path after move")
 	}
 
-	docB, err := testDB.GetDocumentByPath(ctx, vaultID, "/new-"+suffix+"/b.md")
+	docB, err := testDB.GetFileByPath(ctx, vaultID, "/new-"+suffix+"/b.md")
 	if err != nil {
-		t.Fatalf("GetDocumentByPath new/b.md failed: %v", err)
+		t.Fatalf("GetFileByPath new/b.md failed: %v", err)
 	}
 	if docB == nil {
-		t.Error("Document b.md should exist at new path after move")
+		t.Error("File b.md should exist at new path after move")
 	}
 }
 
@@ -422,16 +408,15 @@ func TestListLabels(t *testing.T) {
 		{"/labels-" + suffix + "/b.md", []string{"beta", "gamma"}},
 		{"/labels-" + suffix + "/c.md", []string{"delta"}},
 	} {
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        doc.path,
-			Title:       "Doc " + doc.path,
-			Content:     "content",
-			ContentBody: "content",
-			Labels:      doc.labels,
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    doc.path,
+			Title:   "Doc " + doc.path,
+			Content: "content",
+			Labels:  doc.labels,
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument %s failed: %v", doc.path, err)
+			t.Fatalf("CreateFile %s failed: %v", doc.path, err)
 		}
 	}
 
@@ -480,16 +465,15 @@ func TestListLabelsWithCounts(t *testing.T) {
 		{"/lc-" + suffix + "/d.md", nil},        // no labels — must not produce phantom entries
 		{"/lc-" + suffix + "/e.md", []string{}}, // empty labels — must not produce phantom entries
 	} {
-		_, err := testDB.CreateDocument(ctx, models.DocumentInput{
-			VaultID:     vaultID,
-			Path:        doc.path,
-			Title:       "Doc " + doc.path,
-			Content:     "content",
-			ContentBody: "content",
-			Labels:      doc.labels,
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    doc.path,
+			Title:   "Doc " + doc.path,
+			Content: "content",
+			Labels:  doc.labels,
 		})
 		if err != nil {
-			t.Fatalf("CreateDocument %s failed: %v", doc.path, err)
+			t.Fatalf("CreateFile %s failed: %v", doc.path, err)
 		}
 	}
 
@@ -499,7 +483,7 @@ func TestListLabelsWithCounts(t *testing.T) {
 	}
 
 	// Should be sorted by count desc: go(2), then project/tutorial/rust(1 each)
-	// Documents with nil or empty labels must NOT produce phantom entries
+	// Files with nil or empty labels must NOT produce phantom entries
 	if len(counts) != 4 {
 		t.Fatalf("expected 4 label counts, got %d: %v", len(counts), counts)
 	}
@@ -518,7 +502,7 @@ func TestListLabelsWithCounts(t *testing.T) {
 	}
 }
 
-func TestUpsertDocument(t *testing.T) {
+func TestUpsertFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -529,16 +513,15 @@ func TestUpsertDocument(t *testing.T) {
 	path := "/upsert-" + suffix + ".md"
 
 	// First upsert: should create
-	doc, created, previousDoc, err := testDB.UpsertDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        path,
-		Title:       "Upsert Original",
-		Content:     "original content",
-		ContentBody: "original content",
-		Labels:      []string{"v1"},
+	doc, created, previousDoc, err := testDB.UpsertFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    path,
+		Title:   "Upsert Original",
+		Content: "original content",
+		Labels:  []string{"v1"},
 	})
 	if err != nil {
-		t.Fatalf("UpsertDocument (create) failed: %v", err)
+		t.Fatalf("UpsertFile (create) failed: %v", err)
 	}
 	if !created {
 		t.Error("Expected created=true for first upsert")
@@ -551,16 +534,15 @@ func TestUpsertDocument(t *testing.T) {
 	}
 
 	// Second upsert: should update
-	doc2, created2, previousDoc2, err := testDB.UpsertDocument(ctx, models.DocumentInput{
-		VaultID:     vaultID,
-		Path:        path,
-		Title:       "Upsert Updated",
-		Content:     "updated content",
-		ContentBody: "updated content",
-		Labels:      []string{"v2"},
+	doc2, created2, previousDoc2, err := testDB.UpsertFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    path,
+		Title:   "Upsert Updated",
+		Content: "updated content",
+		Labels:  []string{"v2"},
 	})
 	if err != nil {
-		t.Fatalf("UpsertDocument (update) failed: %v", err)
+		t.Fatalf("UpsertFile (update) failed: %v", err)
 	}
 	if created2 {
 		t.Error("Expected created=false for second upsert")

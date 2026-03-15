@@ -78,7 +78,7 @@ func TestDelete_SingleDocument(t *testing.T) {
 
 	// Verify document is actually gone
 	ctx := context.Background()
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/docs/readme.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/docs/readme.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestDelete_RecursiveFolder(t *testing.T) {
 	// Verify docs under /docs are gone
 	ctx := context.Background()
 	for _, p := range []string{"/docs/a.md", "/docs/sub/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, p)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, p)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", p, err)
 		}
@@ -133,7 +133,7 @@ func TestDelete_RecursiveFolder(t *testing.T) {
 	}
 
 	// Verify /other/c.md still exists
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/other/c.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/other/c.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestDelete_DryRunSingleDocument(t *testing.T) {
 
 	// Verify document still exists
 	ctx := context.Background()
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/docs/readme.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/docs/readme.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestDelete_DryRunRecursiveFolder(t *testing.T) {
 	// Verify documents still exist
 	ctx := context.Background()
 	for _, p := range []string{"/docs/a.md", "/docs/sub/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, p)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, p)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", p, err)
 		}

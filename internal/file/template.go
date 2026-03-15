@@ -1,4 +1,4 @@
-package document
+package file
 
 import (
 	"context"
@@ -26,19 +26,19 @@ func DefaultTemplateVars(t time.Time, title, vaultName string) map[string]string
 	}
 }
 
-// isTemplatePath checks if a document path falls under the vault's template folder.
-func (s *Service) isTemplatePath(ctx context.Context, vaultID, docPath string) (bool, error) {
+// isTemplatePath checks if a file path falls under the vault's template folder.
+func (s *Service) isTemplatePath(ctx context.Context, vaultID, filePath string) (bool, error) {
 	vault, err := s.db.GetVault(ctx, vaultID)
 	if err != nil {
 		return false, fmt.Errorf("load vault for template check: %w", err)
 	}
-	return IsTemplatePath(vault.TemplatePath(), docPath), nil
+	return IsTemplatePath(vault.TemplatePath(), filePath), nil
 }
 
-// IsTemplatePath returns true if docPath falls under the given template folder path.
-func IsTemplatePath(templateFolder, docPath string) bool {
+// IsTemplatePath returns true if filePath falls under the given template folder path.
+func IsTemplatePath(templateFolder, filePath string) bool {
 	if !strings.HasSuffix(templateFolder, "/") {
 		templateFolder += "/"
 	}
-	return strings.HasPrefix(docPath, templateFolder)
+	return strings.HasPrefix(filePath, templateFolder)
 }

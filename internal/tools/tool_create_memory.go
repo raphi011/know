@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/models"
 )
@@ -17,7 +17,7 @@ import (
 // CreateMemoryTool implements tool.InvokableTool for creating memories.
 type CreateMemoryTool struct {
 	db         *db.Client
-	docService *document.Service
+	docService *file.Service
 }
 
 func (t *CreateMemoryTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -82,7 +82,7 @@ func (t *CreateMemoryTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	path, fullContent := memory.BuildMemoryDocument(input.Project, input.Title, input.Content, input.Labels, settings)
 
 	start := time.Now()
-	doc, err := t.docService.Create(ctx, models.DocumentInput{
+	doc, err := t.docService.Create(ctx, models.FileInput{
 		VaultID: o.VaultID,
 		Path:    path,
 		Content: fullContent,

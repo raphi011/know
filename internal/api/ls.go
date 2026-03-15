@@ -41,10 +41,13 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 
 	// Pass prefix (with trailing slash) to the DB so that "/docs" doesn't match "/docs-other".
 	// For root ("/"), starts_with(path, "/") correctly matches all documents.
-	docs, err := s.app.DBClient().ListDocumentMetas(r.Context(), db.ListDocumentsFilter{
-		VaultID: vaultID,
-		Folder:  &prefix,
-		Limit:   10000,
+	// Exclude folders — they are listed separately via ListChildFolders / ListFolders.
+	isNotFolder := false
+	docs, err := s.app.DBClient().ListFileMetas(r.Context(), db.ListFilesFilter{
+		VaultID:  vaultID,
+		Folder:   &prefix,
+		IsFolder: &isNotFolder,
+		Limit:    10000,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list documents")
@@ -66,7 +69,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		for _, f := range allFolders {
 			if strings.HasPrefix(f.Path, prefix) {
 				entries = append(entries, models.FileEntry{
-					Name:  f.Name,
+					Name:  path.Base(f.Path),
 					Path:  f.Path,
 					IsDir: true,
 				})
@@ -76,7 +79,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 			entries = append(entries, models.FileEntry{
 				Name: path.Base(d.Path),
 				Path: d.Path,
-				Size: d.ContentLength,
+				Size: d.Size,
 			})
 		}
 	} else {
@@ -89,7 +92,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, f := range childFolders {
 			entries = append(entries, models.FileEntry{
-				Name:  f.Name,
+				Name:  path.Base(f.Path),
 				Path:  f.Path,
 				IsDir: true,
 			})
@@ -102,7 +105,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 				entries = append(entries, models.FileEntry{
 					Name: path.Base(d.Path),
 					Path: d.Path,
-					Size: d.ContentLength,
+					Size: d.Size,
 				})
 			}
 		}

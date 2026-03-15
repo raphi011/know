@@ -91,7 +91,7 @@ func (lf *labelsFile) Generate(ctx context.Context, vaultID string) (string, err
 	b.WriteString("# Labels\n")
 
 	for _, label := range labels {
-		docs, err := lf.db.ListDocuments(ctx, db.ListDocumentsFilter{
+		docs, err := lf.db.ListFiles(ctx, db.ListFilesFilter{
 			VaultID: vaultID,
 			Labels:  []string{label},
 			Limit:   1000,
@@ -125,7 +125,7 @@ type recentFile struct {
 func (rf *recentFile) Name() string { return ".recent.md" }
 
 func (rf *recentFile) Generate(ctx context.Context, vaultID string) (string, error) {
-	docs, err := rf.db.ListDocuments(ctx, db.ListDocumentsFilter{
+	docs, err := rf.db.ListFiles(ctx, db.ListFilesFilter{
 		VaultID: vaultID,
 		OrderBy: db.OrderByUpdatedAtDesc,
 		Limit:   50,

@@ -1,4 +1,4 @@
-package document
+package file
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 
 var toggleCheckboxRegex = regexp.MustCompile(`^(\s*- \[)([ xX])(\]\s+)`)
 
-// ToggleTask flips a task's checkbox in the source document and re-ingests it.
+// ToggleTask flips a task's checkbox in the source file and re-ingests it.
 // Returns the updated task after re-ingestion.
 func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, error) {
 	logger := logutil.FromCtx(ctx)
@@ -26,16 +26,16 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	docID, err := models.RecordIDString(task.Document)
+	fileID, err := models.RecordIDString(task.File)
 	if err != nil {
-		return nil, fmt.Errorf("extract doc id: %w", err)
+		return nil, fmt.Errorf("extract file id: %w", err)
 	}
-	doc, err := s.db.GetDocumentByID(ctx, docID)
+	doc, err := s.db.GetFileByID(ctx, fileID)
 	if err != nil {
-		return nil, fmt.Errorf("get document: %w", err)
+		return nil, fmt.Errorf("get file: %w", err)
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("source document not found for task %s", taskID)
+		return nil, fmt.Errorf("source file not found for task %s", taskID)
 	}
 
 	vaultID, err := models.RecordIDString(doc.Vault)
@@ -44,9 +44,11 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 	}
 
 	// Find and toggle the checkbox line.
-	// Task LineNumber is relative to content-after-frontmatter (ContentBody),
+	// Task LineNumber is relative to content-after-frontmatter (content body),
 	// not the raw Content which includes frontmatter.
-	lines := strings.Split(doc.ContentBody, "\n")
+	parsed := parser.ParseMarkdown(doc.Content)
+	contentBody := parsed.Content
+	lines := strings.Split(contentBody, "\n")
 	toggled := false
 
 	// Primary: try the recorded line number.
@@ -72,27 +74,27 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 		}
 	}
 
-	// Last resort: full document scan.
+	// Last resort: full file scan.
 	if !toggled {
 		for i := range lines {
 			if isMatchingCheckbox(lines[i], task.ContentHash) {
 				lines[i] = toggleLine(lines[i])
 				toggled = true
-				logger.Warn("toggle: task not found near expected line, required full document scan", "expected", task.LineNumber, "found", i+1, "task_id", taskID)
+				logger.Warn("toggle: task not found near expected line, required full file scan", "expected", task.LineNumber, "found", i+1, "task_id", taskID)
 				break
 			}
 		}
 	}
 
 	if !toggled {
-		return nil, fmt.Errorf("could not find checkbox for task %s in document %s", taskID, doc.Path)
+		return nil, fmt.Errorf("could not find checkbox for task %s in file %s", taskID, doc.Path)
 	}
 
-	// Reconstruct full content: ContentBody is always a suffix of Content.
+	// Reconstruct full content: contentBody is always a suffix of Content.
 	newBody := strings.Join(lines, "\n")
-	prefix := doc.Content[:len(doc.Content)-len(doc.ContentBody)]
+	prefix := doc.Content[:len(doc.Content)-len(contentBody)]
 	newContent := prefix + newBody
-	_, err = s.Create(ctx, models.DocumentInput{
+	_, err = s.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    doc.Path,
 		Content: newContent,
@@ -109,13 +111,13 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 	// Fetch the updated task. Since toggle only changes the checkbox marker (not the
 	// cleaned text), the content hash is stable and syncTasks updates the existing
 	// record rather than deleting/recreating it. A nil result here would indicate the
-	// document was concurrently modified and the task was removed.
+	// file was concurrently modified and the task was removed.
 	updated, err := s.db.GetTaskByID(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("get updated task: %w", err)
 	}
 	if updated == nil {
-		return nil, fmt.Errorf("task %s not found after toggle — document may have been concurrently modified", taskID)
+		return nil, fmt.Errorf("task %s not found after toggle — file may have been concurrently modified", taskID)
 	}
 	return updated, nil
 }

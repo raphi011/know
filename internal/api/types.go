@@ -25,7 +25,6 @@ type Document struct {
 	Path        string    `json:"path"`
 	Title       string    `json:"title"`
 	Content     string    `json:"content"`
-	ContentBody string    `json:"contentBody"`
 	Labels      []string  `json:"labels"`
 	DocType     *string   `json:"docType,omitempty"`
 	ContentHash *string   `json:"contentHash,omitempty"`
@@ -65,8 +64,7 @@ type AssetMeta struct {
 	Path        string    `json:"path"`
 	MimeType    string    `json:"mimeType"`
 	Size        int       `json:"size"`
-	ContentHash string    `json:"contentHash"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ContentHash *string   `json:"contentHash"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 

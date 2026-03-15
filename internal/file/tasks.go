@@ -1,4 +1,4 @@
-package document
+package file
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 
 // syncTasks syncs pre-extracted checkbox tasks with the DB.
 // Uses content-hash-based diffing to preserve task identity across re-ingestion.
-func (s *Service) syncTasks(ctx context.Context, docID, vaultID string, extracted []parser.ExtractedTask) error {
+func (s *Service) syncTasks(ctx context.Context, fileID, vaultID string, extracted []parser.ExtractedTask) error {
 	logger := logutil.FromCtx(ctx)
 
 	// Fetch existing tasks from DB.
-	existing, err := s.db.GetTasksByDocument(ctx, docID)
+	existing, err := s.db.GetTasksByFile(ctx, fileID)
 	if err != nil {
 		return fmt.Errorf("fetch existing tasks: %w", err)
 	}
@@ -67,7 +67,7 @@ func (s *Service) syncTasks(ctx context.Context, docID, vaultID string, extracte
 		} else {
 			// Create new task.
 			_, err := s.db.CreateTask(ctx, models.TaskInput{
-				DocumentID:  docID,
+				FileID:      fileID,
 				VaultID:     vaultID,
 				Status:      ext.Status,
 				RawLine:     ext.RawLine,
@@ -84,7 +84,7 @@ func (s *Service) syncTasks(ctx context.Context, docID, vaultID string, extracte
 		}
 	}
 
-	// Delete tasks that no longer exist in the document.
+	// Delete tasks that no longer exist in the file.
 	for _, entries := range byHash {
 		for _, e := range entries {
 			if e.matched {
@@ -100,7 +100,7 @@ func (s *Service) syncTasks(ctx context.Context, docID, vaultID string, extracte
 		}
 	}
 
-	logger.Debug("synced tasks", "doc", docID, "extracted", len(extracted), "existing", len(existing))
+	logger.Debug("synced tasks", "file", fileID, "extracted", len(extracted), "existing", len(existing))
 	return nil
 }
 

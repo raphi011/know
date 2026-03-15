@@ -189,13 +189,13 @@ func (s *Service) HasSemanticSearch() bool {
 
 // chunkToMatch converts a ChunkWithScore to a ChunkMatch for search results.
 func chunkToMatch(ch db.ChunkWithScore, fullContent bool) ChunkMatch {
-	snippet := ch.Content
+	snippet := ch.Text
 	if !fullContent {
-		snippet = truncateSnippet(ch.Content, maxSnippetLen)
+		snippet = truncateSnippet(ch.Text, maxSnippetLen)
 	}
 	return ChunkMatch{
 		Snippet:     snippet,
-		HeadingPath: ch.HeadingPath,
+		HeadingPath: ch.SourceLoc,
 		Position:    ch.Position,
 		Score:       ch.Score,
 	}
@@ -223,7 +223,7 @@ func assembleResults(ctx context.Context, chunks []db.ChunkWithScore, limit int,
 	order := make([]string, 0) // preserve encounter order for stable sort tie-breaking
 
 	for _, ch := range chunks {
-		docID, err := models.RecordIDString(ch.Document)
+		docID, err := models.RecordIDString(ch.File)
 		if err != nil {
 			logutil.FromCtx(ctx).Warn("failed to extract chunk document ID", "chunk_id", ch.ID, "error", err)
 			continue

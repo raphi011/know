@@ -26,17 +26,17 @@ func IsValidDate(s string) bool {
 	return err == nil
 }
 
-// Task represents a markdown checkbox extracted from a document.
+// Task represents a markdown checkbox extracted from a file.
 type Task struct {
 	ID          surrealmodels.RecordID `json:"id"`
-	Document    surrealmodels.RecordID `json:"document"`
+	File        surrealmodels.RecordID `json:"file"`
 	Vault       surrealmodels.RecordID `json:"vault"`
 	Status      TaskStatus             `json:"status"`       // "open" or "done"
 	RawLine     string                 `json:"raw_line"`     // original markdown line
 	Text        string                 `json:"text"`         // cleaned text (no checkbox marker/metadata)
 	Labels      []string               `json:"labels"`       // inline #labels
 	DueDate     *string                `json:"due_date"`     // "YYYY-MM-DD" or nil
-	LineNumber  int                    `json:"line_number"`  // 1-based position in document
+	LineNumber  int                    `json:"line_number"`  // 1-based position in file
 	HeadingPath *string                `json:"heading_path"` // section context, e.g. "Daily Note > Tasks"
 	ContentHash string                 `json:"content_hash"` // SHA256 of text with #labels and due:dates stripped, for stable identity
 	CreatedAt   time.Time              `json:"created_at"`
@@ -45,7 +45,7 @@ type Task struct {
 
 // TaskInput is used to create a new task record.
 type TaskInput struct {
-	DocumentID  string     `json:"document_id"`
+	FileID      string     `json:"file_id"`
 	VaultID     string     `json:"vault_id"`
 	Status      TaskStatus `json:"status"`
 	RawLine     string     `json:"raw_line"`
@@ -74,7 +74,7 @@ func (t TaskInput) Validate() error {
 	return nil
 }
 
-// TaskWithDoc extends Task with denormalized document fields for list queries.
+// TaskWithDoc extends Task with denormalized file fields for list queries.
 type TaskWithDoc struct {
 	Task
 	DocPath  string `json:"doc_path"`

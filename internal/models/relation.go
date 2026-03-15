@@ -6,7 +6,7 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// RelationType describes the kind of relationship between documents.
+// RelationType describes the kind of relationship between files.
 type RelationType string
 
 const (
@@ -21,7 +21,7 @@ const (
 	RelSourceAPI         RelationSource = "api"
 )
 
-type DocRelation struct {
+type FileRelation struct {
 	ID        surrealmodels.RecordID `json:"id"`
 	In        surrealmodels.RecordID `json:"in"`
 	Out       surrealmodels.RecordID `json:"out"`
@@ -30,9 +30,9 @@ type DocRelation struct {
 	CreatedAt time.Time              `json:"created_at"`
 }
 
-type DocRelationInput struct {
-	FromDocID string `json:"from_doc_id"`
-	ToDocID   string `json:"to_doc_id"`
-	RelType   string `json:"rel_type"`
-	Source    string `json:"source"`
+type FileRelationInput struct {
+	FromFileID string `json:"from_file_id"`
+	ToFileID   string `json:"to_file_id"`
+	RelType    string `json:"rel_type"`
+	Source     string `json:"source"`
 }

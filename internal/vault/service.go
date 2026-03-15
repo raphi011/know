@@ -59,7 +59,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 // ListFolders returns all folders in a vault. If parentPath is provided, returns
 // only immediate children of that path using a DB-level prefix filter (avoids
 // loading all folders in the vault).
-func (s *Service) ListFolders(ctx context.Context, vaultID string, parentPath *string) ([]models.Folder, error) {
+func (s *Service) ListFolders(ctx context.Context, vaultID string, parentPath *string) ([]models.File, error) {
 	if parentPath != nil {
 		folders, err := s.db.ListChildFolders(ctx, vaultID, *parentPath)
 		if err != nil {
@@ -76,7 +76,7 @@ func (s *Service) ListFolders(ctx context.Context, vaultID string, parentPath *s
 }
 
 // CreateFolder creates a folder and all its ancestor folders.
-func (s *Service) CreateFolder(ctx context.Context, vaultID, folderPath string) (*models.Folder, error) {
+func (s *Service) CreateFolder(ctx context.Context, vaultID, folderPath string) (*models.File, error) {
 	folderPath = models.NormalizePath(folderPath)
 
 	// EnsureFolderPath creates the target folder + all ancestors in one batch
@@ -100,12 +100,12 @@ func (s *Service) DeleteFolder(ctx context.Context, vaultID, folderPath string) 
 	prefix := folderPath + "/"
 
 	// Delete child documents
-	if _, err := s.db.DeleteDocumentsByPrefix(ctx, vaultID, prefix); err != nil {
+	if _, err := s.db.DeleteFilesByPrefix(ctx, vaultID, prefix); err != nil {
 		return fmt.Errorf("delete folder documents: %w", err)
 	}
 
 	// Delete child assets
-	if _, err := s.db.DeleteAssetsByPrefix(ctx, vaultID, prefix); err != nil {
+	if _, err := s.db.DeleteFilesByPrefix(ctx, vaultID, prefix); err != nil {
 		return fmt.Errorf("delete folder assets: %w", err)
 	}
 
@@ -128,12 +128,12 @@ func (s *Service) MoveFolder(ctx context.Context, vaultID, oldPath, newPath stri
 	}
 
 	// Move documents
-	if _, err := s.db.MoveDocumentsByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
+	if _, err := s.db.MoveFilesByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
 		return fmt.Errorf("move folder documents: %w", err)
 	}
 
 	// Move assets
-	if _, err := s.db.MoveAssetsByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
+	if _, err := s.db.MoveFilesByPrefix(ctx, vaultID, oldPath+"/", newPath+"/"); err != nil {
 		return fmt.Errorf("move folder assets: %w", err)
 	}
 

@@ -564,7 +564,7 @@ Guidelines:
 - Use lowercase entity names with hyphens (e.g., "john-doe", "auth-service")
 - For relation types use: works_on, owns, depends_on, references, mentions, relates_to`
 
-	userPrompt := fmt.Sprintf(`Text:
+	userPrompt := fmt.Sprintf(`Content:
 %s
 %s
 

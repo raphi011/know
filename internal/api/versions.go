@@ -33,7 +33,7 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
-	doc, err := s.app.DBClient().GetDocumentByPath(ctx, vaultID, path)
+	doc, err := s.app.DBClient().GetFileByPath(ctx, vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get document")
 		logger.Error("list versions: get document", "vault_id", vaultID, "path", path, "error", err)

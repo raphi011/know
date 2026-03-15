@@ -116,7 +116,7 @@ func (w *approvalToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON 
 			return "error: partial approval not available for this operation", nil
 		}
 
-		doc, docErr := w.service.db.GetDocumentByPath(ctx, w.vaultID, state.Request.Path)
+		doc, docErr := w.service.db.GetFileByPath(ctx, w.vaultID, state.Request.Path)
 		if docErr != nil {
 			logger.Warn("failed to retrieve document for partial approval", "path", state.Request.Path, "error", docErr)
 			return fmt.Sprintf("error: retrieve document for partial approval: %v", docErr), nil

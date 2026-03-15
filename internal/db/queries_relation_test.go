@@ -17,28 +17,28 @@ func TestCreateRelation(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/rel-a-" + suffix + ".md", Title: "Rel Doc A",
-		Content: "content a", ContentBody: "content a", Labels: []string{},
+		Content: "content a", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument A failed: %v", err)
+		t.Fatalf("CreateFile A failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/rel-b-" + suffix + ".md", Title: "Rel Doc B",
-		Content: "content b", ContentBody: "content b", Labels: []string{},
+		Content: "content b", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument B failed: %v", err)
+		t.Fatalf("CreateFile B failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 
-	rel, err := testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID,
-		ToDocID:   docBID,
-		RelType:   "relates_to",
-		Source:    "api",
+	rel, err := testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID,
+		ToFileID:   docBID,
+		RelType:    "relates_to",
+		Source:     "api",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation failed: %v", err)
@@ -59,40 +59,40 @@ func TestGetRelations(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/getrel-a-" + suffix + ".md", Title: "GetRel A",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument A failed: %v", err)
+		t.Fatalf("CreateFile A failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/getrel-b-" + suffix + ".md", Title: "GetRel B",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument B failed: %v", err)
+		t.Fatalf("CreateFile B failed: %v", err)
 	}
-	docC, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docC, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/getrel-c-" + suffix + ".md", Title: "GetRel C",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument C failed: %v", err)
+		t.Fatalf("CreateFile C failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 	docCID := models.MustRecordIDString(docC.ID)
 
 	// Create two relations from A
-	_, err = testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID, ToDocID: docBID, RelType: "relates_to", Source: "api",
+	_, err = testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID, ToFileID: docBID, RelType: "relates_to", Source: "api",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation A->B failed: %v", err)
 	}
-	_, err = testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID, ToDocID: docCID, RelType: "relates_to", Source: "api",
+	_, err = testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID, ToFileID: docCID, RelType: "relates_to", Source: "api",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation A->C failed: %v", err)
@@ -115,25 +115,25 @@ func TestGetRelationByID(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relbyid-a-" + suffix + ".md", Title: "RelByID A",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument A failed: %v", err)
+		t.Fatalf("CreateFile A failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relbyid-b-" + suffix + ".md", Title: "RelByID B",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument B failed: %v", err)
+		t.Fatalf("CreateFile B failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 
-	rel, err := testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID, ToDocID: docBID, RelType: "relates_to", Source: "api",
+	rel, err := testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID, ToFileID: docBID, RelType: "relates_to", Source: "api",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation failed: %v", err)
@@ -152,7 +152,7 @@ func TestGetRelationByID(t *testing.T) {
 	}
 
 	// Nonexistent relation should return nil
-	notFound, err := testDB.GetRelationByID(ctx, "doc_relation:nonexistent_"+suffix)
+	notFound, err := testDB.GetRelationByID(ctx, "file_relation:nonexistent_"+suffix)
 	if err != nil {
 		t.Fatalf("GetRelationByID nonexistent error: %v", err)
 	}
@@ -169,40 +169,40 @@ func TestDeleteRelationsBySource(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delsrc-a-" + suffix + ".md", Title: "DelSrc A",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument A failed: %v", err)
+		t.Fatalf("CreateFile A failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delsrc-b-" + suffix + ".md", Title: "DelSrc B",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument B failed: %v", err)
+		t.Fatalf("CreateFile B failed: %v", err)
 	}
-	docC, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docC, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delsrc-c-" + suffix + ".md", Title: "DelSrc C",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument C failed: %v", err)
+		t.Fatalf("CreateFile C failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 	docCID := models.MustRecordIDString(docC.ID)
 
 	// Create one frontmatter relation and one API relation from A
-	_, err = testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID, ToDocID: docBID, RelType: "relates_to", Source: "frontmatter",
+	_, err = testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID, ToFileID: docBID, RelType: "relates_to", Source: "frontmatter",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation A->B failed: %v", err)
 	}
-	_, err = testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID, ToDocID: docCID, RelType: "relates_to", Source: "api",
+	_, err = testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID, ToFileID: docCID, RelType: "relates_to", Source: "api",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation A->C failed: %v", err)
@@ -235,25 +235,25 @@ func TestDeleteRelation(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	docA, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delrel-a-" + suffix + ".md", Title: "DelRel A",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument A failed: %v", err)
+		t.Fatalf("CreateFile A failed: %v", err)
 	}
-	docB, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/delrel-b-" + suffix + ".md", Title: "DelRel B",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument B failed: %v", err)
+		t.Fatalf("CreateFile B failed: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
 	docBID := models.MustRecordIDString(docB.ID)
 
-	rel, err := testDB.CreateRelation(ctx, models.DocRelationInput{
-		FromDocID: docAID, ToDocID: docBID, RelType: "relates_to", Source: "api",
+	rel, err := testDB.CreateRelation(ctx, models.FileRelationInput{
+		FromFileID: docAID, ToFileID: docBID, RelType: "relates_to", Source: "api",
 	})
 	if err != nil {
 		t.Fatalf("CreateRelation failed: %v", err)

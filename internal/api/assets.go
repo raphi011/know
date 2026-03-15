@@ -53,7 +53,7 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asset, err := s.app.AssetService().Create(r.Context(), models.AssetInput{
+	asset, err := s.app.FileService().Create(r.Context(), models.FileInput{
 		VaultID: vaultID,
 		Path:    path,
 		Data:    data,
@@ -71,7 +71,6 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 		MimeType:    asset.MimeType,
 		Size:        asset.Size,
 		ContentHash: asset.ContentHash,
-		CreatedAt:   asset.CreatedAt,
 		UpdatedAt:   asset.UpdatedAt,
 	})
 }
@@ -90,7 +89,7 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asset, err := s.app.AssetService().Get(r.Context(), vaultID, path)
+	asset, err := s.app.FileService().Get(r.Context(), vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get asset")
 		logutil.FromCtx(r.Context()).Error("get asset", "error", err)
@@ -102,7 +101,9 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", asset.MimeType)
-	w.Header().Set("ETag", `"`+asset.ContentHash+`"`)
+	if asset.ContentHash != nil {
+		w.Header().Set("ETag", `"`+*asset.ContentHash+`"`)
+	}
 	w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
 	http.ServeContent(w, r, asset.Path, asset.UpdatedAt, bytes.NewReader(asset.Data))
 }
@@ -121,7 +122,7 @@ func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := s.app.AssetService().GetMeta(r.Context(), vaultID, path)
+	meta, err := s.app.FileService().GetMeta(r.Context(), vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get asset metadata")
 		logutil.FromCtx(r.Context()).Error("get asset meta", "error", err)
@@ -139,7 +140,6 @@ func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
 		MimeType:    meta.MimeType,
 		Size:        meta.Size,
 		ContentHash: meta.ContentHash,
-		CreatedAt:   meta.CreatedAt,
 		UpdatedAt:   meta.UpdatedAt,
 	})
 }
@@ -161,7 +161,7 @@ func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	logger := logutil.FromCtx(r.Context())
 
 	// Check existence first so we return 404 instead of silent 204
-	meta, err := s.app.AssetService().GetMeta(r.Context(), vaultID, path)
+	meta, err := s.app.FileService().GetMeta(r.Context(), vaultID, path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check asset")
 		logger.Error("delete asset: check existence", "error", err)
@@ -172,7 +172,7 @@ func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.app.AssetService().Delete(r.Context(), vaultID, path); err != nil {
+	if err := s.app.FileService().Delete(r.Context(), vaultID, path); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete asset")
 		logger.Error("delete asset", "error", err)
 		return

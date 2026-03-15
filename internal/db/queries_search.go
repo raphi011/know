@@ -29,33 +29,33 @@ type ChunkWithScore struct {
 }
 
 // buildChunkFilterConditions returns WHERE conditions and query variables
-// for filtering chunks by their parent document's vault, labels, doc_type and folder.
+// for filtering chunks by their parent file's vault, labels, doc_type and folder.
 func buildChunkFilterConditions(filter SearchFilter) ([]string, map[string]any) {
 	var conditions []string
 	vars := map[string]any{
 		"vault_id": bareID("vault", filter.VaultID),
 	}
 
-	conditions = append(conditions, `document.vault = type::record("vault", $vault_id)`)
+	conditions = append(conditions, `file.vault = type::record("vault", $vault_id)`)
 
 	if len(filter.Labels) > 0 {
-		conditions = append(conditions, `document.labels CONTAINSANY $labels`)
+		conditions = append(conditions, `file.labels CONTAINSANY $labels`)
 		vars["labels"] = filter.Labels
 	}
 	if filter.DocType != nil {
-		conditions = append(conditions, `document.doc_type = $doc_type`)
+		conditions = append(conditions, `file.doc_type = $doc_type`)
 		vars["doc_type"] = *filter.DocType
 	}
 	if filter.Folder != nil {
-		conditions = append(conditions, `string::starts_with(document.path, $folder)`)
+		conditions = append(conditions, `string::starts_with(file.path, $folder)`)
 		vars["folder"] = *filter.Folder
 	}
 
 	return conditions, vars
 }
 
-// BM25ChunkSearch performs fulltext search on chunk content via BM25,
-// filtering by the parent document's vault, labels, doc_type and folder.
+// BM25ChunkSearch performs fulltext search on chunk text via BM25,
+// filtering by the parent file's vault, labels, doc_type and folder.
 func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter SearchFilter) ([]ChunkWithScore, error) {
 	defer c.logOp(ctx, "search.bm25", time.Now())
 	limit := filter.Limit
@@ -69,13 +69,13 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 	sql := fmt.Sprintf(`
 		SELECT *,
 			search::score(1) AS score,
-			document.path AS doc_path,
-			document.title AS doc_title,
-			document.labels AS doc_labels,
-			document.doc_type AS doc_type
+			file.path AS doc_path,
+			file.title AS doc_title,
+			file.labels AS doc_labels,
+			file.doc_type AS doc_type
 		FROM chunk
 		WHERE %s
-			AND content @1@ $query
+			AND text @1@ $query
 		ORDER BY score DESC
 		LIMIT %d
 	`, strings.Join(conditions, " AND "), limit)
@@ -89,7 +89,7 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 
 // HybridSearch performs hybrid BM25+vector search using SurrealDB's search::rrf()
 // to fuse both result sets in a single query. Returns chunks ranked by RRF score
-// with parent document metadata included via record link traversal.
+// with parent file metadata included via record link traversal.
 func (c *Client) HybridSearch(ctx context.Context, query string, embedding []float32, filter SearchFilter) ([]ChunkWithScore, error) {
 	defer c.logOp(ctx, "search.hybrid", time.Now())
 	limit := filter.Limit
@@ -108,14 +108,14 @@ func (c *Client) HybridSearch(ctx context.Context, query string, embedding []flo
 	// K nearest neighbors in similarity order. search::rrf() uses these orderings for rank fusion.
 	sql := fmt.Sprintf(`
 		SELECT *,
-			document.path AS doc_path,
-			document.title AS doc_title,
-			document.labels AS doc_labels,
-			document.doc_type AS doc_type
+			file.path AS doc_path,
+			file.title AS doc_title,
+			file.labels AS doc_labels,
+			file.doc_type AS doc_type
 		FROM search::rrf([
 			(SELECT * FROM chunk
 			 WHERE %s
-			   AND content @1@ $query
+			   AND text @1@ $query
 			 LIMIT %d),
 			(SELECT * FROM chunk
 			 WHERE %s
@@ -131,24 +131,24 @@ func (c *Client) HybridSearch(ctx context.Context, query string, embedding []flo
 	return allResults(results), nil
 }
 
-// GetDocumentsByIDs fetches multiple documents by ID in a single query.
-func (c *Client) GetDocumentsByIDs(ctx context.Context, ids []string) ([]models.Document, error) {
-	defer c.logOp(ctx, "search.get_docs_by_ids", time.Now())
+// GetFilesByIDs fetches multiple files by ID in a single query.
+func (c *Client) GetFilesByIDs(ctx context.Context, ids []string) ([]models.File, error) {
+	defer c.logOp(ctx, "search.get_files_by_ids", time.Now())
 	if len(ids) == 0 {
 		return nil, nil
 	}
 
-	sql := `SELECT * FROM document WHERE id INSIDE $ids`
+	sql := `SELECT * FROM file WHERE id INSIDE $ids`
 	recordIDs := make([]surrealmodels.RecordID, len(ids))
 	for i, id := range ids {
-		recordIDs[i] = newRecordID("document", bareID("document", id))
+		recordIDs[i] = newRecordID("file", bareID("file", id))
 	}
 
-	results, err := surrealdb.Query[[]models.Document](ctx, c.DB(), sql, map[string]any{
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
 		"ids": recordIDs,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get documents by ids: %w", err)
+		return nil, fmt.Errorf("get files by ids: %w", err)
 	}
 	return allResults(results), nil
 }

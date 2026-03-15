@@ -42,43 +42,43 @@ func TestEnsureLabel(t *testing.T) {
 	}
 }
 
-func TestSyncDocumentLabels(t *testing.T) {
+func TestSyncFileLabels(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/label-sync.md", Title: "Label Sync",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
 	// Sync with initial labels
-	if err := testDB.SyncDocumentLabels(ctx, docID, vaultID, []string{"go", "backend"}); err != nil {
-		t.Fatalf("SyncDocumentLabels failed: %v", err)
+	if err := testDB.SyncFileLabels(ctx, docID, vaultID, []string{"go", "backend"}); err != nil {
+		t.Fatalf("SyncFileLabels failed: %v", err)
 	}
 
-	labels, err := testDB.GetLabelsForDocument(ctx, docID)
+	labels, err := testDB.GetLabelsForFile(ctx, docID)
 	if err != nil {
-		t.Fatalf("GetLabelsForDocument failed: %v", err)
+		t.Fatalf("GetLabelsForFile failed: %v", err)
 	}
 	if len(labels) != 2 {
 		t.Errorf("Expected 2 labels, got %d: %v", len(labels), labels)
 	}
 
 	// Sync with different labels — old edges should be removed
-	if err := testDB.SyncDocumentLabels(ctx, docID, vaultID, []string{"rust"}); err != nil {
-		t.Fatalf("SyncDocumentLabels second call failed: %v", err)
+	if err := testDB.SyncFileLabels(ctx, docID, vaultID, []string{"rust"}); err != nil {
+		t.Fatalf("SyncFileLabels second call failed: %v", err)
 	}
 
-	labels, err = testDB.GetLabelsForDocument(ctx, docID)
+	labels, err = testDB.GetLabelsForFile(ctx, docID)
 	if err != nil {
-		t.Fatalf("GetLabelsForDocument after resync failed: %v", err)
+		t.Fatalf("GetLabelsForFile after resync failed: %v", err)
 	}
 	if len(labels) != 1 {
 		t.Errorf("Expected 1 label after resync, got %d: %v", len(labels), labels)
@@ -88,73 +88,73 @@ func TestSyncDocumentLabels(t *testing.T) {
 	}
 
 	// Sync with empty labels — all edges should be removed
-	if err := testDB.SyncDocumentLabels(ctx, docID, vaultID, nil); err != nil {
-		t.Fatalf("SyncDocumentLabels empty failed: %v", err)
+	if err := testDB.SyncFileLabels(ctx, docID, vaultID, nil); err != nil {
+		t.Fatalf("SyncFileLabels empty failed: %v", err)
 	}
 
-	labels, err = testDB.GetLabelsForDocument(ctx, docID)
+	labels, err = testDB.GetLabelsForFile(ctx, docID)
 	if err != nil {
-		t.Fatalf("GetLabelsForDocument after empty sync failed: %v", err)
+		t.Fatalf("GetLabelsForFile after empty sync failed: %v", err)
 	}
 	if len(labels) != 0 {
 		t.Errorf("Expected 0 labels after empty sync, got %d: %v", len(labels), labels)
 	}
 }
 
-func TestGetDocumentsByLabel(t *testing.T) {
+func TestGetFilesByLabel(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 	vault := createTestVault(t, ctx, userID)
 	vaultID := models.MustRecordIDString(vault.ID)
 
-	doc1, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc1, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/label-query-1.md", Title: "Label Query 1",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument 1 failed: %v", err)
+		t.Fatalf("CreateFile 1 failed: %v", err)
 	}
-	doc2, err := testDB.CreateDocument(ctx, models.DocumentInput{
+	doc2, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/label-query-2.md", Title: "Label Query 2",
-		Content: "content", ContentBody: "content", Labels: []string{},
+		Content: "content", Labels: []string{},
 	})
 	if err != nil {
-		t.Fatalf("CreateDocument 2 failed: %v", err)
+		t.Fatalf("CreateFile 2 failed: %v", err)
 	}
 	doc1ID := models.MustRecordIDString(doc1.ID)
 	doc2ID := models.MustRecordIDString(doc2.ID)
 
 	// Both docs get "shared" label, only doc1 gets "unique"
-	if err := testDB.SyncDocumentLabels(ctx, doc1ID, vaultID, []string{"shared", "unique"}); err != nil {
-		t.Fatalf("SyncDocumentLabels doc1 failed: %v", err)
+	if err := testDB.SyncFileLabels(ctx, doc1ID, vaultID, []string{"shared", "unique"}); err != nil {
+		t.Fatalf("SyncFileLabels doc1 failed: %v", err)
 	}
-	if err := testDB.SyncDocumentLabels(ctx, doc2ID, vaultID, []string{"shared"}); err != nil {
-		t.Fatalf("SyncDocumentLabels doc2 failed: %v", err)
+	if err := testDB.SyncFileLabels(ctx, doc2ID, vaultID, []string{"shared"}); err != nil {
+		t.Fatalf("SyncFileLabels doc2 failed: %v", err)
 	}
 
 	// Query by "shared" — should return both docs
-	docs, err := testDB.GetDocumentsByLabel(ctx, vaultID, "shared")
+	docs, err := testDB.GetFilesByLabel(ctx, vaultID, "shared")
 	if err != nil {
-		t.Fatalf("GetDocumentsByLabel failed: %v", err)
+		t.Fatalf("GetFilesByLabel failed: %v", err)
 	}
 	if len(docs) != 2 {
 		t.Errorf("Expected 2 docs with 'shared' label, got %d", len(docs))
 	}
 
 	// Query by "unique" — should return only doc1
-	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "unique")
+	docs, err = testDB.GetFilesByLabel(ctx, vaultID, "unique")
 	if err != nil {
-		t.Fatalf("GetDocumentsByLabel unique failed: %v", err)
+		t.Fatalf("GetFilesByLabel unique failed: %v", err)
 	}
 	if len(docs) != 1 {
 		t.Errorf("Expected 1 doc with 'unique' label, got %d", len(docs))
 	}
 
 	// Query by nonexistent label — should return empty
-	docs, err = testDB.GetDocumentsByLabel(ctx, vaultID, "nonexistent")
+	docs, err = testDB.GetFilesByLabel(ctx, vaultID, "nonexistent")
 	if err != nil {
-		t.Fatalf("GetDocumentsByLabel nonexistent failed: %v", err)
+		t.Fatalf("GetFilesByLabel nonexistent failed: %v", err)
 	}
 	if len(docs) != 0 {
 		t.Errorf("Expected 0 docs with 'nonexistent' label, got %d", len(docs))

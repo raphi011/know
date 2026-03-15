@@ -15,33 +15,30 @@ import (
 
 	"golang.org/x/net/webdav"
 
-	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
 )
 
 const markdownContentType = "text/markdown; charset=utf-8"
 
-// FS implements webdav.FileSystem backed by document, asset, and vault services.
+// FS implements webdav.FileSystem backed by the unified file service.
 type FS struct {
 	vaultID      string
 	db           *db.Client
-	docService   *document.Service
-	assetSvc     *asset.Service
+	fileSvc      *file.Service
 	vaultSvc     *vault.Service
 	pending      *pendingSet
 	virtualFiles []VirtualFile
 }
 
 // NewFS creates a WebDAV filesystem for the given vault.
-func NewFS(vaultID string, db *db.Client, docService *document.Service, assetSvc *asset.Service, vaultSvc *vault.Service, pending *pendingSet) *FS {
+func NewFS(vaultID string, db *db.Client, fileSvc *file.Service, vaultSvc *vault.Service, pending *pendingSet) *FS {
 	return &FS{
 		vaultID:      vaultID,
 		db:           db,
-		docService:   docService,
-		assetSvc:     assetSvc,
+		fileSvc:      fileSvc,
 		vaultSvc:     vaultSvc,
 		pending:      pending,
 		virtualFiles: defaultVirtualFiles(db),
@@ -90,51 +87,37 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 		return newVirtualReadFile(name, content), nil
 	}
 
-	// Try as document
-	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, name)
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", name, err)
-	}
-
-	if doc != nil {
-		// Existing document
-		if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
-			if !isMarkdownFile(name) {
-				return nil, errNotMarkdown
-			}
-			// Open for writing — PUT is a full replacement, don't pre-load existing content
-			return newWriteFile(name, f.vaultID, f.docService, nil, doc.UpdatedAt, false, f.pending), nil
-		}
-		return newReadFile(name, doc), nil
-	}
-
-	// Try as asset
+	// Single lookup — documents, assets, and folders are all in the file table
 	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
-		// For write mode, only need metadata (avoid loading full binary data)
-		assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, name)
+		// Write mode — only need metadata to check existence
+		meta, err := f.fileSvc.GetMeta(ctx, f.vaultID, name)
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", name, err)
 		}
-		if assetMeta != nil {
-			return newAssetWriteFile(name, f.vaultID, f.assetSvc, assetMeta.UpdatedAt, false, f.pending), nil
+		if meta != nil {
+			if meta.IsFolder {
+				return nil, fmt.Errorf("open %s: %w", name, os.ErrPermission)
+			}
+			if isMarkdownFile(name) {
+				return newWriteFile(name, f.vaultID, f.fileSvc, nil, meta.UpdatedAt, false, f.pending), nil
+			}
+			return newAssetWriteFile(name, f.vaultID, f.fileSvc, meta.UpdatedAt, false, f.pending), nil
 		}
 	} else {
-		assetObj, err := f.assetSvc.Get(ctx, f.vaultID, name)
+		// Read mode — need full content
+		doc, err := f.db.GetFileByPath(ctx, f.vaultID, name)
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", name, err)
 		}
-		if assetObj != nil {
-			return newAssetReadFile(name, assetObj), nil
+		if doc != nil {
+			if doc.IsFolder {
+				return f.openDir(ctx, name, doc.UpdatedAt)
+			}
+			if isMarkdownFile(name) {
+				return newReadFile(name, doc), nil
+			}
+			return newAssetReadFile(name, doc), nil
 		}
-	}
-
-	// Try as folder
-	folder, err := f.db.GetFolderByPath(ctx, f.vaultID, name)
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", name, err)
-	}
-	if folder != nil {
-		return f.openDir(ctx, name, folder.CreatedAt)
 	}
 
 	// Check pending set before creating — file may have been claimed already
@@ -142,9 +125,9 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 		if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE) != 0 {
 			// Subsequent write to a pending file (the real content PUT)
 			if models.IsImageFile(name) {
-				return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now(), false, f.pending), nil
+				return newAssetWriteFile(name, f.vaultID, f.fileSvc, time.Now(), false, f.pending), nil
 			}
-			return newWriteFile(name, f.vaultID, f.docService, nil, time.Now(), false, f.pending), nil
+			return newWriteFile(name, f.vaultID, f.fileSvc, nil, time.Now(), false, f.pending), nil
 		}
 		// Read-only open on a pending path — return empty read file
 		return newEmptyReadFile(name), nil
@@ -153,12 +136,12 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 	// Not found — if creating, open for write
 	if flag&os.O_CREATE != 0 {
 		if models.IsImageFile(name) {
-			return newAssetWriteFile(name, f.vaultID, f.assetSvc, time.Now(), true, f.pending), nil
+			return newAssetWriteFile(name, f.vaultID, f.fileSvc, time.Now(), true, f.pending), nil
 		}
 		if !isMarkdownFile(name) {
 			return newNopFile(name), nil
 		}
-		return newWriteFile(name, f.vaultID, f.docService, nil, time.Now(), true, f.pending), nil
+		return newWriteFile(name, f.vaultID, f.fileSvc, nil, time.Now(), true, f.pending), nil
 	}
 
 	return nil, os.ErrNotExist
@@ -184,38 +167,20 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 		return os.ErrPermission
 	}
 
-	// Try as document first
-	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, name)
+	// Single lookup — documents and assets are in the same file table
+	meta, err := f.fileSvc.GetMeta(ctx, f.vaultID, name)
 	if err != nil {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
-	if doc != nil {
-		if err := f.docService.Delete(ctx, f.vaultID, name); err != nil {
-			return fmt.Errorf("remove document %s: %w", name, err)
+	if meta != nil {
+		if meta.IsFolder {
+			if err := f.vaultSvc.DeleteFolder(ctx, f.vaultID, name); err != nil {
+				return fmt.Errorf("remove folder %s: %w", name, err)
+			}
+			return nil
 		}
-		return nil
-	}
-
-	// Try as asset
-	assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, name)
-	if err != nil {
-		return fmt.Errorf("remove %s: %w", name, err)
-	}
-	if assetMeta != nil {
-		if err := f.assetSvc.Delete(ctx, f.vaultID, name); err != nil {
-			return fmt.Errorf("remove asset %s: %w", name, err)
-		}
-		return nil
-	}
-
-	// Try as folder
-	folder, err := f.db.GetFolderByPath(ctx, f.vaultID, name)
-	if err != nil {
-		return fmt.Errorf("remove %s: %w", name, err)
-	}
-	if folder != nil {
-		if err := f.vaultSvc.DeleteFolder(ctx, f.vaultID, name); err != nil {
-			return fmt.Errorf("remove folder %s: %w", name, err)
+		if err := f.fileSvc.Delete(ctx, f.vaultID, name); err != nil {
+			return fmt.Errorf("remove %s: %w", name, err)
 		}
 		return nil
 	}
@@ -245,44 +210,26 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 		return os.ErrPermission
 	}
 
-	// Try as document first
-	doc, err := f.db.GetDocumentByPath(ctx, f.vaultID, oldName)
+	// Single lookup — documents, assets, and folders are in the same file table
+	meta, err := f.fileSvc.GetMeta(ctx, f.vaultID, oldName)
 	if err != nil {
 		return fmt.Errorf("rename %s: %w", oldName, err)
 	}
-	if doc != nil {
-		if !isMarkdownFile(newName) {
+	if meta != nil {
+		if meta.IsFolder {
+			if err := f.vaultSvc.MoveFolder(ctx, f.vaultID, oldName, newName); err != nil {
+				return fmt.Errorf("rename folder %s to %s: %w", oldName, newName, err)
+			}
+			return nil
+		}
+		if isMarkdownFile(oldName) && !isMarkdownFile(newName) {
 			return errNotMarkdown
 		}
-		if _, err := f.docService.Move(ctx, f.vaultID, oldName, newName); err != nil {
-			return fmt.Errorf("rename %s to %s: %w", oldName, newName, err)
-		}
-		return nil
-	}
-
-	// Try as asset
-	assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, oldName)
-	if err != nil {
-		return fmt.Errorf("rename %s: %w", oldName, err)
-	}
-	if assetMeta != nil {
-		if !models.IsImageFile(newName) {
+		if models.IsImageFile(oldName) && !models.IsImageFile(newName) {
 			return fmt.Errorf("cannot rename asset to non-image file: %w", os.ErrPermission)
 		}
-		if err := f.assetSvc.Move(ctx, f.vaultID, oldName, newName); err != nil {
-			return fmt.Errorf("rename asset %s to %s: %w", oldName, newName, err)
-		}
-		return nil
-	}
-
-	// Try as folder
-	folder, err := f.db.GetFolderByPath(ctx, f.vaultID, oldName)
-	if err != nil {
-		return fmt.Errorf("rename %s: %w", oldName, err)
-	}
-	if folder != nil {
-		if err := f.vaultSvc.MoveFolder(ctx, f.vaultID, oldName, newName); err != nil {
-			return fmt.Errorf("rename folder %s to %s: %w", oldName, newName, err)
+		if _, err := f.fileSvc.Move(ctx, f.vaultID, oldName, newName); err != nil {
+			return fmt.Errorf("rename %s to %s: %w", oldName, newName, err)
 		}
 		return nil
 	}
@@ -318,51 +265,30 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 		}, nil
 	}
 
-	// Try as document (lightweight meta query — no content loaded)
-	meta, err := f.db.GetDocumentMetaByPath(ctx, f.vaultID, name)
+	// Single lookup — documents, assets, and folders are in the same file table
+	meta, err := f.fileSvc.GetMeta(ctx, f.vaultID, name)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", name, err)
 	}
 	if meta != nil {
-		fi := &fileInfo{
+		if meta.IsFolder {
+			return &fileInfo{
+				name:    path.Base(name),
+				isDir:   true,
+				modTime: meta.UpdatedAt,
+			}, nil
+		}
+		ct := meta.MimeType
+		if isMarkdownFile(name) {
+			ct = markdownContentType
+		}
+		return &fileInfo{
 			name:        path.Base(name),
-			size:        int64(meta.ContentLength),
+			size:        int64(meta.Size),
 			modTime:     meta.UpdatedAt,
 			isDir:       false,
-			contentType: markdownContentType,
-		}
-		if meta.ContentHash != nil {
-			fi.etag = `"` + *meta.ContentHash + `"`
-		}
-		return fi, nil
-	}
-
-	// Try as asset
-	assetMeta, err := f.assetSvc.GetMeta(ctx, f.vaultID, name)
-	if err != nil {
-		return nil, fmt.Errorf("stat %s: %w", name, err)
-	}
-	if assetMeta != nil {
-		return &fileInfo{
-			name:        path.Base(name),
-			size:        int64(assetMeta.Size),
-			modTime:     assetMeta.UpdatedAt,
-			isDir:       false,
-			contentType: assetMeta.MimeType,
-			etag:        `"` + assetMeta.ContentHash + `"`,
-		}, nil
-	}
-
-	// Try as folder
-	folder, err := f.db.GetFolderByPath(ctx, f.vaultID, name)
-	if err != nil {
-		return nil, fmt.Errorf("stat %s: %w", name, err)
-	}
-	if folder != nil {
-		return &fileInfo{
-			name:    path.Base(name),
-			isDir:   true,
-			modTime: folder.CreatedAt,
+			contentType: ct,
+			etag:        contentHashETag(meta.ContentHash),
 		}, nil
 	}
 
@@ -418,63 +344,43 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 		})
 	}
 
-	// Append "/" for non-root paths so the DB filter matches documents under
+	// Append "/" for non-root paths so the DB filter matches files under
 	// this folder (root already ends with "/").
 	folderFilter := dirPath
 	if folderFilter != "/" {
 		folderFilter += "/"
 	}
-	// List immediate child documents (lightweight meta query — no content loaded)
-	metas, err := f.db.ListDocumentMetas(ctx, db.ListDocumentsFilter{
-		VaultID: f.vaultID,
-		Folder:  &folderFilter,
-		Limit:   10000,
+	// List immediate child files (lightweight meta query — no content loaded)
+	isNotFolder := false
+	metas, err := f.db.ListFileMetas(ctx, db.ListFilesFilter{
+		VaultID:  f.vaultID,
+		Folder:   &folderFilter,
+		IsFolder: &isNotFolder,
+		Limit:    10000,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list documents in %s: %w", dirPath, err)
+		return nil, fmt.Errorf("list files in %s: %w", dirPath, err)
 	}
 	for _, meta := range metas {
-		// Only include immediate children, not nested docs
+		// Only include immediate children, not nested files
 		rel := strings.TrimPrefix(meta.Path, folderFilter)
 		if dirPath == "/" {
 			rel = strings.TrimPrefix(meta.Path, "/")
 		}
 		if strings.Contains(rel, "/") {
-			continue // nested doc, skip
+			continue // nested file, skip
 		}
-		fi := &fileInfo{
-			name:        path.Base(meta.Path),
-			size:        int64(meta.ContentLength),
-			modTime:     meta.UpdatedAt,
-			isDir:       false,
-			contentType: markdownContentType,
-		}
-		if meta.ContentHash != nil {
-			fi.etag = `"` + *meta.ContentHash + `"`
-		}
-		entries = append(entries, fi)
-	}
-
-	// List immediate child assets
-	assetMetas, err := f.assetSvc.ListMetas(ctx, f.vaultID, &folderFilter)
-	if err != nil {
-		return nil, fmt.Errorf("list assets in %s: %w", dirPath, err)
-	}
-	for _, am := range assetMetas {
-		rel := strings.TrimPrefix(am.Path, folderFilter)
-		if dirPath == "/" {
-			rel = strings.TrimPrefix(am.Path, "/")
-		}
-		if strings.Contains(rel, "/") {
-			continue // nested asset, skip
+		ct := meta.MimeType
+		if isMarkdownFile(meta.Path) {
+			ct = markdownContentType
 		}
 		entries = append(entries, &fileInfo{
-			name:        path.Base(am.Path),
-			size:        int64(am.Size),
-			modTime:     am.UpdatedAt,
+			name:        path.Base(meta.Path),
+			size:        int64(meta.Size),
+			modTime:     meta.UpdatedAt,
 			isDir:       false,
-			contentType: am.MimeType,
-			etag:        `"` + am.ContentHash + `"`,
+			contentType: ct,
+			etag:        contentHashETag(meta.ContentHash),
 		})
 	}
 
@@ -527,6 +433,14 @@ func isUnsupportedFile(name string) bool {
 // OS metadata files (._*, .DS_Store) and unsupported file types (.pdf, .txt, etc.).
 func isNonStoredFile(name string) bool {
 	return isOSMetadataFile(name) || isUnsupportedFile(name)
+}
+
+// contentHashETag returns a quoted ETag from a content hash pointer, or empty string if nil.
+func contentHashETag(hash *string) string {
+	if hash == nil {
+		return ""
+	}
+	return `"` + *hash + `"`
 }
 
 // normalizeName cleans up a WebDAV path to match our internal path format.

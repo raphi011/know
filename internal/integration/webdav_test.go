@@ -12,9 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/auth"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/vault"
@@ -57,10 +56,9 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "webdav-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	docSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	assetSvc := asset.NewService(testDB, nil)
-	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, true, 1024*1024)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, true, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -76,7 +74,7 @@ func TestWebDAV_PutGetRoundtrip(t *testing.T) {
 	srv, vaultID := setupWebDAV(t, "roundtrip")
 	vaultName := vaultNameFromID(vaultID)
 
-	content := "# Hello\n\nThis is a test document.\n"
+	content := "# Hello\n\nThis is a test file.\n"
 	url := davURL(srv, vaultName, "/test.md")
 
 	// PUT
@@ -448,9 +446,8 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 		t.Fatalf("create token: %v", err)
 	}
 
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
-	assetSvc := asset.NewService(testDB, nil)
-	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, assetSvc, vaultSvc, false, 1024*1024)
+	docSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, false, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -1268,9 +1265,9 @@ func TestWebDAV_FinderTwoPhasePutAborted(t *testing.T) {
 	// cleaned up by the sweep goroutine. We can't easily wait for the sweep
 	// in a test, so instead verify that the document was NOT written to DB.
 	ctx := context.Background()
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/aborted.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/aborted.md")
 	if err != nil {
-		t.Fatalf("GetDocumentByPath: %v", err)
+		t.Fatalf("GetFileByPath: %v", err)
 	}
 	if doc != nil {
 		t.Error("expected no document in DB for aborted two-phase PUT, but found one")

@@ -477,7 +477,7 @@ func (t *mcpTools) retrieveMemories(ctx context.Context, req *mcp.CallToolReques
 	fmt.Fprintf(&sb, "Found %d memories:\n\n", len(memories))
 	for _, m := range memories {
 		fmt.Fprintf(&sb, "--- %s (score: %.2f) ---\n", m.Document.Path, m.Score)
-		fmt.Fprintf(&sb, "%s\n\n", m.Document.ContentBody)
+		fmt.Fprintf(&sb, "%s\n\n", m.Document.Content)
 	}
 	return textResult(sb.String()), nil, nil
 }

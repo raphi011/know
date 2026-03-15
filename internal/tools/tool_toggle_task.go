@@ -7,13 +7,13 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 )
 
 // ToggleTaskTool implements tool.InvokableTool for toggling a task's status.
 type ToggleTaskTool struct {
-	docService *document.Service
+	docService *file.Service
 }
 
 func (t *ToggleTaskTool) Info(ctx context.Context) (*schema.ToolInfo, error) {

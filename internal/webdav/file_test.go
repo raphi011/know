@@ -12,7 +12,7 @@ import (
 )
 
 func TestReadFile(t *testing.T) {
-	doc := &models.Document{
+	doc := &models.File{
 		ID:        surrealmodels.RecordID{Table: "document", ID: "test1"},
 		Path:      "/test.md",
 		Content:   "# Hello\nWorld",
@@ -144,4 +144,4 @@ func TestDirFile(t *testing.T) {
 }
 
 // writeFile.Close() empty-PUT behavior (Finder error -43 fix) is tested via
-// integration tests — writeFile depends on *document.Service which requires DB.
+// integration tests — writeFile depends on *file.Service which requires DB.

@@ -7,7 +7,7 @@ import (
 
 // ChangeEvent represents a change notification scoped to a vault.
 type ChangeEvent struct {
-	Type    string `json:"type"` // "document.created", "document.updated", etc.
+	Type    string `json:"type"` // "file.created", "file.updated", etc.
 	VaultID string `json:"vaultId"`
 	Payload any    `json:"payload"`
 }

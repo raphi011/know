@@ -13,9 +13,8 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/api"
-	"github.com/raphi011/know/internal/asset"
 	"github.com/raphi011/know/internal/auth"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/server"
 )
@@ -39,10 +38,9 @@ func setupBulkServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "bulk-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	docSvc := document.NewService(testDB, nil, parser.DefaultChunkConfig(), document.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
-	assetSvc := asset.NewService(testDB, nil)
+	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	app := server.NewForTest(testDB, docSvc, assetSvc, vaultSvc)
+	app := server.NewForTest(testDB, fileSvc, vaultSvc)
 	apiSrv := api.NewServer(app)
 
 	mux := http.NewServeMux()
@@ -141,7 +139,7 @@ func TestBulkUpload_CreateDocuments(t *testing.T) {
 	// Verify documents exist in DB
 	ctx := context.Background()
 	for _, path := range []string{"/docs/a.md", "/docs/b.md"} {
-		doc, err := testDB.GetDocumentByPath(ctx, vaultID, path)
+		doc, err := testDB.GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			t.Fatalf("get doc %s: %v", path, err)
 		}
@@ -262,7 +260,7 @@ func TestBulkUpload_DryRun(t *testing.T) {
 
 	// Verify document was NOT actually created
 	ctx := context.Background()
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/docs/new.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/docs/new.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -327,7 +325,7 @@ func TestBulkUpload_MixedDocumentsAndAssets(t *testing.T) {
 
 	// Verify both exist
 	ctx := context.Background()
-	doc, err := testDB.GetDocumentByPath(ctx, vaultID, "/docs/readme.md")
+	doc, err := testDB.GetFileByPath(ctx, vaultID, "/docs/readme.md")
 	if err != nil {
 		t.Fatalf("get doc: %v", err)
 	}
@@ -335,7 +333,7 @@ func TestBulkUpload_MixedDocumentsAndAssets(t *testing.T) {
 		t.Error("document should exist")
 	}
 
-	assetMeta, err := testDB.GetAssetMetaByPath(ctx, vaultID, "/images/logo.png")
+	assetMeta, err := testDB.GetFileMetaByPath(ctx, vaultID, "/images/logo.png")
 	if err != nil {
 		t.Fatalf("get asset: %v", err)
 	}

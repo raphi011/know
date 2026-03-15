@@ -24,9 +24,6 @@ func TestCreateFolder(t *testing.T) {
 	if folder.Path != folderPath {
 		t.Errorf("Expected path %q, got %q", folderPath, folder.Path)
 	}
-	if folder.Name != folderPath[1:] { // Base name without leading slash
-		t.Errorf("Expected name %q, got %q", folderPath[1:], folder.Name)
-	}
 }
 
 func TestEnsureFolders(t *testing.T) {

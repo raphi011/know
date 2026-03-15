@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ func (t *ListFoldersTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 
 	if input.Parent != nil {
 		parent := pathutil.NormalizeFolderPath(*input.Parent)
-		var filtered []models.Folder
+		var filtered []models.File
 		for _, f := range folders {
 			if pathutil.IsImmediateChildFolder(parent, f.Path) {
 				filtered = append(filtered, f)
@@ -61,7 +62,7 @@ func (t *ListFoldersTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 
 	var sb strings.Builder
 	for _, f := range folders {
-		fmt.Fprintf(&sb, "%s (%s)\n", f.Path, f.Name)
+		fmt.Fprintf(&sb, "%s (%s)\n", f.Path, path.Base(f.Path))
 	}
 	result := sb.String()
 	if result == "" {

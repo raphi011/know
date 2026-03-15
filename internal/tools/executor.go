@@ -7,7 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/search"
@@ -22,9 +22,9 @@ type ToolExecutor interface {
 // Executor runs named tools against a single vault. It is the shared
 // implementation used by both the agent chat and the embedded MCP server.
 type Executor struct {
-	DB         *db.Client
-	Search     *search.Service
-	DocService *document.Service
+	DB      *db.Client
+	Search  *search.Service
+	FileSvc *file.Service
 
 	once     sync.Once
 	registry map[string]tool.InvokableTool
@@ -32,7 +32,7 @@ type Executor struct {
 
 // initRegistry lazily initializes the tool registry from the executor's
 // services. Read-only tools are always registered; write tools require
-// DocService to be non-nil.
+// FileSvc to be non-nil.
 func (e *Executor) initRegistry() {
 	e.once.Do(func() {
 		e.registry = map[string]tool.InvokableTool{
@@ -45,12 +45,12 @@ func (e *Executor) initRegistry() {
 			"list_tasks":            &ListTasksTool{db: e.DB},
 		}
 
-		if e.DocService != nil {
-			e.registry["create_document"] = &CreateDocumentTool{db: e.DB, docService: e.DocService}
-			e.registry["edit_document"] = &EditDocumentTool{db: e.DB, docService: e.DocService}
-			e.registry["edit_document_section"] = &EditDocumentSectionTool{db: e.DB, docService: e.DocService}
-			e.registry["create_memory"] = &CreateMemoryTool{db: e.DB, docService: e.DocService}
-			e.registry["toggle_task"] = &ToggleTaskTool{docService: e.DocService}
+		if e.FileSvc != nil {
+			e.registry["create_document"] = &CreateDocumentTool{db: e.DB, docService: e.FileSvc}
+			e.registry["edit_document"] = &EditDocumentTool{db: e.DB, docService: e.FileSvc}
+			e.registry["edit_document_section"] = &EditDocumentSectionTool{db: e.DB, docService: e.FileSvc}
+			e.registry["create_memory"] = &CreateMemoryTool{db: e.DB, docService: e.FileSvc}
+			e.registry["toggle_task"] = &ToggleTaskTool{docService: e.FileSvc}
 		}
 	})
 }
