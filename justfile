@@ -145,3 +145,12 @@ ios-run: ios-build
     xcrun simctl boot {{ios_simulator_id}} 2>/dev/null || true
     xcrun simctl install {{ios_simulator_id}} {{ios_build_dir}}/Build/Products/Debug-iphonesimulator/Know.app
     xcrun simctl launch --console-pty {{ios_simulator_id}} com.know.ios
+
+# Build and run macOS app
+mac: ios-generate
+    xcodebuild -project {{ios_project}} -scheme {{ios_scheme}} \
+        -destination 'platform=macOS' \
+        -derivedDataPath {{ios_build_dir}} build \
+        CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+        CODE_SIGN_ENTITLEMENTS=""
+    open {{ios_build_dir}}/Build/Products/Debug/Know.app
