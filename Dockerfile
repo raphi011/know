@@ -14,7 +14,12 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
 # Build single binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /know ./cmd/know
+ARG VERSION=dev
+ARG COMMIT=none
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+    -o /know ./cmd/know
 
 # Runtime
 FROM alpine:3.21

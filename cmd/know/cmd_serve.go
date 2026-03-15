@@ -89,7 +89,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Warn("no-auth mode: binding to localhost only")
 	}
 
-	slog.Info("starting know server", "version", version, "port", port, "host", listenHost)
+	slog.Info("starting know server", "version", version, "commit", commit, "port", port, "host", listenHost)
 
 	// Bind the port early so we fail fast if another instance is still running.
 	ln, err := net.Listen("tcp", listenHost+":"+port)
@@ -104,6 +104,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 	cfg.SSHPort = fmt.Sprintf("%d", serveSSHPort)
 	cfg.NFSEnabled = serveNFS
 	cfg.NFSPort = fmt.Sprintf("%d", serveNFSPort)
+	cfg.Version = version
+	cfg.Commit = commit
 
 	// Create application with all dependencies
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

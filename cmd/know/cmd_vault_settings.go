@@ -44,9 +44,10 @@ Environment variables:
 
 func init() {
 	vaultSettingsAPI = addAPIFlags(vaultSettingsCmd)
-	vaultSettingsVaultID = addVaultFlag(vaultSettingsCmd)
+	vaultSettingsVaultID = addVaultFlag(vaultSettingsCmd, vaultSettingsAPI)
 	vaultSettingsCmd.Flags().BoolVar(&vaultSettingsJSON, "json", false, "output as JSON")
 	vaultSettingsCmd.Flags().StringArrayVar(&vaultSettingsSet, "set", nil, "set a setting (key=value, repeatable)")
+	vaultSettingsCmd.ValidArgsFunction = completeVaultNames(vaultSettingsAPI)
 
 	vaultCmd.AddCommand(vaultSettingsCmd)
 }

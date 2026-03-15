@@ -36,9 +36,10 @@ Examples:
 
 func init() {
 	rmAPI = addAPIFlags(rmCmd)
-	rmVaultID = addVaultFlag(rmCmd)
+	rmVaultID = addVaultFlag(rmCmd, rmAPI)
 	rmCmd.Flags().BoolVarP(&rmRecursive, "recursive", "r", false, "recursively delete folder contents")
 	rmCmd.Flags().BoolVar(&rmDryRun, "dry-run", false, "show what would be deleted without deleting")
+	rmCmd.ValidArgsFunction = completeVaultPaths(rmAPI, rmVaultID, pathFilterAll)
 }
 
 func runRm(_ *cobra.Command, args []string) error {

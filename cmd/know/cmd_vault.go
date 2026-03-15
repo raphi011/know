@@ -33,7 +33,8 @@ Examples:
 
 func init() {
 	vaultInfoAPI = addAPIFlags(vaultCmd)
-	vaultInfoVaultID = addVaultFlag(vaultCmd)
+	vaultInfoVaultID = addVaultFlag(vaultCmd, vaultInfoAPI)
+	vaultCmd.ValidArgsFunction = completeVaultNames(vaultInfoAPI)
 }
 
 func runVault(_ *cobra.Command, args []string) error {

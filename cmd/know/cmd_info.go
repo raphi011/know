@@ -10,22 +10,24 @@ import (
 )
 
 var (
-	configAPI  *apiFlags
-	configJSON bool
+	infoAPI  *apiFlags
+	infoJSON bool
 )
 
-var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Show server configuration",
-	RunE:  runConfig,
+var infoCmd = &cobra.Command{
+	Use:   "info",
+	Short: "Show server and CLI info",
+	RunE:  runInfo,
 }
 
 func init() {
-	configAPI = addAPIFlags(configCmd)
-	configCmd.Flags().BoolVar(&configJSON, "json", false, "output as JSON")
+	infoAPI = addAPIFlags(infoCmd)
+	infoCmd.Flags().BoolVar(&infoJSON, "json", false, "output as JSON")
 }
 
-type serverConfig struct {
+type serverInfo struct {
+	Version                string `json:"version"`
+	Commit                 string `json:"commit"`
 	SurrealDBURL           string `json:"surrealdbURL"`
 	AuthEnabled            bool   `json:"authEnabled"`
 	LLMProvider            string `json:"llmProvider"`
@@ -43,18 +45,18 @@ type serverConfig struct {
 	VersionRetentionCount  int    `json:"versionRetentionCount"`
 }
 
-func runConfig(_ *cobra.Command, _ []string) error {
-	client := configAPI.newClient()
+func runInfo(_ *cobra.Command, _ []string) error {
+	client := infoAPI.newClient()
 
-	var cfg serverConfig
+	var cfg serverInfo
 	if err := client.Get(context.Background(), "/api/config", &cfg); err != nil {
-		return fmt.Errorf("config: %w", err)
+		return fmt.Errorf("info: %w", err)
 	}
 
-	if configJSON {
+	if infoJSON {
 		out, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
-			return fmt.Errorf("config: marshal json: %w", err)
+			return fmt.Errorf("info: marshal json: %w", err)
 		}
 		fmt.Println(string(out))
 		return nil
@@ -63,7 +65,13 @@ func runConfig(_ *cobra.Command, _ []string) error {
 	type row struct{ label, value string }
 	groups := [][]row{
 		{
-			{"Server URL", configAPI.URL},
+			{"CLI Version", version},
+			{"CLI Commit", commit[:min(7, len(commit))]},
+			{"Server Version", cfg.Version},
+			{"Server Commit", cfg.Commit},
+		},
+		{
+			{"Server URL", infoAPI.URL},
 			{"SurrealDB URL", cfg.SurrealDBURL},
 			{"Auth Enabled", strconv.FormatBool(cfg.AuthEnabled)},
 		},

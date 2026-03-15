@@ -41,8 +41,9 @@ Examples:
 
 func init() {
 	catAPI = addAPIFlags(catCmd)
-	catVaultID = addVaultFlag(catCmd)
+	catVaultID = addVaultFlag(catCmd, catAPI)
 	catCmd.Flags().StringVar(&catViewer, "viewer", os.Getenv("KNOW_VIEWER"), "viewer command (env: KNOW_VIEWER)")
+	catCmd.ValidArgsFunction = completeVaultPaths(catAPI, catVaultID, pathFilterFiles)
 }
 
 func runCat(_ *cobra.Command, args []string) error {

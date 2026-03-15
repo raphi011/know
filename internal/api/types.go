@@ -135,6 +135,8 @@ type VersionResponse struct {
 
 // ServerConfig holds the server's effective configuration.
 type ServerConfig struct {
+	Version                string `json:"version"`
+	Commit                 string `json:"commit"`
 	SurrealDBURL           string `json:"surrealdbURL"`
 	AuthEnabled            bool   `json:"authEnabled"`
 	LLMProvider            string `json:"llmProvider"`

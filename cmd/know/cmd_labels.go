@@ -30,7 +30,7 @@ Examples:
 
 func init() {
 	labelsAPI = addAPIFlags(labelsCmd)
-	labelsVaultID = addVaultFlag(labelsCmd)
+	labelsVaultID = addVaultFlag(labelsCmd, labelsAPI)
 	labelsCmd.Flags().BoolVar(&labelsCounts, "count", false, "show document count per label")
 }
 

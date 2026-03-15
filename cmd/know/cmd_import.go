@@ -56,6 +56,21 @@ func init() {
 	if err := importCmd.MarkFlagRequired("vault"); err != nil {
 		panic(fmt.Sprintf("mark vault flag required: %v", err))
 	}
+	if err := importCmd.RegisterFlagCompletionFunc("vault", completeVaultNames(importAPI)); err != nil {
+		panic(fmt.Sprintf("register vault completion: %v", err))
+	}
+	importCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		switch len(args) {
+		case 0:
+			// First arg is local filesystem path
+			return nil, cobra.ShellCompDirectiveDefault
+		case 1:
+			// Second arg is vault path
+			return completeVaultPaths(importAPI, &importVaultID, pathFilterFolders)(cmd, args, toComplete)
+		default:
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
 }
 
 func runImport(_ *cobra.Command, args []string) error {
