@@ -26,18 +26,16 @@ The NFS server always binds to `127.0.0.1` (localhost only) for security — it 
 ### Mount on macOS
 
 ```bash
-# Create mount point
-mkdir -p /tmp/know-nfs
-
-# Mount (specify port if non-standard)
-mount_nfs -o tcp,port=2049,mountport=2049,vers=3 127.0.0.1:/ /tmp/know-nfs
-
-# Or via Finder: Go → Connect to Server → nfs://127.0.0.1/
+# Mount to /Volumes/know (Finder-friendly)
+sudo mkdir -p /Volumes/know
+sudo mount_nfs -o tcp,port=2049,mountport=2049,vers=3,nolocks 127.0.0.1:/ /Volumes/know
 ```
+
+> **Note:** `nolocks` is required because the NFS server does not implement NLM (Network Lock Manager). Use `/Volumes/know` instead of `/tmp/` so Finder can browse the mount correctly (macOS's `/tmp` → `/private/tmp` symlink confuses Finder).
 
 **Unmount:**
 ```bash
-umount /tmp/know-nfs
+sudo umount /Volumes/know
 ```
 
 ### Mount on Linux
@@ -47,10 +45,10 @@ umount /tmp/know-nfs
 sudo mkdir -p /mnt/know
 
 # Mount
-sudo mount -t nfs -o tcp,port=2049,mountport=2049,vers=3 127.0.0.1:/ /mnt/know
+sudo mount -t nfs -o tcp,port=2049,mountport=2049,vers=3,nolock 127.0.0.1:/ /mnt/know
 
 # Or add to /etc/fstab for auto-mount:
-# 127.0.0.1:/ /mnt/know nfs tcp,port=2049,mountport=2049,vers=3 0 0
+# 127.0.0.1:/ /mnt/know nfs tcp,port=2049,mountport=2049,vers=3,nolock 0 0
 ```
 
 ### Mount on Windows
@@ -70,7 +68,7 @@ mount -o port=2049 mtype=soft 127.0.0.1:/ Z:
 Once mounted, vaults appear as top-level directories:
 
 ```
-/tmp/know-nfs/
+/Volumes/know/          # macOS — or /mnt/know/ on Linux
 ├── default/
 │   ├── notes/
 │   │   ├── meeting-notes.md
@@ -127,17 +125,17 @@ This matches the local development use case. For remote access, use WebDAV or SF
 
 ### "Operation not permitted" on macOS
 
-macOS may require explicit port specification:
+macOS may require explicit port specification and `sudo`:
 ```bash
-mount_nfs -o tcp,port=2049,mountport=2049,vers=3,nolocks 127.0.0.1:/ /tmp/know-nfs
+sudo mount_nfs -o tcp,port=2049,mountport=2049,vers=3,nolocks 127.0.0.1:/ /Volumes/know
 ```
 
 ### "Stale file handle"
 
 The NFS server uses an in-memory handle cache. If the server restarts, mounted clients get stale handles. Unmount and remount:
 ```bash
-umount /tmp/know-nfs
-mount_nfs -o tcp,port=2049,mountport=2049,vers=3 127.0.0.1:/ /tmp/know-nfs
+sudo umount /Volumes/know
+sudo mount_nfs -o tcp,port=2049,mountport=2049,vers=3,nolocks 127.0.0.1:/ /Volumes/know
 ```
 
 ### Port already in use
@@ -145,15 +143,15 @@ mount_nfs -o tcp,port=2049,mountport=2049,vers=3 127.0.0.1:/ /tmp/know-nfs
 If port 2049 is used by the system NFS server, use a different port:
 ```bash
 know serve --nfs --nfs-port 12049
-mount_nfs -o tcp,port=12049,mountport=12049,vers=3 127.0.0.1:/ /tmp/know-nfs
+sudo mount_nfs -o tcp,port=12049,mountport=12049,vers=3,nolocks 127.0.0.1:/ /Volumes/know
 ```
 
 ## Example Prompts
 
 These prompts show what you can do with NFS-mounted vaults:
 
-- **Bulk import**: `cp -r ~/notes/*.md /tmp/know-nfs/default/` — copy all markdown files into the default vault
-- **Edit with any editor**: `vim /tmp/know-nfs/default/notes/ideas.md` — edit directly in your favorite editor
-- **Search with grep**: `grep -r "TODO" /tmp/know-nfs/default/` — search across all documents
-- **Organize files**: `mv /tmp/know-nfs/default/draft.md /tmp/know-nfs/default/published/` — move documents between folders
-- **Backup a vault**: `cp -r /tmp/know-nfs/default/ ~/backup/` — copy all documents to a local backup
+- **Bulk import**: `cp -r ~/notes/*.md /Volumes/know/default/` — copy all markdown files into the default vault
+- **Edit with any editor**: `vim /Volumes/know/default/notes/ideas.md` — edit directly in your favorite editor
+- **Search with grep**: `grep -r "TODO" /Volumes/know/default/` — search across all documents
+- **Organize files**: `mv /Volumes/know/default/draft.md /Volumes/know/default/published/` — move documents between folders
+- **Backup a vault**: `cp -r /Volumes/know/default/ ~/backup/` — copy all documents to a local backup
