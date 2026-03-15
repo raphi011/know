@@ -6,10 +6,7 @@ import (
 )
 
 func TestSectionOutline_Basic(t *testing.T) {
-	doc, err := ParseMarkdown("Preamble.\n\n# Title\n\nIntro.\n\n## Setup\n\nSetup content.\n\n## Usage\n\nUsage content.\n\n## Setup\n\nSecond setup.")
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc := ParseMarkdown("Preamble.\n\n# Title\n\nIntro.\n\n## Setup\n\nSetup content.\n\n## Usage\n\nUsage content.\n\n## Setup\n\nSecond setup.")
 
 	infos := SectionOutline(doc)
 
@@ -470,10 +467,7 @@ func TestApplySectionEdit_HeadingsInsideCodeFence(t *testing.T) {
 	// The ## inside the code fence is content of "Real Section", not a separate section.
 	// Goldmark's AST correctly ignores headings inside fenced code blocks.
 	// Verify by checking the section outline only has the real headings.
-	doc, err := ParseMarkdown(content)
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc := ParseMarkdown(content)
 
 	outline := SectionOutline(doc)
 	headings := make([]string, len(outline))
@@ -789,10 +783,7 @@ func TestApplySectionEdit_RoundTrip(t *testing.T) {
 	}
 
 	// Re-parse should succeed and have the right sections
-	doc, err := ParseMarkdown(result)
-	if err != nil {
-		t.Fatalf("re-parse failed: %v", err)
-	}
+	doc := ParseMarkdown(result)
 
 	outline := SectionOutline(doc)
 	headings := make([]string, 0, len(outline))

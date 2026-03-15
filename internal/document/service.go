@@ -144,10 +144,7 @@ func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldP
 // (chunks, wiki-links, relations) to the async ProcessingWorker.
 func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
 	// 1. Parse frontmatter
-	parsed, err := parser.ParseMarkdown(input.Content)
-	if err != nil {
-		return nil, fmt.Errorf("parse markdown: %w", err)
-	}
+	parsed := parser.ParseMarkdown(input.Content)
 
 	// 2. Extract title (frontmatter > h1 > filename)
 	title := parsed.Title
@@ -160,7 +157,7 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	if fmLabels == nil {
 		fmLabels = parsed.GetFrontmatterStringSlice("tags")
 	}
-	allLabels := ExtractInlineLabels(parsed.Content, append(fmLabels, input.Labels...))
+	allLabels := MergeLabels(parsed.InlineLabels, append(fmLabels, input.Labels...))
 
 	// 4. Extract doc_type from frontmatter if not set
 	docType := input.DocType
@@ -257,10 +254,7 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 		return nil
 	}
 
-	parsed, err := parser.ParseMarkdown(doc.Content)
-	if err != nil {
-		return fmt.Errorf("parse markdown: %w", err)
-	}
+	parsed := parser.ParseMarkdown(doc.Content)
 
 	// 1. Sync chunks (with smart diffing — only re-embed changed chunks)
 	if err := s.syncChunks(ctx, docID, parsed, doc.Labels); err != nil {
@@ -268,7 +262,7 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 	}
 
 	// 2. Extract and store wiki-links
-	if err := s.processWikiLinks(ctx, docID, vaultID, parsed.Content); err != nil {
+	if err := s.processWikiLinks(ctx, docID, vaultID, parsed.WikiLinks); err != nil {
 		return fmt.Errorf("process wiki-links for %s: %w", doc.Path, err)
 	}
 
@@ -285,6 +279,11 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 	// 5. Sync label graph (has_label edges)
 	if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
 		return fmt.Errorf("sync labels for %s: %w", doc.Path, err)
+	}
+
+	// 5.5. Sync tasks (extract checkboxes, diff with DB)
+	if err := s.syncTasks(ctx, docID, vaultID, parsed.Tasks); err != nil {
+		return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)
 	}
 
 	// 6. Mark as processed
@@ -654,13 +653,12 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 	return doc, nil
 }
 
-func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content string) error {
+func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, targets []string) error {
 	// Delete existing links from this doc
 	if err := s.db.DeleteWikiLinks(ctx, docID); err != nil {
 		return fmt.Errorf("delete old wiki-links: %w", err)
 	}
 
-	targets := parser.ExtractWikiLinks(content)
 	if len(targets) == 0 {
 		return nil
 	}

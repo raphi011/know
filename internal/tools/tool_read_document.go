@@ -9,7 +9,6 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
-	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/parser"
 )
 
@@ -66,11 +65,8 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	if input.Sections {
-		parsed, parseErr := parser.ParseMarkdown(doc.ContentBody)
-		if parseErr != nil {
-			logutil.FromCtx(ctx).Warn("parse markdown for section outline", "path", input.Path, "error", parseErr)
-			fmt.Fprintf(&sb, "**Warning**: could not parse sections: %v\n\n", parseErr)
-		} else if len(parsed.Sections) > 0 {
+		parsed := parser.ParseMarkdown(doc.ContentBody)
+		if len(parsed.Sections) > 0 {
 			outline := parser.SectionOutline(parsed)
 			sb.WriteString("## Sections\n")
 			sb.WriteString("| # | Heading | Pos |\n")

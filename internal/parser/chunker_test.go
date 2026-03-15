@@ -42,10 +42,7 @@ func TestChunkMarkdown_EmptyContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			doc, err := ParseMarkdown(tt.content)
-			if err != nil {
-				t.Fatalf("ParseMarkdown() error = %v", err)
-			}
+			doc := ParseMarkdown(tt.content)
 
 			chunks := ChunkMarkdown(doc, DefaultChunkConfig())
 
@@ -125,10 +122,7 @@ func TestChunkMarkdown_LongContentWithEmptySections(t *testing.T) {
 		t.Fatalf("test content too short: %d chars, need >%d", len(content), DefaultChunkConfig().Threshold)
 	}
 
-	doc, err := ParseMarkdown(content)
-	if err != nil {
-		t.Fatalf("ParseMarkdown() error = %v", err)
-	}
+	doc := ParseMarkdown(content)
 
 	chunks := ChunkMarkdown(doc, DefaultChunkConfig())
 
@@ -315,10 +309,7 @@ func TestChunkMarkdown_BelowThresholdAboveMaxSize(t *testing.T) {
 		t.Fatalf("test content %d chars, need >%d and <%d", len(content), config.MaxSize, config.Threshold)
 	}
 
-	doc, err := ParseMarkdown(content)
-	if err != nil {
-		t.Fatalf("ParseMarkdown() error = %v", err)
-	}
+	doc := ParseMarkdown(content)
 
 	chunks := ChunkMarkdown(doc, config)
 
@@ -350,10 +341,7 @@ func TestChunkMarkdown_BelowThresholdAboveMaxSize_WithSections(t *testing.T) {
 		t.Fatalf("test content %d chars, need >%d and <%d", len(content), config.MaxSize, config.Threshold)
 	}
 
-	doc, err := ParseMarkdown(content)
-	if err != nil {
-		t.Fatalf("ParseMarkdown() error = %v", err)
-	}
+	doc := ParseMarkdown(content)
 
 	chunks := ChunkMarkdown(doc, config)
 
