@@ -26,11 +26,11 @@ type fileInfo struct {
 	isDir   bool
 }
 
-func (fi *fileInfo) Name() string      { return fi.name }
-func (fi *fileInfo) Size() int64       { return fi.size }
+func (fi *fileInfo) Name() string       { return fi.name }
+func (fi *fileInfo) Size() int64        { return fi.size }
 func (fi *fileInfo) ModTime() time.Time { return fi.modTime }
-func (fi *fileInfo) IsDir() bool       { return fi.isDir }
-func (fi *fileInfo) Sys() any          { return nil }
+func (fi *fileInfo) IsDir() bool        { return fi.isDir }
+func (fi *fileInfo) Sys() any           { return nil }
 
 func (fi *fileInfo) Mode() fs.FileMode {
 	if fi.isDir {
@@ -54,14 +54,14 @@ func newReadFile(name string, content []byte, modTime time.Time) *readFile {
 	}
 }
 
-func (f *readFile) Name() string                         { return f.name }
-func (f *readFile) Read(p []byte) (int, error)           { return f.r.Read(p) }
-func (f *readFile) ReadAt(p []byte, off int64) (int, error) { return f.r.ReadAt(p, off) }
+func (f *readFile) Name() string                                 { return f.name }
+func (f *readFile) Read(p []byte) (int, error)                   { return f.r.Read(p) }
+func (f *readFile) ReadAt(p []byte, off int64) (int, error)      { return f.r.ReadAt(p, off) }
 func (f *readFile) Seek(offset int64, whence int) (int64, error) { return f.r.Seek(offset, whence) }
-func (f *readFile) Close() error                         { return nil }
-func (f *readFile) Lock() error                          { return nil }
-func (f *readFile) Unlock() error                        { return nil }
-func (f *readFile) Truncate(_ int64) error               { return billy.ErrReadOnly }
+func (f *readFile) Close() error                                 { return nil }
+func (f *readFile) Lock() error                                  { return nil }
+func (f *readFile) Unlock() error                                { return nil }
+func (f *readFile) Truncate(_ int64) error                       { return billy.ErrReadOnly }
 
 func (f *readFile) Write(_ []byte) (int, error) {
 	return 0, billy.ErrReadOnly
@@ -90,12 +90,12 @@ func (f *writeFile) Write(p []byte) (int, error) {
 	return f.buf.Write(p)
 }
 
-func (f *writeFile) Read(_ []byte) (int, error)           { return 0, billy.ErrNotSupported }
+func (f *writeFile) Read(_ []byte) (int, error)            { return 0, billy.ErrNotSupported }
 func (f *writeFile) ReadAt(_ []byte, _ int64) (int, error) { return 0, billy.ErrNotSupported }
-func (f *writeFile) Seek(_ int64, _ int) (int64, error)   { return 0, billy.ErrNotSupported }
-func (f *writeFile) Lock() error                          { return nil }
-func (f *writeFile) Unlock() error                        { return nil }
-func (f *writeFile) Truncate(_ int64) error               { f.buf.Reset(); return nil }
+func (f *writeFile) Seek(_ int64, _ int) (int64, error)    { return 0, billy.ErrNotSupported }
+func (f *writeFile) Lock() error                           { return nil }
+func (f *writeFile) Unlock() error                         { return nil }
+func (f *writeFile) Truncate(_ int64) error                { f.buf.Reset(); return nil }
 
 func (f *writeFile) Close() error {
 	if f.closed {
@@ -127,12 +127,12 @@ type nopFile struct {
 	name string
 }
 
-func (f *nopFile) Name() string                              { return f.name }
-func (f *nopFile) Write(_ []byte) (int, error)               { return 0, billy.ErrReadOnly }
-func (f *nopFile) Read(_ []byte) (int, error)                { return 0, billy.ErrNotSupported }
-func (f *nopFile) ReadAt(_ []byte, _ int64) (int, error)     { return 0, billy.ErrNotSupported }
-func (f *nopFile) Seek(_ int64, _ int) (int64, error)        { return 0, billy.ErrNotSupported }
-func (f *nopFile) Close() error                              { return nil }
-func (f *nopFile) Lock() error                               { return nil }
-func (f *nopFile) Unlock() error                             { return nil }
-func (f *nopFile) Truncate(_ int64) error                    { return billy.ErrReadOnly }
+func (f *nopFile) Name() string                          { return f.name }
+func (f *nopFile) Write(_ []byte) (int, error)           { return 0, billy.ErrReadOnly }
+func (f *nopFile) Read(_ []byte) (int, error)            { return 0, billy.ErrNotSupported }
+func (f *nopFile) ReadAt(_ []byte, _ int64) (int, error) { return 0, billy.ErrNotSupported }
+func (f *nopFile) Seek(_ int64, _ int) (int64, error)    { return 0, billy.ErrNotSupported }
+func (f *nopFile) Close() error                          { return nil }
+func (f *nopFile) Lock() error                           { return nil }
+func (f *nopFile) Unlock() error                         { return nil }
+func (f *nopFile) Truncate(_ int64) error                { return billy.ErrReadOnly }

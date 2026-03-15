@@ -24,6 +24,22 @@ func noFileCompletions(_ *cobra.Command, _ []string, _ string) ([]string, cobra.
 	return nil, noFileComp
 }
 
+// completeLabelNames returns a completion function that lists label names from the REST API.
+func completeLabelNames(af *apiFlags, vaultFlag *string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if vaultFlag == nil || *vaultFlag == "" {
+			return nil, noFileComp
+		}
+		client := af.newClient()
+		labels, err := client.ListLabels(context.Background(), *vaultFlag)
+		if err != nil {
+			cobra.CompDebugln(fmt.Sprintf("failed to list labels: %v", err), true)
+			return nil, noFileComp
+		}
+		return labels, noFileComp
+	}
+}
+
 // completeVaultNames returns a completion function that lists vault names from the REST API.
 func completeVaultNames(af *apiFlags) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {

@@ -5,13 +5,18 @@ import (
 	"testing"
 )
 
+// parseSectionsHelper is a test helper that parses markdown and returns sections.
+func parseSectionsHelper(t *testing.T, content string) []Section {
+	t.Helper()
+	return ParseMarkdown(content).Sections
+}
+
 func TestParseSections_BasicHeadings(t *testing.T) {
 	content := "# Title\n\nIntro paragraph.\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	// Should have: preamble (empty), h1 Title, h2 Section A, h2 Section B
-	// Preamble is empty so might be included with empty content
 	var nonEmpty []Section
 	for _, s := range sections {
 		if strings.TrimSpace(s.Content) != "" {
@@ -31,7 +36,7 @@ func TestParseSections_CodeFenceWithHash(t *testing.T) {
 	// This is the critical bug fix: # inside code fences should NOT create sections
 	content := "## Setup\n\nInstructions here.\n\n```bash\n# This is a comment\necho hello\n# Another comment\n```\n\n## Next\n\nMore content."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	var headings []string
 	for _, s := range sections {
@@ -66,7 +71,7 @@ func TestParseSections_CodeFenceWithHash(t *testing.T) {
 func TestParseSections_PreHeadingContent(t *testing.T) {
 	content := "This is a preamble paragraph.\n\nAnother preamble line.\n\n## First Section\n\nSection content."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	if len(sections) < 1 {
 		t.Fatal("expected at least 1 section")
@@ -84,7 +89,7 @@ func TestParseSections_PreHeadingContent(t *testing.T) {
 func TestParseSections_NestedHeadings(t *testing.T) {
 	content := "# Top\n\n## Sub1\n\nContent 1.\n\n### SubSub\n\nDeep content.\n\n## Sub2\n\nContent 2."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	// Find the subsub section and check its path
 	var paths []string
@@ -120,7 +125,7 @@ func TestParseSections_NestedHeadings(t *testing.T) {
 func TestParseSections_DocumentWithoutHeadings(t *testing.T) {
 	content := "Just a plain document with no headings.\n\nMultiple paragraphs here.\n\nAnd another one."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	// Should have a preamble section with all content
 	if len(sections) != 1 {
@@ -143,7 +148,7 @@ func TestParseSections_CodeBlockMarkedCorrectly(t *testing.T) {
 	// A section dominated by a code block should have CodeBlock=true
 	content := "## Code Example\n\n```go\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```"
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	var codeSection *Section
 	for _, s := range sections {
@@ -167,7 +172,7 @@ func TestParseSections_MixedContentNotCodeBlock(t *testing.T) {
 		strings.Repeat("This is a long explanation about how things work. ", 10) +
 		"\n\n```\nsmall snippet\n```"
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	var section *Section
 	for _, s := range sections {
@@ -186,7 +191,7 @@ func TestParseSections_MixedContentNotCodeBlock(t *testing.T) {
 }
 
 func TestParseSections_EmptyDocument(t *testing.T) {
-	sections := parseSections("")
+	sections := parseSectionsHelper(t, "")
 
 	// Empty doc produces a preamble with no content
 	for _, s := range sections {
@@ -199,7 +204,7 @@ func TestParseSections_EmptyDocument(t *testing.T) {
 func TestParseSections_HeadingPathHierarchy(t *testing.T) {
 	content := "# A\n\nContent A.\n\n## B\n\nContent B.\n\n### C\n\nContent C.\n\n## D\n\nContent D."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	pathMap := make(map[string]string)
 	for _, s := range sections {
@@ -234,7 +239,7 @@ func TestParseSections_EmptyHeading(t *testing.T) {
 	// Goldmark produces headings with zero lines for "# \n" — must not panic
 	content := "# \n\n## Real Section\n\nContent here."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	var found bool
 	for _, s := range sections {
@@ -250,7 +255,7 @@ func TestParseSections_EmptyHeading(t *testing.T) {
 func TestParseSections_FormattedHeading(t *testing.T) {
 	content := "## Install `brew` and **setup**\n\nContent here."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	for _, s := range sections {
 		if s.Level == 2 {
@@ -267,7 +272,7 @@ func TestParseSections_IndentedCodeBlock(t *testing.T) {
 	// Indented code blocks use 4-space indent (no fences)
 	content := "## Example\n\n    func main() {\n        println(\"hello\")\n    }\n\nSome text after."
 
-	sections := parseSections(content)
+	sections := parseSectionsHelper(t, content)
 
 	var found bool
 	for _, s := range sections {
@@ -305,13 +310,268 @@ func TestParseMarkdown_TitleExtraction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			doc, err := ParseMarkdown(tt.content)
-			if err != nil {
-				t.Fatalf("ParseMarkdown() error = %v", err)
-			}
+			doc := ParseMarkdown(tt.content)
 			if doc.Title != tt.wantTitle {
 				t.Errorf("Title = %q, want %q", doc.Title, tt.wantTitle)
 			}
 		})
+	}
+}
+
+// AST correctness tests: constructs inside code blocks must NOT be extracted.
+
+func TestParseMarkdown_CheckboxInsideCodeBlock(t *testing.T) {
+	content := "# Tasks\n\n- [ ] real task\n\n```markdown\n- [ ] fake task in code\n- [x] another fake\n```\n\n- [x] done task"
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.Tasks) != 2 {
+		t.Errorf("expected 2 tasks (ignoring code block), got %d", len(doc.Tasks))
+		for _, task := range doc.Tasks {
+			t.Logf("  task: %q status=%s line=%d", task.Text, task.Status, task.LineNumber)
+		}
+		return
+	}
+	if doc.Tasks[0].Text != "real task" {
+		t.Errorf("first task should be 'real task', got %q", doc.Tasks[0].Text)
+	}
+	if doc.Tasks[1].Text != "done task" {
+		t.Errorf("second task should be 'done task', got %q", doc.Tasks[1].Text)
+	}
+}
+
+func TestParseMarkdown_WikiLinkInsideCodeBlock(t *testing.T) {
+	content := "See [[real link]] for details.\n\n```\n[[fake link in code]]\n```\n\nAlso [[another link]]."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.WikiLinks) != 2 {
+		t.Errorf("expected 2 wiki-links (ignoring code block), got %d: %v", len(doc.WikiLinks), doc.WikiLinks)
+		return
+	}
+	if doc.WikiLinks[0] != "real link" {
+		t.Errorf("first link should be 'real link', got %q", doc.WikiLinks[0])
+	}
+	if doc.WikiLinks[1] != "another link" {
+		t.Errorf("second link should be 'another link', got %q", doc.WikiLinks[1])
+	}
+}
+
+func TestParseMarkdown_HeadingInsideCodeBlock(t *testing.T) {
+	content := "## Real Section\n\nContent.\n\n```bash\n# This is a bash comment\n## Not a heading\n```\n\n## Another Real Section\n\nMore content."
+
+	doc := ParseMarkdown(content)
+
+	var headings []string
+	for _, s := range doc.Sections {
+		if s.Level > 0 {
+			headings = append(headings, s.Heading)
+		}
+	}
+
+	if len(headings) != 2 {
+		t.Errorf("expected 2 headings, got %d: %v", len(headings), headings)
+		return
+	}
+	if headings[0] != "Real Section" || headings[1] != "Another Real Section" {
+		t.Errorf("expected [Real Section, Another Real Section], got %v", headings)
+	}
+}
+
+func TestParseMarkdown_LabelInsideCodeBlock(t *testing.T) {
+	content := "This has #realtag in text.\n\n```\n#faketag in code\n```\n\nAlso #anothertag here."
+
+	doc := ParseMarkdown(content)
+
+	for _, label := range doc.InlineLabels {
+		if label == "faketag" {
+			t.Error("#faketag inside code block should not be extracted")
+		}
+	}
+
+	found := map[string]bool{}
+	for _, l := range doc.InlineLabels {
+		found[l] = true
+	}
+	if !found["realtag"] {
+		t.Error("expected #realtag to be extracted")
+	}
+	if !found["anothertag"] {
+		t.Error("expected #anothertag to be extracted")
+	}
+}
+
+func TestParseMarkdown_MentionInsideCodeBlock(t *testing.T) {
+	content := "Hello @realuser, check this.\n\n```\n@fakeuser in code\n```"
+
+	doc := ParseMarkdown(content)
+
+	for _, m := range doc.Mentions {
+		if m == "fakeuser" {
+			t.Error("@fakeuser inside code block should not be extracted")
+		}
+	}
+	found := false
+	for _, m := range doc.Mentions {
+		if m == "realuser" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected @realuser to be extracted")
+	}
+}
+
+func TestParseMarkdown_QueryBlockViaAST(t *testing.T) {
+	content := "# Doc\n\n```know\nFROM /daily\nWHERE labels CONTAIN \"work\"\n```\n\nSome text.\n\n```python\nprint('hello')\n```"
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.QueryBlocks) != 1 {
+		t.Errorf("expected 1 query block, got %d", len(doc.QueryBlocks))
+		return
+	}
+	if doc.QueryBlocks[0].Folder == nil || *doc.QueryBlocks[0].Folder != "/daily" {
+		t.Error("query block should have FROM /daily")
+	}
+}
+
+func TestParseMarkdown_WikiLinkWithAlias(t *testing.T) {
+	content := "See [[target page|display text]] here."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.WikiLinks) != 1 {
+		t.Errorf("expected 1 wiki-link, got %d: %v", len(doc.WikiLinks), doc.WikiLinks)
+		return
+	}
+	// The target should be just the page part, not the alias
+	if doc.WikiLinks[0] != "target page" {
+		t.Errorf("wiki-link target should be 'target page', got %q", doc.WikiLinks[0])
+	}
+}
+
+func TestParseMarkdown_FrontmatterViaGoldmarkMeta(t *testing.T) {
+	content := "---\ntitle: Test Doc\nlabels:\n  - work\n  - urgent\ntype: note\n---\n\n# Content\n\nBody text."
+
+	doc := ParseMarkdown(content)
+
+	if doc.Title != "Test Doc" {
+		t.Errorf("title should be 'Test Doc', got %q", doc.Title)
+	}
+	if doc.GetFrontmatterString("type") != "note" {
+		t.Errorf("type should be 'note', got %q", doc.GetFrontmatterString("type"))
+	}
+	labels := doc.GetFrontmatterStringSlice("labels")
+	if len(labels) != 2 || labels[0] != "work" || labels[1] != "urgent" {
+		t.Errorf("labels should be [work, urgent], got %v", labels)
+	}
+}
+
+func TestParseMarkdown_UnclosedFrontmatter(t *testing.T) {
+	// Content starts with --- but has no closing --- delimiter.
+	// contentAfterFrontmatter strips the opening "---\n" to prevent
+	// goldmark-meta from consuming the entire document as a YAML block.
+	content := "---\ntitle: Broken\n\n# Real Heading\n\n- [ ] a task"
+
+	doc := ParseMarkdown(content)
+
+	// Frontmatter should be empty (unclosed block can't be parsed)
+	if len(doc.Frontmatter) != 0 {
+		t.Errorf("expected empty frontmatter for unclosed block, got %v", doc.Frontmatter)
+	}
+	// Heading and tasks should still be extracted (graceful degradation)
+	if doc.Title != "Real Heading" {
+		t.Errorf("expected title 'Real Heading', got %q", doc.Title)
+	}
+	if len(doc.Tasks) != 1 {
+		t.Errorf("expected 1 task, got %d", len(doc.Tasks))
+	}
+}
+
+func TestParseMarkdown_ClosedFrontmatterPreservesStructure(t *testing.T) {
+	// Contrast with unclosed: properly closed frontmatter should work fine
+	content := "---\ntitle: Works\n---\n\n# Real Heading\n\n- [ ] a task"
+
+	doc := ParseMarkdown(content)
+
+	if doc.Title != "Works" {
+		t.Errorf("expected title 'Works', got %q", doc.Title)
+	}
+	if len(doc.Tasks) != 1 {
+		t.Errorf("expected 1 task, got %d", len(doc.Tasks))
+	}
+}
+
+func TestParseMarkdown_QueryBlockAtDocumentStart(t *testing.T) {
+	// Fenced code block at byte 0 — tests findFenceStart edge case.
+	content := "```know\nFROM /daily\n```\n\nSome text."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.QueryBlocks) != 1 {
+		t.Fatalf("expected 1 query block, got %d", len(doc.QueryBlocks))
+	}
+	if doc.QueryBlocks[0].Index != 0 {
+		t.Errorf("expected query block index 0, got %d", doc.QueryBlocks[0].Index)
+	}
+}
+
+func TestParseMarkdown_MultipleQueryBlocks(t *testing.T) {
+	content := "# Doc\n\n```know\nFROM /daily\n```\n\nMiddle text.\n\n```know\nFROM /work\nWHERE labels CONTAIN \"urgent\"\n```"
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.QueryBlocks) != 2 {
+		t.Fatalf("expected 2 query blocks, got %d", len(doc.QueryBlocks))
+	}
+	if doc.QueryBlocks[0].Folder == nil || *doc.QueryBlocks[0].Folder != "/daily" {
+		t.Error("first query block should have FROM /daily")
+	}
+	if doc.QueryBlocks[1].Folder == nil || *doc.QueryBlocks[1].Folder != "/work" {
+		t.Error("second query block should have FROM /work")
+	}
+	if doc.QueryBlocks[0].Index >= doc.QueryBlocks[1].Index {
+		t.Errorf("first block index (%d) should be less than second (%d)",
+			doc.QueryBlocks[0].Index, doc.QueryBlocks[1].Index)
+	}
+}
+
+func TestParseMarkdown_MultipleMentionsAndLabels(t *testing.T) {
+	content := "Hello @alice and @bob, check #frontend #backend. @alice again."
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.Mentions) != 2 {
+		t.Errorf("expected 2 unique mentions, got %d: %v", len(doc.Mentions), doc.Mentions)
+	}
+	if len(doc.InlineLabels) != 2 {
+		t.Errorf("expected 2 unique labels, got %d: %v", len(doc.InlineLabels), doc.InlineLabels)
+	}
+}
+
+func TestParseMarkdown_InvalidQueryBlockSyntax(t *testing.T) {
+	content := "```know\nGARBAGE LINE\n```"
+
+	doc := ParseMarkdown(content)
+
+	if len(doc.QueryBlocks) != 1 {
+		t.Fatalf("expected 1 query block, got %d", len(doc.QueryBlocks))
+	}
+	if doc.QueryBlocks[0].Error == "" {
+		t.Error("expected error for invalid query block syntax")
+	}
+}
+
+func TestParseMarkdown_OnlyFrontmatter(t *testing.T) {
+	content := "---\ntitle: Empty\n---\n"
+
+	doc := ParseMarkdown(content)
+
+	if doc.Title != "Empty" {
+		t.Errorf("expected title 'Empty', got %q", doc.Title)
+	}
+	if len(doc.Tasks) != 0 {
+		t.Errorf("expected 0 tasks, got %d", len(doc.Tasks))
 	}
 }

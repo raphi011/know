@@ -18,7 +18,6 @@ type Document struct {
 	DocType        *string                `json:"doc_type,omitempty"`
 	ContentHash    *string                `json:"content_hash,omitempty"`
 	Metadata       map[string]any         `json:"metadata,omitempty"`
-	Sections       *string                `json:"sections,omitempty"`
 	Processed      bool                   `json:"processed"`
 	LastAccessedAt *time.Time             `json:"last_accessed_at,omitempty"`
 	AccessCount    int                    `json:"access_count"`
@@ -36,7 +35,6 @@ type DocumentInput struct {
 	Labels      []string       `json:"labels,omitempty"`
 	DocType     *string        `json:"doc_type,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
-	Sections    *string        `json:"sections,omitempty"`
 }
 
 // DocumentMeta is a lightweight projection of a document for metadata-only

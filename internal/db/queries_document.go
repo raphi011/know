@@ -100,7 +100,6 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 			doc_type = $doc_type,
 			content_hash = $content_hash,
 			metadata = $metadata,
-			sections = $sections,
 			processed = false
 		RETURN AFTER
 	`
@@ -115,7 +114,6 @@ func (c *Client) CreateDocument(ctx context.Context, input models.DocumentInput)
 		"doc_type":       optionalString(input.DocType),
 		"content_hash":   optionalString(input.ContentHash),
 		"metadata":       optionalObject(input.Metadata),
-		"sections":       optionalJSONString(input.Sections),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create document: %w", err)
@@ -247,7 +245,6 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, input models.Doc
 			labels = $labels,
 			content_hash = $content_hash,
 			metadata = $metadata,
-			sections = $sections,
 			processed = false
 		RETURN AFTER
 	`
@@ -260,7 +257,6 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, input models.Doc
 		"labels":         labels,
 		"content_hash":   optionalString(input.ContentHash),
 		"metadata":       optionalObject(input.Metadata),
-		"sections":       optionalJSONString(input.Sections),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update document: %w", err)

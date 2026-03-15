@@ -112,10 +112,7 @@ func ApplySectionEdit(rawContent string, edit SectionEdit) (string, error) {
 	}
 
 	// Parse to get sections with line numbers
-	doc, err := ParseMarkdown(rawContent)
-	if err != nil {
-		return "", fmt.Errorf("parse document: %w", err)
-	}
+	doc := ParseMarkdown(rawContent)
 
 	// Determine the frontmatter prefix. doc.Content is the content after
 	// frontmatter. We find where it starts in rawContent to extract the prefix.

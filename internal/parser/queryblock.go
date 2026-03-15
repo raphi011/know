@@ -46,36 +46,17 @@ type QueryBlock struct {
 }
 
 var (
-	knowBlockRegex = regexp.MustCompile("(?s)```know\\n(.*?)```")
-	whereRegex     = regexp.MustCompile(`(?i)^WHERE\s+(.+)$`)
-	fromRegex      = regexp.MustCompile(`(?i)^FROM\s+(\S+)$`)
-	showRegex      = regexp.MustCompile(`(?i)^SHOW\s+(.+)$`)
-	sortRegex      = regexp.MustCompile(`(?i)^SORT\s+(\S+)(?:\s+(ASC|DESC))?$`)
-	limitRegex     = regexp.MustCompile(`(?i)^LIMIT\s+(\d+)$`)
+	whereRegex = regexp.MustCompile(`(?i)^WHERE\s+(.+)$`)
+	fromRegex  = regexp.MustCompile(`(?i)^FROM\s+(\S+)$`)
+	showRegex  = regexp.MustCompile(`(?i)^SHOW\s+(.+)$`)
+	sortRegex  = regexp.MustCompile(`(?i)^SORT\s+(\S+)(?:\s+(ASC|DESC))?$`)
+	limitRegex = regexp.MustCompile(`(?i)^LIMIT\s+(\d+)$`)
 
 	// WHERE condition patterns
 	condContainRegex  = regexp.MustCompile(`(?i)^(\w+)\s+CONTAIN\s+"([^"]+)"$`)
 	condEqualRegex    = regexp.MustCompile(`(?i)^(\w+)\s*=\s*"([^"]+)"$`)
 	condContainsRegex = regexp.MustCompile(`(?i)^(\w+)\s+CONTAINS\s+"([^"]+)"$`)
 )
-
-// ExtractQueryBlocks finds all ```know blocks in content and parses them.
-func ExtractQueryBlocks(content string) []QueryBlock {
-	matches := knowBlockRegex.FindAllStringSubmatchIndex(content, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	blocks := make([]QueryBlock, 0, len(matches))
-	for _, loc := range matches {
-		rawQuery := content[loc[2]:loc[3]]
-		block := parseQueryBlock(rawQuery)
-		block.Index = loc[0]
-		block.RawQuery = rawQuery
-		blocks = append(blocks, block)
-	}
-	return blocks
-}
 
 func parseQueryBlock(raw string) QueryBlock {
 	block := QueryBlock{
@@ -122,9 +103,11 @@ func parseQueryBlock(raw string) QueryBlock {
 			hasValidLine = true
 		} else if m := limitRegex.FindStringSubmatch(line); m != nil {
 			n, err := strconv.Atoi(m[1])
-			if err == nil && n > 0 {
-				block.Limit = n
+			if err != nil || n <= 0 {
+				block.Error = fmt.Sprintf("invalid LIMIT value: %s", m[1])
+				return block
 			}
+			block.Limit = n
 			hasValidLine = true
 		} else {
 			block.Error = fmt.Sprintf("unrecognized line: %s", line)

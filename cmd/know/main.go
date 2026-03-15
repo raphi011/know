@@ -83,6 +83,7 @@ func main() {
 	rootCmd.AddCommand(rmCmd)
 	rootCmd.AddCommand(vaultCmd)
 	rootCmd.AddCommand(remoteCmd)
+	rootCmd.AddCommand(taskCmd)
 	rootCmd.AddCommand(completionCmd)
 
 	if err := rootCmd.Execute(); err != nil {

@@ -54,7 +54,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS doc_type     ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash ON document TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata   ON document TYPE option<object> FLEXIBLE;
-    DEFINE FIELD IF NOT EXISTS sections ON document TYPE option<string>;
+    REMOVE FIELD IF EXISTS sections ON document;
     REMOVE FIELD IF EXISTS source ON document;
     REMOVE FIELD IF EXISTS source_path ON document;
     DEFINE FIELD IF NOT EXISTS processed       ON document TYPE bool DEFAULT false;
@@ -373,6 +373,35 @@ func SchemaSQL(dimension int) string {
     DEFINE EVENT IF NOT EXISTS cascade_delete_vault_assets ON vault
     WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM asset WHERE vault = $before.id
+    };
+
+    -- ==========================================================================
+    -- TASK TABLE (extracted from document checkboxes)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS task SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS document     ON task TYPE record<document>;
+    DEFINE FIELD IF NOT EXISTS vault        ON task TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS status       ON task TYPE string ASSERT $value IN ["open", "done"];
+    DEFINE FIELD IF NOT EXISTS raw_line     ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS text         ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS labels       ON task TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS due_date     ON task TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS line_number  ON task TYPE int;
+    DEFINE FIELD IF NOT EXISTS heading_path ON task TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS content_hash ON task TYPE string;
+    DEFINE FIELD IF NOT EXISTS created_at   ON task TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at   ON task TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_task_document       ON task FIELDS document;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_status    ON task FIELDS vault, status;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_due_date  ON task FIELDS vault, due_date;
+    DEFINE INDEX IF NOT EXISTS idx_task_vault_labels    ON task FIELDS vault, labels;
+
+    -- Cascade: delete tasks when document deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_document_tasks ON document
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM task WHERE document = $before.id
     };
 
     -- ==========================================================================

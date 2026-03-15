@@ -2,7 +2,6 @@ package document
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -145,10 +144,7 @@ func (s *Service) publishDocMoveEvent(vaultID string, doc *models.Document, oldP
 // (chunks, wiki-links, relations) to the async ProcessingWorker.
 func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*models.Document, error) {
 	// 1. Parse frontmatter
-	parsed, err := parser.ParseMarkdown(input.Content)
-	if err != nil {
-		return nil, fmt.Errorf("parse markdown: %w", err)
-	}
+	parsed := parser.ParseMarkdown(input.Content)
 
 	// 2. Extract title (frontmatter > h1 > filename)
 	title := parsed.Title
@@ -161,7 +157,7 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	if fmLabels == nil {
 		fmLabels = parsed.GetFrontmatterStringSlice("tags")
 	}
-	allLabels := ExtractInlineLabels(parsed.Content, append(fmLabels, input.Labels...))
+	allLabels := MergeLabels(parsed.InlineLabels, append(fmLabels, input.Labels...))
 
 	// 4. Extract doc_type from frontmatter if not set
 	docType := input.DocType
@@ -181,21 +177,10 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 	contentBody := parsed.Content
 	contentHash := models.ContentHash(input.Content)
 
-	// 7. Marshal parsed sections for deferred processing (avoids re-parsing)
-	var sectionsStr *string
-	if len(parsed.Sections) > 0 {
-		b, err := json.Marshal(parsed.Sections)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sections: %w", err)
-		}
-		str := string(b)
-		sectionsStr = &str
-	}
-
-	// 8. Normalize path
+	// 7. Normalize path
 	path := models.NormalizePath(input.Path)
 
-	// 9. Store document
+	// 8. Store document
 	dbInput := models.DocumentInput{
 		VaultID:     input.VaultID,
 		Path:        path,
@@ -206,7 +191,6 @@ func (s *Service) Create(ctx context.Context, input models.DocumentInput) (*mode
 		Labels:      allLabels,
 		DocType:     docType,
 		Metadata:    metadata,
-		Sections:    sectionsStr,
 	}
 
 	// Auto-create parent folders before document upsert
@@ -270,25 +254,7 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 		return nil
 	}
 
-	// Reconstruct MarkdownDoc from stored fields — avoids expensive re-parse.
-	// Sections are stored as a JSON string during Create(); frontmatter is extracted cheaply.
-	var sections []parser.Section
-	if doc.Sections != nil && *doc.Sections != "" {
-		if err := json.Unmarshal([]byte(*doc.Sections), &sections); err != nil {
-			return fmt.Errorf("unmarshal stored sections for %s: %w", doc.Path, err)
-		}
-	}
-	fm, _, err := parser.ExtractFrontmatter(doc.Content)
-	if err != nil {
-		logutil.FromCtx(ctx).Warn("malformed frontmatter, proceeding with empty metadata", "path", doc.Path, "error", err)
-		fm = make(map[string]any)
-	}
-	parsed := &parser.MarkdownDoc{
-		Frontmatter: fm,
-		Content:     doc.ContentBody,
-		Sections:    sections,
-		Title:       doc.Title,
-	}
+	parsed := parser.ParseMarkdown(doc.Content)
 
 	// 1. Sync chunks (with smart diffing — only re-embed changed chunks)
 	if err := s.syncChunks(ctx, docID, parsed, doc.Labels); err != nil {
@@ -296,7 +262,7 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 	}
 
 	// 2. Extract and store wiki-links
-	if err := s.processWikiLinks(ctx, docID, vaultID, parsed.Content); err != nil {
+	if err := s.processWikiLinks(ctx, docID, vaultID, parsed.WikiLinks); err != nil {
 		return fmt.Errorf("process wiki-links for %s: %w", doc.Path, err)
 	}
 
@@ -313,6 +279,11 @@ func (s *Service) ProcessDocument(ctx context.Context, doc *models.Document) err
 	// 5. Sync label graph (has_label edges)
 	if err := s.db.SyncDocumentLabels(ctx, docID, vaultID, doc.Labels); err != nil {
 		return fmt.Errorf("sync labels for %s: %w", doc.Path, err)
+	}
+
+	// 5.5. Sync tasks (extract checkboxes, diff with DB)
+	if err := s.syncTasks(ctx, docID, vaultID, parsed.Tasks); err != nil {
+		return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)
 	}
 
 	// 6. Mark as processed
@@ -757,7 +728,7 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 	return doc, nil
 }
 
-func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content string) error {
+func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID string, targets []string) error {
 	logger := logutil.FromCtx(ctx)
 
 	// Delete existing links from this doc
@@ -765,7 +736,6 @@ func (s *Service) processWikiLinks(ctx context.Context, docID, vaultID, content 
 		return fmt.Errorf("delete old wiki-links: %w", err)
 	}
 
-	targets := parser.ExtractWikiLinks(content)
 	if len(targets) == 0 {
 		return nil
 	}

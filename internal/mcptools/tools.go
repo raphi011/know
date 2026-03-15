@@ -119,6 +119,18 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Description: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations. Optionally pass expected_hash to prevent overwriting concurrent changes.",
 		Annotations: writeIdempotent,
 	}, t.editDocumentSection)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_tasks",
+		Description: "List tasks (markdown checkboxes) extracted from documents. Returns tasks grouped by document with status, labels, and due dates. Use list_labels to discover available labels for filtering.",
+		Annotations: readOnly,
+	}, t.listTasks)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "toggle_task",
+		Description: "Toggle a task's status between open and done. Modifies the source markdown document (changes `- [ ]` to `- [x]` or vice versa). Use list_tasks to find task IDs.",
+		Annotations: writeNonDestructive,
+	}, t.toggleTask)
 }
 
 // ---------- Read tool handlers (iterate all vaults) ----------
@@ -554,6 +566,73 @@ func (t *mcpTools) editDocumentSection(ctx context.Context, req *mcp.CallToolReq
 		return errorResult(fmt.Sprintf("unknown operation: %q. Valid operations: %s", op, strings.Join(validOps, ", "))), nil, nil
 	}
 	return t.executeWriteTool(ctx, "edit_document_section", input.Vault, input)
+}
+
+// ---------- Task tool handlers ----------
+
+type listTasksInput struct {
+	Status    *string  `json:"status,omitempty" jsonschema:"Filter by status: 'open' or 'done'"`
+	Labels    []string `json:"labels,omitempty" jsonschema:"Filter by task labels (returns tasks matching any label)"`
+	DueBefore *string  `json:"due_before,omitempty" jsonschema:"Filter tasks due on or before this date (YYYY-MM-DD)"`
+	DueAfter  *string  `json:"due_after,omitempty" jsonschema:"Filter tasks due on or after this date (YYYY-MM-DD)"`
+	Folder    *string  `json:"folder,omitempty" jsonschema:"Filter by document folder path prefix (e.g. /daily/)"`
+	Path      *string  `json:"path,omitempty" jsonschema:"Filter by exact document path"`
+	Limit     *int     `json:"limit,omitempty" jsonschema:"Max results (default 100)"`
+	Offset    *int     `json:"offset,omitempty" jsonschema:"Pagination offset"`
+}
+
+func (t *mcpTools) listTasks(ctx context.Context, req *mcp.CallToolRequest, input listTasksInput) (*mcp.CallToolResult, any, error) {
+	refs, err := t.resolveAllVaults(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list tasks: %w", err)
+	}
+
+	argsJSON, err := json.Marshal(input)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal args: %w", err)
+	}
+
+	var sb strings.Builder
+	var failedVaults int
+	for _, ref := range refs {
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_tasks", string(argsJSON))
+		if execErr != nil {
+			logutil.FromCtx(ctx).Warn("list tasks failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
+			failedVaults++
+			continue
+		}
+		if result != "" && result != "No tasks found." {
+			if ref.IsRemote() {
+				fmt.Fprintf(&sb, "[%s]\n", ref.Namespace)
+			}
+			sb.WriteString(result)
+			if !strings.HasSuffix(result, "\n") {
+				sb.WriteByte('\n')
+			}
+		}
+	}
+
+	text := sb.String()
+	if text == "" {
+		if failedVaults > 0 {
+			text = fmt.Sprintf("No tasks found. Note: %d vault(s) were unreachable.", failedVaults)
+		} else {
+			text = "No tasks found."
+		}
+	}
+	return textResult(text), nil, nil
+}
+
+type toggleTaskInput struct {
+	TaskID string `json:"task_id" jsonschema:"The task ID to toggle (from list_tasks output)"`
+	Vault  string `json:"vault,omitempty" jsonschema:"Target vault. Defaults to first local vault."`
+}
+
+func (t *mcpTools) toggleTask(ctx context.Context, req *mcp.CallToolRequest, input toggleTaskInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.TaskID) == "" {
+		return errorResult("task_id is required"), nil, nil
+	}
+	return t.executeWriteTool(ctx, "toggle_task", input.Vault, input)
 }
 
 // ---------- helpers ----------
