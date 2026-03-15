@@ -13,6 +13,7 @@ import (
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/document"
+	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/vault"
 )
 
@@ -85,9 +86,10 @@ func newHandler(fs billy.Filesystem) *handler {
 	return &handler{fs: fs}
 }
 
-// Mount handles NFS mount requests. Returns the filesystem for any request
-// with null auth (localhost-only server, no per-user auth).
-func (h *handler) Mount(_ context.Context, _ net.Conn, _ nfs.MountRequest) (nfs.MountStatus, billy.Filesystem, []nfs.AuthFlavor) {
+// Mount handles NFS mount requests. Returns the filesystem unconditionally
+// (localhost-only server, auth is not checked).
+func (h *handler) Mount(ctx context.Context, conn net.Conn, req nfs.MountRequest) (nfs.MountStatus, billy.Filesystem, []nfs.AuthFlavor) {
+	logutil.FromCtx(ctx).Info("nfs: mount request", "path", req.Dirpath, "remote", conn.RemoteAddr())
 	return nfs.MountStatusOk, h.fs, []nfs.AuthFlavor{nfs.AuthFlavorNull}
 }
 
@@ -102,7 +104,7 @@ func (h *handler) FSStat(_ context.Context, _ billy.Filesystem, s *nfs.FSStat) e
 }
 
 // ToHandle, FromHandle, InvalidateHandle, HandleLimit are handled by CachingHandler wrapper.
-func (h *handler) ToHandle(_ billy.Filesystem, _ []string) []byte    { return []byte{} }
+func (h *handler) ToHandle(_ billy.Filesystem, _ []string) []byte        { return []byte{} }
 func (h *handler) FromHandle([]byte) (billy.Filesystem, []string, error) { return nil, nil, nil }
-func (h *handler) InvalidateHandle(billy.Filesystem, []byte) error   { return nil }
-func (h *handler) HandleLimit() int                                  { return -1 }
+func (h *handler) InvalidateHandle(billy.Filesystem, []byte) error       { return nil }
+func (h *handler) HandleLimit() int                                      { return -1 }

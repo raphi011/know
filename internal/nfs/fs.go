@@ -79,13 +79,15 @@ func parsePath(p string) (vaultName, docPath string) {
 func (f *FS) resolveVault(ctx context.Context, vaultName string) (string, error) {
 	id, err := auth.ResolveVault(ctx, f.ac, f.vaultSvc, vaultName)
 	if err != nil {
-		f.logger.Warn("vault resolution failed", "vault", vaultName, "error", err)
 		if os.IsNotExist(err) {
+			f.logger.Debug("vault not found", "vault", vaultName)
 			return "", os.ErrNotExist
 		}
 		if os.IsPermission(err) {
+			f.logger.Warn("vault access denied", "vault", vaultName, "error", err)
 			return "", os.ErrPermission
 		}
+		f.logger.Warn("vault resolution failed", "vault", vaultName, "error", err)
 		return "", fmt.Errorf("resolve vault %s: %w", vaultName, err)
 	}
 	return id, nil

@@ -73,8 +73,8 @@ snapshot:
     goreleaser release --snapshot --clean
 
 # Build and start dev server (no auth for local dev)
-dev: build
-    "{{build_dir}}/{{binary}}" serve --no-auth
+dev *args: build
+    "{{build_dir}}/{{binary}}" serve --no-auth "$@"
 
 # Launch TUI agent against local dev server
 know *args: build
