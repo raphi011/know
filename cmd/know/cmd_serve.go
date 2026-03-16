@@ -201,6 +201,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		app.DBClient(),
 		app.FileService(),
 		app.VaultService(),
+		app.BlobStore(),
 		cfg.NoAuth,
 		10*1024*1024, // 10 MB max PUT body
 	)

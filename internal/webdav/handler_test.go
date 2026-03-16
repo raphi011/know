@@ -70,7 +70,7 @@ func TestSingleWriteResponseWriter_WriteHeader(t *testing.T) {
 func TestHandler_NonStoredFileFastPath(t *testing.T) {
 	// Handler with nil dependencies — if the fast path works,
 	// these are never touched and we don't panic.
-	handler := NewHandler(context.Background(), "/dav/", nil, nil, nil, true, 0)
+	handler := NewHandler(context.Background(), "/dav/", nil, nil, nil, nil, true, 0)
 
 	tests := []struct {
 		method string
@@ -134,7 +134,7 @@ func TestHandler_NonStoredFileFastPath(t *testing.T) {
 // non-stored file fast path. With nil deps, reaching the real handler panics,
 // proving the fast path didn't intercept.
 func TestHandler_SupportedFilesNotShortCircuited(t *testing.T) {
-	handler := NewHandler(context.Background(), "/dav/", nil, nil, nil, true, 0)
+	handler := NewHandler(context.Background(), "/dav/", nil, nil, nil, nil, true, 0)
 
 	tests := []struct {
 		path string

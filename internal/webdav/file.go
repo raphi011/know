@@ -11,6 +11,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 )
@@ -220,12 +221,24 @@ type assetReadFile struct {
 	reader *bytes.Reader
 }
 
-func newAssetReadFile(name string, a *models.File) *assetReadFile {
+func newAssetReadFile(name string, a *models.File, blobStore blob.Store) (*assetReadFile, error) {
+	if a.ContentHash == nil {
+		return nil, fmt.Errorf("asset %s has no content hash", name)
+	}
+	rc, err := blobStore.Get(context.Background(), *a.ContentHash)
+	if err != nil {
+		return nil, fmt.Errorf("read blob for %s: %w", name, err)
+	}
+	data, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read blob data for %s: %w", name, err)
+	}
 	return &assetReadFile{
 		name:   name,
 		asset:  a,
-		reader: bytes.NewReader(a.Data),
-	}
+		reader: bytes.NewReader(data),
+	}, nil
 }
 
 func (f *assetReadFile) Read(p []byte) (int, error) { return f.reader.Read(p) }

@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/net/webdav"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
@@ -29,17 +30,19 @@ type FS struct {
 	db           *db.Client
 	fileSvc      *file.Service
 	vaultSvc     *vault.Service
+	blobStore    blob.Store
 	pending      *pendingSet
 	virtualFiles []VirtualFile
 }
 
 // NewFS creates a WebDAV filesystem for the given vault.
-func NewFS(vaultID string, db *db.Client, fileSvc *file.Service, vaultSvc *vault.Service, pending *pendingSet) *FS {
+func NewFS(vaultID string, db *db.Client, fileSvc *file.Service, vaultSvc *vault.Service, blobStore blob.Store, pending *pendingSet) *FS {
 	return &FS{
 		vaultID:      vaultID,
 		db:           db,
 		fileSvc:      fileSvc,
 		vaultSvc:     vaultSvc,
+		blobStore:    blobStore,
 		pending:      pending,
 		virtualFiles: defaultVirtualFiles(db),
 	}
@@ -116,7 +119,11 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			if isMarkdownFile(name) {
 				return newReadFile(name, doc), nil
 			}
-			return newAssetReadFile(name, doc), nil
+			arf, err := newAssetReadFile(name, doc, f.blobStore)
+			if err != nil {
+				return nil, fmt.Errorf("open %s: %w", name, err)
+			}
+			return arf, nil
 		}
 	}
 

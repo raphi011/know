@@ -57,9 +57,10 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "webdav-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	docSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	blobStore := blob.NewFS(t.TempDir())
+	docSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, true, 1024*1024)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, blobStore, true, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -447,8 +448,9 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 		t.Fatalf("create token: %v", err)
 	}
 
-	docSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
-	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, false, 1024*1024)
+	blobStore := blob.NewFS(t.TempDir())
+	docSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, blobStore, false, 1024*1024)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 

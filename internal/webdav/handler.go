@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/webdav"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/logutil"
@@ -58,6 +59,7 @@ func NewHandler(
 	dbClient *db.Client,
 	fileSvc *file.Service,
 	vaultSvc *vault.Service,
+	blobStore blob.Store,
 	noAuth bool,
 	maxPutBytes int64,
 ) http.Handler {
@@ -185,7 +187,7 @@ func NewHandler(
 		}
 
 		// Create per-request WebDAV handler with the resolved vault
-		davFS := NewFS(vaultID, dbClient, fileSvc, vaultSvc, pendingSets.Get(vaultID))
+		davFS := NewFS(vaultID, dbClient, fileSvc, vaultSvc, blobStore, pendingSets.Get(vaultID))
 		reqLogger := logutil.FromCtx(r.Context())
 		davHandler := &webdav.Handler{
 			FileSystem: davFS,

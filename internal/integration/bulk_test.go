@@ -39,9 +39,10 @@ func setupBulkServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "bulk-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	blobStore := blob.NewFS(t.TempDir())
+	fileSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	app := server.NewForTest(testDB, blob.NewFS(t.TempDir()), fileSvc, vaultSvc)
+	app := server.NewForTest(testDB, blobStore, fileSvc, vaultSvc)
 	apiSrv := api.NewServer(app)
 
 	mux := http.NewServeMux()
