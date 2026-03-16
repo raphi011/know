@@ -45,6 +45,24 @@ func TestVaultDefaults(t *testing.T) {
 		if d.MemoryArchiveThreshold != 0.2 {
 			t.Errorf("MemoryArchiveThreshold = %f, want 0.2", d.MemoryArchiveThreshold)
 		}
+		if d.RRFK != DefaultRRFK {
+			t.Errorf("RRFK = %d, want %d", d.RRFK, DefaultRRFK)
+		}
+		if d.HNSWEF != DefaultHNSWEF {
+			t.Errorf("HNSWEF = %d, want %d", d.HNSWEF, DefaultHNSWEF)
+		}
+		if d.DefaultSearchLimit != DefaultSearchLimit {
+			t.Errorf("DefaultSearchLimit = %d, want %d", d.DefaultSearchLimit, DefaultSearchLimit)
+		}
+		if d.MaxSearchLimit != DefaultMaxSearchLimit {
+			t.Errorf("MaxSearchLimit = %d, want %d", d.MaxSearchLimit, DefaultMaxSearchLimit)
+		}
+		if d.VersionCoalesceMinutes != DefaultVersionCoalesceMinutes {
+			t.Errorf("VersionCoalesceMinutes = %d, want %d", d.VersionCoalesceMinutes, DefaultVersionCoalesceMinutes)
+		}
+		if d.VersionRetentionCount != DefaultVersionRetentionCount {
+			t.Errorf("VersionRetentionCount = %d, want %d", d.VersionRetentionCount, DefaultVersionRetentionCount)
+		}
 	})
 
 	t.Run("custom settings override defaults", func(t *testing.T) {
@@ -55,6 +73,12 @@ func TestVaultDefaults(t *testing.T) {
 			MemoryDecayHalfLife:    60,
 			MemoryMergeThreshold:   0.8,
 			MemoryArchiveThreshold: 0.1,
+			RRFK:                   80,
+			HNSWEF:                 60,
+			DefaultSearchLimit:     10,
+			MaxSearchLimit:         50,
+			VersionCoalesceMinutes: 5,
+			VersionRetentionCount:  25,
 		}}
 		d := v.Defaults()
 		if d.MemoryPath != "/custom-mem" {
@@ -74,6 +98,24 @@ func TestVaultDefaults(t *testing.T) {
 		}
 		if d.MemoryArchiveThreshold != 0.1 {
 			t.Errorf("MemoryArchiveThreshold = %f, want 0.1", d.MemoryArchiveThreshold)
+		}
+		if d.RRFK != 80 {
+			t.Errorf("RRFK = %d, want 80", d.RRFK)
+		}
+		if d.HNSWEF != 60 {
+			t.Errorf("HNSWEF = %d, want 60", d.HNSWEF)
+		}
+		if d.DefaultSearchLimit != 10 {
+			t.Errorf("DefaultSearchLimit = %d, want 10", d.DefaultSearchLimit)
+		}
+		if d.MaxSearchLimit != 50 {
+			t.Errorf("MaxSearchLimit = %d, want 50", d.MaxSearchLimit)
+		}
+		if d.VersionCoalesceMinutes != 5 {
+			t.Errorf("VersionCoalesceMinutes = %d, want 5", d.VersionCoalesceMinutes)
+		}
+		if d.VersionRetentionCount != 25 {
+			t.Errorf("VersionRetentionCount = %d, want 25", d.VersionRetentionCount)
 		}
 	})
 
@@ -124,6 +166,19 @@ func TestVaultSettingsValidate(t *testing.T) {
 		{"zero decay half life", VaultSettings{MemoryDecayHalfLife: 0}, false},
 		{"boundary merge threshold 0", VaultSettings{MemoryMergeThreshold: 0}, false},
 		{"boundary merge threshold 1", VaultSettings{MemoryMergeThreshold: 1}, false},
+		{"valid search settings", VaultSettings{RRFK: 80, HNSWEF: 60, DefaultSearchLimit: 10, MaxSearchLimit: 50}, false},
+		{"negative rrf_k", VaultSettings{RRFK: -1}, true},
+		{"negative hnsw_ef", VaultSettings{HNSWEF: -1}, true},
+		{"negative default_search_limit", VaultSettings{DefaultSearchLimit: -1}, true},
+		{"negative max_search_limit", VaultSettings{MaxSearchLimit: -1}, true},
+		{"default exceeds max search limit", VaultSettings{DefaultSearchLimit: 200, MaxSearchLimit: 100}, true},
+		{"default equals max search limit", VaultSettings{DefaultSearchLimit: 100, MaxSearchLimit: 100}, false},
+		{"only default set", VaultSettings{DefaultSearchLimit: 50}, false},
+		{"only max set", VaultSettings{MaxSearchLimit: 50}, false},
+		{"negative coalesce minutes", VaultSettings{VersionCoalesceMinutes: -1}, true},
+		{"zero coalesce minutes", VaultSettings{VersionCoalesceMinutes: 0}, false},
+		{"negative retention count", VaultSettings{VersionRetentionCount: -1}, true},
+		{"valid version settings", VaultSettings{VersionCoalesceMinutes: 5, VersionRetentionCount: 25}, false},
 	}
 
 	for _, tt := range tests {
@@ -144,6 +199,12 @@ func TestVaultSettingsMerge(t *testing.T) {
 		MemoryDecayHalfLife:    30,
 		TemplatePath:           "/templates",
 		DailyNotePath:          "/daily",
+		RRFK:                   60,
+		HNSWEF:                 40,
+		DefaultSearchLimit:     20,
+		MaxSearchLimit:         100,
+		VersionCoalesceMinutes: 10,
+		VersionRetentionCount:  50,
 	}
 
 	t.Run("empty patch changes nothing", func(t *testing.T) {
@@ -167,6 +228,34 @@ func TestVaultSettingsMerge(t *testing.T) {
 		// Unchanged fields preserved
 		if got.TemplatePath != "/templates" {
 			t.Errorf("TemplatePath = %q, want /templates", got.TemplatePath)
+		}
+	})
+
+	t.Run("patch overrides search and version fields", func(t *testing.T) {
+		got := base.Merge(VaultSettings{
+			RRFK:                   80,
+			HNSWEF:                 60,
+			DefaultSearchLimit:     10,
+			VersionCoalesceMinutes: 5,
+		})
+		if got.RRFK != 80 {
+			t.Errorf("RRFK = %d, want 80", got.RRFK)
+		}
+		if got.HNSWEF != 60 {
+			t.Errorf("HNSWEF = %d, want 60", got.HNSWEF)
+		}
+		if got.DefaultSearchLimit != 10 {
+			t.Errorf("DefaultSearchLimit = %d, want 10", got.DefaultSearchLimit)
+		}
+		if got.VersionCoalesceMinutes != 5 {
+			t.Errorf("VersionCoalesceMinutes = %d, want 5", got.VersionCoalesceMinutes)
+		}
+		// Unchanged fields preserved
+		if got.MaxSearchLimit != 100 {
+			t.Errorf("MaxSearchLimit = %d, want 100", got.MaxSearchLimit)
+		}
+		if got.VersionRetentionCount != 50 {
+			t.Errorf("VersionRetentionCount = %d, want 50", got.VersionRetentionCount)
 		}
 	})
 }
