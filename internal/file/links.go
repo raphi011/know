@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/raphi011/know/internal/models"
@@ -29,9 +30,12 @@ func NewLinkResolver(db dbQuerier) *LinkResolver {
 // target contains a path separator, disambiguates by path suffix. Returns nil if not
 // found or ambiguous (dangling link).
 func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*models.File, error) {
-	// Normalize: strip .md extension, then derive stem
+	// Normalize: strip .md extension, derive stem, and normalize separators.
+	// Wiki-links may use spaces ("Beta Notes") while filenames use hyphens ("beta-notes"),
+	// so we replace spaces and underscores with hyphens to match stored stems.
 	normalized := strings.TrimSuffix(target, ".md")
 	stem := models.FilenameStem("/" + normalized + ".md")
+	stem = strings.ReplaceAll(strings.ReplaceAll(stem, " ", "-"), "_", "-")
 
 	// Stem match: find all files with matching stem in this vault
 	sql := `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND stem = $stem`
@@ -71,4 +75,34 @@ func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*mo
 		}
 		return found, nil
 	}
+}
+
+// ShortestUnambiguousTarget computes the shortest wiki-link target that
+// unambiguously identifies a file given all files sharing its stem.
+// When only one file has the stem, returns just the stem (e.g. "notes").
+// When multiple files share the stem, returns progressively longer path
+// suffixes until a unique match is found (e.g. "a/notes", "x/a/notes").
+func ShortestUnambiguousTarget(filePath string, allWithSameStem []models.File) string {
+	stem := models.FilenameStem(filePath)
+	if len(allWithSameStem) <= 1 {
+		return stem
+	}
+	// Try progressively longer suffixes: notes, c/notes, b/c/notes...
+	parts := strings.Split(strings.TrimPrefix(filePath, "/"), "/")
+	parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], filepath.Ext(parts[len(parts)-1]))
+	for depth := 1; depth < len(parts); depth++ {
+		candidate := strings.Join(parts[len(parts)-depth-1:], "/")
+		suffix := "/" + strings.ToLower(candidate) + ".md"
+		matchCount := 0
+		for _, f := range allWithSameStem {
+			if strings.HasSuffix(strings.ToLower(f.Path), suffix) {
+				matchCount++
+			}
+		}
+		if matchCount == 1 {
+			return strings.ToLower(candidate)
+		}
+	}
+	full := strings.TrimPrefix(filePath, "/")
+	return strings.ToLower(strings.TrimSuffix(full, filepath.Ext(full)))
 }
