@@ -150,7 +150,6 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 			metadata = $metadata,
 			is_folder = $is_folder,
 			mime_type = $mime_type,
-			data = $data,
 			size = $size,
 			processed = false
 		RETURN AFTER
@@ -167,7 +166,6 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 		"metadata":       optionalObject(input.Metadata),
 		"is_folder":      input.IsFolder,
 		"mime_type":      input.MimeType,
-		"data":           optionalBytes(input.Data),
 		"size":           fileSize(input),
 	})
 	if err != nil {
@@ -237,7 +235,6 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 			content_hash = $content_hash,
 			metadata = $metadata,
 			mime_type = $mime_type,
-			data = $data,
 			size = $size,
 			processed = false
 		RETURN AFTER
@@ -251,7 +248,6 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 		"content_hash":   optionalString(input.ContentHash),
 		"metadata":       optionalObject(input.Metadata),
 		"mime_type":      input.MimeType,
-		"data":           optionalBytes(input.Data),
 		"size":           fileSize(input),
 	})
 	if err != nil {

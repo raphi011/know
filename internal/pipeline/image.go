@@ -7,18 +7,10 @@ import (
 )
 
 // ImageChunker creates a single chunk from an image file.
-// The chunk stores the image bytes for multimodal embedding.
-// Text is populated later by an optional image-to-text extractor.
+// Currently a no-op — binary data is stored in the blob store and not available
+// on the File struct. Full implementation will read from blob store when needed.
 type ImageChunker struct{}
 
-func (i *ImageChunker) Chunk(_ context.Context, file *models.File, _ ChunkConfig) ([]ChunkResult, error) {
-	if len(file.Data) == 0 {
-		return nil, nil
-	}
-
-	return []ChunkResult{{
-		Data:     file.Data,
-		MimeType: file.MimeType,
-		Position: 0,
-	}}, nil
+func (i *ImageChunker) Chunk(_ context.Context, _ *models.File, _ ChunkConfig) ([]ChunkResult, error) {
+	return nil, nil
 }

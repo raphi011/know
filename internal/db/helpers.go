@@ -25,14 +25,6 @@ func optionalString(s *string) any {
 	return *s
 }
 
-// optionalBytes returns models.None for nil/empty byte slices, otherwise returns the bytes.
-func optionalBytes(b []byte) any {
-	if len(b) == 0 {
-		return surrealmodels.None
-	}
-	return b
-}
-
 // optionalObject returns models.None for nil maps, otherwise returns the map.
 func optionalObject(m map[string]any) any {
 	if m == nil {

@@ -85,7 +85,7 @@ func TestMarkdownChunker_Chunk(t *testing.T) {
 	}
 }
 
-func TestImageChunker_EmptyData(t *testing.T) {
+func TestImageChunker_NoOp(t *testing.T) {
 	chunker := &ImageChunker{}
 	file := &models.File{
 		MimeType: "image/png",
@@ -96,28 +96,6 @@ func TestImageChunker_EmptyData(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if chunks != nil {
-		t.Fatalf("expected nil chunks for empty data, got %d", len(chunks))
-	}
-}
-
-func TestImageChunker_WithData(t *testing.T) {
-	chunker := &ImageChunker{}
-	file := &models.File{
-		Data:     []byte{0x89, 0x50, 0x4E, 0x47},
-		MimeType: "image/png",
-	}
-
-	chunks, err := chunker.Chunk(context.Background(), file, DefaultChunkConfig())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(chunks) != 1 {
-		t.Fatalf("expected 1 chunk, got %d", len(chunks))
-	}
-	if chunks[0].MimeType != "image/png" {
-		t.Fatalf("expected image/png, got %q", chunks[0].MimeType)
-	}
-	if len(chunks[0].Data) != 4 {
-		t.Fatalf("expected 4 bytes, got %d", len(chunks[0].Data))
+		t.Fatalf("expected nil chunks (no-op), got %d", len(chunks))
 	}
 }

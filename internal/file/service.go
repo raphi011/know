@@ -254,7 +254,6 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		Labels:      labels,
 		DocType:     docType,
 		Metadata:    metadata,
-		Data:        input.Data,
 		MimeType:    input.MimeType,
 		IsFolder:    input.IsFolder,
 	}

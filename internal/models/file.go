@@ -22,7 +22,6 @@ type File struct {
 	Labels         []string               `json:"labels"`
 	DocType        *string                `json:"doc_type,omitempty"`
 	Metadata       map[string]any         `json:"metadata,omitempty"`
-	Data           []byte                 `json:"data,omitempty"`
 	Size           int                    `json:"size"`
 	Processed      bool                   `json:"processed"`
 	TranscribeAt   *time.Time             `json:"transcribe_at,omitempty"`
