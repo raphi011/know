@@ -170,6 +170,7 @@ Each major feature has its own documentation file:
 ### Project-Specific Docs (`docs/`)
 
 - `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
+- `docs/testing-tui.md` - TUI testing strategy: direct component testing without teatest, state machine testing patterns
 
 ### Reusable Knowledge
 
