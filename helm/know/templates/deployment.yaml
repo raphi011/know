@@ -164,16 +164,45 @@ spec:
             - name: AWS_REGION
               value: {{ .Values.bedrock.region | quote }}
             {{- end }}
+            # Blob store
+            - name: KNOW_BLOB_STORE
+              value: {{ .Values.blob.store | default "fs" | quote }}
+            - name: KNOW_BLOB_DIR
+              value: {{ .Values.blob.dir | default "/data/blobs" | quote }}
+            {{- if eq (.Values.blob.store | default "fs") "s3" }}
+            - name: KNOW_BLOB_S3_BUCKET
+              value: {{ .Values.blob.s3.bucket | quote }}
+            - name: KNOW_BLOB_S3_PREFIX
+              value: {{ .Values.blob.s3.prefix | default "blobs" | quote }}
+            {{- if .Values.blob.s3.endpoint }}
+            - name: KNOW_BLOB_S3_ENDPOINT
+              value: {{ .Values.blob.s3.endpoint | quote }}
+            {{- end }}
+            - name: KNOW_BLOB_S3_REGION
+              value: {{ .Values.blob.s3.region | default "us-east-1" | quote }}
+            {{- end }}
             # Extra environment variables
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "know.fullname" . }}-data
+        {{- else }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -56,6 +56,23 @@ bedrock:
   embedModelProvider: ""  # e.g. amazon
   region: ""              # e.g. eu-central-1
 
+# Persistent storage for blobs and data
+persistence:
+  enabled: true
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""
+
+# Blob store configuration
+blob:
+  store: fs
+  dir: /data/blobs
+  s3:
+    bucket: ""
+    prefix: blobs
+    endpoint: ""
+    region: us-east-1
+
 # Extra environment variables (for any config not covered above)
 extraEnv: []
   # - name: KNOW_LOG_LEVEL
