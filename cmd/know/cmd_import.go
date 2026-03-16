@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,6 +25,7 @@ var (
 	importForce     bool
 	importRecursive bool
 	importYes       bool
+	importNoIgnore  bool
 )
 
 var importCmd = &cobra.Command{
@@ -41,13 +43,19 @@ Image files (PNG, JPEG, GIF, SVG, WebP) are uploaded as binary assets.
 By default only top-level files are imported from directories. Use -r to recurse
 into subdirectories. Archives are always imported recursively.
 
+When importing from a git repository, .gitignore rules are respected automatically.
+Files and directories ignored by git are skipped. When importing from a non-git
+directory, dotfiles (e.g. .DS_Store) and dot-directories (e.g. .obsidian/) are skipped.
+Use --no-ignore to disable all filtering and import everything.
+
 Examples:
   know import ./docs --vault default -r
   know import ./docs /imported --vault default -r
   know import ./notes /notes --vault default --labels personal,notes
   know import ./export.tar.gz --vault default
   know import ./export.tar.gz /restored --vault default --dry-run
-  know import ./docs /docs --vault default --force --yes`,
+  know import ./docs /docs --vault default --force --yes
+  know import ./vault /vault --vault default -r --no-ignore`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runImport,
 }
@@ -61,6 +69,7 @@ func init() {
 	importCmd.Flags().BoolVar(&importForce, "force", false, "overwrite existing files if content hash differs")
 	importCmd.Flags().BoolVarP(&importRecursive, "recursive", "r", false, "recurse into subdirectories")
 	importCmd.Flags().BoolVarP(&importYes, "yes", "y", false, "skip confirmation prompt")
+	importCmd.Flags().BoolVar(&importNoIgnore, "no-ignore", false, "import all files, ignoring .gitignore rules and dotfile filtering")
 	if err := importCmd.MarkFlagRequired("vault"); err != nil {
 		panic(fmt.Sprintf("mark vault flag required: %v", err))
 	}
@@ -371,16 +380,123 @@ func collectArchiveEntries(archivePath string) ([]archiveEntry, int, error) {
 	return entries, skipped, nil
 }
 
-// collectImportFiles collects files from a directory. When recursive is false,
-// only top-level files are returned and the number of skipped subdirectories is reported.
-// Also counts skipped archive files (.tar.gz, .tgz).
+// collectImportFiles collects files from a directory, respecting ignore rules.
+//
+// When importNoIgnore is false (default), it tries git-based discovery first:
+// if the directory is inside a git repo, it uses `git ls-files` to list only
+// tracked and untracked-but-not-ignored files, respecting .gitignore rules.
+// If git is unavailable or the directory is not a git repo, it falls back to
+// filesystem walking with dot-prefix filtering (skipping .dotfiles and .dotdirs).
+//
+// When importNoIgnore is true, all files are included (only extension and archive filtering apply).
 func collectImportFiles(dirPath string, recursive bool) (files []string, skippedDirs, skippedArchives int, err error) {
+	if !importNoIgnore {
+		gitFiles, gitErr := collectGitFiles(dirPath, recursive)
+		if gitErr == nil {
+			fmt.Fprintf(os.Stderr, "Using .gitignore rules (use --no-ignore to include all files)\n")
+			// git ls-files doesn't distinguish dirs/archives — filter out archives from results.
+			var filtered []string
+			for _, f := range gitFiles {
+				if isArchiveFile(f) {
+					skippedArchives++
+					continue
+				}
+				filtered = append(filtered, f)
+			}
+			return filtered, 0, skippedArchives, nil
+		}
+		// Not a git repo or git unavailable — fall back to dotfile filtering.
+		fmt.Fprintf(os.Stderr, "Skipping dotfiles and dot-directories (use --no-ignore to include all files)\n")
+	}
+
+	return collectWalkFiles(dirPath, recursive, !importNoIgnore)
+}
+
+// collectGitFiles uses `git ls-files` to collect files from a git repository,
+// respecting .gitignore rules. Returns an error if the directory is not in a git
+// repo or git is not available.
+func collectGitFiles(dirPath string, recursive bool) ([]string, error) {
+	absDir, err := filepath.Abs(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+
+	// Resolve symlinks so absDir matches the repo root from git (which resolves
+	// symlinks). On macOS, /tmp → /private/tmp causes mismatches otherwise.
+	absDir, err = filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve symlinks: %w", err)
+	}
+
+	// Verify this is inside a git repo.
+	check := exec.Command("git", "-C", absDir, "rev-parse", "--show-toplevel")
+	if err := check.Run(); err != nil {
+		return nil, fmt.Errorf("not a git repo: %w", err)
+	}
+
+	// List tracked + untracked-but-not-ignored files.
+	// With -C absDir and absDir as pathspec, output is relative to absDir.
+	cmd := exec.Command("git", "-C", absDir, "ls-files", "--cached", "--others", "--exclude-standard", absDir)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+
+	var files []string
+	for line := range strings.SplitSeq(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// git ls-files with -C absDir returns paths relative to absDir.
+		absPath := line
+		if !filepath.IsAbs(line) {
+			absPath = filepath.Join(absDir, line)
+		}
+
+		// Skip files that no longer exist on disk (e.g. tracked but deleted).
+		if _, err := os.Stat(absPath); err != nil {
+			continue
+		}
+
+		if !isSupportedFile(absPath) {
+			continue
+		}
+
+		if !recursive {
+			// Only include direct children of dirPath.
+			rel, err := filepath.Rel(absDir, absPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", absPath, err)
+				continue
+			}
+			if strings.Contains(rel, string(filepath.Separator)) {
+				continue
+			}
+		}
+
+		files = append(files, absPath)
+	}
+
+	return files, nil
+}
+
+// collectWalkFiles collects files by walking the filesystem. When skipDot is true,
+// directories and files starting with "." are skipped.
+func collectWalkFiles(dirPath string, recursive, skipDot bool) (files []string, skippedDirs, skippedArchives int, err error) {
 	if !recursive {
 		entries, err := os.ReadDir(dirPath)
 		if err != nil {
 			return nil, 0, 0, fmt.Errorf("read directory: %w", err)
 		}
 		for _, e := range entries {
+			if skipDot && strings.HasPrefix(e.Name(), ".") {
+				if e.IsDir() {
+					skippedDirs++
+				}
+				continue
+			}
 			if e.IsDir() {
 				skippedDirs++
 				continue
@@ -401,6 +517,13 @@ func collectImportFiles(dirPath string, recursive bool) (files []string, skipped
 			return err
 		}
 		if d.IsDir() {
+			if skipDot && d.Name() != "." && strings.HasPrefix(d.Name(), ".") {
+				skippedDirs++
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if skipDot && strings.HasPrefix(d.Name(), ".") {
 			return nil
 		}
 		if isArchiveFile(path) {
@@ -415,7 +538,7 @@ func collectImportFiles(dirPath string, recursive bool) (files []string, skipped
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("scan directory: %w", err)
 	}
-	return files, 0, skippedArchives, nil
+	return files, skippedDirs, skippedArchives, nil
 }
 
 func isSupportedFile(path string) bool {
