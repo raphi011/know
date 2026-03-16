@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Runtime
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk add --no-cache ca-certificates tzdata ffmpeg \
     && addgroup -S -g 1000 know \
     && adduser -S -u 1000 -G know know
 

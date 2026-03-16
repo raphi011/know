@@ -163,10 +163,7 @@ func (m *Model) fetchDocument(path string) tea.Cmd {
 
 // updateRenderer recreates the glamour renderer when terminal width changes.
 func (m *Model) updateRenderer() {
-	wrapWidth := max(m.width-4, 20)
-	if wrapWidth > 100 {
-		wrapWidth = 100
-	}
+	wrapWidth := min(max(m.width-4, 20), 100)
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle(m.glamourStyle),
 		glamour.WithWordWrap(wrapWidth),

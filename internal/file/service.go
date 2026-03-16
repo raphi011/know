@@ -18,6 +18,8 @@ import (
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/pipeline"
+	"github.com/raphi011/know/internal/stt"
 )
 
 // VersionConfig holds versioning settings.
@@ -28,13 +30,15 @@ type VersionConfig struct {
 
 // Service manages file lifecycle: parse → extract → store → link → embed.
 type Service struct {
-	db                 *db.Client
-	embedder           atomic.Pointer[llm.Embedder] // optional — nil disables embedding
-	resolver           *LinkResolver
-	chunkConfig        parser.ChunkConfig
-	versionConfig      VersionConfig
-	bus                *event.Bus // optional — nil disables change events
-	embedMaxInputChars int        // hard limit for embedding API input (0 = no limit)
+	db                  *db.Client
+	embedder            atomic.Pointer[llm.Embedder]    // optional — nil disables embedding
+	transcriber         atomic.Pointer[stt.Transcriber] // optional — nil disables transcription
+	resolver            *LinkResolver
+	chunkConfig         parser.ChunkConfig
+	versionConfig       VersionConfig
+	bus                 *event.Bus // optional — nil disables change events
+	embedMaxInputChars  int        // hard limit for embedding API input (0 = no limit)
+	audioSegmentSeconds int        // max audio segment duration for chunking (default 60)
 }
 
 // SetEmbedder atomically replaces the embedder (used by SIGHUP reload).
@@ -53,6 +57,23 @@ func (s *Service) getEmbedder() *llm.Embedder {
 	return s.embedder.Load()
 }
 
+// SetTranscriber atomically replaces the transcriber (used by SIGHUP reload).
+func (s *Service) SetTranscriber(t *stt.Transcriber) {
+	s.transcriber.Store(t)
+}
+
+func (s *Service) getTranscriber() *stt.Transcriber {
+	return s.transcriber.Load()
+}
+
+// SetAudioSegmentSeconds updates the audio segment duration from config.
+func (s *Service) SetAudioSegmentSeconds(seconds int) {
+	if seconds <= 0 {
+		seconds = 60
+	}
+	s.audioSegmentSeconds = seconds
+}
+
 // NewService creates a new file service.
 // embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
 func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
@@ -65,12 +86,13 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 		versionConfig.CoalesceMinutes = 0
 	}
 	s := &Service{
-		db:                 db,
-		resolver:           NewLinkResolver(db),
-		chunkConfig:        chunkConfig,
-		versionConfig:      versionConfig,
-		bus:                bus,
-		embedMaxInputChars: embedMaxInputChars,
+		db:                  db,
+		resolver:            NewLinkResolver(db),
+		chunkConfig:         chunkConfig,
+		versionConfig:       versionConfig,
+		bus:                 bus,
+		embedMaxInputChars:  embedMaxInputChars,
+		audioSegmentSeconds: 60,
 	}
 	s.embedder.Store(embedder)
 	return s
@@ -311,6 +333,14 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 		// 5.6. Extract and store external links
 		if err := s.processExternalLinks(ctx, fileID, vaultID, parsed.ExternalLinks); err != nil {
 			return fmt.Errorf("process external links for %s: %w", doc.Path, err)
+		}
+	} else if models.IsAudioFile(doc.Path) {
+		// Audio files: schedule for transcription if STT is configured.
+		// Chunks will be created after transcription by the TranscriptionWorker.
+		if s.getTranscriber() != nil {
+			if err := s.db.ScheduleFileTranscription(ctx, fileID); err != nil {
+				return fmt.Errorf("schedule transcription for %s: %w", doc.Path, err)
+			}
 		}
 	}
 
@@ -978,6 +1008,134 @@ func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, 
 		}); err != nil {
 			return fmt.Errorf("create relates_to relation for %q: %w", target, err)
 		}
+	}
+
+	return nil
+}
+
+// TranscribePendingFiles claims files due for transcription, transcribes them,
+// creates text chunks from the transcript, and schedules embedding.
+// Returns the number of files successfully transcribed.
+func (s *Service) TranscribePendingFiles(ctx context.Context, limit int) (int, error) {
+	transcriber := s.getTranscriber()
+	if transcriber == nil {
+		return 0, nil
+	}
+
+	files, err := s.db.ClaimFilesForTranscription(ctx, limit)
+	if err != nil {
+		return 0, fmt.Errorf("claim files for transcription: %w", err)
+	}
+	if len(files) == 0 {
+		return 0, nil
+	}
+
+	logger := logutil.FromCtx(ctx)
+	transcribed := 0
+
+	for _, f := range files {
+		if ctx.Err() != nil {
+			return transcribed, ctx.Err()
+		}
+
+		fileID, err := models.RecordIDString(f.ID)
+		if err != nil {
+			logger.Warn("failed to extract file ID for transcription", "error", err)
+			continue
+		}
+
+		if err := s.transcribeFile(ctx, *transcriber, &f, fileID); err != nil {
+			logger.Warn("transcription failed, rescheduling", "path", f.Path, "error", err)
+			if schedErr := s.db.RescheduleFileTranscription(ctx, fileID); schedErr != nil {
+				logger.Error("failed to reschedule transcription", "path", f.Path, "error", schedErr)
+			}
+			continue
+		}
+
+		transcribed++
+	}
+
+	return transcribed, nil
+}
+
+func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcriber, f *models.File, fileID string) error {
+	logger := logutil.FromCtx(ctx).With("path", f.Path, "file_id", fileID)
+
+	var result *stt.Result
+
+	if len(f.Data) > stt.MaxWhisperFileSize {
+		// Split large files via ffmpeg
+		parts, err := stt.SplitForTranscription(ctx, f.Data, f.MimeType, stt.MaxWhisperFileSize)
+		if err != nil {
+			return fmt.Errorf("split audio: %w", err)
+		}
+		// Transcribe each part and merge segments with offset adjustment
+		var allSegments []stt.Segment
+		var fullText strings.Builder
+		for i, part := range parts {
+			partResult, err := transcriber.Transcribe(ctx, part.Data, f.MimeType)
+			if err != nil {
+				return fmt.Errorf("transcribe part %d: %w", i, err)
+			}
+			if fullText.Len() > 0 {
+				fullText.WriteString(" ")
+			}
+			fullText.WriteString(partResult.Text)
+			// Adjust segment timestamps by the part's offset
+			for _, seg := range partResult.Segments {
+				allSegments = append(allSegments, stt.Segment{
+					Start: seg.Start + part.OffsetSecs,
+					End:   seg.End + part.OffsetSecs,
+					Text:  seg.Text,
+				})
+			}
+		}
+		result = &stt.Result{Text: fullText.String(), Segments: allSegments}
+	} else {
+		var err error
+		result, err = transcriber.Transcribe(ctx, f.Data, f.MimeType)
+		if err != nil {
+			return fmt.Errorf("transcribe: %w", err)
+		}
+	}
+
+	logger.Info("transcription complete", "segments", len(result.Segments), "text_len", len(result.Text))
+
+	// Group segments into time-window chunks
+	chunks := pipeline.GroupSegments(result.Segments, s.audioSegmentSeconds)
+
+	// Delete any existing chunks for this file (re-transcription case)
+	if err := s.db.DeleteChunks(ctx, fileID); err != nil {
+		return fmt.Errorf("delete old chunks: %w", err)
+	}
+
+	// Create text chunks with embedding scheduled
+	var chunkInputs []models.ChunkInput
+	for _, chunk := range chunks {
+		input := models.ChunkInput{
+			FileID:    fileID,
+			Text:      chunk.Text,
+			Position:  chunk.Position,
+			SourceLoc: &chunk.SourceLoc,
+			Labels:    f.Labels,
+			MimeType:  "text/plain",
+		}
+		if s.getEmbedder() != nil {
+			now := time.Now().UTC()
+			input.EmbedAt = &now
+		}
+		chunkInputs = append(chunkInputs, input)
+	}
+
+	if len(chunkInputs) > 0 {
+		if err := s.db.CreateChunks(ctx, chunkInputs); err != nil {
+			return fmt.Errorf("create chunks: %w", err)
+		}
+	}
+
+	// Update file content with full transcript
+	if err := s.db.UpdateFileTranscript(ctx, fileID, result.Text); err != nil {
+		return fmt.Errorf("update transcript: %w", err)
 	}
 
 	return nil

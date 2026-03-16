@@ -58,6 +58,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS data           ON file TYPE option<bytes>;
     DEFINE FIELD IF NOT EXISTS size           ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS processed      ON file TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS transcribe_at  ON file TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS last_accessed_at ON file TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS access_count   ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();

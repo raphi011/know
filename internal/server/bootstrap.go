@@ -27,6 +27,7 @@ import (
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/search"
+	"github.com/raphi011/know/internal/stt"
 	"github.com/raphi011/know/internal/tools"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -50,6 +51,9 @@ type ServerConfig struct {
 	ChunkMaxSize           int    `json:"chunkMaxSize"`
 	VersionCoalesceMinutes int    `json:"versionCoalesceMinutes"`
 	VersionRetentionCount  int    `json:"versionRetentionCount"`
+	STTProvider            string `json:"sttProvider"`
+	STTModel               string `json:"sttModel"`
+	TranscriptionEnabled   bool   `json:"transcriptionEnabled"`
 }
 
 // App holds all application services and dependencies.
@@ -60,20 +64,22 @@ type App struct {
 	vaultService *vault.Service
 	fileService  *file.Service
 
-	searchService            *search.Service
-	agentService             *agent.Service
-	agentRunner              *agent.Runner
-	remoteService            *remote.Service
-	memoryService            *memory.Service
-	apifyClient              *apify.Client
-	bus                      *event.Bus
-	workerCancel             context.CancelFunc // guarded by mu
-	workerDone               chan struct{}      // guarded by mu
-	processingWorkerCancel   context.CancelFunc // guarded by mu
-	processingWorkerDone     chan struct{}      // guarded by mu
-	processingWorkerInterval time.Duration
-	processingWorkerBatch    int
-	serverConfig             ServerConfig // guarded by mu
+	searchService             *search.Service
+	agentService              *agent.Service
+	agentRunner               *agent.Runner
+	remoteService             *remote.Service
+	memoryService             *memory.Service
+	apifyClient               *apify.Client
+	bus                       *event.Bus
+	workerCancel              context.CancelFunc // guarded by mu
+	workerDone                chan struct{}       // guarded by mu
+	processingWorkerCancel    context.CancelFunc // guarded by mu
+	processingWorkerDone      chan struct{}       // guarded by mu
+	processingWorkerInterval  time.Duration
+	processingWorkerBatch     int
+	transcriptionWorkerCancel context.CancelFunc // guarded by mu
+	transcriptionWorkerDone   chan struct{}       // guarded by mu
+	serverConfig              ServerConfig       // guarded by mu
 }
 
 // New creates a new App with all dependencies initialized.
@@ -166,12 +172,29 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	bus := event.New()
 	fileSvc := file.NewService(dbClient, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
+	fileSvc.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
+
+	// STT transcriber is optional — nil disables transcription
+	var transcriber stt.Transcriber
+	if cfg.STTProvider.Enabled() {
+		t, err := stt.NewTranscriber(string(cfg.STTProvider), cfg.STTModel, cfg.OpenAIAPIKey)
+		if err != nil {
+			slog.Warn("STT transcriber initialization failed, transcription disabled", "error", err)
+		} else {
+			transcriber = t
+		}
+	}
+	if transcriber != nil {
+		fileSvc.SetTranscriber(&transcriber)
+	}
 
 	// workerDone defaults to a closed channel so <-workerDone is a no-op in Close
 	embeddingWorkerDone := make(chan struct{})
 	close(embeddingWorkerDone)
 	processingWorkerDone := make(chan struct{})
 	close(processingWorkerDone)
+	transcriptionWorkerDone := make(chan struct{})
+	close(transcriptionWorkerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
 	remoteSvc := remote.NewService(dbClient)
@@ -207,6 +230,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		bus:                      bus,
 		workerDone:               embeddingWorkerDone,
 		processingWorkerDone:     processingWorkerDone,
+		transcriptionWorkerDone:  transcriptionWorkerDone,
 		serverConfig: ServerConfig{
 			Version:                cfg.Version,
 			Commit:                 cfg.Commit,
@@ -225,6 +249,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			ChunkMaxSize:           chunkConfig.MaxSize,
 			VersionCoalesceMinutes: cfg.VersionCoalesceMinutes,
 			VersionRetentionCount:  cfg.VersionRetentionCount,
+			STTProvider:            string(cfg.STTProvider),
+			STTModel:               cfg.STTModel,
+			TranscriptionEnabled:   transcriber != nil,
 		},
 	}
 
@@ -240,6 +267,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	// Start background document processing worker (always runs)
 	app.startProcessingWorker()
+
+	// Start background transcription worker if transcriber is available
+	app.syncTranscriptionWorker(cfg, transcriber)
 
 	return app, nil
 }
@@ -322,6 +352,9 @@ func (a *App) Close(ctx context.Context) error {
 	procCancel := a.processingWorkerCancel
 	procDone := a.processingWorkerDone
 	a.processingWorkerCancel = nil
+	transcriptionCancel := a.transcriptionWorkerCancel
+	transcriptionDone := a.transcriptionWorkerDone
+	a.transcriptionWorkerCancel = nil
 	a.mu.Unlock()
 
 	var errs []error
@@ -344,6 +377,16 @@ func (a *App) Close(ctx context.Context) error {
 		case <-ctx.Done():
 			logger.Warn("processing worker did not stop in time")
 			errs = append(errs, fmt.Errorf("processing worker: %w", ctx.Err()))
+		}
+	}
+	if transcriptionCancel != nil {
+		logger.Info("stopping transcription worker")
+		transcriptionCancel()
+		select {
+		case <-transcriptionDone:
+		case <-ctx.Done():
+			logger.Warn("transcription worker did not stop in time")
+			errs = append(errs, fmt.Errorf("transcription worker: %w", ctx.Err()))
 		}
 	}
 	if a.agentRunner != nil {
@@ -450,6 +493,35 @@ func (a *App) ReloadLLM() error {
 		a.syncEmbeddingWorker(cfg, newEmbedder)
 	}
 
+	// Reload STT transcriber
+	sttWanted := cfg.STTProvider.Enabled()
+	var newTranscriber stt.Transcriber
+	transcriberChanged := false
+
+	if sttWanted {
+		t, err := stt.NewTranscriber(string(cfg.STTProvider), cfg.STTModel, cfg.OpenAIAPIKey)
+		if err != nil {
+			slog.Error("STT transcriber reload failed, keeping existing", "error", err)
+			errs = append(errs, fmt.Sprintf("transcriber: %v", err))
+		} else {
+			newTranscriber = t
+			transcriberChanged = true
+		}
+	} else {
+		transcriberChanged = true
+		newTranscriber = nil
+	}
+
+	if transcriberChanged {
+		if newTranscriber != nil {
+			a.fileService.SetTranscriber(&newTranscriber)
+		} else {
+			a.fileService.SetTranscriber(nil)
+		}
+		a.fileService.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
+		a.syncTranscriptionWorker(cfg, newTranscriber)
+	}
+
 	// Update server config
 	a.mu.Lock()
 	if embedderChanged {
@@ -462,6 +534,11 @@ func (a *App) ReloadLLM() error {
 		a.serverConfig.AgentChatEnabled = newModel != nil
 		a.serverConfig.LLMProvider = string(cfg.LLMProvider)
 		a.serverConfig.LLMModel = cfg.LLMModel
+	}
+	if transcriberChanged {
+		a.serverConfig.TranscriptionEnabled = newTranscriber != nil
+		a.serverConfig.STTProvider = string(cfg.STTProvider)
+		a.serverConfig.STTModel = cfg.STTModel
 	}
 	a.serverConfig.WebSearchEnabled = cfg.TavilyAPIKey != ""
 	a.serverConfig.ChunkThreshold = chunkConfig.Threshold
@@ -547,6 +624,48 @@ func (a *App) startProcessingWorker() {
 	a.mu.Unlock()
 
 	worker := file.NewProcessingWorker(a.fileService, a.processingWorkerInterval, a.processingWorkerBatch, a.bus)
+	go func() {
+		defer close(done)
+		worker.Run(workerCtx)
+	}()
+}
+
+// syncTranscriptionWorker starts or stops the background transcription worker based on
+// whether a transcriber is available. Protects worker fields with a.mu.
+func (a *App) syncTranscriptionWorker(cfg config.Config, transcriber stt.Transcriber) {
+	a.mu.Lock()
+
+	if transcriber == nil {
+		// Stop worker if running
+		if a.transcriptionWorkerCancel != nil {
+			cancel := a.transcriptionWorkerCancel
+			done := a.transcriptionWorkerDone
+			a.transcriptionWorkerCancel = nil
+			a.mu.Unlock()
+			cancel()
+			<-done
+			slog.Info("stopped transcription worker (transcriber removed)")
+			return
+		}
+		a.mu.Unlock()
+		return
+	}
+
+	// Already running — keep it (it picks up the new transcriber via getTranscriber)
+	if a.transcriptionWorkerCancel != nil {
+		a.mu.Unlock()
+		return
+	}
+
+	// Start new worker
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	a.transcriptionWorkerCancel = workerCancel
+	done := make(chan struct{})
+	a.transcriptionWorkerDone = done
+	a.mu.Unlock()
+
+	interval := time.Duration(cfg.TranscriptionWorkerInterval) * time.Second
+	worker := file.NewTranscriptionWorker(a.fileService, interval, cfg.TranscriptionWorkerBatch, a.bus)
 	go func() {
 		defer close(done)
 		worker.Run(workerCtx)
