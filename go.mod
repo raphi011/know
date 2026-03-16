@@ -21,6 +21,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/pkg/sftp v1.13.10
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
+	github.com/sahilm/fuzzy v0.1.1
 	github.com/samber/slog-multi v1.7.1
 	github.com/spf13/cobra v1.10.2
 	github.com/surrealdb/surrealdb.go v1.4.0
@@ -40,7 +41,6 @@ require (
 require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
-	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

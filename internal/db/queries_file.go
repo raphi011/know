@@ -536,7 +536,7 @@ func (c *Client) ListFileMetas(ctx context.Context, filter ListFilesFilter) ([]m
 	if err != nil {
 		return nil, fmt.Errorf("list file metas: %w", err)
 	}
-	sql := fmt.Sprintf("SELECT path, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE %s %s", where, suffix)
+	sql := fmt.Sprintf("SELECT path, title, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE %s %s", where, suffix)
 
 	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, vars)
 	if err != nil {

@@ -63,6 +63,7 @@ func (f FileInput) Validate() error {
 // (e.g. WebDAV Stat, directory listings) that don't need content or data.
 type FileMeta struct {
 	Path        string    `json:"path"`
+	Title       string    `json:"title"`
 	MimeType    string    `json:"mime_type"`
 	Size        int       `json:"size"`
 	ContentHash *string   `json:"content_hash,omitempty"`
@@ -80,6 +81,7 @@ type LabelCount struct {
 type FileEntry struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
+	Title string `json:"title,omitempty"`
 	IsDir bool   `json:"isDir"`
 	Size  int    `json:"size,omitempty"`
 }
