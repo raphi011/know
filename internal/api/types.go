@@ -18,18 +18,26 @@ type Vault struct {
 	Remote      *string   `json:"remote,omitempty"`
 }
 
+// WikiLinkInfo is the JSON representation of an outgoing wiki-link.
+type WikiLinkInfo struct {
+	RawTarget string  `json:"rawTarget"`
+	Path      *string `json:"path"`
+	Title     *string `json:"title"`
+}
+
 // Document is the JSON representation of a document.
 type Document struct {
-	ID          string    `json:"id"`
-	VaultID     string    `json:"vaultId"`
-	Path        string    `json:"path"`
-	Title       string    `json:"title"`
-	Content     string    `json:"content"`
-	Labels      []string  `json:"labels"`
-	DocType     *string   `json:"docType,omitempty"`
-	ContentHash *string   `json:"contentHash,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string         `json:"id"`
+	VaultID     string         `json:"vaultId"`
+	Path        string         `json:"path"`
+	Title       string         `json:"title"`
+	Content     string         `json:"content"`
+	Labels      []string       `json:"labels"`
+	DocType     *string        `json:"docType,omitempty"`
+	ContentHash *string        `json:"contentHash,omitempty"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
+	WikiLinks   []WikiLinkInfo `json:"wikiLinks,omitempty"`
 }
 
 // Conversation is the JSON representation of a conversation.
