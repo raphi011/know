@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/diff"
 	"github.com/raphi011/know/internal/llm"
@@ -49,6 +50,7 @@ type Service struct {
 	model           atomic.Pointer[llm.Model]
 	tools           []tool.BaseTool
 	tavily          *tavilyClient
+	apifyClient     *apify.Client
 	checkpointStore *SurrealCheckPointStore
 }
 
@@ -64,10 +66,11 @@ func (s *Service) getModel() *llm.Model {
 
 // NewService creates a new agent service. The tools slice should contain
 // multi-vault tool wrappers built by the bootstrap layer.
-func NewService(db *db.Client, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string) *Service {
+func NewService(db *db.Client, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string, apifyClient *apify.Client) *Service {
 	s := &Service{
 		db:              db,
 		tools:           agentTools,
+		apifyClient:     apifyClient,
 		checkpointStore: NewCheckPointStore(db),
 	}
 	s.model.Store(model)
@@ -265,6 +268,9 @@ func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatReq
 	copy(agentTools, s.tools)
 	if s.tavily != nil {
 		agentTools = append(agentTools, &WebSearchTool{tavily: s.tavily})
+	}
+	if s.apifyClient != nil {
+		agentTools = append(agentTools, &YouTubeTranscriptTool{client: s.apifyClient})
 	}
 	if !req.AutoApprove {
 		agentTools = wrapWriteToolsForApproval(ctx, agentTools, s, req.VaultID)

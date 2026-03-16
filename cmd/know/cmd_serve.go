@@ -188,6 +188,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 			app.VaultService(),
 			app.RemoteService(),
 			app.MemoryService(),
+			app.ApifyClient(),
 		)
 		mux.Handle("/mcp", authMw(mcpHandler))
 		slog.Info("MCP endpoint enabled", "path", "/mcp")

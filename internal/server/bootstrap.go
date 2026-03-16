@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/joho/godotenv"
 	"github.com/raphi011/know/internal/agent"
+	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/db"
@@ -64,6 +65,7 @@ type App struct {
 	agentRunner              *agent.Runner
 	remoteService            *remote.Service
 	memoryService            *memory.Service
+	apifyClient              *apify.Client
 	bus                      *event.Bus
 	workerCancel             context.CancelFunc // guarded by mu
 	workerDone               chan struct{}      // guarded by mu
@@ -182,7 +184,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	vaultSvc := vault.NewService(dbClient)
 	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
-	agentSvc := agent.NewService(dbClient, model, agentTools, cfg.TavilyAPIKey)
+	var apifyClient *apify.Client
+	if cfg.ApifyToken != "" {
+		apifyClient = apify.New(cfg.ApifyToken)
+	}
+	agentSvc := agent.NewService(dbClient, model, agentTools, cfg.TavilyAPIKey, apifyClient)
 	agentRunner := agent.NewRunner(agentSvc, dbClient)
 	memorySvc := memory.NewService(dbClient, fileSvc, model)
 
@@ -197,6 +203,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		searchService:            searchSvc,
 		agentService:             agentSvc,
 		agentRunner:              agentRunner,
+		apifyClient:              apifyClient,
 		bus:                      bus,
 		workerDone:               embeddingWorkerDone,
 		processingWorkerDone:     processingWorkerDone,
@@ -280,6 +287,11 @@ func (a *App) RemoteService() *remote.Service {
 // MemoryService returns the memory service.
 func (a *App) MemoryService() *memory.Service {
 	return a.memoryService
+}
+
+// ApifyClient returns the Apify client, or nil if not configured.
+func (a *App) ApifyClient() *apify.Client {
+	return a.apifyClient
 }
 
 // NewForTest creates a minimal App for integration tests — no background workers,
