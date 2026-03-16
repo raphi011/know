@@ -60,7 +60,7 @@ func SplitForTranscription(ctx context.Context, data []byte, mimeType string, ma
 		outPath := filepath.Join(tmpDir, fmt.Sprintf("part_%03d%s", i, ext))
 
 		cmd := exec.CommandContext(ctx, "ffmpeg",
-			"-v", "quiet",
+			"-v", "error",
 			"-y",
 			"-i", inputPath,
 			"-ss", formatSeconds(start),
@@ -89,12 +89,12 @@ func SplitForTranscription(ctx context.Context, data []byte, mimeType string, ma
 // probeDuration uses ffprobe to get the duration of an audio file in seconds.
 func probeDuration(ctx context.Context, path string) (float64, error) {
 	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-v", "quiet",
+		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",
 		path,
 	)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return 0, fmt.Errorf("run ffprobe: %w", err)
 	}

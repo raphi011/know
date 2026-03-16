@@ -110,7 +110,7 @@ func (t *OpenAITranscriber) Transcribe(ctx context.Context, audio []byte, mimeTy
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20)) // 50MB cap
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
