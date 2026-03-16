@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -232,6 +233,355 @@ func TestCollectArchiveEntries_CorruptFile(t *testing.T) {
 	_, _, err := collectArchiveEntries(path)
 	if err == nil {
 		t.Fatal("expected error for corrupt file, got nil")
+	}
+}
+
+// initGitRepo creates a git repo in dir with the given files committed,
+// plus an optional .gitignore.
+func initGitRepo(t *testing.T, dir string, files map[string]string, gitignore string) {
+	t.Helper()
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("command %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	run("git", "init")
+	run("git", "config", "user.email", "test@test.com")
+	run("git", "config", "user.name", "Test")
+
+	if gitignore != "" {
+		writeFile(t, filepath.Join(dir, ".gitignore"), gitignore)
+	}
+
+	for path, content := range files {
+		abs := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, abs, content)
+	}
+
+	run("git", "add", "-A")
+	run("git", "commit", "-m", "init", "--no-gpg-sign")
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCollectImportFiles_GitIgnore(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, map[string]string{
+		"notes/hello.md":  "# Hello",
+		"notes/world.md":  "# World",
+		"images/logo.png": "png-data",
+	}, "ignored/\n")
+
+	// Add an ignored directory with a markdown file after commit.
+	ignoredDir := filepath.Join(dir, "ignored")
+	if err := os.MkdirAll(ignoredDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(ignoredDir, "skip.md"), "# Skipped")
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(dir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// Should include hello.md, world.md, logo.png — NOT skip.md
+	if got := len(files); got != 3 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = filepath.Base(f)
+		}
+		t.Fatalf("expected 3 files, got %d: %v", got, names)
+	}
+
+	for _, f := range files {
+		if filepath.Base(f) == "skip.md" {
+			t.Error("gitignored file skip.md should not be included")
+		}
+	}
+}
+
+func TestCollectImportFiles_GitTrackedDotfile(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, map[string]string{
+		"notes/hello.md":          "# Hello",
+		".special/tracked-dot.md": "# Tracked dotfile",
+	}, "")
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(dir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// Git tracks .special/tracked-dot.md, so it should be included.
+	var found bool
+	for _, f := range files {
+		if filepath.Base(f) == "tracked-dot.md" {
+			found = true
+		}
+	}
+	if !found {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = f
+		}
+		t.Fatalf("tracked dotfile should be included, got: %v", names)
+	}
+}
+
+func TestCollectImportFiles_NonGitSkipsDotfiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create files without git init.
+	for path, content := range map[string]string{
+		"notes/hello.md":           "# Hello",
+		".obsidian/templates/d.md": "# Template",
+		".hidden.md":               "# Hidden",
+	} {
+		abs := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, abs, content)
+	}
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(dir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	if got := len(files); got != 1 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = f
+		}
+		t.Fatalf("expected 1 file (hello.md), got %d: %v", got, names)
+	}
+	if filepath.Base(files[0]) != "hello.md" {
+		t.Errorf("expected hello.md, got %s", filepath.Base(files[0]))
+	}
+}
+
+func TestCollectImportFiles_NoIgnoreIncludesAll(t *testing.T) {
+	dir := t.TempDir()
+
+	for path, content := range map[string]string{
+		"notes/hello.md":           "# Hello",
+		".obsidian/templates/d.md": "# Template",
+		".hidden.md":               "# Hidden",
+	} {
+		abs := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, abs, content)
+	}
+
+	importNoIgnore = true
+	defer func() { importNoIgnore = false }()
+
+	files, _, _, err := collectImportFiles(dir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// Should include all 3 markdown files.
+	if got := len(files); got != 3 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = f
+		}
+		t.Fatalf("expected 3 files, got %d: %v", got, names)
+	}
+}
+
+func TestCollectImportFiles_GitNonRecursive(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, map[string]string{
+		"top.md":           "# Top",
+		"sub/nested.md":    "# Nested",
+		"sub/deep/deep.md": "# Deep",
+	}, "")
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(dir, false)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// Non-recursive: only top.md.
+	if got := len(files); got != 1 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = f
+		}
+		t.Fatalf("expected 1 file (top.md), got %d: %v", got, names)
+	}
+	if filepath.Base(files[0]) != "top.md" {
+		t.Errorf("expected top.md, got %s", filepath.Base(files[0]))
+	}
+}
+
+func TestCollectImportFiles_NoIgnoreInGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, map[string]string{
+		"hello.md": "# Hello",
+	}, "ignored/\n")
+
+	// Add an ignored directory with a markdown file.
+	ignoredDir := filepath.Join(dir, "ignored")
+	if err := os.MkdirAll(ignoredDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(ignoredDir, "secret.md"), "# Secret")
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = true
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(dir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// --no-ignore should include the gitignored file.
+	if got := len(files); got != 2 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = filepath.Base(f)
+		}
+		t.Fatalf("expected 2 files (hello.md, secret.md), got %d: %v", got, names)
+	}
+}
+
+func TestCollectImportFiles_GitUntrackedFile(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, map[string]string{
+		"committed.md": "# Committed",
+	}, "")
+
+	// Add an untracked file after commit — should be included.
+	writeFile(t, filepath.Join(dir, "untracked.md"), "# Untracked")
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(dir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	if got := len(files); got != 2 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = filepath.Base(f)
+		}
+		t.Fatalf("expected 2 files (committed.md, untracked.md), got %d: %v", got, names)
+	}
+}
+
+func TestCollectImportFiles_GitSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir, map[string]string{
+		"top.md":           "# Top",
+		"sub/nested.md":    "# Nested",
+		"sub/deep/deep.md": "# Deep",
+		"other/other.md":   "# Other",
+	}, "")
+
+	// Import only the sub/ directory.
+	subDir := filepath.Join(dir, "sub")
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, _, _, err := collectImportFiles(subDir, true)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// Should include nested.md and deep.md — NOT top.md or other.md.
+	if got := len(files); got != 2 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = filepath.Base(f)
+		}
+		t.Fatalf("expected 2 files (nested.md, deep.md), got %d: %v", got, names)
+	}
+
+	for _, f := range files {
+		base := filepath.Base(f)
+		if base != "nested.md" && base != "deep.md" {
+			t.Errorf("unexpected file: %s", f)
+		}
+	}
+}
+
+func TestCollectImportFiles_NonGitNonRecursiveSkipsDotfiles(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFile(t, filepath.Join(dir, "visible.md"), "# Visible")
+	writeFile(t, filepath.Join(dir, ".hidden.md"), "# Hidden")
+	if err := os.MkdirAll(filepath.Join(dir, ".dotdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldNoIgnore := importNoIgnore
+	importNoIgnore = false
+	defer func() { importNoIgnore = oldNoIgnore }()
+
+	files, skippedDirs, _, err := collectImportFiles(dir, false)
+	if err != nil {
+		t.Fatalf("collectImportFiles: %v", err)
+	}
+
+	// Should include only visible.md.
+	if got := len(files); got != 1 {
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = filepath.Base(f)
+		}
+		t.Fatalf("expected 1 file (visible.md), got %d: %v", got, names)
+	}
+	if filepath.Base(files[0]) != "visible.md" {
+		t.Errorf("expected visible.md, got %s", filepath.Base(files[0]))
+	}
+	// .dotdir and subdir should both be counted as skipped.
+	if skippedDirs != 2 {
+		t.Errorf("expected 2 skipped dirs (.dotdir + subdir), got %d", skippedDirs)
 	}
 }
 
