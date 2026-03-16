@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
@@ -31,7 +32,7 @@ func setupProcessingTest(t *testing.T, ctx context.Context) (string, *file.Servi
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 10,
 		RetentionCount:  50,
 	}, nil, 0)

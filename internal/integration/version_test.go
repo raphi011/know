@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
@@ -36,7 +37,7 @@ func TestVersionLifecycle(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 0,
 		RetentionCount:  50,
 	}, nil, 0)
@@ -182,7 +183,7 @@ func TestVersionCoalescing(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 60,
 		RetentionCount:  50,
 	}, nil, 0)
@@ -269,7 +270,7 @@ func TestVersionRetention(t *testing.T) {
 		t.Fatalf("vault ID: %v", err)
 	}
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{
 		CoalesceMinutes: 0,
 		RetentionCount:  3,
 	}, nil, 0)

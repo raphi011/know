@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -77,10 +78,20 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 			logger.Warn("file deleted since manifest", "path", meta.Path)
 			continue
 		}
-		// Binary files use Data; text files use Content
 		var data []byte
-		if len(f.Data) > 0 {
-			data = f.Data
+		if f.ContentHash != nil && !models.IsTextFile(f.Path) {
+			// Binary file — read from blob store
+			rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("read blob for %s: %v", meta.Path, err))
+				return
+			}
+			data, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("read blob data for %s: %v", meta.Path, err))
+				return
+			}
 		} else {
 			data = []byte(f.Content)
 		}

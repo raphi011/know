@@ -1,9 +1,14 @@
 package file
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -12,6 +17,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/llm"
@@ -31,6 +37,7 @@ type VersionConfig struct {
 // Service manages file lifecycle: parse → extract → store → link → embed.
 type Service struct {
 	db                  *db.Client
+	blobStore           blob.Store
 	embedder            atomic.Pointer[llm.Embedder]    // optional — nil disables embedding
 	transcriber         atomic.Pointer[stt.Transcriber] // optional — nil disables transcription
 	resolver            *LinkResolver
@@ -74,9 +81,12 @@ func (s *Service) SetAudioSegmentSeconds(seconds int) {
 	s.audioSegmentSeconds = seconds
 }
 
+// BlobStore returns the blob store used by this service.
+func (s *Service) BlobStore() blob.Store { return s.blobStore }
+
 // NewService creates a new file service.
 // embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
-func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
+func NewService(db *db.Client, blobStore blob.Store, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
 	if versionConfig.RetentionCount < 1 {
 		slog.Warn("version retention count too low, clamping to 1", "configured", versionConfig.RetentionCount)
 		versionConfig.RetentionCount = 1
@@ -87,6 +97,7 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 	}
 	s := &Service{
 		db:                  db,
+		blobStore:           blobStore,
 		resolver:            NewLinkResolver(db),
 		chunkConfig:         chunkConfig,
 		versionConfig:       versionConfig,
@@ -220,6 +231,16 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 	// Compute content_hash
 	contentHash := models.ContentHash(input.Content)
 
+	// For binary files, compute content_hash from Data (not Content) and store in blob
+	if len(input.Data) > 0 {
+		h := sha256.Sum256(input.Data)
+		binaryHash := hex.EncodeToString(h[:])
+		contentHash = binaryHash // override text hash with binary hash
+		if err := s.blobStore.Put(ctx, binaryHash, bytes.NewReader(input.Data), int64(len(input.Data))); err != nil {
+			return nil, fmt.Errorf("store blob: %w", err)
+		}
+	}
+
 	// Normalize path
 	path := models.NormalizePath(input.Path)
 
@@ -233,9 +254,9 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		Labels:      labels,
 		DocType:     docType,
 		Metadata:    metadata,
-		Data:        input.Data,
 		MimeType:    input.MimeType,
 		IsFolder:    input.IsFolder,
+		Data:        input.Data, // carried for fileSize() — not stored in DB
 	}
 
 	// Auto-create parent folders before file upsert
@@ -300,7 +321,7 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	}
 
 	// Skip markdown-specific processing for binary files
-	isBinary := len(doc.Data) > 0
+	isBinary := !models.IsTextFile(doc.Path) && doc.Size > 0
 
 	if !isBinary {
 		parsed := parser.ParseMarkdown(doc.Content)
@@ -686,6 +707,15 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 		return fmt.Errorf("delete file: %w", err)
 	}
 
+	// Clean up blob data. Content-addressed blobs may be shared across files
+	// (dedup), but in practice hash collisions across different files are rare.
+	// A proper GC would require reference counting; for now, best-effort delete.
+	if contentHash != "" {
+		if err := s.blobStore.Delete(ctx, contentHash); err != nil {
+			logutil.FromCtx(ctx).Warn("failed to delete blob", "hash", contentHash, "error", err)
+		}
+	}
+
 	s.publishFileDeleteEvent(vaultID, fileID, path, contentHash)
 
 	return nil
@@ -1058,45 +1088,76 @@ func (s *Service) TranscribePendingFiles(ctx context.Context, limit int) (int, e
 	return transcribed, nil
 }
 
+func (s *Service) mergeTranscriptionParts(ctx context.Context, transcriber stt.Transcriber, parts []stt.SplitPart, mimeType string) (*stt.Result, error) {
+	var allSegments []stt.Segment
+	var fullText strings.Builder
+	for i, part := range parts {
+		partResult, err := transcriber.Transcribe(ctx, part.Data, mimeType)
+		if err != nil {
+			return nil, fmt.Errorf("transcribe part %d: %w", i, err)
+		}
+		if fullText.Len() > 0 {
+			fullText.WriteString(" ")
+		}
+		fullText.WriteString(partResult.Text)
+		for _, seg := range partResult.Segments {
+			allSegments = append(allSegments, stt.Segment{
+				Start: seg.Start + part.OffsetSecs,
+				End:   seg.End + part.OffsetSecs,
+				Text:  seg.Text,
+			})
+		}
+	}
+	return &stt.Result{Text: fullText.String(), Segments: allSegments}, nil
+}
+
 func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcriber, f *models.File, fileID string) error {
 	logger := logutil.FromCtx(ctx).With("path", f.Path, "file_id", fileID)
 
-	var result *stt.Result
+	if f.ContentHash == nil {
+		return fmt.Errorf("file has no content hash")
+	}
 
-	if len(f.Data) > stt.MaxWhisperFileSize {
-		// Split large files via ffmpeg
-		parts, err := stt.SplitForTranscription(ctx, f.Data, f.MimeType, stt.MaxWhisperFileSize)
-		if err != nil {
-			return fmt.Errorf("split audio: %w", err)
+	var result *stt.Result
+	var err error
+
+	if local, ok := s.blobStore.(blob.LocalPathStore); ok {
+		blobPath := local.LocalPath(*f.ContentHash)
+		if f.Size > stt.MaxWhisperFileSize {
+			parts, splitErr := stt.SplitForTranscriptionFromPath(ctx, blobPath, f.MimeType, stt.MaxWhisperFileSize)
+			if splitErr != nil {
+				return fmt.Errorf("split audio: %w", splitErr)
+			}
+			result, err = s.mergeTranscriptionParts(ctx, transcriber, parts, f.MimeType)
+		} else {
+			data, readErr := os.ReadFile(blobPath)
+			if readErr != nil {
+				return fmt.Errorf("read blob: %w", readErr)
+			}
+			result, err = transcriber.Transcribe(ctx, data, f.MimeType)
 		}
-		// Transcribe each part and merge segments with offset adjustment
-		var allSegments []stt.Segment
-		var fullText strings.Builder
-		for i, part := range parts {
-			partResult, err := transcriber.Transcribe(ctx, part.Data, f.MimeType)
-			if err != nil {
-				return fmt.Errorf("transcribe part %d: %w", i, err)
-			}
-			if fullText.Len() > 0 {
-				fullText.WriteString(" ")
-			}
-			fullText.WriteString(partResult.Text)
-			// Adjust segment timestamps by the part's offset
-			for _, seg := range partResult.Segments {
-				allSegments = append(allSegments, stt.Segment{
-					Start: seg.Start + part.OffsetSecs,
-					End:   seg.End + part.OffsetSecs,
-					Text:  seg.Text,
-				})
-			}
-		}
-		result = &stt.Result{Text: fullText.String(), Segments: allSegments}
 	} else {
-		var err error
-		result, err = transcriber.Transcribe(ctx, f.Data, f.MimeType)
-		if err != nil {
-			return fmt.Errorf("transcribe: %w", err)
+		rc, getErr := s.blobStore.Get(ctx, *f.ContentHash)
+		if getErr != nil {
+			return fmt.Errorf("get blob: %w", getErr)
 		}
+		data, readErr := io.ReadAll(rc)
+		rc.Close()
+		if readErr != nil {
+			return fmt.Errorf("read blob: %w", readErr)
+		}
+		if len(data) > stt.MaxWhisperFileSize {
+			parts, splitErr := stt.SplitForTranscription(ctx, data, f.MimeType, stt.MaxWhisperFileSize)
+			if splitErr != nil {
+				return fmt.Errorf("split audio: %w", splitErr)
+			}
+			result, err = s.mergeTranscriptionParts(ctx, transcriber, parts, f.MimeType)
+		} else {
+			result, err = transcriber.Transcribe(ctx, data, f.MimeType)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("transcribe: %w", err)
 	}
 
 	logger.Info("transcription complete", "segments", len(result.Segments), "text_len", len(result.Text))

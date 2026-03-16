@@ -55,7 +55,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS doc_type       ON file TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS content_hash   ON file TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata       ON file TYPE option<object> FLEXIBLE;
-    DEFINE FIELD IF NOT EXISTS data           ON file TYPE option<bytes>;
     DEFINE FIELD IF NOT EXISTS size           ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS processed      ON file TYPE bool DEFAULT false;
     DEFINE FIELD IF NOT EXISTS transcribe_at  ON file TYPE option<datetime>;
@@ -143,7 +142,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS file       ON chunk TYPE record<file>;
     DEFINE FIELD IF NOT EXISTS text       ON chunk TYPE string;
     DEFINE FIELD IF NOT EXISTS mime_type  ON chunk TYPE string DEFAULT "text/plain";
-    DEFINE FIELD IF NOT EXISTS data       ON chunk TYPE option<bytes>;
     DEFINE FIELD IF NOT EXISTS position   ON chunk TYPE int;
     DEFINE FIELD IF NOT EXISTS source_loc ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS labels     ON chunk TYPE array<string> DEFAULT [];

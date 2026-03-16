@@ -11,7 +11,6 @@ type Chunk struct {
 	File      surrealmodels.RecordID `json:"file"`
 	Text      string                 `json:"text"`
 	MimeType  string                 `json:"mime_type"`
-	Data      []byte                 `json:"data,omitempty"`
 	Position  int                    `json:"position"`
 	SourceLoc *string                `json:"source_loc,omitempty"`
 	Labels    []string               `json:"labels"`
@@ -23,7 +22,6 @@ type ChunkInput struct {
 	FileID    string     `json:"file_id"`
 	Text      string     `json:"text"`
 	MimeType  string     `json:"mime_type"`
-	Data      []byte     `json:"data,omitempty"`
 	Position  int        `json:"position"`
 	SourceLoc *string    `json:"source_loc,omitempty"`
 	Labels    []string   `json:"labels,omitempty"`

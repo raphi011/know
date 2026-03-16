@@ -12,11 +12,14 @@ import (
 	"sync"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/joho/godotenv"
 	"github.com/raphi011/know/internal/agent"
 	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/event"
@@ -61,6 +64,7 @@ type ServerConfig struct {
 type App struct {
 	mu           sync.RWMutex
 	db           *db.Client
+	blobStore    blob.Store
 	vaultService *vault.Service
 	fileService  *file.Service
 
@@ -72,13 +76,13 @@ type App struct {
 	apifyClient               *apify.Client
 	bus                       *event.Bus
 	workerCancel              context.CancelFunc // guarded by mu
-	workerDone                chan struct{}       // guarded by mu
+	workerDone                chan struct{}      // guarded by mu
 	processingWorkerCancel    context.CancelFunc // guarded by mu
-	processingWorkerDone      chan struct{}       // guarded by mu
+	processingWorkerDone      chan struct{}      // guarded by mu
 	processingWorkerInterval  time.Duration
 	processingWorkerBatch     int
 	transcriptionWorkerCancel context.CancelFunc // guarded by mu
-	transcriptionWorkerDone   chan struct{}       // guarded by mu
+	transcriptionWorkerDone   chan struct{}      // guarded by mu
 	serverConfig              ServerConfig       // guarded by mu
 }
 
@@ -112,6 +116,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			slog.Error("auto-bootstrap failed, no-auth mode may not work correctly — check DB connectivity", "error", err)
 		}
 	}
+
+	blobStore, err := createBlobStore(cfg)
+	if err != nil {
+		if closeErr := dbClient.Close(ctx); closeErr != nil {
+			slog.Warn("failed to close DB during cleanup", "error", closeErr)
+		}
+		return nil, fmt.Errorf("create blob store: %w", err)
+	}
+	slog.Info("blob store configured", "type", cfg.BlobStore)
 
 	// Register eino callback handler for structured LLM/embedding observability.
 	// Global handlers apply to all subsequent Generate/Stream calls.
@@ -171,7 +184,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		RetentionCount:  cfg.VersionRetentionCount,
 	}
 	bus := event.New()
-	fileSvc := file.NewService(dbClient, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
+	fileSvc := file.NewService(dbClient, blobStore, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
 	fileSvc.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
 
 	// STT transcriber is optional — nil disables transcription
@@ -217,6 +230,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	app := &App{
 		db:                       dbClient,
+		blobStore:                blobStore,
 		vaultService:             vaultSvc,
 		remoteService:            remoteSvc,
 		memoryService:            memorySvc,
@@ -324,11 +338,17 @@ func (a *App) ApifyClient() *apify.Client {
 	return a.apifyClient
 }
 
+// BlobStore returns the blob store.
+func (a *App) BlobStore() blob.Store {
+	return a.blobStore
+}
+
 // NewForTest creates a minimal App for integration tests — no background workers,
 // no embedder, no LLM. Only the services needed for handler tests are wired up.
-func NewForTest(dbClient *db.Client, fileSvc *file.Service, vaultSvc *vault.Service) *App {
+func NewForTest(dbClient *db.Client, blobStore blob.Store, fileSvc *file.Service, vaultSvc *vault.Service) *App {
 	return &App{
 		db:           dbClient,
+		blobStore:    blobStore,
 		fileService:  fileSvc,
 		vaultService: vaultSvc,
 	}
@@ -670,6 +690,38 @@ func (a *App) syncTranscriptionWorker(cfg config.Config, transcriber stt.Transcr
 		defer close(done)
 		worker.Run(workerCtx)
 	}()
+}
+
+// createBlobStore creates a blob.Store based on the config.
+func createBlobStore(cfg config.Config) (blob.Store, error) {
+	switch cfg.BlobStore {
+	case "fs":
+		if err := os.MkdirAll(cfg.BlobDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create blob dir %s: %w", cfg.BlobDir, err)
+		}
+		return blob.NewFS(cfg.BlobDir), nil
+	case "s3":
+		if cfg.BlobS3Bucket == "" {
+			return nil, fmt.Errorf("KNOW_BLOB_S3_BUCKET is required when blob store is s3")
+		}
+		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
+			awsconfig.WithRegion(cfg.BlobS3Region),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("load AWS config: %w", err)
+		}
+		opts := []func(*s3.Options){}
+		if cfg.BlobS3Endpoint != "" {
+			opts = append(opts, func(o *s3.Options) {
+				o.BaseEndpoint = &cfg.BlobS3Endpoint
+				o.UsePathStyle = true
+			})
+		}
+		client := s3.NewFromConfig(awsCfg, opts...)
+		return blob.NewS3(client, cfg.BlobS3Bucket, cfg.BlobS3Prefix), nil
+	default:
+		return nil, fmt.Errorf("unknown blob store: %q", cfg.BlobStore)
+	}
 }
 
 // seedIfEmpty checks each bootstrap resource (user, vault, membership)

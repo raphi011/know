@@ -41,7 +41,6 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			"labels":     labels,
 			"embed_at":   embedAt,
 			"mime_type":  ch.MimeType,
-			"data":       optionalBytes(ch.Data),
 		}
 
 		if len(ch.Embedding) > 0 {

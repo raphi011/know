@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/mcptools"
 	"github.com/raphi011/know/internal/parser"
@@ -26,7 +27,7 @@ func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *fil
 	vaultID, _ := setupVault(t, ctx, "mcp-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 
 	searchSvc := search.NewService(testDB, nil)
-	docSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	docSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 	vaultSvc := vault.NewService(testDB)
 	executor := &tools.Executor{
 		DB:      testDB,

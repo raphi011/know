@@ -44,6 +44,12 @@ func IsImageFile(name string) bool {
 	return strings.HasPrefix(mime, "image/")
 }
 
+// IsTextFile returns true if the file has a text MIME type (markdown, plain text).
+func IsTextFile(name string) bool {
+	mime := MimeTypeFromExt(name)
+	return strings.HasPrefix(mime, "text/")
+}
+
 // IsAudioFile returns true if the file has a supported audio extension.
 func IsAudioFile(name string) bool {
 	mime := MimeTypeFromExt(name)

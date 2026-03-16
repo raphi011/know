@@ -13,6 +13,7 @@ import (
 
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/server"
@@ -37,9 +38,10 @@ func setupMoveServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "move-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	blobStore := blob.NewFS(t.TempDir())
+	fileSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	app := server.NewForTest(testDB, fileSvc, vaultSvc)
+	app := server.NewForTest(testDB, blobStore, fileSvc, vaultSvc)
 	apiSrv := api.NewServer(app)
 
 	mux := http.NewServeMux()

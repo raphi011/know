@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
@@ -33,7 +34,7 @@ func TestFolderAutoCreate(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "autocreate-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -70,7 +71,7 @@ func TestFolderRootDocNoFolders(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "rootdoc-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -123,7 +124,7 @@ func TestFolderEmptyPersistence(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "empty-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -190,7 +191,7 @@ func TestFolderDeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "cascade-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	for _, p := range []string{"/guides/a.md", "/guides/sub/b.md"} {
 		_, err := fileSvc.Create(ctx, models.FileInput{
@@ -253,7 +254,7 @@ func TestFolderMoveBasic(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "move-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	for _, p := range []string{"/guides/a.md", "/guides/sub/b.md"} {
 		_, err := fileSvc.Create(ctx, models.FileInput{
@@ -334,7 +335,7 @@ func TestFolderMoveCreatesAncestors(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "move-ancestors-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -373,7 +374,7 @@ func TestFolderListByParent(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "listparent-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -426,7 +427,7 @@ func TestFolderListAll(t *testing.T) {
 	ctx := context.Background()
 	vaultID, vaultSvc := setupVault(t, ctx, "listall-"+fmt.Sprint(time.Now().UnixNano()))
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	paths := []string{
 		"/guides/getting-started.md",
