@@ -743,7 +743,19 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 		return fmt.Errorf("unresolve incoming wiki links: %w", err)
 	}
 
-	// If this file's stem is now unique (collision removed), resolve dangling links for the remaining file
+	if err := s.db.SyncFileLabels(ctx, fileID, vaultID, nil); err != nil {
+		return fmt.Errorf("delete label edges: %w", err)
+	}
+	if err := s.db.DeleteChunks(ctx, fileID); err != nil {
+		return fmt.Errorf("delete chunks: %w", err)
+	}
+
+	if err := s.db.DeleteFile(ctx, fileID); err != nil {
+		return fmt.Errorf("delete file: %w", err)
+	}
+
+	// After deletion, check if this file's stem is now unique (collision removed).
+	// This must happen after DeleteFile so CountFilesByStem returns the correct count.
 	stem := models.FilenameStem(doc.Path)
 	if stem != "" {
 		count, err := s.db.CountFilesByStem(ctx, vaultID, stem)
@@ -762,17 +774,6 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 				}
 			}
 		}
-	}
-
-	if err := s.db.SyncFileLabels(ctx, fileID, vaultID, nil); err != nil {
-		return fmt.Errorf("delete label edges: %w", err)
-	}
-	if err := s.db.DeleteChunks(ctx, fileID); err != nil {
-		return fmt.Errorf("delete chunks: %w", err)
-	}
-
-	if err := s.db.DeleteFile(ctx, fileID); err != nil {
-		return fmt.Errorf("delete file: %w", err)
 	}
 
 	// Clean up blob data. Content-addressed blobs may be shared across files

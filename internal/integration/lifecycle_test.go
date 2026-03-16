@@ -1343,3 +1343,291 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 		t.Fatalf("cleanup vault: %v", err)
 	}
 }
+
+// TestWikiLinkStemResolution verifies that wiki-links resolve via stem matching
+// (case-insensitive, space/hyphen normalized).
+func TestWikiLinkStemResolution(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "stem-resolve-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "stem-resolve-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create the target file first
+	target, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/notes/vector-embeddings.md",
+		Content: "# Vector Embeddings\n\nAll about embeddings.",
+	})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	targetID := models.MustRecordIDString(target.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending target: %v", err)
+	}
+
+	// Create source with lowercase hyphenated stem link
+	source, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/source.md",
+		Content: "# Source\n\nSee [[vector-embeddings]] for details.",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceID := models.MustRecordIDString(source.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending source: %v", err)
+	}
+
+	// Verify the link resolved
+	links, err := testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToFile == nil {
+		t.Fatal("wiki-link should be resolved via stem match")
+	}
+	toID, err := models.RecordIDString(*links[0].ToFile)
+	if err != nil {
+		t.Fatalf("extract toFile ID: %v", err)
+	}
+	if toID != targetID {
+		t.Errorf("resolved link points to %q, want %q", toID, targetID)
+	}
+
+	// Test case-insensitivity: create another source with mixed-case link
+	source2, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/source2.md",
+		Content: "# Source 2\n\nSee [[Vector-Embeddings]] for details.",
+	})
+	if err != nil {
+		t.Fatalf("create source2: %v", err)
+	}
+	source2ID := models.MustRecordIDString(source2.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending source2: %v", err)
+	}
+
+	links2, err := testDB.GetWikiLinks(ctx, source2ID)
+	if err != nil {
+		t.Fatalf("get wiki-links source2: %v", err)
+	}
+	if len(links2) != 1 {
+		t.Fatalf("expected 1 wiki-link from source2, got %d", len(links2))
+	}
+	if links2[0].ToFile == nil {
+		t.Fatal("case-insensitive wiki-link should resolve")
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestWikiLinkAmbiguity verifies that creating a second file with the same stem
+// makes stem-only links ambiguous (dangling), and deleting it re-resolves them.
+func TestWikiLinkAmbiguity(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "ambiguity-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "ambiguity-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Step 1: Create /a/notes.md
+	_, err = fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/a/notes.md",
+		Content: "# Notes A",
+	})
+	if err != nil {
+		t.Fatalf("create /a/notes.md: %v", err)
+	}
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Step 2: Create source with [[notes]] — should resolve (unique stem)
+	source, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/source.md",
+		Content: "# Source\n\nSee [[notes]].",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceID := models.MustRecordIDString(source.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending source: %v", err)
+	}
+
+	links, err := testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToFile == nil {
+		t.Fatal("wiki-link should be resolved when stem is unique")
+	}
+
+	// Step 3: Create /b/notes.md — same stem, triggers ambiguity
+	_, err = fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/b/notes.md",
+		Content: "# Notes B",
+	})
+	if err != nil {
+		t.Fatalf("create /b/notes.md: %v", err)
+	}
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending after ambiguity: %v", err)
+	}
+
+	links, err = testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links after ambiguity: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToFile != nil {
+		t.Error("wiki-link should be dangling when stem is ambiguous")
+	}
+
+	// Step 4: Delete /b/notes.md — ambiguity removed, should re-resolve
+	if err := fileSvc.Delete(ctx, vaultID, "/b/notes.md"); err != nil {
+		t.Fatalf("delete /b/notes.md: %v", err)
+	}
+
+	links, err = testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links after delete: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToFile == nil {
+		t.Error("wiki-link should re-resolve after ambiguity removed")
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestWikiLinkMoveRecomputeTarget verifies that moving a file recomputes
+// incoming raw_targets to the shortest unambiguous form.
+func TestWikiLinkMoveRecomputeTarget(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "move-recompute-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "move-recompute-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create target
+	_, err = fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/notes/foo.md",
+		Content: "# Foo",
+	})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Create source with [[foo]]
+	source, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/source.md",
+		Content: "# Source\n\nSee [[foo]].",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceID := models.MustRecordIDString(source.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending source: %v", err)
+	}
+
+	// Verify resolved
+	links, err := testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToFile == nil {
+		t.Fatal("wiki-link should be resolved")
+	}
+	if links[0].RawTarget != "foo" {
+		t.Errorf("raw_target before move: got %q, want %q", links[0].RawTarget, "foo")
+	}
+
+	// Move file
+	_, err = fileSvc.Move(ctx, vaultID, "/notes/foo.md", "/archive/foo.md")
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	// Verify raw_target is still "foo" (unique stem, shortest form)
+	links, err = testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links after move: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].RawTarget != "foo" {
+		t.Errorf("raw_target after move: got %q, want %q", links[0].RawTarget, "foo")
+	}
+	if links[0].ToFile == nil {
+		t.Error("wiki-link should still be resolved after move")
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
