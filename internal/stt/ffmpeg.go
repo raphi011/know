@@ -89,7 +89,8 @@ func SplitForTranscription(ctx context.Context, data []byte, mimeType string, ma
 // SplitForTranscriptionFromPath splits an audio file at inputPath into parts
 // smaller than maxBytes using ffmpeg. Unlike SplitForTranscription, it reads
 // directly from the given path without copying data to a temp file.
-func SplitForTranscriptionFromPath(ctx context.Context, inputPath string, maxBytes int) ([]SplitPart, error) {
+// mimeType is used to determine the output file extension (blob paths have no extension).
+func SplitForTranscriptionFromPath(ctx context.Context, inputPath string, mimeType string, maxBytes int) ([]SplitPart, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil, fmt.Errorf("ffmpeg not found: install ffmpeg for large file support")
 	}
@@ -115,7 +116,7 @@ func SplitForTranscriptionFromPath(ctx context.Context, inputPath string, maxByt
 
 	segmentDuration := calcSegmentDuration(duration, int(info.Size()), maxBytes)
 	numSegments := int(math.Ceil(duration / segmentDuration))
-	ext := filepath.Ext(inputPath)
+	ext := extForMIME(mimeType)
 
 	parts := make([]SplitPart, 0, numSegments)
 	for i := range numSegments {

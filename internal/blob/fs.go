@@ -78,7 +78,7 @@ func (f *FS) Get(_ context.Context, hash string) (io.ReadCloser, error) {
 	file, err := os.Open(f.LocalPath(hash))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, os.ErrNotExist
+			return nil, fmt.Errorf("get %s: %w", hash, os.ErrNotExist)
 		}
 		return nil, fmt.Errorf("get: %w", err)
 	}

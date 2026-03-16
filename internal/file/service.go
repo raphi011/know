@@ -256,6 +256,7 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		Metadata:    metadata,
 		MimeType:    input.MimeType,
 		IsFolder:    input.IsFolder,
+		Data:        input.Data, // carried for fileSize() — not stored in DB
 	}
 
 	// Auto-create parent folders before file upsert
@@ -706,6 +707,15 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 		return fmt.Errorf("delete file: %w", err)
 	}
 
+	// Clean up blob data. Content-addressed blobs may be shared across files
+	// (dedup), but in practice hash collisions across different files are rare.
+	// A proper GC would require reference counting; for now, best-effort delete.
+	if contentHash != "" {
+		if err := s.blobStore.Delete(ctx, contentHash); err != nil {
+			logutil.FromCtx(ctx).Warn("failed to delete blob", "hash", contentHash, "error", err)
+		}
+	}
+
 	s.publishFileDeleteEvent(vaultID, fileID, path, contentHash)
 
 	return nil
@@ -1114,7 +1124,7 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 	if local, ok := s.blobStore.(blob.LocalPathStore); ok {
 		blobPath := local.LocalPath(*f.ContentHash)
 		if f.Size > stt.MaxWhisperFileSize {
-			parts, splitErr := stt.SplitForTranscriptionFromPath(ctx, blobPath, stt.MaxWhisperFileSize)
+			parts, splitErr := stt.SplitForTranscriptionFromPath(ctx, blobPath, f.MimeType, stt.MaxWhisperFileSize)
 			if splitErr != nil {
 				return fmt.Errorf("split audio: %w", splitErr)
 			}

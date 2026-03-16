@@ -119,7 +119,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			if isMarkdownFile(name) {
 				return newReadFile(name, doc), nil
 			}
-			arf, err := newAssetReadFile(name, doc, f.blobStore)
+			arf, err := newAssetReadFile(ctx, name, doc, f.blobStore)
 			if err != nil {
 				return nil, fmt.Errorf("open %s: %w", name, err)
 			}

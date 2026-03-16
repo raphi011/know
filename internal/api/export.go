@@ -79,7 +79,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var data []byte
-		if f.ContentHash != nil && f.Content == "" {
+		if f.ContentHash != nil && !models.IsTextFile(f.Path) {
 			// Binary file — read from blob store
 			rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
 			if err != nil {

@@ -33,17 +33,10 @@ func (s *S3) key(hash string) string {
 }
 
 // Put uploads the contents of r to S3 under the given hash.
-// If a blob with that hash already exists, Put is a no-op (idempotent).
+// S3 PutObject is idempotent for content-addressed storage (same hash = same content),
+// so no existence check is needed.
 func (s *S3) Put(ctx context.Context, hash string, r io.Reader, size int64) error {
-	exists, err := s.Exists(ctx, hash)
-	if err != nil {
-		return fmt.Errorf("put: %w", err)
-	}
-	if exists {
-		return nil
-	}
-
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        &s.bucket,
 		Key:           new(s.key(hash)),
 		Body:          r,

@@ -696,8 +696,14 @@ func (a *App) syncTranscriptionWorker(cfg config.Config, transcriber stt.Transcr
 func createBlobStore(cfg config.Config) (blob.Store, error) {
 	switch cfg.BlobStore {
 	case "fs":
+		if err := os.MkdirAll(cfg.BlobDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create blob dir %s: %w", cfg.BlobDir, err)
+		}
 		return blob.NewFS(cfg.BlobDir), nil
 	case "s3":
+		if cfg.BlobS3Bucket == "" {
+			return nil, fmt.Errorf("KNOW_BLOB_S3_BUCKET is required when blob store is s3")
+		}
 		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
 			awsconfig.WithRegion(cfg.BlobS3Region),
 		)
