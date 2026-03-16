@@ -868,8 +868,10 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("expected 1 wiki-link, got %d", len(links))
 	}
-	if links[0].RawTarget != "/new/target.md" {
-		t.Errorf("expected raw_target '/new/target.md', got %q", links[0].RawTarget)
+	// With stem-based resolution, raw_target is the shortest unambiguous target.
+	// Since "target" is unique in the vault, raw_target should be just the stem.
+	if links[0].RawTarget != "target" {
+		t.Errorf("expected raw_target 'target', got %q", links[0].RawTarget)
 	}
 
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
@@ -935,8 +937,10 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("expected 1 wiki-link, got %d", len(links))
 	}
-	if links[0].RawTarget != "/new-dir/a.md" {
-		t.Errorf("expected raw_target '/new-dir/a.md', got %q", links[0].RawTarget)
+	// With stem-based resolution, raw_target is the shortest unambiguous target.
+	// Since "a" is unique in the vault, raw_target should be just the stem.
+	if links[0].RawTarget != "a" {
+		t.Errorf("expected raw_target 'a', got %q", links[0].RawTarget)
 	}
 
 	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
