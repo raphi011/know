@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -1077,45 +1079,76 @@ func (s *Service) TranscribePendingFiles(ctx context.Context, limit int) (int, e
 	return transcribed, nil
 }
 
+func (s *Service) mergeTranscriptionParts(ctx context.Context, transcriber stt.Transcriber, parts []stt.SplitPart, mimeType string) (*stt.Result, error) {
+	var allSegments []stt.Segment
+	var fullText strings.Builder
+	for i, part := range parts {
+		partResult, err := transcriber.Transcribe(ctx, part.Data, mimeType)
+		if err != nil {
+			return nil, fmt.Errorf("transcribe part %d: %w", i, err)
+		}
+		if fullText.Len() > 0 {
+			fullText.WriteString(" ")
+		}
+		fullText.WriteString(partResult.Text)
+		for _, seg := range partResult.Segments {
+			allSegments = append(allSegments, stt.Segment{
+				Start: seg.Start + part.OffsetSecs,
+				End:   seg.End + part.OffsetSecs,
+				Text:  seg.Text,
+			})
+		}
+	}
+	return &stt.Result{Text: fullText.String(), Segments: allSegments}, nil
+}
+
 func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcriber, f *models.File, fileID string) error {
 	logger := logutil.FromCtx(ctx).With("path", f.Path, "file_id", fileID)
 
-	var result *stt.Result
+	if f.ContentHash == nil {
+		return fmt.Errorf("file has no content hash")
+	}
 
-	if len(f.Data) > stt.MaxWhisperFileSize {
-		// Split large files via ffmpeg
-		parts, err := stt.SplitForTranscription(ctx, f.Data, f.MimeType, stt.MaxWhisperFileSize)
-		if err != nil {
-			return fmt.Errorf("split audio: %w", err)
+	var result *stt.Result
+	var err error
+
+	if local, ok := s.blobStore.(blob.LocalPathStore); ok {
+		blobPath := local.LocalPath(*f.ContentHash)
+		if f.Size > stt.MaxWhisperFileSize {
+			parts, splitErr := stt.SplitForTranscriptionFromPath(ctx, blobPath, stt.MaxWhisperFileSize)
+			if splitErr != nil {
+				return fmt.Errorf("split audio: %w", splitErr)
+			}
+			result, err = s.mergeTranscriptionParts(ctx, transcriber, parts, f.MimeType)
+		} else {
+			data, readErr := os.ReadFile(blobPath)
+			if readErr != nil {
+				return fmt.Errorf("read blob: %w", readErr)
+			}
+			result, err = transcriber.Transcribe(ctx, data, f.MimeType)
 		}
-		// Transcribe each part and merge segments with offset adjustment
-		var allSegments []stt.Segment
-		var fullText strings.Builder
-		for i, part := range parts {
-			partResult, err := transcriber.Transcribe(ctx, part.Data, f.MimeType)
-			if err != nil {
-				return fmt.Errorf("transcribe part %d: %w", i, err)
-			}
-			if fullText.Len() > 0 {
-				fullText.WriteString(" ")
-			}
-			fullText.WriteString(partResult.Text)
-			// Adjust segment timestamps by the part's offset
-			for _, seg := range partResult.Segments {
-				allSegments = append(allSegments, stt.Segment{
-					Start: seg.Start + part.OffsetSecs,
-					End:   seg.End + part.OffsetSecs,
-					Text:  seg.Text,
-				})
-			}
-		}
-		result = &stt.Result{Text: fullText.String(), Segments: allSegments}
 	} else {
-		var err error
-		result, err = transcriber.Transcribe(ctx, f.Data, f.MimeType)
-		if err != nil {
-			return fmt.Errorf("transcribe: %w", err)
+		rc, getErr := s.blobStore.Get(ctx, *f.ContentHash)
+		if getErr != nil {
+			return fmt.Errorf("get blob: %w", getErr)
 		}
+		data, readErr := io.ReadAll(rc)
+		rc.Close()
+		if readErr != nil {
+			return fmt.Errorf("read blob: %w", readErr)
+		}
+		if len(data) > stt.MaxWhisperFileSize {
+			parts, splitErr := stt.SplitForTranscription(ctx, data, f.MimeType, stt.MaxWhisperFileSize)
+			if splitErr != nil {
+				return fmt.Errorf("split audio: %w", splitErr)
+			}
+			result, err = s.mergeTranscriptionParts(ctx, transcriber, parts, f.MimeType)
+		} else {
+			result, err = transcriber.Transcribe(ctx, data, f.MimeType)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("transcribe: %w", err)
 	}
 
 	logger.Info("transcription complete", "segments", len(result.Segments), "text_len", len(result.Text))

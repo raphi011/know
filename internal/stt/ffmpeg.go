@@ -86,6 +86,60 @@ func SplitForTranscription(ctx context.Context, data []byte, mimeType string, ma
 	return parts, nil
 }
 
+// SplitForTranscriptionFromPath splits an audio file at inputPath into parts
+// smaller than maxBytes using ffmpeg. Unlike SplitForTranscription, it reads
+// directly from the given path without copying data to a temp file.
+func SplitForTranscriptionFromPath(ctx context.Context, inputPath string, maxBytes int) ([]SplitPart, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return nil, fmt.Errorf("ffmpeg not found: install ffmpeg for large file support")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return nil, fmt.Errorf("ffprobe not found: install ffmpeg for large file support")
+	}
+
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat input: %w", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "stt-split-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	duration, err := probeDuration(ctx, inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("probe duration: %w", err)
+	}
+
+	segmentDuration := calcSegmentDuration(duration, int(info.Size()), maxBytes)
+	numSegments := int(math.Ceil(duration / segmentDuration))
+	ext := filepath.Ext(inputPath)
+
+	parts := make([]SplitPart, 0, numSegments)
+	for i := range numSegments {
+		start := float64(i) * segmentDuration
+		outPath := filepath.Join(tmpDir, fmt.Sprintf("part_%03d%s", i, ext))
+		cmd := exec.CommandContext(ctx, "ffmpeg",
+			"-v", "error", "-y",
+			"-i", inputPath,
+			"-ss", formatSeconds(start),
+			"-t", formatSeconds(segmentDuration),
+			"-c", "copy", outPath,
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("ffmpeg split segment %d: %w: %s", i, err, output)
+		}
+		segData, err := os.ReadFile(outPath)
+		if err != nil {
+			return nil, fmt.Errorf("read segment %d: %w", i, err)
+		}
+		parts = append(parts, SplitPart{Data: segData, OffsetSecs: start})
+	}
+	return parts, nil
+}
+
 // probeDuration uses ffprobe to get the duration of an audio file in seconds.
 func probeDuration(ctx context.Context, path string) (float64, error) {
 	cmd := exec.CommandContext(ctx, "ffprobe",
