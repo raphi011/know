@@ -50,6 +50,12 @@ type Config struct {
 	// Audio chunking
 	AudioSegmentSeconds int // max audio segment duration in seconds (default: 60, max 80 for Gemini)
 
+	// Speech-to-text configuration
+	STTProvider                 LLMProvider // KNOW_STT_PROVIDER (default: "none")
+	STTModel                    string      // KNOW_STT_MODEL (default: "gpt-4o-transcribe")
+	TranscriptionWorkerInterval int         // KNOW_TRANSCRIPTION_WORKER_INTERVAL (default: 5)
+	TranscriptionWorkerBatch    int         // KNOW_TRANSCRIPTION_WORKER_BATCH (default: 5)
+
 	// LLM configuration (for ask, extract-graph, render)
 	LLMProvider      LLMProvider
 	LLMModel         string
@@ -190,6 +196,12 @@ func Load() Config {
 
 		// Audio chunking
 		AudioSegmentSeconds: getEnvInt("KNOW_AUDIO_SEGMENT_SECONDS", 60),
+
+		// Speech-to-text
+		STTProvider:                 LLMProvider(getEnv("KNOW_STT_PROVIDER", "none")),
+		STTModel:                    getEnv("KNOW_STT_MODEL", "gpt-4o-transcribe"),
+		TranscriptionWorkerInterval: getEnvInt("KNOW_TRANSCRIPTION_WORKER_INTERVAL", 5),
+		TranscriptionWorkerBatch:    getEnvInt("KNOW_TRANSCRIPTION_WORKER_BATCH", 5),
 
 		// LLM (default to Anthropic)
 		LLMProvider:      LLMProvider(getEnv("KNOW_LLM_PROVIDER", "anthropic")),

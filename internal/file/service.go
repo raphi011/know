@@ -66,6 +66,14 @@ func (s *Service) getTranscriber() *stt.Transcriber {
 	return s.transcriber.Load()
 }
 
+// SetAudioSegmentSeconds updates the audio segment duration from config.
+func (s *Service) SetAudioSegmentSeconds(seconds int) {
+	if seconds <= 0 {
+		seconds = 60
+	}
+	s.audioSegmentSeconds = seconds
+}
+
 // NewService creates a new file service.
 // embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
 func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
