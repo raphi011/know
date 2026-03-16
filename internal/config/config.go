@@ -100,6 +100,9 @@ type Config struct {
 	VersionCoalesceMinutes int // minutes between version snapshots (default: 10)
 	VersionRetentionCount  int // max versions per document (default: 50)
 
+	// Apify
+	ApifyToken string // KNOW_APIFY_TOKEN — enables YouTube transcript tool
+
 	// TLS settings
 	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOW_TLS_SKIP_VERIFY)
 
@@ -233,6 +236,9 @@ func Load() Config {
 		// Versioning
 		VersionCoalesceMinutes: getEnvInt("KNOW_VERSION_COALESCE_MINUTES", 10),
 		VersionRetentionCount:  getEnvInt("KNOW_VERSION_RETENTION", 50),
+
+		// Apify
+		ApifyToken: getEnv("KNOW_APIFY_TOKEN", ""),
 
 		// TLS
 		TLSSkipVerify: getEnvBool("KNOW_TLS_SKIP_VERIFY", false),

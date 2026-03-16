@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
@@ -24,6 +25,7 @@ type mcpTools struct {
 	vaultService  *vault.Service
 	remoteService *remote.Service
 	memoryService *memory.Service
+	apifyClient   *apify.Client
 	cache         *cache
 }
 
@@ -131,6 +133,19 @@ func (t *mcpTools) register(server *mcp.Server) {
 		Description: "Toggle a task's status between open and done. Modifies the source markdown document (changes `- [ ]` to `- [x]` or vice versa). Use list_tasks to find task IDs.",
 		Annotations: writeNonDestructive,
 	}, t.toggleTask)
+
+	if t.apifyClient != nil {
+		openWorld := &mcp.ToolAnnotations{
+			ReadOnlyHint:    true,
+			DestructiveHint: new(false),
+			OpenWorldHint:   new(true),
+		}
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "fetch_youtube_transcript",
+			Description: "Fetch the transcript of a YouTube video. Accepts a YouTube URL or video ID. Returns the transcript text with video metadata.",
+			Annotations: openWorld,
+		}, t.fetchYouTubeTranscript)
+	}
 }
 
 // ---------- Read tool handlers (iterate all vaults) ----------
@@ -633,6 +648,26 @@ func (t *mcpTools) toggleTask(ctx context.Context, req *mcp.CallToolRequest, inp
 		return errorResult("task_id is required"), nil, nil
 	}
 	return t.executeWriteTool(ctx, "toggle_task", input.Vault, input)
+}
+
+// ---------- YouTube transcript handler ----------
+
+type fetchYouTubeTranscriptInput struct {
+	URL string `json:"url" jsonschema:"YouTube video URL (e.g. https://www.youtube.com/watch?v=...) or video ID"`
+}
+
+func (t *mcpTools) fetchYouTubeTranscript(ctx context.Context, req *mcp.CallToolRequest, input fetchYouTubeTranscriptInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.URL) == "" {
+		return errorResult("url is required"), nil, nil
+	}
+
+	result, err := apify.FetchTranscript(ctx, t.apifyClient, input.URL)
+	if err != nil {
+		logutil.FromCtx(ctx).Warn("fetch youtube transcript failed", "url", input.URL, "error", err)
+		return errorResult(fmt.Sprintf("failed to fetch transcript: %v", err)), nil, nil
+	}
+
+	return textResult(apify.FormatTranscript(result)), nil, nil
 }
 
 // ---------- helpers ----------
