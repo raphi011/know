@@ -77,9 +77,10 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, d := range docs {
 			entries = append(entries, models.FileEntry{
-				Name: path.Base(d.Path),
-				Path: d.Path,
-				Size: d.Size,
+				Name:  path.Base(d.Path),
+				Path:  d.Path,
+				Title: d.Title,
+				Size:  d.Size,
 			})
 		}
 	} else {
@@ -103,9 +104,10 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 			rel := strings.TrimPrefix(d.Path, prefix)
 			if rel != d.Path && !strings.Contains(rel, "/") {
 				entries = append(entries, models.FileEntry{
-					Name: path.Base(d.Path),
-					Path: d.Path,
-					Size: d.Size,
+					Name:  path.Base(d.Path),
+					Path:  d.Path,
+					Title: d.Title,
+					Size:  d.Size,
 				})
 			}
 		}
