@@ -352,6 +352,70 @@ func (c *Client) MarkFileProcessed(ctx context.Context, fileID string) error {
 }
 
 // ---------------------------------------------------------------------------
+// Transcription scheduling
+// ---------------------------------------------------------------------------
+
+// ClaimFilesForTranscription atomically claims files that are due for transcription.
+// It clears transcribe_at and returns the BEFORE state so the caller gets the file to transcribe.
+func (c *Client) ClaimFilesForTranscription(ctx context.Context, limit int) ([]models.File, error) {
+	defer c.logOp(ctx, "file.claim_for_transcription", time.Now())
+	sql := `
+		UPDATE (
+			SELECT id, transcribe_at FROM file
+			WHERE transcribe_at IS NOT NONE AND transcribe_at <= time::now()
+			ORDER BY transcribe_at ASC
+			LIMIT $limit
+		)
+		SET transcribe_at = NONE
+		RETURN BEFORE
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"limit": limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("claim files for transcription: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// UpdateFileTranscript sets transcript content and clears transcribe_at.
+func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, content string) error {
+	defer c.logOp(ctx, "file.update_transcript", time.Now())
+	sql := `UPDATE type::record("file", $id) SET content = $content, content_length = string::len($content), transcribe_at = NONE`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id":      bareID("file", fileID),
+		"content": content,
+	}); err != nil {
+		return fmt.Errorf("update transcript: %w", err)
+	}
+	return nil
+}
+
+// RescheduleFileTranscription reschedules a file for transcription with a 30-second delay.
+func (c *Client) RescheduleFileTranscription(ctx context.Context, fileID string) error {
+	defer c.logOp(ctx, "file.reschedule_transcription", time.Now())
+	sql := `UPDATE type::record("file", $id) SET transcribe_at = time::now() + 30s`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id": bareID("file", fileID),
+	}); err != nil {
+		return fmt.Errorf("reschedule transcription: %w", err)
+	}
+	return nil
+}
+
+// ScheduleFileTranscription sets transcribe_at to now for immediate pickup by the worker.
+func (c *Client) ScheduleFileTranscription(ctx context.Context, fileID string) error {
+	defer c.logOp(ctx, "file.schedule_transcription", time.Now())
+	sql := `UPDATE type::record("file", $id) SET transcribe_at = time::now()`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id": bareID("file", fileID),
+	}); err != nil {
+		return fmt.Errorf("schedule transcription: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Upsert (unified create-or-update for documents and binary files)
 // ---------------------------------------------------------------------------
 

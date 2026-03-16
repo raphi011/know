@@ -25,6 +25,7 @@ type File struct {
 	Data           []byte                 `json:"data,omitempty"`
 	Size           int                    `json:"size"`
 	Processed      bool                   `json:"processed"`
+	TranscribeAt   *time.Time             `json:"transcribe_at,omitempty"`
 	LastAccessedAt *time.Time             `json:"last_accessed_at,omitempty"`
 	AccessCount    int                    `json:"access_count"`
 	CreatedAt      time.Time              `json:"created_at"`
