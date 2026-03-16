@@ -150,8 +150,7 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 			metadata = $metadata,
 			is_folder = $is_folder,
 			mime_type = $mime_type,
-			size = $size,
-			processed = false
+			size = $size
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
@@ -235,8 +234,7 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 			content_hash = $content_hash,
 			metadata = $metadata,
 			mime_type = $mime_type,
-			size = $size,
-			processed = false
+			size = $size
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
@@ -321,92 +319,60 @@ func (c *Client) MoveFile(ctx context.Context, id, newPath string) (*models.File
 	return firstResult(results, "move file")
 }
 
-// ListUnprocessedFiles returns non-folder files that have not yet been processed by the async worker.
+// ListUnprocessedFiles returns non-folder files that have a pending parse pipeline job.
+// Used by ProcessAllPending for synchronous processing in tests and CLI commands.
 func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.File, error) {
 	defer c.logOp(ctx, "file.list_unprocessed", time.Now())
 	if limit <= 0 {
 		limit = 20
 	}
-	sql := `SELECT * FROM file WHERE processed = false AND is_folder = false ORDER BY updated_at ASC LIMIT $limit`
-	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+
+	// Use a single query: join pipeline_job → file inline.
+	// SurrealDB v3 requires ORDER BY fields to appear in the SELECT projection,
+	// so we include created_at and extract the file fields via file.* aliasing.
+	type jobWithFile struct {
+		File models.File `json:"file"`
+	}
+	sql := `
+		SELECT file.*, created_at FROM pipeline_job
+		WHERE type = 'parse' AND status IN ['pending', 'running']
+		ORDER BY created_at ASC
+		LIMIT $limit
+		FETCH file
+	`
+	results, err := surrealdb.Query[[]jobWithFile](ctx, c.DB(), sql, map[string]any{
 		"limit": limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list unprocessed: %w", err)
 	}
-	return allResults(results), nil
-}
-
-// MarkFileProcessed sets processed = true on a file.
-func (c *Client) MarkFileProcessed(ctx context.Context, fileID string) error {
-	defer c.logOp(ctx, "file.mark_processed", time.Now())
-	sql := `UPDATE type::record("file", $id) SET processed = true`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": fileID}); err != nil {
-		return fmt.Errorf("mark processed: %w", err)
+	rows := allResults(results)
+	seen := make(map[string]struct{}, len(rows))
+	files := make([]models.File, 0, len(rows))
+	for _, r := range rows {
+		if r.File.ID.ID == nil {
+			continue
+		}
+		key := fmt.Sprintf("%v", r.File.ID)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		files = append(files, r.File)
 	}
-	return nil
+	return files, nil
 }
 
-// ---------------------------------------------------------------------------
-// Transcription scheduling
-// ---------------------------------------------------------------------------
 
-// ClaimFilesForTranscription atomically claims files that are due for transcription.
-// It clears transcribe_at and returns the BEFORE state so the caller gets the file to transcribe.
-func (c *Client) ClaimFilesForTranscription(ctx context.Context, limit int) ([]models.File, error) {
-	defer c.logOp(ctx, "file.claim_for_transcription", time.Now())
-	sql := `
-		UPDATE (
-			SELECT id, transcribe_at FROM file
-			WHERE transcribe_at IS NOT NONE AND transcribe_at <= time::now()
-			ORDER BY transcribe_at ASC
-			LIMIT $limit
-		)
-		SET transcribe_at = NONE
-		RETURN BEFORE
-	`
-	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
-		"limit": limit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("claim files for transcription: %w", err)
-	}
-	return allResults(results), nil
-}
-
-// UpdateFileTranscript sets transcript content and clears transcribe_at.
+// UpdateFileTranscript sets the transcript as the file content.
 func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, content string) error {
 	defer c.logOp(ctx, "file.update_transcript", time.Now())
-	sql := `UPDATE type::record("file", $id) SET content = $content, content_length = string::len($content), transcribe_at = NONE`
+	sql := `UPDATE type::record("file", $id) SET content = $content, content_length = string::len($content)`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id":      bareID("file", fileID),
 		"content": content,
 	}); err != nil {
 		return fmt.Errorf("update transcript: %w", err)
-	}
-	return nil
-}
-
-// RescheduleFileTranscription reschedules a file for transcription with a 30-second delay.
-func (c *Client) RescheduleFileTranscription(ctx context.Context, fileID string) error {
-	defer c.logOp(ctx, "file.reschedule_transcription", time.Now())
-	sql := `UPDATE type::record("file", $id) SET transcribe_at = time::now() + 30s`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id": bareID("file", fileID),
-	}); err != nil {
-		return fmt.Errorf("reschedule transcription: %w", err)
-	}
-	return nil
-}
-
-// ScheduleFileTranscription sets transcribe_at to now for immediate pickup by the worker.
-func (c *Client) ScheduleFileTranscription(ctx context.Context, fileID string) error {
-	defer c.logOp(ctx, "file.schedule_transcription", time.Now())
-	sql := `UPDATE type::record("file", $id) SET transcribe_at = time::now()`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id": bareID("file", fileID),
-	}); err != nil {
-		return fmt.Errorf("schedule transcription: %w", err)
 	}
 	return nil
 }
@@ -684,7 +650,6 @@ func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (
 			content_length: 0,
 			labels: [],
 			size: 0,
-			processed: true
 		} ON DUPLICATE KEY UPDATE id = id
 		RETURN AFTER
 	`
@@ -758,7 +723,6 @@ func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath strin
 			"content_length": 0,
 			"labels":         []string{},
 			"size":           0,
-			"processed":      true,
 		}
 	}
 

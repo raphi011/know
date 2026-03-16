@@ -1204,12 +1204,6 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatal("expected at least 1 chunk after create")
 	}
 
-	for _, c := range initialChunks {
-		if c.EmbedAt != nil {
-			t.Error("with nil embedder, embed_at should be nil")
-		}
-	}
-
 	initialContent := initialChunks[0].Text
 	initialID := models.MustRecordIDString(initialChunks[0].ID)
 

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -286,12 +285,68 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		s.publishFileEvent("file.updated", input.VaultID, doc)
 	}
 
+	// Enqueue pipeline job for background processing.
+	// On re-ingest with changed content, cancel any outstanding jobs first.
+	if err := s.enqueueJob(ctx, doc, created, previousFile); err != nil {
+		logutil.FromCtx(ctx).Warn("failed to enqueue pipeline job", "path", doc.Path, "error", err)
+	}
+
 	return doc, nil
 }
 
-// ProcessFile runs the deferred heavy processing pipeline for a file:
-// chunks, wiki-links, dangling link resolution, and relations.
-// Called by the ProcessingWorker for files with processed = false.
+// enqueueJob creates the appropriate pipeline job for a newly created or updated file.
+// For updates with unchanged content (same content hash), no job is created.
+// For updates with changed content, outstanding jobs are cancelled first.
+func (s *Service) enqueueJob(ctx context.Context, doc *models.File, created bool, previousFile *models.File) error {
+	contentChanged := created ||
+		(previousFile != nil && (previousFile.ContentHash == nil || doc.ContentHash == nil ||
+			*previousFile.ContentHash != *doc.ContentHash))
+
+	if !contentChanged {
+		return nil
+	}
+
+	fileID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		return fmt.Errorf("extract file id: %w", err)
+	}
+
+	// Cancel outstanding jobs from the previous version.
+	if !created {
+		if err := s.db.CancelJobsForFile(ctx, fileID); err != nil {
+			return fmt.Errorf("cancel old jobs: %w", err)
+		}
+	}
+
+	isBinary := !models.IsTextFile(doc.Path) && doc.Size > 0
+
+	var jobType string
+	if isBinary && models.IsAudioFile(doc.Path) {
+		// Always enqueue transcribe even when no transcriber is configured now;
+		// the handler skips silently. This ensures files are processed if a
+		// transcriber is later enabled via SIGHUP reload.
+		jobType = "transcribe"
+	} else if !isBinary {
+		jobType = "parse"
+	}
+	// Other binary types (images, etc.) have no pipeline job.
+
+	if jobType == "" {
+		return nil
+	}
+
+	if err := s.db.CreateJob(ctx, fileID, jobType, 0); err != nil {
+		return fmt.Errorf("create %s job: %w", jobType, err)
+	}
+	if s.bus != nil {
+		s.bus.Publish(event.ChangeEvent{Type: "job.created"})
+	}
+	return nil
+}
+
+// ProcessFile runs the full processing pipeline for a file synchronously:
+// chunks, wiki-links, dangling link resolution, relations, tasks, and external links.
+// Used by ProcessAllPending for tests and CLI commands. The async path uses ParseHandler.
 func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
@@ -312,9 +367,6 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	if isTpl {
 		if err := s.db.SyncFileLabels(ctx, fileID, vaultID, doc.Labels); err != nil {
 			return fmt.Errorf("sync labels for template %s: %w", doc.Path, err)
-		}
-		if err := s.db.MarkFileProcessed(ctx, fileID); err != nil {
-			return fmt.Errorf("mark template processed: %w", err)
 		}
 		s.publishFileEvent("file.processed", vaultID, doc)
 		return nil
@@ -356,13 +408,8 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 			return fmt.Errorf("process external links for %s: %w", doc.Path, err)
 		}
 	} else if models.IsAudioFile(doc.Path) {
-		// Audio files: schedule for transcription if STT is configured.
-		// Chunks will be created after transcription by the TranscriptionWorker.
-		if s.getTranscriber() != nil {
-			if err := s.db.ScheduleFileTranscription(ctx, fileID); err != nil {
-				return fmt.Errorf("schedule transcription for %s: %w", doc.Path, err)
-			}
-		}
+		// Audio files are processed by the TranscribeHandler pipeline job.
+		// The job was already created by enqueueJob at ingest time — nothing to do here.
 	}
 
 	// 5. Sync label graph (has_label edges) — applies to all file types
@@ -370,12 +417,21 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 		return fmt.Errorf("sync labels for %s: %w", doc.Path, err)
 	}
 
-	// 6. Mark as processed
-	if err := s.db.MarkFileProcessed(ctx, fileID); err != nil {
-		return fmt.Errorf("mark processed: %w", err)
+	// 6. Cancel the parse job now that processing is complete.
+	if err := s.db.CancelJobsForFile(ctx, fileID); err != nil {
+		return fmt.Errorf("cancel parse job: %w", err)
 	}
 
-	// 7. Publish processed event
+	// 7. Enqueue embed job for new chunks (mirrors ParseHandler behaviour).
+	if !models.IsAudioFile(doc.Path) && s.getEmbedder() != nil {
+		if err := s.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
+			logutil.FromCtx(ctx).Warn("failed to enqueue embed job after sync process", "path", doc.Path, "error", err)
+		} else if s.bus != nil {
+			s.bus.Publish(event.ChangeEvent{Type: "job.created"})
+		}
+	}
+
+	// 8. Publish processed event
 	s.publishFileEvent("file.processed", vaultID, doc)
 
 	return nil
@@ -406,95 +462,15 @@ type embeddingTask struct {
 	text    string
 }
 
-// EmbedPendingChunks claims chunks that are due for embedding and embeds them.
-// Uses contextual retrieval: prepends file title and section path to chunk
-// content before embedding, improving semantic precision without altering stored content.
-// Attempts batch embedding first for efficiency; falls back to one-at-a-time on batch failure.
-// Returns the number of chunks successfully embedded.
-func (s *Service) EmbedPendingChunks(ctx context.Context, limit int) (int, error) {
-	embedder := s.getEmbedder()
-	if embedder == nil {
-		return 0, nil
-	}
-
-	chunks, err := s.db.ClaimChunksForEmbedding(ctx, limit)
-	if err != nil {
-		return 0, fmt.Errorf("claim chunks for embedding: %w", err)
-	}
-	if len(chunks) == 0 {
-		return 0, nil
-	}
-
-	// Batch-fetch file titles for contextual embedding
-	fileTitles := s.fetchFileTitles(ctx, chunks)
-
-	// Build embedding texts for all chunks
-	logger := logutil.FromCtx(ctx)
-	var pending []embeddingTask
-	for _, chunk := range chunks {
-		chunkID, err := models.RecordIDString(chunk.ID)
-		if err != nil {
-			logger.Warn("failed to extract chunk ID for embedding", "error", err)
-			continue
-		}
-		fileID, err := models.RecordIDString(chunk.File)
-		if err != nil {
-			logger.Warn("failed to extract file ID for contextual embedding", "chunk_id", chunkID, "error", err)
-			continue
-		}
-		pending = append(pending, embeddingTask{
-			chunkID: chunkID,
-			text:    buildEmbeddingContext(chunk, fileTitles[fileID], s.embedMaxInputChars),
-		})
-	}
-	if len(pending) == 0 {
-		return 0, nil
-	}
-
-	// Try batch embedding first
-	texts := make([]string, len(pending))
-	for i, p := range pending {
-		texts[i] = p.text
-	}
-
-	vectors, batchErr := embedder.EmbedBatch(ctx, texts)
-	if batchErr != nil {
-		logger.Warn("batch embedding failed, falling back to one-at-a-time", "batch_size", len(texts), "error", batchErr)
-		return s.embedChunksOneByOne(ctx, embedder, pending)
-	}
-
-	// Guard against embedder returning wrong number of vectors
-	if len(vectors) != len(pending) {
-		logger.Error("batch embedding returned wrong vector count", "expected", len(pending), "got", len(vectors))
-		return s.embedChunksOneByOne(ctx, embedder, pending)
-	}
-
-	// Batch succeeded — store all embeddings in a single transaction
-	updates := make([]db.ChunkEmbeddingUpdate, len(vectors))
-	for i, vec := range vectors {
-		updates[i] = db.ChunkEmbeddingUpdate{
-			ID:        pending[i].chunkID,
-			Embedding: vec,
-		}
-	}
-
-	if err := s.db.BatchUpdateChunkEmbeddings(ctx, updates); err != nil {
-		logger.Warn("batch store failed, falling back to individual updates", "error", err)
-		return s.storeEmbeddings(ctx, updates), nil
-	}
-
-	return len(vectors), nil
-}
-
-// storeEmbeddings stores pre-computed embeddings one-by-one, rescheduling
-// failed chunks. Returns the number of successfully stored embeddings.
+// storeEmbeddings stores pre-computed embeddings one-by-one.
+// Returns the number of successfully stored embeddings.
+// Failures are logged; the job retry mechanism handles re-running the embed job.
 func (s *Service) storeEmbeddings(ctx context.Context, updates []db.ChunkEmbeddingUpdate) int {
 	logger := logutil.FromCtx(ctx)
 	stored := 0
 	for _, u := range updates {
 		if err := s.db.UpdateChunkEmbedding(ctx, u.ID, u.Embedding); err != nil {
 			logger.Warn("failed to store chunk embedding", "chunk_id", u.ID, "error", err)
-			s.rescheduleChunk(logger, u.ID)
 			continue
 		}
 		stored++
@@ -513,7 +489,6 @@ func (s *Service) embedChunksOneByOne(ctx context.Context, embedder *llm.Embedde
 		if err != nil {
 			logger.Warn("failed to embed chunk", "chunk_id", p.chunkID, "error", err)
 			lastErr = err
-			s.rescheduleChunk(logger, p.chunkID)
 			continue
 		}
 		updates = append(updates, db.ChunkEmbeddingUpdate{ID: p.chunkID, Embedding: emb})
@@ -631,17 +606,73 @@ func stripMarkdownHeadingPrefixes(path string) string {
 	return strings.Join(parts, " > ")
 }
 
-// rescheduleChunk re-schedules a chunk for embedding after a failure, using a
-// background context so it succeeds even if the parent context is cancelled.
-// Uses a 30s backoff to avoid tight retry storms during outages.
-// Accepts the caller's logger to preserve request-scoped context fields.
-func (s *Service) rescheduleChunk(logger *slog.Logger, chunkID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.db.RescheduleChunkEmbedding(ctx, chunkID); err != nil {
-		logger.Error("failed to reschedule chunk embedding — chunk will not be retried",
-			"chunk_id", chunkID, "error", err)
+// EmbedPendingChunksForFile embeds all un-embedded chunks for a specific file.
+// Uses the same batch-first, one-by-one-fallback strategy as EmbedPendingChunks.
+// Returns the number of chunks successfully embedded.
+func (s *Service) EmbedPendingChunksForFile(ctx context.Context, fileID string) (int, error) {
+	embedder := s.getEmbedder()
+	if embedder == nil {
+		return 0, nil
 	}
+
+	chunks, err := s.db.GetUnembeddedChunks(ctx, fileID)
+	if err != nil {
+		return 0, fmt.Errorf("get unembedded chunks for file: %w", err)
+	}
+
+	// Fetch file title once for contextual embedding (shared by all chunks).
+	logger := logutil.FromCtx(ctx)
+	fileTitle := ""
+	if doc, fetchErr := s.db.GetFileByID(ctx, fileID); fetchErr == nil && doc != nil {
+		fileTitle = doc.Title
+	}
+
+	var pending []embeddingTask
+	for _, chunk := range chunks {
+		chunkID, err := models.RecordIDString(chunk.ID)
+		if err != nil {
+			logger.Warn("failed to extract chunk ID for embedding", "error", err)
+			continue
+		}
+		pending = append(pending, embeddingTask{
+			chunkID: chunkID,
+			text:    buildEmbeddingContext(chunk, fileTitle, s.embedMaxInputChars),
+		})
+	}
+	if len(pending) == 0 {
+		return 0, nil
+	}
+
+	texts := make([]string, len(pending))
+	for i, p := range pending {
+		texts[i] = p.text
+	}
+
+	vectors, batchErr := embedder.EmbedBatch(ctx, texts)
+	if batchErr != nil {
+		logger.Warn("batch embedding failed, falling back to one-at-a-time", "batch_size", len(texts), "error", batchErr)
+		return s.embedChunksOneByOne(ctx, embedder, pending)
+	}
+
+	if len(vectors) != len(pending) {
+		logger.Error("batch embedding returned wrong vector count", "expected", len(pending), "got", len(vectors))
+		return s.embedChunksOneByOne(ctx, embedder, pending)
+	}
+
+	updates := make([]db.ChunkEmbeddingUpdate, len(vectors))
+	for i, vec := range vectors {
+		updates[i] = db.ChunkEmbeddingUpdate{
+			ID:        pending[i].chunkID,
+			Embedding: vec,
+		}
+	}
+
+	if err := s.db.BatchUpdateChunkEmbeddings(ctx, updates); err != nil {
+		logger.Warn("batch store failed, falling back to individual updates", "error", err)
+		return s.storeEmbeddings(ctx, updates), nil
+	}
+
+	return len(vectors), nil
 }
 
 // Get returns a file by vault+path, or nil if not found.
@@ -962,13 +993,7 @@ func (s *Service) syncChunks(ctx context.Context, fileID string, parsed *parser.
 				SourceLoc: headingPath,
 				Labels:    labels,
 				MimeType:  "text/plain",
-				Embedding: nil, // nil until worker fills it
-			}
-
-			// Only schedule embedding if embedder is configured
-			if s.getEmbedder() != nil {
-				now := time.Now().UTC()
-				input.EmbedAt = &now
+				Embedding: nil, // nil until embed job fills it
 			}
 
 			toCreate = append(toCreate, input)
@@ -1041,51 +1066,6 @@ func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, 
 	}
 
 	return nil
-}
-
-// TranscribePendingFiles claims files due for transcription, transcribes them,
-// creates text chunks from the transcript, and schedules embedding.
-// Returns the number of files successfully transcribed.
-func (s *Service) TranscribePendingFiles(ctx context.Context, limit int) (int, error) {
-	transcriber := s.getTranscriber()
-	if transcriber == nil {
-		return 0, nil
-	}
-
-	files, err := s.db.ClaimFilesForTranscription(ctx, limit)
-	if err != nil {
-		return 0, fmt.Errorf("claim files for transcription: %w", err)
-	}
-	if len(files) == 0 {
-		return 0, nil
-	}
-
-	logger := logutil.FromCtx(ctx)
-	transcribed := 0
-
-	for _, f := range files {
-		if ctx.Err() != nil {
-			return transcribed, ctx.Err()
-		}
-
-		fileID, err := models.RecordIDString(f.ID)
-		if err != nil {
-			logger.Warn("failed to extract file ID for transcription", "error", err)
-			continue
-		}
-
-		if err := s.transcribeFile(ctx, *transcriber, &f, fileID); err != nil {
-			logger.Warn("transcription failed, rescheduling", "path", f.Path, "error", err)
-			if schedErr := s.db.RescheduleFileTranscription(ctx, fileID); schedErr != nil {
-				logger.Error("failed to reschedule transcription", "path", f.Path, "error", schedErr)
-			}
-			continue
-		}
-
-		transcribed++
-	}
-
-	return transcribed, nil
 }
 
 func (s *Service) mergeTranscriptionParts(ctx context.Context, transcriber stt.Transcriber, parts []stt.SplitPart, mimeType string) (*stt.Result, error) {
@@ -1173,19 +1153,14 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 	// Create text chunks with embedding scheduled
 	var chunkInputs []models.ChunkInput
 	for _, chunk := range chunks {
-		input := models.ChunkInput{
+		chunkInputs = append(chunkInputs, models.ChunkInput{
 			FileID:    fileID,
 			Text:      chunk.Text,
 			Position:  chunk.Position,
 			SourceLoc: &chunk.SourceLoc,
 			Labels:    f.Labels,
 			MimeType:  "text/plain",
-		}
-		if s.getEmbedder() != nil {
-			now := time.Now().UTC()
-			input.EmbedAt = &now
-		}
-		chunkInputs = append(chunkInputs, input)
+		})
 	}
 
 	if len(chunkInputs) > 0 {
