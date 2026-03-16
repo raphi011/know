@@ -984,7 +984,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 
 	src, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relto-src.md",
-		Content: "---\ntitle: Source\nrelates_to:\n  - Target A\n---\n# Source",
+		Content: "---\ntitle: Source\nrelates_to:\n  - target-a\n---\n# Source",
 	})
 	if err != nil {
 		t.Fatalf("create source: %v", err)
@@ -1004,7 +1004,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 
 	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/relto-src.md",
-		Content: "---\ntitle: Source\nrelates_to:\n  - Target B\n---\n# Source Updated",
+		Content: "---\ntitle: Source\nrelates_to:\n  - target-b\n---\n# Source Updated",
 	})
 	if err != nil {
 		t.Fatalf("update source: %v", err)

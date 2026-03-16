@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/raphi011/know/internal/models"
 	"github.com/surrealdb/surrealdb.go"
@@ -23,35 +24,51 @@ func NewLinkResolver(db dbQuerier) *LinkResolver {
 	return &LinkResolver{db: db}
 }
 
-// Resolve resolves a wiki-link target within a vault.
-// Tries exact path match first, then title match (shallowest path wins).
-// Returns nil if not found (dangling link).
+// Resolve resolves a wiki-link target within a vault using Foam-style stem matching.
+// Strips .md extension, computes stem, then matches by stem. If multiple matches and
+// target contains a path separator, disambiguates by path suffix. Returns nil if not
+// found or ambiguous (dangling link).
 func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*models.File, error) {
-	// Try exact path match
-	sql := `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND path = $target LIMIT 1`
+	// Normalize: strip .md extension, then derive stem
+	normalized := strings.TrimSuffix(target, ".md")
+	stem := models.FilenameStem("/" + normalized + ".md")
+
+	// Stem match: find all files with matching stem in this vault
+	sql := `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND stem = $stem`
 	results, err := surrealdb.Query[[]models.File](ctx, r.db.DB(), sql, map[string]any{
 		"vault_id": vaultID,
-		"target":   target,
+		"stem":     stem,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("resolve link (path): %w", err)
-	}
-	if results != nil && len(*results) > 0 && len((*results)[0].Result) > 0 {
-		return &(*results)[0].Result[0], nil
+		return nil, fmt.Errorf("resolve link (stem): %w", err)
 	}
 
-	// Try title match (shallowest path wins)
-	sql = `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND title = $target ORDER BY path ASC LIMIT 1`
-	results, err = surrealdb.Query[[]models.File](ctx, r.db.DB(), sql, map[string]any{
-		"vault_id": vaultID,
-		"target":   target,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("resolve link (title): %w", err)
-	}
-	if results != nil && len(*results) > 0 && len((*results)[0].Result) > 0 {
-		return &(*results)[0].Result[0], nil
+	var matches []models.File
+	if results != nil && len(*results) > 0 {
+		matches = (*results)[0].Result
 	}
 
-	return nil, nil
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &matches[0], nil
+	default:
+		// Multiple matches: disambiguate by path suffix only if target contains /
+		if !strings.Contains(normalized, "/") {
+			return nil, nil // ambiguous, no path hint
+		}
+		lowered := strings.ToLower(normalized)
+		suffix := "/" + lowered + ".md"
+		var found *models.File
+		for i := range matches {
+			if strings.HasSuffix(strings.ToLower(matches[i].Path), suffix) {
+				if found != nil {
+					return nil, nil // still ambiguous
+				}
+				found = &matches[i]
+			}
+		}
+		return found, nil
+	}
 }
