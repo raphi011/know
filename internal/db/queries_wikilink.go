@@ -103,60 +103,6 @@ func (c *Client) UnresolveWikiLinksToFile(ctx context.Context, fileID string) (i
 	return countResults(results), nil
 }
 
-// UpdateWikiLinkRawTargets updates raw_target for all wiki_links in a vault matching oldTarget.
-// Used when a file is moved to keep raw_targets consistent with the new path/title.
-func (c *Client) UpdateWikiLinkRawTargets(ctx context.Context, vaultID, oldTarget, newTarget string) (int, error) {
-	defer c.logOp(ctx, "wikilink.update_raw_targets", time.Now())
-	sql := `UPDATE wiki_link SET raw_target = $new_target WHERE vault = type::record("vault", $vault_id) AND raw_target = $old_target`
-	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":   bareID("vault", vaultID),
-		"old_target": oldTarget,
-		"new_target": newTarget,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("update wiki link raw targets: %w", err)
-	}
-	return countResults(results), nil
-}
-
-// UpdateWikiLinkRawTargetsByPrefix updates raw_target for all wiki_links in a vault
-// where raw_target starts with oldPrefix, replacing the prefix with newPrefix.
-// Used when files are moved by prefix (folder rename).
-func (c *Client) UpdateWikiLinkRawTargetsByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
-	defer c.logOp(ctx, "wikilink.update_raw_targets_by_prefix", time.Now())
-	sql := `UPDATE wiki_link SET raw_target = string::concat($new_prefix, string::slice(raw_target, string::len($old_prefix))) WHERE vault = type::record("vault", $vault_id) AND string::starts_with(raw_target, $old_prefix)`
-	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":   bareID("vault", vaultID),
-		"old_prefix": oldPrefix,
-		"new_prefix": newPrefix,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("update wiki link raw targets by prefix: %w", err)
-	}
-	return countResults(results), nil
-}
-
-// ResolveDanglingLinks finds dangling wiki-links in a vault matching a target
-// and resolves them to point to the given file.
-func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, toFileID string) (int, error) {
-	defer c.logOp(ctx, "wikilink.resolve_dangling", time.Now())
-	sql := `
-		UPDATE wiki_link SET to_file = type::record("file", $to_file_id)
-		WHERE vault = type::record("vault", $vault_id)
-			AND raw_target = $raw_target
-			AND to_file IS NONE
-	`
-	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":   bareID("vault", vaultID),
-		"raw_target": rawTarget,
-		"to_file_id": toFileID,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("resolve dangling links: %w", err)
-	}
-	return countResults(results), nil
-}
-
 // ResolveDanglingLinksByStem resolves dangling stem-only links in a vault matching the given stem.
 // Only links whose raw_target does not contain "/" are matched (pure stem references).
 func (c *Client) ResolveDanglingLinksByStem(ctx context.Context, vaultID, stem, toFileID string) (int, error) {
