@@ -112,6 +112,14 @@ type Config struct {
 	// TLS settings
 	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOW_TLS_SKIP_VERIFY)
 
+	// Blob storage
+	BlobStore      string // KNOW_BLOB_STORE (default: "fs")
+	BlobDir        string // KNOW_BLOB_DIR (default: "/data/blobs")
+	BlobS3Bucket   string // KNOW_BLOB_S3_BUCKET
+	BlobS3Prefix   string // KNOW_BLOB_S3_PREFIX (default: "blobs")
+	BlobS3Endpoint string // KNOW_BLOB_S3_ENDPOINT
+	BlobS3Region   string // KNOW_BLOB_S3_REGION (default: "us-east-1")
+
 	// Build info (set by ldflags, passed in by caller)
 	Version string
 	Commit  string
@@ -254,6 +262,14 @@ func Load() Config {
 
 		// TLS
 		TLSSkipVerify: getEnvBool("KNOW_TLS_SKIP_VERIFY", false),
+
+		// Blob storage
+		BlobStore:      getEnv("KNOW_BLOB_STORE", "fs"),
+		BlobDir:        getEnv("KNOW_BLOB_DIR", "/data/blobs"),
+		BlobS3Bucket:   getEnv("KNOW_BLOB_S3_BUCKET", ""),
+		BlobS3Prefix:   getEnv("KNOW_BLOB_S3_PREFIX", "blobs"),
+		BlobS3Endpoint: getEnv("KNOW_BLOB_S3_ENDPOINT", ""),
+		BlobS3Region:   getEnv("KNOW_BLOB_S3_REGION", "us-east-1"),
 	}
 }
 
