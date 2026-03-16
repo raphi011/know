@@ -105,7 +105,25 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"`+*asset.ContentHash+`"`)
 	}
 	w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
-	http.ServeContent(w, r, asset.Path, asset.UpdatedAt, bytes.NewReader(asset.Data))
+
+	if asset.ContentHash == nil {
+		writeError(w, http.StatusNotFound, "asset has no content")
+		return
+	}
+	rc, err := s.app.BlobStore().Get(r.Context(), *asset.ContentHash)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read asset data")
+		logutil.FromCtx(r.Context()).Error("get asset blob", "hash", *asset.ContentHash, "error", err)
+		return
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read asset data")
+		logutil.FromCtx(r.Context()).Error("read asset blob", "error", err)
+		return
+	}
+	http.ServeContent(w, r, asset.Path, asset.UpdatedAt, bytes.NewReader(data))
 }
 
 func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
