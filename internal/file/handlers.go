@@ -61,6 +61,9 @@ func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 		if err := svc.resolveDanglingForFile(ctx, vaultID, doc); err != nil {
 			return fmt.Errorf("resolve dangling links for %s: %w", doc.Path, err)
 		}
+		if err := svc.handleStemAmbiguity(ctx, vaultID, doc.Stem); err != nil {
+			return fmt.Errorf("handle stem ambiguity for %s: %w", doc.Path, err)
+		}
 		if err := svc.processRelatesTo(ctx, fileID, vaultID, parsed.Frontmatter); err != nil {
 			return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
 		}

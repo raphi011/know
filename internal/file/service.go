@@ -403,6 +403,11 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 			return fmt.Errorf("resolve dangling links for %s: %w", doc.Path, err)
 		}
 
+		// 3b. Un-resolve stem-only links if this file made the stem ambiguous
+		if err := s.handleStemAmbiguity(ctx, vaultID, doc.Stem); err != nil {
+			return fmt.Errorf("handle stem ambiguity for %s: %w", doc.Path, err)
+		}
+
 		// 4. Process explicit relates_to from frontmatter
 		if err := s.processRelatesTo(ctx, fileID, vaultID, parsed.Frontmatter); err != nil {
 			return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
@@ -737,6 +742,28 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	if _, err := s.db.UnresolveWikiLinksToFile(ctx, fileID); err != nil {
 		return fmt.Errorf("unresolve incoming wiki links: %w", err)
 	}
+
+	// If this file's stem is now unique (collision removed), resolve dangling links for the remaining file
+	stem := models.FilenameStem(doc.Path)
+	if stem != "" {
+		count, err := s.db.CountFilesByStem(ctx, vaultID, stem)
+		if err != nil {
+			logutil.FromCtx(ctx).Warn("count files by stem after delete", "error", err)
+		} else if count == 1 {
+			remaining, err := s.db.GetFilesByStem(ctx, vaultID, stem)
+			if err == nil && len(remaining) == 1 {
+				remainingID, err := models.RecordIDString(remaining[0].ID)
+				if err == nil {
+					if n, err := s.db.ResolveDanglingLinksByStem(ctx, vaultID, stem, remainingID); err != nil {
+						logutil.FromCtx(ctx).Warn("resolve dangling after delete", "error", err)
+					} else if n > 0 {
+						logutil.FromCtx(ctx).Info("resolved dangling links after stem collision removal", "stem", stem, "count", n)
+					}
+				}
+			}
+		}
+	}
+
 	if err := s.db.SyncFileLabels(ctx, fileID, vaultID, nil); err != nil {
 		return fmt.Errorf("delete label edges: %w", err)
 	}
@@ -793,7 +820,7 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 // replacing oldPrefix with newPrefix. Returns the number of moved files.
 // Both prefixes are normalized and ensured to end with "/" to avoid partial matches.
 //
-// Updates wiki-link raw_targets referencing paths under the old prefix.
+// Recomputes stems and incoming wiki-link raw_targets for all moved files.
 // Does not update doc_relations referencing the old paths.
 func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
 	oldNorm := models.NormalizePath(oldPrefix)
@@ -815,9 +842,26 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 		return 0, fmt.Errorf("move by prefix: %w", err)
 	}
 
-	// Update raw_targets in wiki_links referencing paths under the old prefix
-	if _, err := s.db.UpdateWikiLinkRawTargetsByPrefix(ctx, vaultID, oldNorm, newNorm); err != nil {
-		return count, fmt.Errorf("update wiki link raw targets by prefix: %w", err)
+	// Recompute stems for all moved files
+	if err := s.db.RecomputeStems(ctx, vaultID, newNorm); err != nil {
+		return count, fmt.Errorf("recompute stems after prefix move: %w", err)
+	}
+
+	// Recompute incoming raw_targets for each moved file
+	movedFiles, err := s.db.ListFilesByPrefix(ctx, vaultID, newNorm)
+	if err != nil {
+		logutil.FromCtx(ctx).Warn("list moved files for raw target recompute", "error", err)
+	} else {
+		for _, f := range movedFiles {
+			fID, err := models.RecordIDString(f.ID)
+			if err != nil {
+				logutil.FromCtx(ctx).Warn("extract file id for raw target recompute", "error", err)
+				continue
+			}
+			if err := s.recomputeIncomingRawTargets(ctx, vaultID, fID, f.Path); err != nil {
+				logutil.FromCtx(ctx).Warn("recompute incoming raw targets after prefix move", "path", f.Path, "error", err)
+			}
+		}
 	}
 
 	// Move folder records to match
@@ -848,22 +892,42 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 		return nil, fmt.Errorf("extract file id: %w", err)
 	}
 
+	oldStem := models.FilenameStem(oldPath)
 	normalizedNew := models.NormalizePath(newPath)
+	newStem := models.FilenameStem(normalizedNew)
+
 	doc, err = s.db.MoveFile(ctx, fileID, normalizedNew)
 	if err != nil {
 		return nil, fmt.Errorf("move file: %w", err)
 	}
 
-	// Update raw_targets in wiki_links referencing the old path
-	if _, err := s.db.UpdateWikiLinkRawTargets(ctx, vaultID, oldPath, normalizedNew); err != nil {
-		return nil, fmt.Errorf("update wiki link raw targets for path: %w", err)
+	// Recompute raw_targets for incoming wiki-links to use shortest unambiguous target
+	if err := s.recomputeIncomingRawTargets(ctx, vaultID, fileID, normalizedNew); err != nil {
+		return nil, fmt.Errorf("recompute incoming raw targets: %w", err)
 	}
-	// Update raw_targets referencing the old title (if filename-derived title changed)
-	oldTitle := filenameTitle(oldPath)
-	newTitle := filenameTitle(normalizedNew)
-	if oldTitle != newTitle {
-		if _, err := s.db.UpdateWikiLinkRawTargets(ctx, vaultID, oldTitle, newTitle); err != nil {
-			return nil, fmt.Errorf("update wiki link raw targets for title: %w", err)
+
+	// Handle ambiguity for the new stem
+	if err := s.handleStemAmbiguity(ctx, vaultID, newStem); err != nil {
+		return nil, fmt.Errorf("handle stem ambiguity for new stem: %w", err)
+	}
+
+	// If stem changed, check if old stem now has exactly 1 file → resolve dangling links for it
+	if oldStem != newStem && oldStem != "" {
+		count, err := s.db.CountFilesByStem(ctx, vaultID, oldStem)
+		if err != nil {
+			logutil.FromCtx(ctx).Warn("count files by old stem after move", "error", err)
+		} else if count == 1 {
+			remaining, err := s.db.GetFilesByStem(ctx, vaultID, oldStem)
+			if err == nil && len(remaining) == 1 {
+				remainingID, err := models.RecordIDString(remaining[0].ID)
+				if err == nil {
+					if n, err := s.db.ResolveDanglingLinksByStem(ctx, vaultID, oldStem, remainingID); err != nil {
+						logutil.FromCtx(ctx).Warn("resolve dangling after move", "error", err)
+					} else if n > 0 {
+						logutil.FromCtx(ctx).Info("resolved dangling links after stem collision removal", "stem", oldStem, "count", n)
+					}
+				}
+			}
 		}
 	}
 
@@ -914,32 +978,84 @@ func (s *Service) processWikiLinks(ctx context.Context, fileID, vaultID string, 
 
 func (s *Service) resolveDanglingForFile(ctx context.Context, vaultID string, doc *models.File) error {
 	logger := logutil.FromCtx(ctx)
-
+	if doc.Stem == "" {
+		return nil
+	}
 	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
 		return fmt.Errorf("extract file id: %w", err)
 	}
-
-	// Try to resolve by title
-	if doc.Title != "" {
-		n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Title, fileID)
-		if err != nil {
-			return fmt.Errorf("resolve by title %q: %w", doc.Title, err)
-		}
-		if n > 0 {
-			logger.Info("resolved dangling wiki-links", "title", doc.Title, "count", n)
-		}
-	}
-
-	// Try to resolve by path
-	n, err := s.db.ResolveDanglingLinks(ctx, vaultID, doc.Path, fileID)
+	count, err := s.db.CountFilesByStem(ctx, vaultID, doc.Stem)
 	if err != nil {
-		return fmt.Errorf("resolve by path %q: %w", doc.Path, err)
+		return fmt.Errorf("count files by stem: %w", err)
+	}
+	if count != 1 {
+		return nil // ambiguous
+	}
+	n, err := s.db.ResolveDanglingLinksByStem(ctx, vaultID, doc.Stem, fileID)
+	if err != nil {
+		return fmt.Errorf("resolve dangling by stem: %w", err)
 	}
 	if n > 0 {
-		logger.Info("resolved dangling wiki-links", "path", doc.Path, "count", n)
+		logger.Info("resolved dangling wiki-links by stem", "stem", doc.Stem, "count", n)
 	}
+	return nil
+}
 
+// handleStemAmbiguity checks if a stem is now ambiguous (multiple files share it)
+// and un-resolves any stem-only wiki-links that pointed to files with that stem.
+func (s *Service) handleStemAmbiguity(ctx context.Context, vaultID, stem string) error {
+	if stem == "" {
+		return nil
+	}
+	logger := logutil.FromCtx(ctx)
+	count, err := s.db.CountFilesByStem(ctx, vaultID, stem)
+	if err != nil {
+		return fmt.Errorf("count files by stem: %w", err)
+	}
+	if count <= 1 {
+		return nil
+	}
+	n, err := s.db.UnresolveStemOnlyLinks(ctx, vaultID, stem)
+	if err != nil {
+		return fmt.Errorf("unresolve ambiguous stem links: %w", err)
+	}
+	if n > 0 {
+		logger.Info("un-resolved ambiguous stem-only wiki-links", "stem", stem, "count", n)
+	}
+	return nil
+}
+
+// recomputeIncomingRawTargets updates the raw_target of all wiki-links pointing
+// to a file so they use the shortest unambiguous target for the file's current path.
+func (s *Service) recomputeIncomingRawTargets(ctx context.Context, vaultID, fileID, filePath string) error {
+	logger := logutil.FromCtx(ctx)
+	stem := models.FilenameStem(filePath)
+	if stem == "" {
+		return nil
+	}
+	sameStems, err := s.db.GetFilesByStem(ctx, vaultID, stem)
+	if err != nil {
+		return fmt.Errorf("get files by stem: %w", err)
+	}
+	newTarget := ShortestUnambiguousTarget(filePath, sameStems)
+	links, err := s.db.GetWikiLinksToFile(ctx, fileID)
+	if err != nil {
+		return fmt.Errorf("get wiki links to file: %w", err)
+	}
+	for _, link := range links {
+		if link.RawTarget == newTarget {
+			continue
+		}
+		linkID, err := models.RecordIDString(link.ID)
+		if err != nil {
+			logger.Warn("failed to extract link ID", "error", err)
+			continue
+		}
+		if err := s.db.UpdateWikiLinkRawTarget(ctx, linkID, newTarget); err != nil {
+			return fmt.Errorf("update raw target for link %s: %w", linkID, err)
+		}
+	}
 	return nil
 }
 

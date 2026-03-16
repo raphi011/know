@@ -161,15 +161,14 @@ func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, t
 // Only links whose raw_target does not contain "/" are matched (pure stem references).
 func (c *Client) ResolveDanglingLinksByStem(ctx context.Context, vaultID, stem, toFileID string) (int, error) {
 	defer c.logOp(ctx, "wikilink.resolve_dangling_by_stem", time.Now())
+	// Normalize raw_target to a stem by: stripping .md, lowering, replacing spaces/underscores with hyphens.
+	// This allows [[Beta Notes]] to match stem "beta-notes".
 	sql := `
 		UPDATE wiki_link SET to_file = type::record("file", $to_file_id)
 		WHERE vault = type::record("vault", $vault_id)
 			AND to_file IS NONE
-			AND raw_target NOT CONTAINS "/"
-			AND (
-				string::lowercase(raw_target) = $stem
-				OR string::lowercase(string::replace(raw_target, ".md", "")) = $stem
-			)
+			AND !string::contains(raw_target, "/")
+			AND string::replace(string::replace(string::lowercase(string::replace(raw_target, ".md", "")), " ", "-"), "_", "-") = $stem
 	`
 	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
 		"vault_id":   bareID("vault", vaultID),
@@ -186,15 +185,13 @@ func (c *Client) ResolveDanglingLinksByStem(ctx context.Context, vaultID, stem, 
 // Used when the target file is deleted or renamed, making those links dangling again.
 func (c *Client) UnresolveStemOnlyLinks(ctx context.Context, vaultID, stem string) (int, error) {
 	defer c.logOp(ctx, "wikilink.unresolve_stem_only", time.Now())
+	// Normalize raw_target to a stem by: stripping .md, lowering, replacing spaces/underscores with hyphens.
 	sql := `
 		UPDATE wiki_link SET to_file = NONE
 		WHERE vault = type::record("vault", $vault_id)
 			AND to_file IS NOT NONE
-			AND raw_target NOT CONTAINS "/"
-			AND (
-				string::lowercase(raw_target) = $stem
-				OR string::lowercase(string::replace(raw_target, ".md", "")) = $stem
-			)
+			AND !string::contains(raw_target, "/")
+			AND string::replace(string::replace(string::lowercase(string::replace(raw_target, ".md", "")), " ", "-"), "_", "-") = $stem
 	`
 	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
