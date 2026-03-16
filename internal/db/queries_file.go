@@ -416,6 +416,55 @@ func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.
 	return files, nil
 }
 
+// GetFilesByStem returns non-folder files matching a stem in a vault.
+func (c *Client) GetFilesByStem(ctx context.Context, vaultID, stem string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.get_by_stem", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND stem = $stem AND is_folder = false`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"stem":     stem,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get files by stem: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// CountFilesByStem returns the count of non-folder files with the given stem in a vault.
+func (c *Client) CountFilesByStem(ctx context.Context, vaultID, stem string) (int, error) {
+	defer c.logOp(ctx, "file.count_by_stem", time.Now())
+	sql := `SELECT count() AS total FROM file WHERE vault = type::record("vault", $vault_id) AND stem = $stem AND is_folder = false GROUP ALL`
+	type countRow struct {
+		Total int `json:"total"`
+	}
+	results, err := surrealdb.Query[[]countRow](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"stem":     stem,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count files by stem: %w", err)
+	}
+	rows := allResults(results)
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return rows[0].Total, nil
+}
+
+// ListFilesByPrefix returns non-folder files whose path starts with prefix in a vault.
+func (c *Client) ListFilesByPrefix(ctx context.Context, vaultID, prefix string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.list_by_prefix", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) AND is_folder = false`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   prefix,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list files by prefix: %w", err)
+	}
+	return allResults(results), nil
+}
+
 // UpdateFileTranscript sets the transcript as the file content.
 func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, content string) error {
 	defer c.logOp(ctx, "file.update_transcript", time.Now())

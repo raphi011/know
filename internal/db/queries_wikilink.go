@@ -156,3 +156,98 @@ func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, t
 	}
 	return countResults(results), nil
 }
+
+// ResolveDanglingLinksByStem resolves dangling stem-only links in a vault matching the given stem.
+// Only links whose raw_target does not contain "/" are matched (pure stem references).
+func (c *Client) ResolveDanglingLinksByStem(ctx context.Context, vaultID, stem, toFileID string) (int, error) {
+	defer c.logOp(ctx, "wikilink.resolve_dangling_by_stem", time.Now())
+	sql := `
+		UPDATE wiki_link SET to_file = type::record("file", $to_file_id)
+		WHERE vault = type::record("vault", $vault_id)
+			AND to_file IS NONE
+			AND raw_target NOT CONTAINS "/"
+			AND (
+				string::lowercase(raw_target) = $stem
+				OR string::lowercase(string::replace(raw_target, ".md", "")) = $stem
+			)
+	`
+	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"stem":       stem,
+		"to_file_id": bareID("file", toFileID),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("resolve dangling links by stem: %w", err)
+	}
+	return countResults(results), nil
+}
+
+// UnresolveStemOnlyLinks sets to_file = NONE on resolved stem-only links matching stem.
+// Used when the target file is deleted or renamed, making those links dangling again.
+func (c *Client) UnresolveStemOnlyLinks(ctx context.Context, vaultID, stem string) (int, error) {
+	defer c.logOp(ctx, "wikilink.unresolve_stem_only", time.Now())
+	sql := `
+		UPDATE wiki_link SET to_file = NONE
+		WHERE vault = type::record("vault", $vault_id)
+			AND to_file IS NOT NONE
+			AND raw_target NOT CONTAINS "/"
+			AND (
+				string::lowercase(raw_target) = $stem
+				OR string::lowercase(string::replace(raw_target, ".md", "")) = $stem
+			)
+	`
+	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"stem":     stem,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unresolve stem only links: %w", err)
+	}
+	return countResults(results), nil
+}
+
+// GetWikiLinksToFile returns all wiki-links where to_file points to the given file.
+func (c *Client) GetWikiLinksToFile(ctx context.Context, fileID string) ([]models.WikiLink, error) {
+	defer c.logOp(ctx, "wikilink.get_to_file", time.Now())
+	sql := `SELECT * FROM wiki_link WHERE to_file = type::record("file", $file_id)`
+	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
+		"file_id": bareID("file", fileID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get wiki links to file: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// UpdateWikiLinkRawTarget updates the raw_target of a single wiki-link by ID.
+func (c *Client) UpdateWikiLinkRawTarget(ctx context.Context, linkID, newTarget string) error {
+	defer c.logOp(ctx, "wikilink.update_raw_target", time.Now())
+	sql := `UPDATE type::record("wiki_link", $link_id) SET raw_target = $new_target`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"link_id":    bareID("wiki_link", linkID),
+		"new_target": newTarget,
+	}); err != nil {
+		return fmt.Errorf("update wiki link raw target: %w", err)
+	}
+	return nil
+}
+
+// WikiLinkWithTarget holds outgoing link info with the resolved target's path and title.
+type WikiLinkWithTarget struct {
+	RawTarget string  `json:"raw_target"`
+	Path      *string `json:"path"`
+	Title     *string `json:"title"`
+}
+
+// GetWikiLinksWithTargetInfo returns outgoing links from a file with resolved target path and title.
+func (c *Client) GetWikiLinksWithTargetInfo(ctx context.Context, fileID string) ([]WikiLinkWithTarget, error) {
+	defer c.logOp(ctx, "wikilink.get_with_target_info", time.Now())
+	sql := `SELECT raw_target, to_file.path AS path, to_file.title AS title FROM wiki_link WHERE from_file = type::record("file", $file_id)`
+	results, err := surrealdb.Query[[]WikiLinkWithTarget](ctx, c.DB(), sql, map[string]any{
+		"file_id": bareID("file", fileID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get wiki links with target info: %w", err)
+	}
+	return allResults(results), nil
+}
