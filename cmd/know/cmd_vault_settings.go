@@ -35,6 +35,12 @@ Valid keys:
   memory_decay_half_life   days until memory score halves (default: 30)
   template_path            folder for templates (default: /templates)
   daily_note_path          folder for daily notes (default: /daily)
+  rrf_k                    RRF K parameter for hybrid search (default: 60)
+  hnsw_ef                  HNSW EF parameter for vector search (default: 40)
+  default_search_limit     default number of search results (default: 20)
+  max_search_limit         maximum search result limit (default: 100)
+  version_coalesce_minutes minutes between version snapshots (default: 10)
+  version_retention_count  max versions per file (default: 50)
 
 Environment variables:
   KNOW_VAULT    vault name (alternative to --vault flag)`,
@@ -112,6 +118,42 @@ func parseSettingsPatch(pairs []string) (models.VaultSettings, error) {
 				return s, fmt.Errorf("invalid value for %s: %w", key, err)
 			}
 			s.MemoryDecayHalfLife = v
+		case "rrf_k":
+			v, err := strconv.Atoi(value)
+			if err != nil {
+				return s, fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			s.RRFK = v
+		case "hnsw_ef":
+			v, err := strconv.Atoi(value)
+			if err != nil {
+				return s, fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			s.HNSWEF = v
+		case "default_search_limit":
+			v, err := strconv.Atoi(value)
+			if err != nil {
+				return s, fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			s.DefaultSearchLimit = v
+		case "max_search_limit":
+			v, err := strconv.Atoi(value)
+			if err != nil {
+				return s, fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			s.MaxSearchLimit = v
+		case "version_coalesce_minutes":
+			v, err := strconv.Atoi(value)
+			if err != nil {
+				return s, fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			s.VersionCoalesceMinutes = v
+		case "version_retention_count":
+			v, err := strconv.Atoi(value)
+			if err != nil {
+				return s, fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			s.VersionRetentionCount = v
 		default:
 			return s, fmt.Errorf("unknown setting %q", key)
 		}
@@ -129,11 +171,17 @@ func printSettings(s *models.VaultSettings) error {
 		return nil
 	}
 
-	fmt.Printf("%-25s %s\n", "memory_path:", s.MemoryPath)
-	fmt.Printf("%-25s %.2f\n", "memory_merge_threshold:", s.MemoryMergeThreshold)
-	fmt.Printf("%-25s %.2f\n", "memory_archive_threshold:", s.MemoryArchiveThreshold)
-	fmt.Printf("%-25s %d\n", "memory_decay_half_life:", s.MemoryDecayHalfLife)
-	fmt.Printf("%-25s %s\n", "template_path:", s.TemplatePath)
-	fmt.Printf("%-25s %s\n", "daily_note_path:", s.DailyNotePath)
+	fmt.Printf("%-30s %s\n", "memory_path:", s.MemoryPath)
+	fmt.Printf("%-30s %.2f\n", "memory_merge_threshold:", s.MemoryMergeThreshold)
+	fmt.Printf("%-30s %.2f\n", "memory_archive_threshold:", s.MemoryArchiveThreshold)
+	fmt.Printf("%-30s %d\n", "memory_decay_half_life:", s.MemoryDecayHalfLife)
+	fmt.Printf("%-30s %s\n", "template_path:", s.TemplatePath)
+	fmt.Printf("%-30s %s\n", "daily_note_path:", s.DailyNotePath)
+	fmt.Printf("%-30s %d\n", "rrf_k:", s.RRFK)
+	fmt.Printf("%-30s %d\n", "hnsw_ef:", s.HNSWEF)
+	fmt.Printf("%-30s %d\n", "default_search_limit:", s.DefaultSearchLimit)
+	fmt.Printf("%-30s %d\n", "max_search_limit:", s.MaxSearchLimit)
+	fmt.Printf("%-30s %d\n", "version_coalesce_minutes:", s.VersionCoalesceMinutes)
+	fmt.Printf("%-30s %d\n", "version_retention_count:", s.VersionRetentionCount)
 	return nil
 }

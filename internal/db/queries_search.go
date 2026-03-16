@@ -17,6 +17,8 @@ type SearchFilter struct {
 	DocType *string
 	Folder  *string
 	Limit   int
+	RRFK    int // RRF K parameter (0 = use models.DefaultRRFK)
+	HNSWEF  int // HNSW EF parameter (0 = use models.DefaultHNSWEF)
 }
 
 type ChunkWithScore struct {
@@ -60,7 +62,7 @@ func (c *Client) BM25ChunkSearch(ctx context.Context, query string, filter Searc
 	defer c.logOp(ctx, "search.bm25", time.Now())
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = models.DefaultSearchLimit
 	}
 
 	conditions, vars := buildChunkFilterConditions(filter)
@@ -94,7 +96,7 @@ func (c *Client) HybridSearch(ctx context.Context, query string, embedding []flo
 	defer c.logOp(ctx, "search.hybrid", time.Now())
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = models.DefaultSearchLimit
 	}
 
 	conditions, vars := buildChunkFilterConditions(filter)
@@ -102,6 +104,15 @@ func (c *Client) HybridSearch(ctx context.Context, query string, embedding []flo
 	vars["embedding"] = embedding
 
 	whereClause := strings.Join(conditions, " AND ")
+
+	hnswEF := filter.HNSWEF
+	if hnswEF <= 0 {
+		hnswEF = models.DefaultHNSWEF
+	}
+	rrfK := filter.RRFK
+	if rrfK <= 0 {
+		rrfK = models.DefaultRRFK
+	}
 
 	// LET variables don't work with search::rrf() (return None) — subqueries must be inlined.
 	// ORDER BY is omitted: BM25 @1@ returns results in relevance order, and <|K,EF|> returns
@@ -119,10 +130,10 @@ func (c *Client) HybridSearch(ctx context.Context, query string, embedding []flo
 			 LIMIT %d),
 			(SELECT * FROM chunk
 			 WHERE %s
-			   AND embedding <|%d,40|> $embedding
+			   AND embedding <|%d,%d|> $embedding
 			 LIMIT %d)
-		], %d, 60)
-	`, whereClause, limit, whereClause, limit, limit, limit)
+		], %d, %d)
+	`, whereClause, limit, whereClause, limit, hnswEF, limit, limit, rrfK)
 
 	results, err := surrealdb.Query[[]ChunkWithScore](ctx, c.DB(), sql, vars)
 	if err != nil {
