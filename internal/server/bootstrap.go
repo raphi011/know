@@ -28,6 +28,7 @@ import (
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/pipeline"
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/search"
 	"github.com/raphi011/know/internal/stt"
@@ -60,7 +61,7 @@ type ServerConfig struct {
 }
 
 // App holds all application services and dependencies.
-// mu protects serverConfig, workerCancel, and workerDone.
+// mu protects serverConfig, pipelineWorkerCancel, and pipelineWorkerDone.
 type App struct {
 	mu           sync.RWMutex
 	db           *db.Client
@@ -68,22 +69,16 @@ type App struct {
 	vaultService *vault.Service
 	fileService  *file.Service
 
-	searchService             *search.Service
-	agentService              *agent.Service
-	agentRunner               *agent.Runner
-	remoteService             *remote.Service
-	memoryService             *memory.Service
-	apifyClient               *apify.Client
-	bus                       *event.Bus
-	workerCancel              context.CancelFunc // guarded by mu
-	workerDone                chan struct{}      // guarded by mu
-	processingWorkerCancel    context.CancelFunc // guarded by mu
-	processingWorkerDone      chan struct{}      // guarded by mu
-	processingWorkerInterval  time.Duration
-	processingWorkerBatch     int
-	transcriptionWorkerCancel context.CancelFunc // guarded by mu
-	transcriptionWorkerDone   chan struct{}      // guarded by mu
-	serverConfig              ServerConfig       // guarded by mu
+	searchService        *search.Service
+	agentService         *agent.Service
+	agentRunner          *agent.Runner
+	remoteService        *remote.Service
+	memoryService        *memory.Service
+	apifyClient          *apify.Client
+	bus                  *event.Bus
+	pipelineWorkerCancel context.CancelFunc // guarded by mu
+	pipelineWorkerDone   chan struct{}      // guarded by mu
+	serverConfig         ServerConfig       // guarded by mu
 }
 
 // New creates a new App with all dependencies initialized.
@@ -201,13 +196,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		fileSvc.SetTranscriber(&transcriber)
 	}
 
-	// workerDone defaults to a closed channel so <-workerDone is a no-op in Close
-	embeddingWorkerDone := make(chan struct{})
-	close(embeddingWorkerDone)
-	processingWorkerDone := make(chan struct{})
-	close(processingWorkerDone)
-	transcriptionWorkerDone := make(chan struct{})
-	close(transcriptionWorkerDone)
+	// pipelineWorkerDone defaults to a closed channel so <-pipelineWorkerDone is a no-op in Close
+	pipelineWorkerDone := make(chan struct{})
+	close(pipelineWorkerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
 	remoteSvc := remote.NewService(dbClient)
@@ -229,22 +220,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	memorySvc := memory.NewService(dbClient, fileSvc, model)
 
 	app := &App{
-		db:                       dbClient,
-		blobStore:                blobStore,
-		vaultService:             vaultSvc,
-		remoteService:            remoteSvc,
-		memoryService:            memorySvc,
-		processingWorkerInterval: time.Duration(cfg.ProcessingWorkerInterval) * time.Second,
-		processingWorkerBatch:    cfg.ProcessingWorkerBatch,
-		fileService:              fileSvc,
-		searchService:            searchSvc,
-		agentService:             agentSvc,
-		agentRunner:              agentRunner,
-		apifyClient:              apifyClient,
-		bus:                      bus,
-		workerDone:               embeddingWorkerDone,
-		processingWorkerDone:     processingWorkerDone,
-		transcriptionWorkerDone:  transcriptionWorkerDone,
+		db:                 dbClient,
+		blobStore:          blobStore,
+		vaultService:       vaultSvc,
+		remoteService:      remoteSvc,
+		memoryService:      memorySvc,
+		fileService:        fileSvc,
+		searchService:      searchSvc,
+		agentService:       agentSvc,
+		agentRunner:        agentRunner,
+		apifyClient:        apifyClient,
+		bus:                bus,
+		pipelineWorkerDone: pipelineWorkerDone,
 		serverConfig: ServerConfig{
 			Version:                cfg.Version,
 			Commit:                 cfg.Commit,
@@ -276,14 +263,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		slog.Info("reconciled stale running conversations", "count", n)
 	}
 
-	// Start background embedding worker if embedder is available
-	app.syncEmbeddingWorker(cfg, embedder)
+	// Reconcile pipeline jobs stuck in "running" from a previous unclean shutdown
+	if n, err := dbClient.ReconcileStaleRunningJobs(ctx); err != nil {
+		slog.Warn("failed to reconcile stale running pipeline jobs", "error", err)
+	} else if n > 0 {
+		slog.Info("reconciled stale running pipeline jobs", "count", n)
+	}
 
-	// Start background document processing worker (always runs)
-	app.startProcessingWorker()
-
-	// Start background transcription worker if transcriber is available
-	app.syncTranscriptionWorker(cfg, transcriber)
+	// Start single background pipeline worker (handles parse, embed, transcribe jobs)
+	app.startPipelineWorker(cfg)
 
 	return app, nil
 }
@@ -366,47 +354,21 @@ func (a *App) Close(ctx context.Context) error {
 	logger := logutil.FromCtx(ctx)
 
 	a.mu.Lock()
-	embedCancel := a.workerCancel
-	embedDone := a.workerDone
-	a.workerCancel = nil
-	procCancel := a.processingWorkerCancel
-	procDone := a.processingWorkerDone
-	a.processingWorkerCancel = nil
-	transcriptionCancel := a.transcriptionWorkerCancel
-	transcriptionDone := a.transcriptionWorkerDone
-	a.transcriptionWorkerCancel = nil
+	pipelineCancel := a.pipelineWorkerCancel
+	pipelineDone := a.pipelineWorkerDone
+	a.pipelineWorkerCancel = nil
 	a.mu.Unlock()
 
 	var errs []error
 
-	if embedCancel != nil {
-		logger.Info("stopping embedding worker")
-		embedCancel()
+	if pipelineCancel != nil {
+		logger.Info("stopping pipeline worker")
+		pipelineCancel()
 		select {
-		case <-embedDone:
+		case <-pipelineDone:
 		case <-ctx.Done():
-			logger.Warn("embedding worker did not stop in time")
-			errs = append(errs, fmt.Errorf("embedding worker: %w", ctx.Err()))
-		}
-	}
-	if procCancel != nil {
-		logger.Info("stopping processing worker")
-		procCancel()
-		select {
-		case <-procDone:
-		case <-ctx.Done():
-			logger.Warn("processing worker did not stop in time")
-			errs = append(errs, fmt.Errorf("processing worker: %w", ctx.Err()))
-		}
-	}
-	if transcriptionCancel != nil {
-		logger.Info("stopping transcription worker")
-		transcriptionCancel()
-		select {
-		case <-transcriptionDone:
-		case <-ctx.Done():
-			logger.Warn("transcription worker did not stop in time")
-			errs = append(errs, fmt.Errorf("transcription worker: %w", ctx.Err()))
+			logger.Warn("pipeline worker did not stop in time")
+			errs = append(errs, fmt.Errorf("pipeline worker: %w", ctx.Err()))
 		}
 	}
 	if a.agentRunner != nil {
@@ -508,11 +470,6 @@ func (a *App) ReloadLLM() error {
 		a.agentService.SetModel(newModel)
 	}
 
-	// Manage embedding worker lifecycle
-	if embedderChanged {
-		a.syncEmbeddingWorker(cfg, newEmbedder)
-	}
-
 	// Reload STT transcriber
 	sttWanted := cfg.STTProvider.Enabled()
 	var newTranscriber stt.Transcriber
@@ -539,7 +496,6 @@ func (a *App) ReloadLLM() error {
 			a.fileService.SetTranscriber(nil)
 		}
 		a.fileService.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
-		a.syncTranscriptionWorker(cfg, newTranscriber)
 	}
 
 	// Update server config
@@ -579,58 +535,17 @@ func (a *App) ReloadLLM() error {
 	return nil
 }
 
-// syncEmbeddingWorker starts or stops the background embedding worker based on
-// whether an embedder is available. Protects worker fields with a.mu.
-func (a *App) syncEmbeddingWorker(cfg config.Config, embedder *llm.Embedder) {
+// startPipelineWorker starts the single background pipeline worker that dispatches
+// all job types (parse, embed, transcribe). Always runs; embedder and transcriber
+// are picked up dynamically via atomic pointers on the file service.
+func (a *App) startPipelineWorker(cfg config.Config) {
 	a.mu.Lock()
 
-	if embedder == nil {
-		// Stop worker if running
-		if a.workerCancel != nil {
-			cancel := a.workerCancel
-			done := a.workerDone
-			a.workerCancel = nil
-			a.mu.Unlock()
-			cancel()
-			<-done
-			slog.Info("stopped embedding worker (embedder removed)")
-			return
-		}
-		a.mu.Unlock()
-		return
-	}
-
-	// Already running — keep it (it picks up the new embedder via getEmbedder)
-	if a.workerCancel != nil {
-		a.mu.Unlock()
-		return
-	}
-
-	// Start new worker
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	a.workerCancel = workerCancel
-	done := make(chan struct{})
-	a.workerDone = done
-	a.mu.Unlock()
-
-	interval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
-	worker := file.NewEmbeddingWorker(a.fileService, interval, cfg.EmbedWorkerBatch, a.bus)
-	go func() {
-		defer close(done)
-		worker.Run(workerCtx)
-	}()
-}
-
-// startProcessingWorker starts the background document processing worker.
-// Stops any existing worker first to prevent orphaned goroutines.
-func (a *App) startProcessingWorker() {
-	a.mu.Lock()
-
-	// Stop existing worker if running
-	if a.processingWorkerCancel != nil {
-		cancel := a.processingWorkerCancel
-		done := a.processingWorkerDone
-		a.processingWorkerCancel = nil
+	// Stop existing worker if running (e.g. called on reload)
+	if a.pipelineWorkerCancel != nil {
+		cancel := a.pipelineWorkerCancel
+		done := a.pipelineWorkerDone
+		a.pipelineWorkerCancel = nil
 		a.mu.Unlock()
 		cancel()
 		<-done
@@ -638,57 +553,19 @@ func (a *App) startProcessingWorker() {
 	}
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
-	a.processingWorkerCancel = workerCancel
+	a.pipelineWorkerCancel = workerCancel
 	done := make(chan struct{})
-	a.processingWorkerDone = done
+	a.pipelineWorkerDone = done
 	a.mu.Unlock()
 
-	worker := file.NewProcessingWorker(a.fileService, a.processingWorkerInterval, a.processingWorkerBatch, a.bus)
+	interval := time.Duration(cfg.PipelineWorkerInterval) * time.Second
+	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch)
+	w.Register("parse", file.ParseHandler(a.fileService, a.bus))
+	w.Register("transcribe", file.TranscribeHandler(a.fileService, a.bus))
+	w.Register("embed", file.EmbedHandler(a.fileService))
 	go func() {
 		defer close(done)
-		worker.Run(workerCtx)
-	}()
-}
-
-// syncTranscriptionWorker starts or stops the background transcription worker based on
-// whether a transcriber is available. Protects worker fields with a.mu.
-func (a *App) syncTranscriptionWorker(cfg config.Config, transcriber stt.Transcriber) {
-	a.mu.Lock()
-
-	if transcriber == nil {
-		// Stop worker if running
-		if a.transcriptionWorkerCancel != nil {
-			cancel := a.transcriptionWorkerCancel
-			done := a.transcriptionWorkerDone
-			a.transcriptionWorkerCancel = nil
-			a.mu.Unlock()
-			cancel()
-			<-done
-			slog.Info("stopped transcription worker (transcriber removed)")
-			return
-		}
-		a.mu.Unlock()
-		return
-	}
-
-	// Already running — keep it (it picks up the new transcriber via getTranscriber)
-	if a.transcriptionWorkerCancel != nil {
-		a.mu.Unlock()
-		return
-	}
-
-	// Start new worker
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	a.transcriptionWorkerCancel = workerCancel
-	done := make(chan struct{})
-	a.transcriptionWorkerDone = done
-	a.mu.Unlock()
-
-	interval := time.Duration(cfg.TranscriptionWorkerInterval) * time.Second
-	worker := file.NewTranscriptionWorker(a.fileService, interval, cfg.TranscriptionWorkerBatch, a.bus)
-	go func() {
-		defer close(done)
-		worker.Run(workerCtx)
+		w.Run(workerCtx)
 	}()
 }
 

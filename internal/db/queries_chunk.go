@@ -28,18 +28,12 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			labels = []string{}
 		}
 
-		var embedAt any = surrealmodels.None
-		if ch.EmbedAt != nil {
-			embedAt = *ch.EmbedAt
-		}
-
 		row := map[string]any{
 			"file":       surrealmodels.RecordID{Table: "file", ID: bareID("file", ch.FileID)},
 			"text":       ch.Text,
 			"position":   ch.Position,
 			"source_loc": optionalString(ch.SourceLoc),
 			"labels":     labels,
-			"embed_at":   embedAt,
 			"mime_type":  ch.MimeType,
 		}
 
@@ -91,6 +85,19 @@ func (c *Client) GetChunks(ctx context.Context, fileID string) ([]models.Chunk, 
 	return allResults(results), nil
 }
 
+// GetUnembeddedChunks returns chunks for a file that have no embedding yet.
+func (c *Client) GetUnembeddedChunks(ctx context.Context, fileID string) ([]models.Chunk, error) {
+	defer c.logOp(ctx, "chunk.get_unembedded", time.Now())
+	sql := `SELECT * FROM chunk WHERE file = type::record("file", $file_id) AND embedding IS NONE ORDER BY position ASC`
+	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
+		"file_id": fileID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get unembedded chunks: %w", err)
+	}
+	return allResults(results), nil
+}
+
 func (c *Client) DeleteChunks(ctx context.Context, fileID string) error {
 	defer c.logOp(ctx, "chunk.delete", time.Now())
 	sql := `DELETE FROM chunk WHERE file = type::record("file", $file_id)`
@@ -125,31 +132,6 @@ func (c *Client) UpdateChunkPosition(ctx context.Context, id string, position in
 		return fmt.Errorf("update chunk position: %w", err)
 	}
 	return nil
-}
-
-// ClaimChunksForEmbedding atomically claims chunks that are due for embedding.
-// It uses a subquery to SELECT candidate chunks (with ORDER/LIMIT), then UPDATEs
-// those specific records — clearing embed_at and returning the BEFORE state so the
-// caller gets the content to embed. This prevents double-processing.
-func (c *Client) ClaimChunksForEmbedding(ctx context.Context, limit int) ([]models.Chunk, error) {
-	defer c.logOp(ctx, "chunk.claim_for_embedding", time.Now())
-	sql := `
-		UPDATE (
-			SELECT id, embed_at FROM chunk
-			WHERE embed_at IS NOT NONE AND embed_at <= time::now()
-			ORDER BY embed_at ASC
-			LIMIT $limit
-		)
-		SET embed_at = NONE
-		RETURN BEFORE
-	`
-	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
-		"limit": limit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("claim chunks for embedding: %w", err)
-	}
-	return allResults(results), nil
 }
 
 // UpdateChunkEmbedding sets the embedding vector on a chunk after the worker embeds it.
@@ -197,17 +179,3 @@ func (c *Client) BatchUpdateChunkEmbeddings(ctx context.Context, updates []Chunk
 	return nil
 }
 
-// RescheduleChunkEmbedding re-schedules a chunk for embedding after a failure.
-// Uses a 30s backoff to avoid tight retry storms during provider outages.
-func (c *Client) RescheduleChunkEmbedding(ctx context.Context, id string) error {
-	defer c.logOp(ctx, "chunk.reschedule_embedding", time.Now())
-	retryAt := time.Now().UTC().Add(30 * time.Second)
-	sql := `UPDATE type::record("chunk", $id) SET embed_at = $embed_at`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id":       id,
-		"embed_at": retryAt,
-	}); err != nil {
-		return fmt.Errorf("reschedule chunk embedding: %w", err)
-	}
-	return nil
-}

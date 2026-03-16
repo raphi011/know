@@ -1,4 +1,4 @@
-package file
+package worker
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func TestWorkerLoop_PanicRecovery(t *testing.T) {
 		if n == 1 {
 			panic("test panic")
 		}
-	}, nil)
+	}, nil).WithRestartDelay(10 * time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -48,8 +48,8 @@ func TestWorkerLoop_PanicRecovery(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for restart + at least one more tick
-	time.Sleep(6 * time.Second)
+	// Wait for restart + at least one more tick after the short recovery delay
+	time.Sleep(200 * time.Millisecond)
 	cancel()
 	<-done
 

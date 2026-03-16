@@ -1,4 +1,5 @@
-package file
+// Package worker provides shared background worker infrastructure.
+package worker
 
 import (
 	"context"
@@ -9,24 +10,32 @@ import (
 	"github.com/raphi011/know/internal/logutil"
 )
 
-// WorkerLoop encapsulates the common run/restart/tick pattern shared by
-// ProcessingWorker and EmbeddingWorker.
+// WorkerLoop encapsulates the common run/restart/tick pattern for background workers.
 type WorkerLoop struct {
-	name     string
-	interval time.Duration
-	tick     func(ctx context.Context)
-	notify   <-chan struct{} // optional event-driven wake-up (nil = poll only)
+	name         string
+	interval     time.Duration
+	restartDelay time.Duration // delay after a panic before restarting (default 5s)
+	tick         func(ctx context.Context)
+	notify       <-chan struct{} // optional event-driven wake-up (nil = poll only)
 }
 
 // NewWorkerLoop creates a worker loop that calls tick on each interval.
 // If notify is non-nil, the loop also wakes on signals from that channel.
 func NewWorkerLoop(name string, interval time.Duration, tick func(ctx context.Context), notify <-chan struct{}) *WorkerLoop {
 	return &WorkerLoop{
-		name:     name,
-		interval: interval,
-		tick:     tick,
-		notify:   notify,
+		name:         name,
+		interval:     interval,
+		restartDelay: 5 * time.Second,
+		tick:         tick,
+		notify:       notify,
 	}
+}
+
+// WithRestartDelay sets the delay after a panic before the loop restarts.
+// Useful in tests to avoid waiting 5 seconds.
+func (w *WorkerLoop) WithRestartDelay(d time.Duration) *WorkerLoop {
+	w.restartDelay = d
+	return w
 }
 
 // Run starts the worker loop. It blocks until ctx is cancelled.
@@ -43,7 +52,7 @@ func (w *WorkerLoop) Run(ctx context.Context) {
 		case <-ctx.Done():
 			logutil.FromCtx(ctx).Info(w.name + " stopped")
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(w.restartDelay):
 			logutil.FromCtx(ctx).Info(w.name + " restarting after panic")
 		}
 	}
@@ -77,7 +86,7 @@ func (w *WorkerLoop) runLoop(ctx context.Context) (stopped bool) {
 	}
 }
 
-// eventNotify subscribes globally to the bus and returns a coalescing notification
+// EventNotify subscribes globally to the bus and returns a coalescing notification
 // channel plus an unsubscribe function. The channel receives a signal whenever an
 // event matching one of the given types is published on any vault.
 // If bus is nil, returns (nil, no-op) — the worker falls back to polling only.
@@ -86,7 +95,7 @@ func (w *WorkerLoop) runLoop(ctx context.Context) (stopped bool) {
 //
 // Must be called from Run (not from a constructor) to avoid goroutine leaks if
 // the worker is constructed but never started.
-func eventNotify(bus *event.Bus, eventTypes ...string) (<-chan struct{}, func()) {
+func EventNotify(bus *event.Bus, eventTypes ...string) (<-chan struct{}, func()) {
 	if bus == nil {
 		return nil, func() {}
 	}

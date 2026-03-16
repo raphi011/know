@@ -180,8 +180,8 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 
 	// 9-statement batch query — one round-trip
 	sql := `
-		-- 0: document count + unprocessed
-		SELECT count() AS total, math::sum(IF processed = false THEN 1 ELSE 0 END) AS unprocessed
+		-- 0: document count + pending pipeline jobs
+		SELECT count() AS total, (SELECT count() FROM pipeline_job WHERE file.vault = type::record("vault", $vid) AND status IN ['pending', 'running'] GROUP ALL)[0].count ?? 0 AS unprocessed
 			FROM file WHERE vault = type::record("vault", $vid) AND is_folder = false GROUP ALL;
 
 		-- 1: chunk stats (join through file)

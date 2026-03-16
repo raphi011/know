@@ -23,8 +23,6 @@ type File struct {
 	DocType        *string                `json:"doc_type,omitempty"`
 	Metadata       map[string]any         `json:"metadata,omitempty"`
 	Size           int                    `json:"size"`
-	Processed      bool                   `json:"processed"`
-	TranscribeAt   *time.Time             `json:"transcribe_at,omitempty"`
 	LastAccessedAt *time.Time             `json:"last_accessed_at,omitempty"`
 	AccessCount    int                    `json:"access_count"`
 	CreatedAt      time.Time              `json:"created_at"`

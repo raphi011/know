@@ -56,8 +56,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS content_hash   ON file TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata       ON file TYPE option<object> FLEXIBLE;
     DEFINE FIELD IF NOT EXISTS size           ON file TYPE int DEFAULT 0;
-    DEFINE FIELD IF NOT EXISTS processed      ON file TYPE bool DEFAULT false;
-    DEFINE FIELD IF NOT EXISTS transcribe_at  ON file TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS last_accessed_at ON file TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS access_count   ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();
@@ -146,11 +144,9 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS source_loc ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS labels     ON chunk TYPE array<string> DEFAULT [];
     DEFINE FIELD IF NOT EXISTS embedding  ON chunk TYPE option<array<float>>;
-    DEFINE FIELD IF NOT EXISTS embed_at   ON chunk TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS created_at ON chunk TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_chunk_file      ON chunk FIELDS file;
-    DEFINE INDEX IF NOT EXISTS idx_chunk_embed_at   ON chunk FIELDS embed_at;
     DEFINE INDEX IF NOT EXISTS idx_chunk_text_ft    ON chunk FIELDS text FULLTEXT ANALYZER know_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding  ON chunk FIELDS embedding
         HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12 HASHED_VECTOR;
@@ -395,5 +391,24 @@ func SchemaSQL(dimension int) string {
 
     DEFINE FIELD IF NOT EXISTS data       ON agent_checkpoint TYPE bytes;
     DEFINE FIELD IF NOT EXISTS updated_at ON agent_checkpoint TYPE datetime VALUE time::now();
+
+    -- ==========================================================================
+    -- PIPELINE_JOB TABLE (unified job queue for parse/chunk/embed/transcribe)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS pipeline_job SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS file         ON pipeline_job TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS type         ON pipeline_job TYPE string;
+    DEFINE FIELD IF NOT EXISTS status       ON pipeline_job TYPE string DEFAULT "pending";
+    DEFINE FIELD IF NOT EXISTS priority     ON pipeline_job TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS attempt      ON pipeline_job TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS max_attempts ON pipeline_job TYPE int DEFAULT 5;
+    DEFINE FIELD IF NOT EXISTS run_after    ON pipeline_job TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS error        ON pipeline_job TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS created_at   ON pipeline_job TYPE datetime DEFAULT time::now();
+    DEFINE FIELD IF NOT EXISTS updated_at   ON pipeline_job TYPE datetime VALUE time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_job_pending ON pipeline_job
+        FIELDS status, run_after, priority, created_at;
 `, dimension)
 }

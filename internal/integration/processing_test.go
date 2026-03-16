@@ -73,10 +73,6 @@ func TestCreate_DefersChunksAndWikiLinks(t *testing.T) {
 		t.Errorf("expected 0 wiki-links before ProcessAllPending, got %d", len(links))
 	}
 
-	if doc.Processed {
-		t.Error("expected processed=false after Create")
-	}
-
 	if err := fileSvc.ProcessAllPending(ctx); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
@@ -97,13 +93,6 @@ func TestCreate_DefersChunksAndWikiLinks(t *testing.T) {
 		t.Error("expected wiki-links after ProcessAllPending, got 0")
 	}
 
-	updated, err := testDB.GetFileByID(ctx, docID)
-	if err != nil {
-		t.Fatalf("get doc: %v", err)
-	}
-	if !updated.Processed {
-		t.Error("expected processed=true after ProcessAllPending")
-	}
 }
 
 func TestProcessAllPending_EmptyIsNoOp(t *testing.T) {
@@ -151,49 +140,6 @@ func TestProcessAllPending_ProcessesMultipleFiles(t *testing.T) {
 	}
 }
 
-func TestUpdate_ResetsProcessedFlag(t *testing.T) {
-	ctx := context.Background()
-	vaultID, fileSvc := setupProcessingTest(t, ctx)
-
-	doc, err := fileSvc.Create(ctx, models.FileInput{
-		VaultID: vaultID,
-		Path:    "/reset-test.md",
-		Content: "# Original\n\nOriginal content.",
-	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	docID := models.MustRecordIDString(doc.ID)
-
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
-		t.Fatalf("process pending: %v", err)
-	}
-
-	processed, err := testDB.GetFileByID(ctx, docID)
-	if err != nil {
-		t.Fatalf("get doc: %v", err)
-	}
-	if !processed.Processed {
-		t.Fatal("expected processed=true after ProcessAllPending")
-	}
-
-	_, err = fileSvc.Create(ctx, models.FileInput{
-		VaultID: vaultID,
-		Path:    "/reset-test.md",
-		Content: "# Updated\n\nNew content after update.",
-	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-
-	updated, err := testDB.GetFileByID(ctx, docID)
-	if err != nil {
-		t.Fatalf("get doc after update: %v", err)
-	}
-	if updated.Processed {
-		t.Error("expected processed=false after content update")
-	}
-}
 
 func TestProcessDocument_Idempotent(t *testing.T) {
 	ctx := context.Background()

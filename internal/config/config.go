@@ -51,10 +51,8 @@ type Config struct {
 	AudioSegmentSeconds int // max audio segment duration in seconds (default: 60, max 80 for Gemini)
 
 	// Speech-to-text configuration
-	STTProvider                 LLMProvider // KNOW_STT_PROVIDER (default: "none")
-	STTModel                    string      // KNOW_STT_MODEL (default: "gpt-4o-transcribe")
-	TranscriptionWorkerInterval int         // KNOW_TRANSCRIPTION_WORKER_INTERVAL (default: 5)
-	TranscriptionWorkerBatch    int         // KNOW_TRANSCRIPTION_WORKER_BATCH (default: 5)
+	STTProvider LLMProvider // KNOW_STT_PROVIDER (default: "none")
+	STTModel    string      // KNOW_STT_MODEL (default: "gpt-4o-transcribe")
 
 	// LLM configuration (for ask, extract-graph, render)
 	LLMProvider      LLMProvider
@@ -86,13 +84,9 @@ type Config struct {
 	NFSEnabled bool   // KNOW_NFS_ENABLED (default: false)
 	NFSPort    string // KNOW_NFS_PORT (default: "2049")
 
-	// Embedding worker settings
-	EmbedWorkerInterval int // seconds between worker ticks (default: 5)
-	EmbedWorkerBatch    int // max chunks per tick (default: 10)
-
-	// Processing worker settings
-	ProcessingWorkerInterval int // seconds between processing ticks (default: 2)
-	ProcessingWorkerBatch    int // max documents per tick (default: 20)
+	// Pipeline worker settings
+	PipelineWorkerInterval int // seconds between worker ticks (KNOW_PIPELINE_WORKER_INTERVAL, default: 5)
+	PipelineWorkerBatch    int // max jobs per tick (KNOW_PIPELINE_WORKER_BATCH, default: 10)
 
 	// Chunking settings
 	ChunkThreshold  int // only chunk if content exceeds this length (default: 6000)
@@ -206,10 +200,8 @@ func Load() Config {
 		AudioSegmentSeconds: getEnvInt("KNOW_AUDIO_SEGMENT_SECONDS", 60),
 
 		// Speech-to-text
-		STTProvider:                 LLMProvider(getEnv("KNOW_STT_PROVIDER", "none")),
-		STTModel:                    getEnv("KNOW_STT_MODEL", "gpt-4o-transcribe"),
-		TranscriptionWorkerInterval: getEnvInt("KNOW_TRANSCRIPTION_WORKER_INTERVAL", 5),
-		TranscriptionWorkerBatch:    getEnvInt("KNOW_TRANSCRIPTION_WORKER_BATCH", 5),
+		STTProvider: LLMProvider(getEnv("KNOW_STT_PROVIDER", "none")),
+		STTModel:    getEnv("KNOW_STT_MODEL", "gpt-4o-transcribe"),
 
 		// LLM (default to Anthropic)
 		LLMProvider:      LLMProvider(getEnv("KNOW_LLM_PROVIDER", "anthropic")),
@@ -237,13 +229,9 @@ func Load() Config {
 		NFSEnabled:        getEnvBool("KNOW_NFS_ENABLED", false),
 		NFSPort:           getEnv("KNOW_NFS_PORT", "2049"),
 
-		// Embedding worker
-		EmbedWorkerInterval: getEnvInt("KNOW_EMBED_WORKER_INTERVAL", 5),
-		EmbedWorkerBatch:    getEnvInt("KNOW_EMBED_WORKER_BATCH", 10),
-
-		// Processing worker
-		ProcessingWorkerInterval: getEnvInt("KNOW_PROCESSING_WORKER_INTERVAL", 2),
-		ProcessingWorkerBatch:    getEnvInt("KNOW_PROCESSING_WORKER_BATCH", 20),
+		// Pipeline worker
+		PipelineWorkerInterval: getEnvInt("KNOW_PIPELINE_WORKER_INTERVAL", 5),
+		PipelineWorkerBatch:    getEnvInt("KNOW_PIPELINE_WORKER_BATCH", 10),
 
 		// Chunking
 		ChunkThreshold:  getEnvInt("KNOW_CHUNK_THRESHOLD", 6000),
