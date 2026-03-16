@@ -60,11 +60,13 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS access_count   ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS updated_at     ON file TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS stem           ON file TYPE string DEFAULT "";
 
     DEFINE INDEX IF NOT EXISTS idx_file_vault_path    ON file FIELDS vault, path UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_file_labels        ON file FIELDS labels;
     DEFINE INDEX IF NOT EXISTS idx_file_vault_doctype ON file FIELDS vault, doc_type;
     DEFINE INDEX IF NOT EXISTS idx_file_vault_folder  ON file FIELDS vault, is_folder;
+    DEFINE INDEX IF NOT EXISTS idx_file_vault_stem    ON file FIELDS vault, stem;
 
     -- Cascade delete chunks, versions, wiki_links, relations, tasks, labels
     -- when a non-folder file is deleted.
