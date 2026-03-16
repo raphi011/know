@@ -184,7 +184,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		RetentionCount:  cfg.VersionRetentionCount,
 	}
 	bus := event.New()
-	fileSvc := file.NewService(dbClient, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
+	fileSvc := file.NewService(dbClient, blobStore, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
 	fileSvc.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
 
 	// STT transcriber is optional — nil disables transcription

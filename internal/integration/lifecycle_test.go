@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/models"
@@ -133,7 +134,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// --- Files with wiki-links ---
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0) // no embedder
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0) // no embedder
 
 	doc1, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -384,7 +385,7 @@ func TestDeleteByPrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	for _, path := range []string{"/test-prefix/a.md", "/test-prefix/b.md", "/other/c.md"} {
 		_, err := fileSvc.Create(ctx, models.FileInput{
@@ -446,7 +447,7 @@ func TestMoveByPrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	for _, path := range []string{"/old-folder/a.md", "/old-folder/b.md"} {
 		_, err := fileSvc.Create(ctx, models.FileInput{
@@ -510,7 +511,7 @@ func TestDeleteByPrefix_BoundaryCollision(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	paths := []string{
 		"/test-prefix/a.md",
@@ -580,7 +581,7 @@ func TestMoveByPrefix_NestedSubfolders(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	paths := []string{"/old-folder/a.md", "/old-folder/sub/b.md", "/old-folder/sub/deep/c.md"}
 	for _, path := range paths {
@@ -635,7 +636,7 @@ func TestMoveByPrefix_BoundaryCollision(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	for _, path := range []string{"/guides/a.md", "/guides-extra/b.md"} {
 		_, err := fileSvc.Create(ctx, models.FileInput{
@@ -694,7 +695,7 @@ func TestMoveByPrefix_SamePrefix(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -744,7 +745,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	docB, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/target.md",
@@ -830,7 +831,7 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/old/target.md",
@@ -894,7 +895,7 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/old-dir/a.md",
@@ -961,7 +962,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	_, err = fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/target-a.md",
@@ -1062,7 +1063,7 @@ func TestLabelGraph(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	doc1, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/labeled-1.md",
@@ -1179,7 +1180,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	doc, err := fileSvc.Create(ctx, models.FileInput{
 		VaultID: vaultID,
@@ -1291,7 +1292,7 @@ func TestSyncChunks_PartialUpdate(t *testing.T) {
 	}
 	vaultID := models.MustRecordIDString(v.ID)
 
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	longContent := "# Section A\n\nContent of section A that is preserved across updates.\n\n# Section B\n\nContent of section B that will change."
 

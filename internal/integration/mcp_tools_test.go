@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/search"
@@ -21,7 +22,7 @@ func setupExecutor(t *testing.T, suffix string) (*tools.Executor, string) {
 	vaultID, _ := setupVault(t, ctx, "exec-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 
 	searchSvc := search.NewService(testDB, nil)
-	docSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	docSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	return &tools.Executor{
 		DB:      testDB,

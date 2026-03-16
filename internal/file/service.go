@@ -1,7 +1,10 @@
 package file
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -12,6 +15,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/llm"
@@ -31,6 +35,7 @@ type VersionConfig struct {
 // Service manages file lifecycle: parse → extract → store → link → embed.
 type Service struct {
 	db                  *db.Client
+	blobStore           blob.Store
 	embedder            atomic.Pointer[llm.Embedder]    // optional — nil disables embedding
 	transcriber         atomic.Pointer[stt.Transcriber] // optional — nil disables transcription
 	resolver            *LinkResolver
@@ -74,9 +79,12 @@ func (s *Service) SetAudioSegmentSeconds(seconds int) {
 	s.audioSegmentSeconds = seconds
 }
 
+// BlobStore returns the blob store used by this service.
+func (s *Service) BlobStore() blob.Store { return s.blobStore }
+
 // NewService creates a new file service.
 // embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
-func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
+func NewService(db *db.Client, blobStore blob.Store, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
 	if versionConfig.RetentionCount < 1 {
 		slog.Warn("version retention count too low, clamping to 1", "configured", versionConfig.RetentionCount)
 		versionConfig.RetentionCount = 1
@@ -87,6 +95,7 @@ func NewService(db *db.Client, embedder *llm.Embedder, chunkConfig parser.ChunkC
 	}
 	s := &Service{
 		db:                  db,
+		blobStore:           blobStore,
 		resolver:            NewLinkResolver(db),
 		chunkConfig:         chunkConfig,
 		versionConfig:       versionConfig,
@@ -220,6 +229,16 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 	// Compute content_hash
 	contentHash := models.ContentHash(input.Content)
 
+	// For binary files, compute content_hash from Data (not Content) and store in blob
+	if len(input.Data) > 0 {
+		h := sha256.Sum256(input.Data)
+		binaryHash := hex.EncodeToString(h[:])
+		contentHash = binaryHash // override text hash with binary hash
+		if err := s.blobStore.Put(ctx, binaryHash, bytes.NewReader(input.Data), int64(len(input.Data))); err != nil {
+			return nil, fmt.Errorf("store blob: %w", err)
+		}
+	}
+
 	// Normalize path
 	path := models.NormalizePath(input.Path)
 
@@ -300,7 +319,7 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	}
 
 	// Skip markdown-specific processing for binary files
-	isBinary := len(doc.Data) > 0
+	isBinary := !models.IsTextFile(doc.Path) && doc.Size > 0
 
 	if !isBinary {
 		parsed := parser.ParseMarkdown(doc.Content)

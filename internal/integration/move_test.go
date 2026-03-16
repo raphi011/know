@@ -38,7 +38,7 @@ func setupMoveServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	ctx := context.Background()
 
 	vaultID, vaultSvc := setupVault(t, ctx, "move-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
-	fileSvc := file.NewService(testDB, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
 	app := server.NewForTest(testDB, blob.NewFS(t.TempDir()), fileSvc, vaultSvc)
 	apiSrv := api.NewServer(app)
