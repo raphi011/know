@@ -94,6 +94,32 @@ spec:
             - name: KNOW_EMBED_DIMENSION
               value: {{ .Values.embedding.dimension | quote }}
             {{- end }}
+            # Speech-to-text
+            {{- if .Values.stt.provider }}
+            - name: KNOW_STT_PROVIDER
+              value: {{ .Values.stt.provider | quote }}
+            {{- end }}
+            {{- if .Values.stt.model }}
+            - name: KNOW_STT_MODEL
+              value: {{ .Values.stt.model | quote }}
+            {{- end }}
+            {{- if .Values.stt.baseUrl }}
+            - name: KNOW_STT_BASE_URL
+              value: {{ .Values.stt.baseUrl | quote }}
+            {{- end }}
+            {{- if .Values.stt.audioSegmentSeconds }}
+            - name: KNOW_AUDIO_SEGMENT_SECONDS
+              value: {{ .Values.stt.audioSegmentSeconds | quote }}
+            {{- end }}
+            # Multimodal embedding
+            {{- if .Values.multimodalEmbedding.provider }}
+            - name: KNOW_MULTIMODAL_EMBED_PROVIDER
+              value: {{ .Values.multimodalEmbedding.provider | quote }}
+            {{- end }}
+            {{- if .Values.multimodalEmbedding.model }}
+            - name: KNOW_MULTIMODAL_EMBED_MODEL
+              value: {{ .Values.multimodalEmbedding.model | quote }}
+            {{- end }}
             # Ollama
             {{- if .Values.ollama.host }}
             - name: OLLAMA_HOST

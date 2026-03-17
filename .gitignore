@@ -38,6 +38,9 @@ bedrock-setup.fish
 .DS_Store
 Thumbs.db
 
+# Temporary assets
+tmp-assets/
+
 # Whisper models (downloaded via `just whisper-pull`)
 /models/
 
