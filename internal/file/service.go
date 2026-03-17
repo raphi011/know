@@ -39,6 +39,7 @@ type Service struct {
 	blobStore           blob.Store
 	embedder            atomic.Pointer[llm.Embedder]    // optional — nil disables embedding
 	transcriber         atomic.Pointer[stt.Transcriber] // optional — nil disables transcription
+	model               atomic.Pointer[llm.Model]       // optional — nil disables LLM summarization
 	resolver            *LinkResolver
 	chunkConfig         parser.ChunkConfig
 	versionConfig       VersionConfig
@@ -70,6 +71,15 @@ func (s *Service) SetTranscriber(t *stt.Transcriber) {
 
 func (s *Service) getTranscriber() *stt.Transcriber {
 	return s.transcriber.Load()
+}
+
+// SetModel atomically replaces the LLM model (used by SIGHUP reload).
+func (s *Service) SetModel(m *llm.Model) {
+	s.model.Store(m)
+}
+
+func (s *Service) getModel() *llm.Model {
+	return s.model.Load()
 }
 
 // SetAudioSegmentSeconds updates the audio segment duration from config.

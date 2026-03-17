@@ -66,8 +66,7 @@ func TestTranscribe_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tr := NewOpenAI("test-key", "")
-	tr.baseURL = server.URL
+	tr := NewOpenAI("test-key", "", server.URL)
 
 	result, err := tr.Transcribe(context.Background(), []byte("fake-audio"), "audio/mpeg")
 	if err != nil {
@@ -95,8 +94,7 @@ func TestTranscribe_ErrorResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tr := NewOpenAI("test-key", "")
-	tr.baseURL = server.URL
+	tr := NewOpenAI("test-key", "", server.URL)
 
 	_, err := tr.Transcribe(context.Background(), []byte("bad"), "audio/mpeg")
 	if err == nil {

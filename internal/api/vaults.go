@@ -191,6 +191,20 @@ func (s *Server) updateVaultSettings(w http.ResponseWriter, r *http.Request) {
 
 	merged := v.Defaults().Merge(*patch)
 
+	// Validate transcript_template points to an existing file
+	if path := patch.TranscriptTemplate; path != "" && path != "-" {
+		f, err := s.app.DBClient().GetFileByPath(r.Context(), vaultID, path)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to validate transcript_template")
+			logutil.FromCtx(r.Context()).Error("validate transcript_template", "path", path, "error", err)
+			return
+		}
+		if f == nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("transcript_template: file not found at %s", path))
+			return
+		}
+	}
+
 	updated, err := s.app.DBClient().UpdateVaultSettings(r.Context(), vaultID, merged)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update settings")

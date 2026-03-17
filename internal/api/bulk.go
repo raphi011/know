@@ -109,9 +109,7 @@ func (s *Server) processBulkPart(r *http.Request, part *multipart.Part, meta bul
 		return bulkFileResult{Path: path, Status: "error", Error: fmt.Sprintf("read file: %v", err)}
 	}
 
-	isImage := models.IsImageFile(path)
-
-	if isImage {
+	if models.IsImageFile(path) || models.IsAudioFile(path) {
 		return s.processBulkAsset(r, path, data, meta)
 	}
 	return s.processBulkDocument(r, path, string(data), meta)

@@ -169,4 +169,17 @@ func TestVaultSettingsMerge(t *testing.T) {
 			t.Errorf("TemplatePath = %q, want /templates", got.TemplatePath)
 		}
 	})
+
+	t.Run("transcript_template set and cleared", func(t *testing.T) {
+		// Set
+		got := base.Merge(VaultSettings{TranscriptTemplate: "/templates/meeting.md"})
+		if got.TranscriptTemplate != "/templates/meeting.md" {
+			t.Errorf("TranscriptTemplate = %q, want /templates/meeting.md", got.TranscriptTemplate)
+		}
+		// Clear with sentinel
+		got = got.Merge(VaultSettings{TranscriptTemplate: "-"})
+		if got.TranscriptTemplate != "" {
+			t.Errorf("TranscriptTemplate after clear = %q, want empty", got.TranscriptTemplate)
+		}
+	})
 }

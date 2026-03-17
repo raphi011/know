@@ -185,7 +185,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// STT transcriber is optional — nil disables transcription
 	var transcriber stt.Transcriber
 	if cfg.STTProvider.Enabled() {
-		t, err := stt.NewTranscriber(string(cfg.STTProvider), cfg.STTModel, cfg.OpenAIAPIKey)
+		t, err := stt.NewTranscriber(string(cfg.STTProvider), cfg.STTModel, cfg.OpenAIAPIKey, cfg.STTBaseURL)
 		if err != nil {
 			slog.Warn("STT transcriber initialization failed, transcription disabled", "error", err)
 		} else {
@@ -194,6 +194,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	if transcriber != nil {
 		fileSvc.SetTranscriber(&transcriber)
+	}
+	if model != nil {
+		fileSvc.SetModel(model)
 	}
 
 	// pipelineWorkerDone defaults to a closed channel so <-pipelineWorkerDone is a no-op in Close
@@ -468,6 +471,7 @@ func (a *App) ReloadLLM() error {
 	}
 	if modelChanged {
 		a.agentService.SetModel(newModel)
+		a.fileService.SetModel(newModel)
 	}
 
 	// Reload STT transcriber
@@ -476,7 +480,7 @@ func (a *App) ReloadLLM() error {
 	transcriberChanged := false
 
 	if sttWanted {
-		t, err := stt.NewTranscriber(string(cfg.STTProvider), cfg.STTModel, cfg.OpenAIAPIKey)
+		t, err := stt.NewTranscriber(string(cfg.STTProvider), cfg.STTModel, cfg.OpenAIAPIKey, cfg.STTBaseURL)
 		if err != nil {
 			slog.Error("STT transcriber reload failed, keeping existing", "error", err)
 			errs = append(errs, fmt.Sprintf("transcriber: %v", err))
@@ -562,6 +566,7 @@ func (a *App) startPipelineWorker(cfg config.Config) {
 	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch)
 	w.Register("parse", file.ParseHandler(a.fileService, a.bus))
 	w.Register("transcribe", file.TranscribeHandler(a.fileService, a.bus))
+	w.Register("summarize", file.SummarizeHandler(a.fileService, a.bus))
 	w.Register("embed", file.EmbedHandler(a.fileService))
 	go func() {
 		defer close(done)

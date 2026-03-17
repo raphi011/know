@@ -43,8 +43,8 @@ know db seed
 # 3. Start the server
 know serve
 
-# 4. Copy documents into a vault
-know cp ./docs / --vault default
+# 4. Import documents into a vault
+know import ./docs / --vault default -y
 
 # 5. Launch the agent chat TUI
 know agent

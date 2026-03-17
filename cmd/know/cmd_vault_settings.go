@@ -35,6 +35,7 @@ Valid keys:
   memory_decay_half_life   days until memory score halves (default: 30)
   template_path            folder for templates (default: /templates)
   daily_note_path          folder for daily notes (default: /daily)
+  transcript_template      template path for LLM transcript summarization (empty = disabled, set to "-" to clear)
 
 Environment variables:
   KNOW_VAULT    vault name (alternative to --vault flag)`,
@@ -94,6 +95,8 @@ func parseSettingsPatch(pairs []string) (models.VaultSettings, error) {
 			s.TemplatePath = value
 		case "daily_note_path":
 			s.DailyNotePath = value
+		case "transcript_template":
+			s.TranscriptTemplate = value
 		case "memory_merge_threshold":
 			v, err := strconv.ParseFloat(value, 64)
 			if err != nil {
@@ -135,5 +138,6 @@ func printSettings(s *models.VaultSettings) error {
 	fmt.Printf("%-25s %d\n", "memory_decay_half_life:", s.MemoryDecayHalfLife)
 	fmt.Printf("%-25s %s\n", "template_path:", s.TemplatePath)
 	fmt.Printf("%-25s %s\n", "daily_note_path:", s.DailyNotePath)
+	fmt.Printf("%-25s %s\n", "transcript_template:", s.TranscriptTemplate)
 	return nil
 }

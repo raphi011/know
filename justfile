@@ -19,6 +19,11 @@ export KNOW_EMBED_MODEL := env_var_or_default("KNOW_EMBED_MODEL", "mxbai-embed-l
 export KNOW_EMBED_DIMENSION := env_var_or_default("KNOW_EMBED_DIMENSION", "1024")
 export OLLAMA_HOST := env_var_or_default("OLLAMA_HOST", "http://localhost:11434")
 
+# Local Whisper STT (requires: brew install whisper-cpp)
+export KNOW_STT_PROVIDER := env_var_or_default("KNOW_STT_PROVIDER", "openai")
+export KNOW_STT_BASE_URL := env_var_or_default("KNOW_STT_BASE_URL", "http://localhost:8090")
+export KNOW_STT_MODEL := env_var_or_default("KNOW_STT_MODEL", "whisper-1")
+
 # Chunk sizes tuned for mxbai-embed-large (512 token context ≈ 2048 chars)
 export KNOW_CHUNK_THRESHOLD := env_var_or_default("KNOW_CHUNK_THRESHOLD", "1200")
 export KNOW_CHUNK_TARGET_SIZE := env_var_or_default("KNOW_CHUNK_TARGET_SIZE", "1000")
@@ -28,6 +33,7 @@ export KNOW_CHUNK_MAX_SIZE := env_var_or_default("KNOW_CHUNK_MAX_SIZE", "1500")
 export KNOW_SERVER_PORT := "4001"
 export KNOW_SERVER_URL := "http://localhost:4001"
 export KNOW_DAV_DEBUG_LOG := env_var_or_default("KNOW_DAV_DEBUG_LOG", "/tmp/dav-debug.log")
+export KNOW_BLOB_DIR := "./tmp-assets"
 
 # Bootstrap / CLI defaults (hardcoded to local dev — ignore shell env)
 export KNOW_BOOTSTRAP_TOKEN := "kh_0000000000000000000000000000000000000000000000000000000000000000"
@@ -117,6 +123,35 @@ ollama-pull-llm model="qwen2.5:1.5b":
     @echo "To use it, create .env with:"
     @echo "  KNOW_LLM_PROVIDER=ollama"
     @echo "  KNOW_LLM_MODEL={{model}}"
+
+# --- Whisper (local STT) ---
+
+# Whisper model directory
+whisper_model_dir := "./models"
+whisper_model := env_var_or_default("WHISPER_MODEL", "ggml-small.en.bin")
+whisper_port := "8090"
+
+# Download Whisper model from Hugging Face
+whisper-pull model=whisper_model:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{whisper_model_dir}}"
+    if [ -f "{{whisper_model_dir}}/{{model}}" ]; then
+        echo "Model already exists: {{whisper_model_dir}}/{{model}}"
+        exit 0
+    fi
+    curl -L --progress-bar -o "{{whisper_model_dir}}/{{model}}" \
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{{model}}"
+    echo "Downloaded {{model}} to {{whisper_model_dir}}/"
+
+# Start local whisper.cpp server (requires: brew install whisper-cpp)
+# --inference-path overrides the default /inference to match the OpenAI API path
+whisper-server model=whisper_model: (whisper-pull model)
+    whisper-server \
+        --model "{{whisper_model_dir}}/{{model}}" \
+        --port {{whisper_port}} \
+        --host 0.0.0.0 \
+        --inference-path /audio/transcriptions
 
 # --- iOS ---
 
