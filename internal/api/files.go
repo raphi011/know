@@ -39,7 +39,12 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileID, _ := models.RecordIDString(doc.ID)
+	fileID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		logger.Warn("failed to extract file ID for wiki links", "error", err)
+		writeJSON(w, http.StatusOK, documentFromModel(doc))
+		return
+	}
 	wikiLinks, err := s.app.DBClient().GetWikiLinksWithTargetInfo(ctx, fileID)
 	if err != nil {
 		logger.Warn("failed to get wiki links", "error", err)

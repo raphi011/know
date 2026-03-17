@@ -1631,3 +1631,294 @@ func TestWikiLinkMoveRecomputeTarget(t *testing.T) {
 		t.Fatalf("cleanup vault: %v", err)
 	}
 }
+
+// TestWikiLinkPathSuffixDisambiguation verifies that [[a/notes]] resolves correctly
+// when the stem "notes" is ambiguous but the path suffix disambiguates.
+func TestWikiLinkPathSuffixDisambiguation(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "suffix-disambig-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "suffix-disambig-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create two files with same stem "notes"
+	targetA, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/a/notes.md",
+		Content: "# Notes A",
+	})
+	if err != nil {
+		t.Fatalf("create /a/notes.md: %v", err)
+	}
+	targetAID := models.MustRecordIDString(targetA.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	_, err = fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/b/notes.md",
+		Content: "# Notes B",
+	})
+	if err != nil {
+		t.Fatalf("create /b/notes.md: %v", err)
+	}
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Create source with path-qualified link [[a/notes]] — should resolve despite ambiguous stem
+	source, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/source.md",
+		Content: "# Source\n\nSee [[a/notes]].",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceID := models.MustRecordIDString(source.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending source: %v", err)
+	}
+
+	links, err := testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 wiki-link, got %d", len(links))
+	}
+	if links[0].ToFile == nil {
+		t.Fatal("path-qualified wiki-link should resolve despite ambiguous stem")
+	}
+	toID, err := models.RecordIDString(*links[0].ToFile)
+	if err != nil {
+		t.Fatalf("extract toFile ID: %v", err)
+	}
+	if toID != targetAID {
+		t.Errorf("resolved to %q, want %q", toID, targetAID)
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestWikiLinkSQLNormalization verifies that the DB-side SQL normalization resolves
+// links with spaces, underscores, .md extensions, and mixed case to the correct stem.
+func TestWikiLinkSQLNormalization(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "sql-norm-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "sql-norm-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Create source with various link forms that should all resolve to "beta-notes"
+	source, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/source.md",
+		Content: "# Source\n\nSee [[Beta Notes]] and [[beta_notes.md]] and [[BETA-NOTES]].",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceID := models.MustRecordIDString(source.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending source: %v", err)
+	}
+
+	// All links should be dangling (target doesn't exist yet)
+	links, err := testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links: %v", err)
+	}
+	if len(links) != 3 {
+		t.Fatalf("expected 3 wiki-links, got %d", len(links))
+	}
+	for _, l := range links {
+		if l.ToFile != nil {
+			t.Errorf("link %q should be dangling before target exists", l.RawTarget)
+		}
+	}
+
+	// Now create the target file — should resolve all dangling links via SQL normalization
+	target, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/beta-notes.md",
+		Content: "# Beta Notes",
+	})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	targetID := models.MustRecordIDString(target.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending target: %v", err)
+	}
+
+	// All three links should now be resolved
+	links, err = testDB.GetWikiLinks(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get wiki-links after target creation: %v", err)
+	}
+	if len(links) != 3 {
+		t.Fatalf("expected 3 wiki-links, got %d", len(links))
+	}
+	for _, l := range links {
+		if l.ToFile == nil {
+			t.Errorf("link %q should be resolved after target creation", l.RawTarget)
+			continue
+		}
+		toID, err := models.RecordIDString(*l.ToFile)
+		if err != nil {
+			t.Errorf("extract toFile ID for %q: %v", l.RawTarget, err)
+			continue
+		}
+		if toID != targetID {
+			t.Errorf("link %q resolved to %q, want %q", l.RawTarget, toID, targetID)
+		}
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}
+
+// TestWikiLinkStemOnlyVsPathQualifiedDuringAmbiguity verifies that when a stem
+// becomes ambiguous, stem-only links ([[notes]]) become dangling but path-qualified
+// links ([[a/notes]]) remain resolved.
+func TestWikiLinkStemOnlyVsPathQualifiedDuringAmbiguity(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "qualified-vs-stem-user-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultSvc := vault.NewService(testDB)
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "qualified-vs-stem-" + fmt.Sprint(time.Now().UnixNano())})
+	if err != nil {
+		t.Fatalf("create vault: %v", err)
+	}
+	vaultID := models.MustRecordIDString(v.ID)
+
+	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
+
+	// Step 1: Create /a/notes.md (unique stem)
+	_, err = fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/a/notes.md",
+		Content: "# Notes A",
+	})
+	if err != nil {
+		t.Fatalf("create /a/notes.md: %v", err)
+	}
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	// Step 2: Create sources — one with stem-only [[notes]], one with path-qualified [[a/notes]]
+	stemSource, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/stem-source.md",
+		Content: "# Stem Source\n\nSee [[notes]].",
+	})
+	if err != nil {
+		t.Fatalf("create stem-source: %v", err)
+	}
+	stemSourceID := models.MustRecordIDString(stemSource.ID)
+
+	qualifiedSource, err := fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/qualified-source.md",
+		Content: "# Qualified Source\n\nSee [[a/notes]].",
+	})
+	if err != nil {
+		t.Fatalf("create qualified-source: %v", err)
+	}
+	qualifiedSourceID := models.MustRecordIDString(qualifiedSource.ID)
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending sources: %v", err)
+	}
+
+	// Both should be resolved when stem is unique
+	stemLinks, err := testDB.GetWikiLinks(ctx, stemSourceID)
+	if err != nil {
+		t.Fatalf("get stem links: %v", err)
+	}
+	if len(stemLinks) != 1 || stemLinks[0].ToFile == nil {
+		t.Fatal("stem-only link should be resolved when stem is unique")
+	}
+
+	qualifiedLinks, err := testDB.GetWikiLinks(ctx, qualifiedSourceID)
+	if err != nil {
+		t.Fatalf("get qualified links: %v", err)
+	}
+	if len(qualifiedLinks) != 1 || qualifiedLinks[0].ToFile == nil {
+		t.Fatal("path-qualified link should be resolved when stem is unique")
+	}
+
+	// Step 3: Create /b/notes.md — introduces ambiguity
+	_, err = fileSvc.Create(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/b/notes.md",
+		Content: "# Notes B",
+	})
+	if err != nil {
+		t.Fatalf("create /b/notes.md: %v", err)
+	}
+	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+		t.Fatalf("process pending after ambiguity: %v", err)
+	}
+
+	// Stem-only link should become dangling
+	stemLinks, err = testDB.GetWikiLinks(ctx, stemSourceID)
+	if err != nil {
+		t.Fatalf("get stem links after ambiguity: %v", err)
+	}
+	if len(stemLinks) != 1 {
+		t.Fatalf("expected 1 stem link, got %d", len(stemLinks))
+	}
+	if stemLinks[0].ToFile != nil {
+		t.Error("stem-only link [[notes]] should be dangling when stem is ambiguous")
+	}
+
+	// Path-qualified link should remain resolved (UnresolveStemOnlyLinks only
+	// affects links whose raw_target does NOT contain "/")
+	qualifiedLinks, err = testDB.GetWikiLinks(ctx, qualifiedSourceID)
+	if err != nil {
+		t.Fatalf("get qualified links after ambiguity: %v", err)
+	}
+	if len(qualifiedLinks) != 1 {
+		t.Fatalf("expected 1 qualified link, got %d", len(qualifiedLinks))
+	}
+	if qualifiedLinks[0].ToFile == nil {
+		t.Error("path-qualified link [[a/notes]] should remain resolved during stem ambiguity")
+	}
+
+	if err := vaultSvc.Delete(ctx, vaultID); err != nil {
+		t.Fatalf("cleanup vault: %v", err)
+	}
+}

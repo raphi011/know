@@ -9,7 +9,8 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// FilenameStem returns the lowercase filename without extension for a path.
+// FilenameStem returns the normalized filename without extension for a path.
+// Normalization: lowercase, spaces and underscores replaced with hyphens.
 // Returns "" for folder paths (trailing slash).
 func FilenameStem(path string) string {
 	if strings.HasSuffix(path, "/") {
@@ -17,7 +18,10 @@ func FilenameStem(path string) string {
 	}
 	base := filepath.Base(path)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	return strings.ToLower(stem)
+	stem = strings.ToLower(stem)
+	stem = strings.ReplaceAll(stem, " ", "-")
+	stem = strings.ReplaceAll(stem, "_", "-")
+	return stem
 }
 
 // File is a unified entity representing any path-addressable item in a vault:

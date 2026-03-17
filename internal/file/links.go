@@ -30,12 +30,10 @@ func NewLinkResolver(db dbQuerier) *LinkResolver {
 // target contains a path separator, disambiguates by path suffix. Returns nil if not
 // found or ambiguous (dangling link).
 func (r *LinkResolver) Resolve(ctx context.Context, vaultID, target string) (*models.File, error) {
-	// Normalize: strip .md extension, derive stem, and normalize separators.
-	// Wiki-links may use spaces ("Beta Notes") while filenames use hyphens ("beta-notes"),
-	// so we replace spaces and underscores with hyphens to match stored stems.
+	// Normalize: strip .md extension, derive stem (FilenameStem lowercases and
+	// normalizes spaces/underscores to hyphens).
 	normalized := strings.TrimSuffix(target, ".md")
 	stem := models.FilenameStem("/" + normalized + ".md")
-	stem = strings.ReplaceAll(strings.ReplaceAll(stem, " ", "-"), "_", "-")
 
 	// Stem match: find all files with matching stem in this vault
 	sql := `SELECT * FROM file WHERE is_folder = false AND vault = type::record("vault", $vault_id) AND stem = $stem`

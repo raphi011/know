@@ -757,23 +757,8 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	// After deletion, check if this file's stem is now unique (collision removed).
 	// This must happen after DeleteFile so CountFilesByStem returns the correct count.
 	stem := models.FilenameStem(doc.Path)
-	if stem != "" {
-		count, err := s.db.CountFilesByStem(ctx, vaultID, stem)
-		if err != nil {
-			logutil.FromCtx(ctx).Warn("count files by stem after delete", "error", err)
-		} else if count == 1 {
-			remaining, err := s.db.GetFilesByStem(ctx, vaultID, stem)
-			if err == nil && len(remaining) == 1 {
-				remainingID, err := models.RecordIDString(remaining[0].ID)
-				if err == nil {
-					if n, err := s.db.ResolveDanglingLinksByStem(ctx, vaultID, stem, remainingID); err != nil {
-						logutil.FromCtx(ctx).Warn("resolve dangling after delete", "error", err)
-					} else if n > 0 {
-						logutil.FromCtx(ctx).Info("resolved dangling links after stem collision removal", "stem", stem, "count", n)
-					}
-				}
-			}
-		}
+	if err := s.resolveAfterStemCollisionRemoval(ctx, vaultID, stem); err != nil {
+		logutil.FromCtx(ctx).Warn("resolve after stem collision removal", "stem", stem, "error", err)
 	}
 
 	// Clean up blob data. Content-addressed blobs may be shared across files
@@ -848,7 +833,8 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 		return count, fmt.Errorf("recompute stems after prefix move: %w", err)
 	}
 
-	// Recompute incoming raw_targets for each moved file
+	// Best-effort: raw_target recomputation is cosmetic (affects display only);
+	// stem recomputation above is required for resolution correctness.
 	movedFiles, err := s.db.ListFilesByPrefix(ctx, vaultID, newNorm)
 	if err != nil {
 		logutil.FromCtx(ctx).Warn("list moved files for raw target recompute", "error", err)
@@ -913,22 +899,9 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 	}
 
 	// If stem changed, check if old stem now has exactly 1 file → resolve dangling links for it
-	if oldStem != newStem && oldStem != "" {
-		count, err := s.db.CountFilesByStem(ctx, vaultID, oldStem)
-		if err != nil {
-			logutil.FromCtx(ctx).Warn("count files by old stem after move", "error", err)
-		} else if count == 1 {
-			remaining, err := s.db.GetFilesByStem(ctx, vaultID, oldStem)
-			if err == nil && len(remaining) == 1 {
-				remainingID, err := models.RecordIDString(remaining[0].ID)
-				if err == nil {
-					if n, err := s.db.ResolveDanglingLinksByStem(ctx, vaultID, oldStem, remainingID); err != nil {
-						logutil.FromCtx(ctx).Warn("resolve dangling after move", "error", err)
-					} else if n > 0 {
-						logutil.FromCtx(ctx).Info("resolved dangling links after stem collision removal", "stem", oldStem, "count", n)
-					}
-				}
-			}
+	if oldStem != newStem {
+		if err := s.resolveAfterStemCollisionRemoval(ctx, vaultID, oldStem); err != nil {
+			logutil.FromCtx(ctx).Warn("resolve after stem collision removal", "stem", oldStem, "error", err)
 		}
 	}
 
@@ -1003,6 +976,41 @@ func (s *Service) resolveDanglingForFile(ctx context.Context, vaultID string, do
 	return nil
 }
 
+// resolveAfterStemCollisionRemoval checks if a stem now has exactly one file
+// (after a delete or rename removed a collision) and resolves dangling stem-only
+// links to that remaining file.
+func (s *Service) resolveAfterStemCollisionRemoval(ctx context.Context, vaultID, stem string) error {
+	if stem == "" {
+		return nil
+	}
+	count, err := s.db.CountFilesByStem(ctx, vaultID, stem)
+	if err != nil {
+		return fmt.Errorf("count files by stem: %w", err)
+	}
+	if count != 1 {
+		return nil
+	}
+	remaining, err := s.db.GetFilesByStem(ctx, vaultID, stem)
+	if err != nil {
+		return fmt.Errorf("get files by stem: %w", err)
+	}
+	if len(remaining) != 1 {
+		return nil
+	}
+	remainingID, err := models.RecordIDString(remaining[0].ID)
+	if err != nil {
+		return fmt.Errorf("extract remaining file id: %w", err)
+	}
+	n, err := s.db.ResolveDanglingLinksByStem(ctx, vaultID, stem, remainingID)
+	if err != nil {
+		return fmt.Errorf("resolve dangling links by stem: %w", err)
+	}
+	if n > 0 {
+		logutil.FromCtx(ctx).Info("resolved dangling links after stem collision removal", "stem", stem, "count", n)
+	}
+	return nil
+}
+
 // handleStemAmbiguity checks if a stem is now ambiguous (multiple files share it)
 // and un-resolves any stem-only wiki-links that pointed to files with that stem.
 func (s *Service) handleStemAmbiguity(ctx context.Context, vaultID, stem string) error {
@@ -1054,7 +1062,8 @@ func (s *Service) recomputeIncomingRawTargets(ctx context.Context, vaultID, file
 			continue
 		}
 		if err := s.db.UpdateWikiLinkRawTarget(ctx, linkID, newTarget); err != nil {
-			return fmt.Errorf("update raw target for link %s: %w", linkID, err)
+			logger.Warn("failed to update raw target", "link_id", linkID, "error", err)
+			continue
 		}
 	}
 	return nil
