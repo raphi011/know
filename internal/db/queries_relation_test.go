@@ -227,6 +227,56 @@ func TestDeleteRelationsBySource(t *testing.T) {
 	}
 }
 
+func TestBatchCreateRelations(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/batchrel-a-" + suffix + ".md", Title: "BatchRel A",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile A failed: %v", err)
+	}
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/batchrel-b-" + suffix + ".md", Title: "BatchRel B",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile B failed: %v", err)
+	}
+	docC, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/batchrel-c-" + suffix + ".md", Title: "BatchRel C",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile C failed: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+	docBID := models.MustRecordIDString(docB.ID)
+	docCID := models.MustRecordIDString(docC.ID)
+
+	err = testDB.BatchCreateRelations(ctx, []models.FileRelationInput{
+		{FromFileID: docAID, ToFileID: docBID, RelType: "relates_to", Source: "api"},
+		{FromFileID: docAID, ToFileID: docCID, RelType: "relates_to", Source: "api"},
+	})
+	if err != nil {
+		t.Fatalf("BatchCreateRelations failed: %v", err)
+	}
+
+	rels, err := testDB.GetRelations(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetRelations failed: %v", err)
+	}
+	if len(rels) != 2 {
+		t.Errorf("Expected 2 relations after batch create, got %d", len(rels))
+	}
+}
+
 func TestDeleteRelation(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

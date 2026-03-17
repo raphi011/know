@@ -195,3 +195,178 @@ func TestListMessages(t *testing.T) {
 		t.Errorf("Expected 2 messages, got %d", len(msgs))
 	}
 }
+
+func TestUpdateConversationTokens(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	conv, err := testDB.CreateConversation(ctx, vaultID, userID)
+	if err != nil {
+		t.Fatalf("CreateConversation failed: %v", err)
+	}
+	convID := models.MustRecordIDString(conv.ID)
+
+	err = testDB.UpdateConversationTokens(ctx, convID, 100, 50)
+	if err != nil {
+		t.Fatalf("UpdateConversationTokens failed: %v", err)
+	}
+
+	got, err := testDB.GetConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetConversation failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetConversation returned nil")
+	}
+	if got.TokenInput != 100 {
+		t.Errorf("Expected token_input 100, got %d", got.TokenInput)
+	}
+	if got.TokenOutput != 50 {
+		t.Errorf("Expected token_output 50, got %d", got.TokenOutput)
+	}
+}
+
+func TestSetConversationBgRunning(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	conv, err := testDB.CreateConversation(ctx, vaultID, userID)
+	if err != nil {
+		t.Fatalf("CreateConversation failed: %v", err)
+	}
+	convID := models.MustRecordIDString(conv.ID)
+
+	err = testDB.SetConversationBgRunning(ctx, convID)
+	if err != nil {
+		t.Fatalf("SetConversationBgRunning failed: %v", err)
+	}
+
+	got, err := testDB.GetConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetConversation failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetConversation returned nil")
+	}
+	if got.BgStatus == nil || *got.BgStatus != "running" {
+		t.Errorf("Expected bg_status 'running', got %v", got.BgStatus)
+	}
+	if got.BgStartedAt == nil {
+		t.Error("Expected bg_started_at to be set")
+	}
+}
+
+func TestSetConversationBgCompleted(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	conv, err := testDB.CreateConversation(ctx, vaultID, userID)
+	if err != nil {
+		t.Fatalf("CreateConversation failed: %v", err)
+	}
+	convID := models.MustRecordIDString(conv.ID)
+
+	if err = testDB.SetConversationBgRunning(ctx, convID); err != nil {
+		t.Fatalf("SetConversationBgRunning failed: %v", err)
+	}
+
+	err = testDB.SetConversationBgCompleted(ctx, convID)
+	if err != nil {
+		t.Fatalf("SetConversationBgCompleted failed: %v", err)
+	}
+
+	got, err := testDB.GetConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetConversation failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetConversation returned nil")
+	}
+	if got.BgStatus == nil || *got.BgStatus != "completed" {
+		t.Errorf("Expected bg_status 'completed', got %v", got.BgStatus)
+	}
+}
+
+func TestSetConversationBgFailed(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	conv, err := testDB.CreateConversation(ctx, vaultID, userID)
+	if err != nil {
+		t.Fatalf("CreateConversation failed: %v", err)
+	}
+	convID := models.MustRecordIDString(conv.ID)
+
+	if err = testDB.SetConversationBgRunning(ctx, convID); err != nil {
+		t.Fatalf("SetConversationBgRunning failed: %v", err)
+	}
+
+	errMsg := "something went wrong"
+	err = testDB.SetConversationBgFailed(ctx, convID, errMsg)
+	if err != nil {
+		t.Fatalf("SetConversationBgFailed failed: %v", err)
+	}
+
+	got, err := testDB.GetConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetConversation failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetConversation returned nil")
+	}
+	if got.BgStatus == nil || *got.BgStatus != "failed" {
+		t.Errorf("Expected bg_status 'failed', got %v", got.BgStatus)
+	}
+	if got.BgError == nil || *got.BgError != errMsg {
+		t.Errorf("Expected bg_error %q, got %v", errMsg, got.BgError)
+	}
+}
+
+func TestReconcileStaleRunningConversations(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	conv, err := testDB.CreateConversation(ctx, vaultID, userID)
+	if err != nil {
+		t.Fatalf("CreateConversation failed: %v", err)
+	}
+	convID := models.MustRecordIDString(conv.ID)
+
+	if err = testDB.SetConversationBgRunning(ctx, convID); err != nil {
+		t.Fatalf("SetConversationBgRunning failed: %v", err)
+	}
+
+	count, err := testDB.ReconcileStaleRunningConversations(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileStaleRunningConversations failed: %v", err)
+	}
+	if count < 1 {
+		t.Errorf("Expected at least 1 reconciled conversation, got %d", count)
+	}
+
+	got, err := testDB.GetConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetConversation failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetConversation returned nil")
+	}
+	if got.BgStatus == nil || *got.BgStatus != "failed" {
+		t.Errorf("Expected bg_status 'failed' after reconcile, got %v", got.BgStatus)
+	}
+}

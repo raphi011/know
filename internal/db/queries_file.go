@@ -112,25 +112,6 @@ func buildFileFilter(filter ListFilesFilter) (whereClause string, vars map[strin
 }
 
 // ---------------------------------------------------------------------------
-// Sync types
-// ---------------------------------------------------------------------------
-
-// SyncMeta is lightweight file metadata used for sync.
-type SyncMeta struct {
-	ID          surrealmodels.RecordID `json:"id"`
-	Path        string                 `json:"path"`
-	ContentHash *string                `json:"content_hash"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-}
-
-// SyncTombstone represents a deleted file for sync.
-type SyncTombstone struct {
-	FileID    string    `json:"file_id"`
-	Path      string    `json:"path"`
-	DeletedAt time.Time `json:"deleted_at"`
-}
-
-// ---------------------------------------------------------------------------
 // File CRUD
 // ---------------------------------------------------------------------------
 
@@ -546,16 +527,6 @@ func (c *Client) UpsertFile(ctx context.Context, input models.FileInput) (file *
 // Access tracking
 // ---------------------------------------------------------------------------
 
-// UpdateFileAccess increments access_count and sets last_accessed_at to now.
-func (c *Client) UpdateFileAccess(ctx context.Context, fileID string) error {
-	defer c.logOp(ctx, "file.update_access", time.Now())
-	sql := `UPDATE type::record("file", $id) SET last_accessed_at = time::now(), access_count += 1`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": fileID}); err != nil {
-		return fmt.Errorf("update file access: %w", err)
-	}
-	return nil
-}
-
 // BatchUpdateFileAccess increments access_count and sets last_accessed_at for multiple files.
 func (c *Client) BatchUpdateFileAccess(ctx context.Context, fileIDs []string) error {
 	if len(fileIDs) == 0 {
@@ -712,65 +683,6 @@ func (c *Client) ListFileMetas(ctx context.Context, filter ListFilesFilter) ([]m
 	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, vars)
 	if err != nil {
 		return nil, fmt.Errorf("list file metas: %w", err)
-	}
-	return allResults(results), nil
-}
-
-// ---------------------------------------------------------------------------
-// Sync
-// ---------------------------------------------------------------------------
-
-// ListSyncMetadata returns lightweight metadata for files in a vault,
-// optionally filtered by updated_at > since. Used for incremental sync.
-func (c *Client) ListSyncMetadata(ctx context.Context, vaultID string, since *string, limit, offset int) ([]SyncMeta, error) {
-	defer c.logOp(ctx, "file.list_sync_metadata", time.Now())
-	if limit <= 0 {
-		limit = 500
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	vars := map[string]any{
-		"vault_id": bareID("vault", vaultID),
-		"limit":    limit,
-		"offset":   offset,
-	}
-
-	var sql string
-	if since != nil {
-		sql = `SELECT id, path, content_hash ?? null AS content_hash, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND updated_at > type::datetime($since) ORDER BY path ASC LIMIT $limit START $offset`
-		vars["since"] = *since
-	} else {
-		sql = `SELECT id, path, content_hash ?? null AS content_hash, updated_at FROM file WHERE vault = type::record("vault", $vault_id) ORDER BY path ASC LIMIT $limit START $offset`
-	}
-
-	results, err := surrealdb.Query[[]SyncMeta](ctx, c.DB(), sql, vars)
-	if err != nil {
-		return nil, fmt.Errorf("list sync metadata: %w", err)
-	}
-	return allResults(results), nil
-}
-
-// ListTombstones returns tombstones for deleted files in a vault since the given time.
-func (c *Client) ListTombstones(ctx context.Context, vaultID string, since string, limit, offset int) ([]SyncTombstone, error) {
-	defer c.logOp(ctx, "file.list_tombstones", time.Now())
-	if limit <= 0 {
-		limit = 500
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	sql := `SELECT file_id, path, deleted_at FROM file_tombstone WHERE vault = type::record("vault", $vault_id) AND deleted_at > type::datetime($since) ORDER BY deleted_at ASC LIMIT $limit START $offset`
-	results, err := surrealdb.Query[[]SyncTombstone](ctx, c.DB(), sql, map[string]any{
-		"vault_id": bareID("vault", vaultID),
-		"since":    since,
-		"limit":    limit,
-		"offset":   offset,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list tombstones: %w", err)
 	}
 	return allResults(results), nil
 }

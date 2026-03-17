@@ -17,15 +17,15 @@ func (c *Client) CreateRemote(ctx context.Context, userID string, input models.R
 		CREATE remote SET
 			name = $name,
 			url = $url,
-			token = $token,
+			token = $api_token,
 			created_by = type::record("user", $user_id)
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.Remote](ctx, c.DB(), sql, map[string]any{
-		"name":    input.Name,
-		"url":     input.URL,
-		"token":   input.Token,
-		"user_id": bareID("user", userID),
+		"name":      input.Name,
+		"url":       input.URL,
+		"api_token": input.Token,
+		"user_id":   bareID("user", userID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create remote: %w", err)
@@ -56,10 +56,7 @@ func (c *Client) ListRemotes(ctx context.Context) ([]models.Remote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list remotes: %w", err)
 	}
-	if results == nil || len(*results) == 0 || len((*results)[0].Result) == 0 {
-		return []models.Remote{}, nil
-	}
-	return (*results)[0].Result, nil
+	return allResults(results), nil
 }
 
 // DeleteRemote deletes a remote by name. Returns true if a record was deleted.

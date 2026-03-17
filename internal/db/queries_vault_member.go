@@ -55,30 +55,3 @@ func (c *Client) GetVaultMembers(ctx context.Context, vaultID string) ([]models.
 	}
 	return allResults(results), nil
 }
-
-// UpdateVaultMemberRole updates the role of a vault member.
-func (c *Client) UpdateVaultMemberRole(ctx context.Context, userID, vaultID string, role models.VaultRole) error {
-	defer c.logOp(ctx, "vault_member.update_role", time.Now())
-	sql := `UPDATE vault_member SET role = $role WHERE user = type::record("user", $user_id) AND vault = type::record("vault", $vault_id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"user_id":  bareID("user", userID),
-		"vault_id": bareID("vault", vaultID),
-		"role":     string(role),
-	}); err != nil {
-		return fmt.Errorf("update vault member role: %w", err)
-	}
-	return nil
-}
-
-// DeleteVaultMember removes a user's membership from a vault.
-func (c *Client) DeleteVaultMember(ctx context.Context, userID, vaultID string) error {
-	defer c.logOp(ctx, "vault_member.delete", time.Now())
-	sql := `DELETE FROM vault_member WHERE user = type::record("user", $user_id) AND vault = type::record("vault", $vault_id)`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"user_id":  bareID("user", userID),
-		"vault_id": bareID("vault", vaultID),
-	}); err != nil {
-		return fmt.Errorf("delete vault member: %w", err)
-	}
-	return nil
-}

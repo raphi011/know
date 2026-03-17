@@ -280,3 +280,136 @@ func TestBatchUpdateChunkPositions(t *testing.T) {
 		t.Errorf("Expected position 10 for second chunk, got %d", updated[1].Position)
 	}
 }
+
+func TestGetFirstChunksByFileIDs(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc1, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/first-chunk-1.md", Title: "First Chunk 1",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile 1 failed: %v", err)
+	}
+	doc2, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/first-chunk-2.md", Title: "First Chunk 2",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile 2 failed: %v", err)
+	}
+	doc1ID := models.MustRecordIDString(doc1.ID)
+	doc2ID := models.MustRecordIDString(doc2.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: doc1ID, Text: "Doc1 Chunk0", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: doc1ID, Text: "Doc1 Chunk1", Position: 1, Embedding: dummyEmbedding()},
+		{FileID: doc2ID, Text: "Doc2 Chunk0", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: doc2ID, Text: "Doc2 Chunk1", Position: 1, Embedding: dummyEmbedding()},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	result, err := testDB.GetFirstChunksByFileIDs(ctx, []string{doc1ID, doc2ID})
+	if err != nil {
+		t.Fatalf("GetFirstChunksByFileIDs failed: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 entries in map, got %d", len(result))
+	}
+	if ch, ok := result[doc1ID]; !ok || ch.Position != 0 {
+		t.Errorf("Expected first chunk of doc1 with position 0, got %+v (ok=%v)", result[doc1ID], ok)
+	}
+	if ch, ok := result[doc2ID]; !ok || ch.Position != 0 {
+		t.Errorf("Expected first chunk of doc2 with position 0, got %+v (ok=%v)", result[doc2ID], ok)
+	}
+}
+
+func TestGetUnembeddedChunks(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/unembedded-chunks.md", Title: "Unembedded Chunks",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docID, Text: "Has embedding", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "No embedding", Position: 1, Embedding: nil},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	unembedded, err := testDB.GetUnembeddedChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetUnembeddedChunks failed: %v", err)
+	}
+	if len(unembedded) != 1 {
+		t.Fatalf("Expected 1 unembedded chunk, got %d", len(unembedded))
+	}
+	if unembedded[0].Text != "No embedding" {
+		t.Errorf("Expected unembedded chunk text 'No embedding', got %q", unembedded[0].Text)
+	}
+}
+
+func TestBatchUpdateChunkEmbeddings(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/batch-embed-test.md", Title: "Batch Embed",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docID, Text: "Chunk A", Position: 0, Embedding: nil},
+		{FileID: docID, Text: "Chunk B", Position: 1, Embedding: nil},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	chunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetChunks failed: %v", err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("Expected 2 chunks, got %d", len(chunks))
+	}
+
+	updates := []ChunkEmbeddingUpdate{
+		{ID: models.MustRecordIDString(chunks[0].ID), Embedding: dummyEmbedding()},
+		{ID: models.MustRecordIDString(chunks[1].ID), Embedding: dummyEmbedding()},
+	}
+	if err := testDB.BatchUpdateChunkEmbeddings(ctx, updates); err != nil {
+		t.Fatalf("BatchUpdateChunkEmbeddings failed: %v", err)
+	}
+
+	updated, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetChunks after batch update failed: %v", err)
+	}
+	for _, ch := range updated {
+		if len(ch.Embedding) != 384 {
+			t.Errorf("Expected embedding length 384, got %d for chunk %v", len(ch.Embedding), ch.Text)
+		}
+	}
+}

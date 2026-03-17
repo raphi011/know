@@ -115,16 +115,3 @@ func (c *Client) ReconcileStaleRunningJobs(ctx context.Context) (int, error) {
 	}
 	return countResults(results), nil
 }
-
-// ListFailedJobs returns the most recently failed jobs up to limit.
-func (c *Client) ListFailedJobs(ctx context.Context, limit int) ([]models.PipelineJob, error) {
-	defer c.logOp(ctx, "pipeline_job.list_failed", time.Now())
-	sql := `SELECT * FROM pipeline_job WHERE status = 'failed' ORDER BY updated_at DESC LIMIT $limit`
-	results, err := surrealdb.Query[[]models.PipelineJob](ctx, c.DB(), sql, map[string]any{
-		"limit": limit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list failed jobs: %w", err)
-	}
-	return allResults(results), nil
-}
