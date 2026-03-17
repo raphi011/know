@@ -67,6 +67,45 @@ func TestGetUser(t *testing.T) {
 	}
 }
 
+func TestUpdateUserSystemAdmin(t *testing.T) {
+	ctx := context.Background()
+
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	// Set admin=true
+	if err := testDB.UpdateUserSystemAdmin(ctx, userID, true); err != nil {
+		t.Fatalf("UpdateUserSystemAdmin true failed: %v", err)
+	}
+
+	got, err := testDB.GetUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUser failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetUser returned nil")
+	}
+	if !got.IsSystemAdmin {
+		t.Error("Expected is_system_admin=true")
+	}
+
+	// Set admin=false
+	if err := testDB.UpdateUserSystemAdmin(ctx, userID, false); err != nil {
+		t.Fatalf("UpdateUserSystemAdmin false failed: %v", err)
+	}
+
+	got2, err := testDB.GetUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUser failed: %v", err)
+	}
+	if got2 == nil {
+		t.Fatal("GetUser returned nil")
+	}
+	if got2.IsSystemAdmin {
+		t.Error("Expected is_system_admin=false")
+	}
+}
+
 func TestGetUserByName(t *testing.T) {
 	ctx := context.Background()
 

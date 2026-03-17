@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestCreateFile(t *testing.T) {
 		VaultID:     vaultID,
 		Path:        "/docs/hello.md",
 		Title:       "Hello World",
-		Content:  "---\ntitle: Hello\n---\nHello world content",
+		Content:     "---\ntitle: Hello\n---\nHello world content",
 		Labels:      []string{"test", "greeting"},
 		ContentHash: &hash,
 	})
@@ -555,5 +556,686 @@ func TestUpsertFile(t *testing.T) {
 	}
 	if doc2.Title != "Upsert Updated" {
 		t.Errorf("Expected title 'Upsert Updated', got %q", doc2.Title)
+	}
+}
+
+func TestGetFilesByStem(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	// Two files that share stem "my-note" (different folders)
+	for _, p := range []string{
+		"/folder-a-" + suffix + "/my-note.md",
+		"/folder-b-" + suffix + "/my-note.md",
+	} {
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "My Note", Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+	}
+
+	files, err := testDB.GetFilesByStem(ctx, vaultID, "my-note")
+	if err != nil {
+		t.Fatalf("GetFilesByStem failed: %v", err)
+	}
+	if len(files) < 2 {
+		t.Errorf("Expected at least 2 files with stem 'my-note', got %d", len(files))
+	}
+}
+
+func TestCountFilesByStem(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	stem := "count-stem-" + suffix
+	for _, p := range []string{
+		"/count-stem-dir-a/" + stem + ".md",
+		"/count-stem-dir-b/" + stem + ".md",
+	} {
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "Count Stem", Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+	}
+
+	count, err := testDB.CountFilesByStem(ctx, vaultID, stem)
+	if err != nil {
+		t.Fatalf("CountFilesByStem failed: %v", err)
+	}
+
+	files, err := testDB.GetFilesByStem(ctx, vaultID, stem)
+	if err != nil {
+		t.Fatalf("GetFilesByStem failed: %v", err)
+	}
+	if count != len(files) {
+		t.Errorf("CountFilesByStem=%d does not match GetFilesByStem len=%d", count, len(files))
+	}
+	if count != 2 {
+		t.Errorf("Expected count 2, got %d", count)
+	}
+}
+
+func TestListFilesByPrefix(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	docsPrefix := "/pfx-docs-" + suffix + "/"
+	otherPrefix := "/pfx-other-" + suffix + "/"
+	for _, p := range []string{docsPrefix + "a.md", docsPrefix + "b.md", otherPrefix + "c.md"} {
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "Prefix Test", Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+	}
+
+	files, err := testDB.ListFilesByPrefix(ctx, vaultID, docsPrefix)
+	if err != nil {
+		t.Fatalf("ListFilesByPrefix failed: %v", err)
+	}
+	if len(files) != 2 {
+		t.Errorf("Expected 2 files under docs prefix, got %d", len(files))
+	}
+	for _, f := range files {
+		if !strings.HasPrefix(f.Path, docsPrefix) {
+			t.Errorf("Unexpected path %q returned for prefix %q", f.Path, docsPrefix)
+		}
+	}
+}
+
+func TestUpdateFileTranscript(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/transcript-" + suffix + ".md", Title: "Transcript Test",
+		Content: "original", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	newContent := "transcribed content"
+	if err := testDB.UpdateFileTranscript(ctx, docID, newContent); err != nil {
+		t.Fatalf("UpdateFileTranscript failed: %v", err)
+	}
+
+	fetched, err := testDB.GetFileByID(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetFileByID failed: %v", err)
+	}
+	if fetched == nil {
+		t.Fatal("GetFileByID returned nil")
+	}
+	if fetched.Content != newContent {
+		t.Errorf("Expected content %q, got %q", newContent, fetched.Content)
+	}
+}
+
+func TestBatchUpdateFileAccess(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	var fileIDs []string
+	for _, p := range []string{
+		"/access-a-" + suffix + ".md",
+		"/access-b-" + suffix + ".md",
+	} {
+		doc, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "Access Test", Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+		fileIDs = append(fileIDs, models.MustRecordIDString(doc.ID))
+	}
+
+	if err := testDB.BatchUpdateFileAccess(ctx, fileIDs); err != nil {
+		t.Fatalf("BatchUpdateFileAccess failed: %v", err)
+	}
+
+	for _, id := range fileIDs {
+		f, err := testDB.GetFileByID(ctx, id)
+		if err != nil {
+			t.Fatalf("GetFileByID failed: %v", err)
+		}
+		if f == nil {
+			t.Fatal("GetFileByID returned nil")
+		}
+		if f.AccessCount != 1 {
+			t.Errorf("Expected access_count 1, got %d for file %s", f.AccessCount, id)
+		}
+	}
+}
+
+func TestSetFileAccessCount(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/setaccess-" + suffix + ".md", Title: "Set Access",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.SetFileAccessCount(ctx, docID, 42); err != nil {
+		t.Fatalf("SetFileAccessCount failed: %v", err)
+	}
+
+	fetched, err := testDB.GetFileByID(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetFileByID failed: %v", err)
+	}
+	if fetched == nil {
+		t.Fatal("GetFileByID returned nil")
+	}
+	if fetched.AccessCount != 42 {
+		t.Errorf("Expected access_count 42, got %d", fetched.AccessCount)
+	}
+}
+
+func TestGetFilesByAllLabels(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	for _, d := range []struct {
+		path   string
+		labels []string
+	}{
+		{"/allabels-ab-" + suffix + ".md", []string{"lbl-a", "lbl-b"}},
+		{"/allabels-ac-" + suffix + ".md", []string{"lbl-a", "lbl-c"}},
+		{"/allabels-abc-" + suffix + ".md", []string{"lbl-a", "lbl-b", "lbl-c"}},
+	} {
+		doc, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: d.path, Title: "AllLabels", Content: "content", Labels: d.labels,
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", d.path, err)
+		}
+		docID := models.MustRecordIDString(doc.ID)
+		if err := testDB.SyncFileLabels(ctx, docID, vaultID, d.labels); err != nil {
+			t.Fatalf("SyncFileLabels %s failed: %v", d.path, err)
+		}
+	}
+
+	// Files with both lbl-a and lbl-b: ab and abc (2 files)
+	files, err := testDB.GetFilesByAllLabels(ctx, vaultID, []string{"lbl-a", "lbl-b"})
+	if err != nil {
+		t.Fatalf("GetFilesByAllLabels failed: %v", err)
+	}
+	if len(files) != 2 {
+		t.Errorf("Expected 2 files with labels [lbl-a, lbl-b], got %d", len(files))
+	}
+}
+
+func TestGetFileMetaByPath(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	p := "/filemeta-" + suffix + ".md"
+	_, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: p, Title: "File Meta Test", Content: "meta content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+
+	meta, err := testDB.GetFileMetaByPath(ctx, vaultID, p)
+	if err != nil {
+		t.Fatalf("GetFileMetaByPath failed: %v", err)
+	}
+	if meta == nil {
+		t.Fatal("GetFileMetaByPath returned nil for existing file")
+	}
+	if meta.Path != p {
+		t.Errorf("Expected path %q, got %q", p, meta.Path)
+	}
+	// FileMeta is a lightweight projection — no content, title not projected by GetFileMetaByPath
+	if meta.IsFolder {
+		t.Error("Expected is_folder=false for a regular file")
+	}
+
+	notFound, err := testDB.GetFileMetaByPath(ctx, vaultID, "/nonexistent-"+suffix+".md")
+	if err != nil {
+		t.Fatalf("GetFileMetaByPath nonexistent error: %v", err)
+	}
+	if notFound != nil {
+		t.Error("Expected nil for nonexistent path")
+	}
+}
+
+func TestGetFileMetaByPaths(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	p1 := "/meta-batch-a-" + suffix + ".md"
+	p2 := "/meta-batch-b-" + suffix + ".md"
+	pMissing := "/meta-batch-missing-" + suffix + ".md"
+
+	for _, p := range []string{p1, p2} {
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "Batch Meta", Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+	}
+
+	// Query with 2 existing + 1 missing path
+	m, err := testDB.GetFileMetaByPaths(ctx, vaultID, []string{p1, p2, pMissing})
+	if err != nil {
+		t.Fatalf("GetFileMetaByPaths failed: %v", err)
+	}
+	if len(m) != 2 {
+		t.Errorf("Expected 2 entries, got %d", len(m))
+	}
+	if m[p1] == nil {
+		t.Error("Expected entry for p1")
+	}
+	if m[p2] == nil {
+		t.Error("Expected entry for p2")
+	}
+	if m[pMissing] != nil {
+		t.Error("Expected nil for missing path")
+	}
+
+	// Empty input returns empty map
+	empty, err := testDB.GetFileMetaByPaths(ctx, vaultID, []string{})
+	if err != nil {
+		t.Fatalf("GetFileMetaByPaths empty failed: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("Expected empty map, got %d entries", len(empty))
+	}
+}
+
+func TestListFileMetas(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	for _, p := range []string{
+		"/listmeta-" + suffix + "/a.md",
+		"/listmeta-" + suffix + "/b.md",
+	} {
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "ListMeta", Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+	}
+
+	folder := "/listmeta-" + suffix + "/"
+	metas, err := testDB.ListFileMetas(ctx, ListFilesFilter{VaultID: vaultID, Folder: &folder})
+	if err != nil {
+		t.Fatalf("ListFileMetas failed: %v", err)
+	}
+	if len(metas) != 2 {
+		t.Errorf("Expected 2 file metas, got %d", len(metas))
+	}
+}
+
+func TestListChildFolders(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	// Create folder structure: /a/, /a/b/, /a/c/, /a/b/d/
+	for _, fp := range []string{
+		"/cf-" + suffix,
+		"/cf-" + suffix + "/b",
+		"/cf-" + suffix + "/c",
+		"/cf-" + suffix + "/b/d",
+	} {
+		_, err := testDB.CreateFolder(ctx, vaultID, fp)
+		if err != nil {
+			t.Fatalf("CreateFolder %s failed: %v", fp, err)
+		}
+	}
+
+	children, err := testDB.ListChildFolders(ctx, vaultID, "/cf-"+suffix)
+	if err != nil {
+		t.Fatalf("ListChildFolders failed: %v", err)
+	}
+	if len(children) != 2 {
+		t.Errorf("Expected 2 immediate child folders, got %d", len(children))
+	}
+	paths := map[string]bool{}
+	for _, ch := range children {
+		paths[ch.Path] = true
+	}
+	if !paths["/cf-"+suffix+"/b"] {
+		t.Errorf("Expected child /cf-%s/b, not found in %v", suffix, paths)
+	}
+	if !paths["/cf-"+suffix+"/c"] {
+		t.Errorf("Expected child /cf-%s/c, not found in %v", suffix, paths)
+	}
+}
+
+func TestRecomputeStems(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/old-stem-" + suffix + ".md", Title: "Old Stem",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	// Move the file to a new path
+	newPath := "/new-stem-" + suffix + ".md"
+	if _, err := testDB.MoveFile(ctx, docID, newPath); err != nil {
+		t.Fatalf("MoveFile failed: %v", err)
+	}
+
+	// RecomputeStems for the new path prefix
+	if err := testDB.RecomputeStems(ctx, vaultID, "/new-stem-"+suffix); err != nil {
+		t.Fatalf("RecomputeStems failed: %v", err)
+	}
+
+	fetched, err := testDB.GetFileByID(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetFileByID failed: %v", err)
+	}
+	if fetched == nil {
+		t.Fatal("GetFileByID returned nil")
+	}
+	expectedStem := models.FilenameStem(newPath)
+	if fetched.Stem != expectedStem {
+		t.Errorf("Expected stem %q, got %q", expectedStem, fetched.Stem)
+	}
+}
+
+func TestListUnprocessedFiles(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/unprocessed-" + suffix + ".md", Title: "Unprocessed",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	// Create a parse pipeline job for this file
+	if err := testDB.CreateJob(ctx, docID, "parse", 0); err != nil {
+		t.Fatalf("CreateJob failed: %v", err)
+	}
+
+	files, err := testDB.ListUnprocessedFiles(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListUnprocessedFiles failed: %v", err)
+	}
+
+	found := false
+	for _, f := range files {
+		if models.MustRecordIDString(f.ID) == docID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected file %s in unprocessed list, got %d files", docID, len(files))
+	}
+}
+
+func TestListFiles_OrderBy(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	for _, p := range []string{
+		"/order-" + suffix + "/b.md",
+		"/order-" + suffix + "/a.md",
+	} {
+		_, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID, Path: p, Title: "Order " + p, Content: "content", Labels: []string{},
+		})
+		if err != nil {
+			t.Fatalf("CreateFile %s failed: %v", p, err)
+		}
+	}
+
+	folder := "/order-" + suffix + "/"
+
+	// Default order (path ASC)
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, Folder: &folder})
+	if err != nil {
+		t.Fatalf("ListFiles path ASC failed: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("expected 2 docs, got %d", len(docs))
+	}
+	if !strings.HasSuffix(docs[0].Path, "/a.md") {
+		t.Errorf("expected first doc to be a.md (path ASC), got %q", docs[0].Path)
+	}
+
+	// Explicit order: created_at DESC → last created first
+	docs, err = testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, Folder: &folder, OrderBy: OrderByCreatedAtDesc})
+	if err != nil {
+		t.Fatalf("ListFiles created_at DESC failed: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("expected 2 docs, got %d", len(docs))
+	}
+	// a.md was created second, so it should be first with DESC
+	if !strings.HasSuffix(docs[0].Path, "/a.md") {
+		t.Errorf("expected first doc to be a.md (created_at DESC), got %q", docs[0].Path)
+	}
+
+	// Invalid order must return error
+	_, err = testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, OrderBy: FileOrderBy("DROP TABLE; --")})
+	if err == nil {
+		t.Error("expected error for invalid OrderBy, got nil")
+	}
+}
+
+func TestListFiles_DocTypeFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	mdType := "markdown"
+	audioType := "audio"
+	_, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/dtype-" + suffix + "/note.md", Title: "Note",
+		Content: "content", Labels: []string{}, DocType: &mdType,
+	})
+	if err != nil {
+		t.Fatalf("CreateFile note failed: %v", err)
+	}
+	_, err = testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/dtype-" + suffix + "/recording.mp3", Title: "Recording",
+		Content: "", Labels: []string{}, DocType: &audioType, MimeType: "audio/mpeg",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile recording failed: %v", err)
+	}
+
+	// Filter by doc_type
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, DocType: &mdType})
+	if err != nil {
+		t.Fatalf("ListFiles by doc_type failed: %v", err)
+	}
+	for _, d := range docs {
+		if d.DocType != nil && *d.DocType != mdType {
+			t.Errorf("expected doc_type %q, got %q", mdType, *d.DocType)
+		}
+	}
+	var found bool
+	for _, d := range docs {
+		if strings.HasSuffix(d.Path, "/note.md") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("note.md not found with doc_type filter")
+	}
+}
+
+func TestListFiles_MimeTypeFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	_, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/mime-" + suffix + "/doc.md", Title: "Markdown",
+		Content: "content", Labels: []string{}, MimeType: "text/markdown",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile markdown failed: %v", err)
+	}
+	_, err = testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/mime-" + suffix + "/image.png", Title: "Image",
+		Content: "", Labels: []string{}, MimeType: "image/png",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile image failed: %v", err)
+	}
+
+	mime := "image/png"
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, MimeType: &mime})
+	if err != nil {
+		t.Fatalf("ListFiles by mime_type failed: %v", err)
+	}
+	for _, d := range docs {
+		if d.MimeType != mime {
+			t.Errorf("expected mime_type %q, got %q", mime, d.MimeType)
+		}
+	}
+	var found bool
+	for _, d := range docs {
+		if strings.HasSuffix(d.Path, "/image.png") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("image.png not found with mime_type filter")
+	}
+}
+
+func TestListFiles_IsFolderFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	// Create a regular file
+	_, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/isfolder-" + suffix + "/note.md", Title: "Note",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	// Create a folder
+	_, err = testDB.CreateFolder(ctx, vaultID, "/isfolder-"+suffix+"/sub")
+	if err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+
+	// Default ListFiles excludes folders
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID})
+	if err != nil {
+		t.Fatalf("ListFiles default failed: %v", err)
+	}
+	for _, d := range docs {
+		if d.IsFolder {
+			t.Errorf("default ListFiles should not return folders, got %q", d.Path)
+		}
+	}
+
+	// Explicitly request folders only
+	isFolder := true
+	folder := "/isfolder-" + suffix + "/"
+	folders, err := testDB.ListFiles(ctx, ListFilesFilter{VaultID: vaultID, IsFolder: &isFolder, Folder: &folder})
+	if err != nil {
+		t.Fatalf("ListFiles is_folder=true failed: %v", err)
+	}
+	if len(folders) != 1 {
+		t.Errorf("expected 1 folder, got %d", len(folders))
+	}
+	for _, d := range folders {
+		if !d.IsFolder {
+			t.Errorf("expected is_folder=true, got false for %q", d.Path)
+		}
 	}
 }

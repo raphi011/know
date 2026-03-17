@@ -162,6 +162,91 @@ func TestGetVaultByName(t *testing.T) {
 	}
 }
 
+func TestUpdateVaultSettings(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	settings := models.VaultSettings{
+		MemoryPath:   "/custom-memories",
+		TemplatePath: "/custom-templates",
+		RRFK:         80,
+	}
+	updated, err := testDB.UpdateVaultSettings(ctx, vaultID, settings)
+	if err != nil {
+		t.Fatalf("UpdateVaultSettings failed: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("UpdateVaultSettings returned nil")
+	}
+	if updated.Settings == nil {
+		t.Fatal("Expected settings to be set")
+	}
+	if updated.Settings.MemoryPath != "/custom-memories" {
+		t.Errorf("Expected memory_path '/custom-memories', got %q", updated.Settings.MemoryPath)
+	}
+	if updated.Settings.RRFK != 80 {
+		t.Errorf("Expected rrf_k 80, got %d", updated.Settings.RRFK)
+	}
+
+	// Re-fetch to confirm persistence
+	fetched, err := testDB.GetVault(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("GetVault after settings update failed: %v", err)
+	}
+	if fetched == nil || fetched.Settings == nil {
+		t.Fatal("GetVault returned nil or nil settings")
+	}
+	if fetched.Settings.TemplatePath != "/custom-templates" {
+		t.Errorf("Expected template_path '/custom-templates', got %q", fetched.Settings.TemplatePath)
+	}
+}
+
+func TestGetVaultInfo(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+
+	// Create a file with chunks and labels so stats are non-zero
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/info-test-" + suffix + ".md",
+		Title:   "Info Test",
+		Content: "content for info test",
+		Labels:  []string{"info-label"},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docID, Text: "Info chunk", Position: 0, Embedding: dummyEmbedding()},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	info, err := testDB.GetVaultInfo(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("GetVaultInfo failed: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetVaultInfo returned nil")
+	}
+	if info.DocumentCount < 1 {
+		t.Errorf("Expected DocumentCount >= 1, got %d", info.DocumentCount)
+	}
+	if info.ChunkTotal < 1 {
+		t.Errorf("Expected ChunkTotal >= 1, got %d", info.ChunkTotal)
+	}
+}
+
 func TestListDocumentPaths(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

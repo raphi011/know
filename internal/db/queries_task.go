@@ -127,18 +127,6 @@ func (c *Client) DeleteTask(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteTasksByFile removes all tasks belonging to a file.
-func (c *Client) DeleteTasksByFile(ctx context.Context, fileID string) error {
-	defer c.logOp(ctx, "task.delete_by_file", time.Now())
-
-	sql := `DELETE FROM task WHERE file = type::record("file", $file_id)`
-	_, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"file_id": bareID("file", fileID)})
-	if err != nil {
-		return fmt.Errorf("delete tasks by file: %w", err)
-	}
-	return nil
-}
-
 // GetTaskByID fetches a single task. Returns nil if not found.
 func (c *Client) GetTaskByID(ctx context.Context, id string) (*models.Task, error) {
 	defer c.logOp(ctx, "task.get", time.Now())

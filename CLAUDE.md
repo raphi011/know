@@ -41,6 +41,10 @@ just test            # Run Go tests
 For SurrealDB-specific syntax, v3.0 breaking changes, and query patterns:
 - **Subagent**: Use the `surrealdb` subagent for complex query work (has built-in reference guide)
 
+**IMPORTANT**: Every public `internal/db/` query method must have an integration test in the corresponding `queries_*_test.go` file. Tests run against a real SurrealDB instance via testcontainers — no mocking. When adding a new query method, add its test in the same PR.
+
+**IMPORTANT**: Avoid N+1 queries, especially on hot paths (search, list endpoints, document processing). Prefer batch operations (`INSERT INTO table $rows`, `WHERE id IN $ids`) over looping single-record queries.
+
 ## Error Handling
 
 **CRITICAL**: Never ignore errors with `_ =` assignments. All errors must be either:
