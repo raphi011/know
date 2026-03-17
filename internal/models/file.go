@@ -2,10 +2,27 @@ package models
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
+
+// FilenameStem returns the normalized filename without extension for a path.
+// Normalization: lowercase, spaces and underscores replaced with hyphens.
+// Returns "" for folder paths (trailing slash).
+func FilenameStem(path string) string {
+	if strings.HasSuffix(path, "/") {
+		return ""
+	}
+	base := filepath.Base(path)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	stem = strings.ToLower(stem)
+	stem = strings.ReplaceAll(stem, " ", "-")
+	stem = strings.ReplaceAll(stem, "_", "-")
+	return stem
+}
 
 // File is a unified entity representing any path-addressable item in a vault:
 // markdown documents, binary files (images, PDFs, audio), and folders.
@@ -14,6 +31,7 @@ type File struct {
 	Vault          surrealmodels.RecordID `json:"vault"`
 	Path           string                 `json:"path"`
 	Title          string                 `json:"title"`
+	Stem           string                 `json:"stem"`
 	IsFolder       bool                   `json:"is_folder"`
 	MimeType       string                 `json:"mime_type"`
 	Content        string                 `json:"content"`

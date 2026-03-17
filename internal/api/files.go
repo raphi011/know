@@ -39,7 +39,29 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, documentFromModel(doc))
+	fileID, err := models.RecordIDString(doc.ID)
+	if err != nil {
+		logger.Warn("failed to extract file ID for wiki links", "error", err)
+		writeJSON(w, http.StatusOK, documentFromModel(doc))
+		return
+	}
+	wikiLinks, err := s.app.DBClient().GetWikiLinksWithTargetInfo(ctx, fileID)
+	if err != nil {
+		logger.Warn("failed to get wiki links", "error", err)
+	}
+
+	resp := documentFromModel(doc)
+	if len(wikiLinks) > 0 {
+		resp.WikiLinks = make([]WikiLinkInfo, len(wikiLinks))
+		for i, wl := range wikiLinks {
+			resp.WikiLinks[i] = WikiLinkInfo{
+				RawTarget: wl.RawTarget,
+				Path:      wl.Path,
+				Title:     wl.Title,
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type upsertDocumentRequest struct {

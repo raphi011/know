@@ -137,11 +137,17 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 		labels = []string{}
 	}
 
+	stem := ""
+	if !input.IsFolder {
+		stem = models.FilenameStem(input.Path)
+	}
+
 	sql := `
 		CREATE file SET
 			vault = type::record("vault", $vault_id),
 			path = $path,
 			title = $title,
+			stem = $stem,
 			content = $content,
 			content_length = $content_length,
 			labels = $labels,
@@ -157,6 +163,7 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 		"vault_id":       bareID("vault", input.VaultID),
 		"path":           input.Path,
 		"title":          input.Title,
+		"stem":           stem,
 		"content":        input.Content,
 		"content_length": len(input.Content),
 		"labels":         labels,
@@ -225,11 +232,17 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 		labels = []string{}
 	}
 
+	stem := ""
+	if !input.IsFolder {
+		stem = models.FilenameStem(input.Path)
+	}
+
 	sql := `
 		UPDATE type::record("file", $id) SET
 			content = $content,
 			content_length = $content_length,
 			title = $title,
+			stem = $stem,
 			labels = $labels,
 			content_hash = $content_hash,
 			metadata = $metadata,
@@ -242,6 +255,7 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 		"content":        input.Content,
 		"content_length": len(input.Content),
 		"title":          input.Title,
+		"stem":           stem,
 		"labels":         labels,
 		"content_hash":   optionalString(input.ContentHash),
 		"metadata":       optionalObject(input.Metadata),
@@ -302,16 +316,55 @@ func (c *Client) MoveFilesByPrefix(ctx context.Context, vaultID, oldPrefix, newP
 	return countResults(results), nil
 }
 
+// RecomputeStems updates the stem field for all non-folder files in a vault whose path
+// starts with pathPrefix. Used after prefix-based moves to keep stems consistent.
+func (c *Client) RecomputeStems(ctx context.Context, vaultID, pathPrefix string) error {
+	defer c.logOp(ctx, "file.recompute_stems", time.Now())
+
+	// Fetch affected files
+	sql := `SELECT id, path FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = false AND string::starts_with(path, $prefix)`
+	type idPath struct {
+		ID   surrealmodels.RecordID `json:"id"`
+		Path string                 `json:"path"`
+	}
+	results, err := surrealdb.Query[[]idPath](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   pathPrefix,
+	})
+	if err != nil {
+		return fmt.Errorf("recompute stems fetch: %w", err)
+	}
+	rows := allResults(results)
+
+	for _, row := range rows {
+		idStr, err := models.RecordIDString(row.ID)
+		if err != nil {
+			return fmt.Errorf("recompute stems extract id: %w", err)
+		}
+		stem := models.FilenameStem(row.Path)
+		updateSQL := `UPDATE type::record("file", $id) SET stem = $stem`
+		if _, err := surrealdb.Query[any](ctx, c.DB(), updateSQL, map[string]any{
+			"id":   idStr,
+			"stem": stem,
+		}); err != nil {
+			return fmt.Errorf("recompute stems update: %w", err)
+		}
+	}
+	return nil
+}
+
 func (c *Client) MoveFile(ctx context.Context, id, newPath string) (*models.File, error) {
 	defer c.logOp(ctx, "file.move", time.Now())
 	sql := `
 		UPDATE type::record("file", $id) SET
-			path = $new_path
+			path = $new_path,
+			stem = $stem
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
 		"id":       id,
 		"new_path": newPath,
+		"stem":     models.FilenameStem(newPath),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("move file: %w", err)
@@ -363,6 +416,54 @@ func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.
 	return files, nil
 }
 
+// GetFilesByStem returns non-folder files matching a stem in a vault.
+func (c *Client) GetFilesByStem(ctx context.Context, vaultID, stem string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.get_by_stem", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND stem = $stem AND is_folder = false`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"stem":     stem,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get files by stem: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// CountFilesByStem returns the count of non-folder files with the given stem in a vault.
+func (c *Client) CountFilesByStem(ctx context.Context, vaultID, stem string) (int, error) {
+	defer c.logOp(ctx, "file.count_by_stem", time.Now())
+	sql := `SELECT count() AS total FROM file WHERE vault = type::record("vault", $vault_id) AND stem = $stem AND is_folder = false GROUP ALL`
+	type countRow struct {
+		Total int `json:"total"`
+	}
+	results, err := surrealdb.Query[[]countRow](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"stem":     stem,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count files by stem: %w", err)
+	}
+	rows := allResults(results)
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return rows[0].Total, nil
+}
+
+// ListFilesByPrefix returns non-folder files whose path starts with prefix in a vault.
+func (c *Client) ListFilesByPrefix(ctx context.Context, vaultID, prefix string) ([]models.File, error) {
+	defer c.logOp(ctx, "file.list_by_prefix", time.Now())
+	sql := `SELECT * FROM file WHERE vault = type::record("vault", $vault_id) AND string::starts_with(path, $prefix) AND is_folder = false`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   prefix,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list files by prefix: %w", err)
+	}
+	return allResults(results), nil
+}
 
 // UpdateFileTranscript sets the transcript as the file content.
 func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, content string) error {
@@ -447,6 +548,23 @@ func (c *Client) UpdateFileAccess(ctx context.Context, fileID string) error {
 	sql := `UPDATE type::record("file", $id) SET last_accessed_at = time::now(), access_count += 1`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"id": fileID}); err != nil {
 		return fmt.Errorf("update file access: %w", err)
+	}
+	return nil
+}
+
+// BatchUpdateFileAccess increments access_count and sets last_accessed_at for multiple files.
+func (c *Client) BatchUpdateFileAccess(ctx context.Context, fileIDs []string) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "file.batch_update_access", time.Now())
+	records := make([]surrealmodels.RecordID, len(fileIDs))
+	for i, id := range fileIDs {
+		records[i] = newRecordID("file", id)
+	}
+	sql := `UPDATE file SET last_accessed_at = time::now(), access_count += 1 WHERE id IN $ids`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"ids": records}); err != nil {
+		return fmt.Errorf("batch update file access: %w", err)
 	}
 	return nil
 }

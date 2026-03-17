@@ -178,7 +178,7 @@ func TestUpdateChunkEmbedding(t *testing.T) {
 	}
 }
 
-func TestDeleteChunkByID(t *testing.T) {
+func TestDeleteChunksByIDs(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -186,7 +186,7 @@ func TestDeleteChunkByID(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	doc, err := testDB.CreateFile(ctx, models.FileInput{
-		VaultID: vaultID, Path: "/delete-chunk-byid.md", Title: "Delete Chunk",
+		VaultID: vaultID, Path: "/delete-chunk-byids.md", Title: "Delete Chunks",
 		Content: "content", Labels: []string{},
 	})
 	if err != nil {
@@ -196,7 +196,8 @@ func TestDeleteChunkByID(t *testing.T) {
 
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
 		{FileID: docID, Text: "Keep", Position: 0, Embedding: dummyEmbedding()},
-		{FileID: docID, Text: "Delete", Position: 1, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Delete1", Position: 1, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Delete2", Position: 2, Embedding: dummyEmbedding()},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -206,14 +207,17 @@ func TestDeleteChunkByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChunks failed: %v", err)
 	}
-	if len(chunks) != 2 {
-		t.Fatalf("Expected 2 chunks, got %d", len(chunks))
+	if len(chunks) != 3 {
+		t.Fatalf("Expected 3 chunks, got %d", len(chunks))
 	}
 
-	deleteID := models.MustRecordIDString(chunks[1].ID)
-	err = testDB.DeleteChunkByID(ctx, deleteID)
+	deleteIDs := []string{
+		models.MustRecordIDString(chunks[1].ID),
+		models.MustRecordIDString(chunks[2].ID),
+	}
+	err = testDB.DeleteChunksByIDs(ctx, deleteIDs)
 	if err != nil {
-		t.Fatalf("DeleteChunkByID failed: %v", err)
+		t.Fatalf("DeleteChunksByIDs failed: %v", err)
 	}
 
 	remaining, err := testDB.GetChunks(ctx, docID)
@@ -228,7 +232,7 @@ func TestDeleteChunkByID(t *testing.T) {
 	}
 }
 
-func TestUpdateChunkPosition(t *testing.T) {
+func TestBatchUpdateChunkPositions(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -236,7 +240,7 @@ func TestUpdateChunkPosition(t *testing.T) {
 	vaultID := models.MustRecordIDString(vault.ID)
 
 	doc, err := testDB.CreateFile(ctx, models.FileInput{
-		VaultID: vaultID, Path: "/update-pos-test.md", Title: "Update Pos",
+		VaultID: vaultID, Path: "/batch-update-pos-test.md", Title: "Batch Update Pos",
 		Content: "content", Labels: []string{},
 	})
 	if err != nil {
@@ -245,7 +249,8 @@ func TestUpdateChunkPosition(t *testing.T) {
 	docID := models.MustRecordIDString(doc.ID)
 
 	err = testDB.CreateChunks(ctx, []models.ChunkInput{
-		{FileID: docID, Text: "Move me", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "First", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Second", Position: 1, Embedding: dummyEmbedding()},
 	})
 	if err != nil {
 		t.Fatalf("CreateChunks failed: %v", err)
@@ -255,11 +260,13 @@ func TestUpdateChunkPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChunks failed: %v", err)
 	}
-	chunkID := models.MustRecordIDString(chunks[0].ID)
 
-	err = testDB.UpdateChunkPosition(ctx, chunkID, 5)
+	err = testDB.BatchUpdateChunkPositions(ctx, []ChunkPositionUpdate{
+		{ID: models.MustRecordIDString(chunks[0].ID), Position: 5},
+		{ID: models.MustRecordIDString(chunks[1].ID), Position: 10},
+	})
 	if err != nil {
-		t.Fatalf("UpdateChunkPosition failed: %v", err)
+		t.Fatalf("BatchUpdateChunkPositions failed: %v", err)
 	}
 
 	updated, err := testDB.GetChunks(ctx, docID)
@@ -267,6 +274,9 @@ func TestUpdateChunkPosition(t *testing.T) {
 		t.Fatalf("GetChunks after update failed: %v", err)
 	}
 	if updated[0].Position != 5 {
-		t.Errorf("Expected position 5, got %d", updated[0].Position)
+		t.Errorf("Expected position 5 for first chunk, got %d", updated[0].Position)
+	}
+	if updated[1].Position != 10 {
+		t.Errorf("Expected position 10 for second chunk, got %d", updated[1].Position)
 	}
 }

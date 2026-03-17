@@ -178,41 +178,45 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 
 	vid := bareID("vault", vaultID)
 
-	// 9-statement batch query — one round-trip
+	// 10-statement batch query — one round-trip
 	sql := `
-		-- 0: document count + pending pipeline jobs
-		SELECT count() AS total, (SELECT count() FROM pipeline_job WHERE file.vault = type::record("vault", $vid) AND status IN ['pending', 'running'] GROUP ALL)[0].count ?? 0 AS unprocessed
+		-- 0: document count
+		SELECT count() AS total
 			FROM file WHERE vault = type::record("vault", $vid) AND is_folder = false GROUP ALL;
 
-		-- 1: chunk stats (join through file)
+		-- 1: pending pipeline jobs
+		SELECT count() AS total
+			FROM pipeline_job WHERE file.vault = type::record("vault", $vid) AND status IN ['pending', 'running'] GROUP ALL;
+
+		-- 2: chunk stats (join through file)
 		SELECT count() AS total,
 			   math::sum(IF embedding IS NOT NONE THEN 1 ELSE 0 END) AS embedded,
 			   math::sum(IF embedding IS NONE THEN 1 ELSE 0 END) AS pending
 			FROM chunk WHERE file.vault = type::record("vault", $vid) GROUP ALL;
 
-		-- 2: label count
+		-- 3: label count
 		SELECT count() AS total FROM label WHERE vault = type::record("vault", $vid) GROUP ALL;
 
-		-- 3: top 10 labels by document count
+		-- 4: top 10 labels by document count
 		SELECT out.name AS name, count() AS count
 			FROM has_label WHERE out.vault = type::record("vault", $vid)
 			GROUP BY name ORDER BY count DESC LIMIT 10;
 
-		-- 4: members + roles
+		-- 5: members + roles
 		SELECT user.name AS name, role FROM vault_member WHERE vault = type::record("vault", $vid);
 
-		-- 5: asset count + total size
+		-- 6: asset count + total size
 		SELECT count() AS total, math::sum(size) AS total_size
 			FROM file WHERE vault = type::record("vault", $vid) AND is_folder = false AND data IS NOT NONE GROUP ALL;
 
-		-- 6: wiki-link total + broken
+		-- 7: wiki-link total + broken
 		SELECT count() AS total, math::sum(IF to_file IS NONE THEN 1 ELSE 0 END) AS broken
 			FROM wiki_link WHERE vault = type::record("vault", $vid) GROUP ALL;
 
-		-- 7: version count
+		-- 8: version count
 		SELECT count() AS total FROM file_version WHERE vault = type::record("vault", $vid) GROUP ALL;
 
-		-- 8: conversation count + tokens
+		-- 9: conversation count + tokens
 		SELECT count() AS total, math::sum(token_input) AS token_input, math::sum(token_output) AS token_output
 			FROM conversation WHERE vault = type::record("vault", $vid) GROUP ALL;
 	`
@@ -226,8 +230,8 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	if results == nil {
 		return nil, fmt.Errorf("get vault info: nil results")
 	}
-	if len(*results) < 9 {
-		return nil, fmt.Errorf("get vault info: expected 9 results, got %d", len(*results))
+	if len(*results) < 10 {
+		return nil, fmt.Errorf("get vault info: expected 10 results, got %d", len(*results))
 	}
 
 	stats := &VaultInfoStats{}
@@ -244,26 +248,41 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		return nil
 	}
 
-	// 0: documents
-	var docStats []struct {
-		Total       int `json:"total"`
-		Unprocessed int `json:"unprocessed"`
-	}
-	if err := decodeResult(0, &docStats); err != nil {
-		return nil, fmt.Errorf("decode doc stats: %w", err)
-	}
-	if len(docStats) > 0 {
-		stats.DocumentCount = docStats[0].Total
-		stats.UnprocessedDocs = docStats[0].Unprocessed
+	// Helper for single-row GROUP ALL results with just a total field.
+	decodeTotalCount := func(idx int) (int, error) {
+		var rows []struct {
+			Total int `json:"total"`
+		}
+		if err := decodeResult(idx, &rows); err != nil {
+			return 0, err
+		}
+		if len(rows) > 0 {
+			return rows[0].Total, nil
+		}
+		return 0, nil
 	}
 
-	// 1: chunks
+	// 0: document count
+	docCount, err := decodeTotalCount(0)
+	if err != nil {
+		return nil, fmt.Errorf("decode doc count: %w", err)
+	}
+	stats.DocumentCount = docCount
+
+	// 1: unprocessed (pending pipeline jobs)
+	unprocessed, err := decodeTotalCount(1)
+	if err != nil {
+		return nil, fmt.Errorf("decode unprocessed count: %w", err)
+	}
+	stats.UnprocessedDocs = unprocessed
+
+	// 2: chunks
 	var chunkStats []struct {
 		Total    int `json:"total"`
 		Embedded int `json:"embedded"`
 		Pending  int `json:"pending"`
 	}
-	if err := decodeResult(1, &chunkStats); err != nil {
+	if err := decodeResult(2, &chunkStats); err != nil {
 		return nil, fmt.Errorf("decode chunk stats: %w", err)
 	}
 	if len(chunkStats) > 0 {
@@ -272,20 +291,16 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		stats.ChunkPending = chunkStats[0].Pending
 	}
 
-	// 2: label count
-	var labelCount []struct {
-		Total int `json:"total"`
-	}
-	if err := decodeResult(2, &labelCount); err != nil {
+	// 3: label count
+	labelCount, err := decodeTotalCount(3)
+	if err != nil {
 		return nil, fmt.Errorf("decode label count: %w", err)
 	}
-	if len(labelCount) > 0 {
-		stats.LabelCount = labelCount[0].Total
-	}
+	stats.LabelCount = labelCount
 
-	// 3: top labels
+	// 4: top labels
 	var topLabels []models.LabelStat
-	if err := decodeResult(3, &topLabels); err != nil {
+	if err := decodeResult(4, &topLabels); err != nil {
 		return nil, fmt.Errorf("decode top labels: %w", err)
 	}
 	if topLabels == nil {
@@ -293,9 +308,9 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	}
 	stats.TopLabels = topLabels
 
-	// 4: members
+	// 5: members
 	var members []models.MemberStat
-	if err := decodeResult(4, &members); err != nil {
+	if err := decodeResult(5, &members); err != nil {
 		return nil, fmt.Errorf("decode members: %w", err)
 	}
 	if members == nil {
@@ -303,12 +318,12 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 	}
 	stats.Members = members
 
-	// 5: assets
+	// 6: assets
 	var assetStats []struct {
 		Total     int   `json:"total"`
 		TotalSize int64 `json:"total_size"`
 	}
-	if err := decodeResult(5, &assetStats); err != nil {
+	if err := decodeResult(6, &assetStats); err != nil {
 		return nil, fmt.Errorf("decode asset stats: %w", err)
 	}
 	if len(assetStats) > 0 {
@@ -316,12 +331,12 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		stats.AssetTotalSize = assetStats[0].TotalSize
 	}
 
-	// 6: wiki-links
+	// 7: wiki-links
 	var wikiStats []struct {
 		Total  int `json:"total"`
 		Broken int `json:"broken"`
 	}
-	if err := decodeResult(6, &wikiStats); err != nil {
+	if err := decodeResult(7, &wikiStats); err != nil {
 		return nil, fmt.Errorf("decode wiki-link stats: %w", err)
 	}
 	if len(wikiStats) > 0 {
@@ -329,24 +344,20 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultID string) (*VaultInfoSt
 		stats.WikiLinkBroken = wikiStats[0].Broken
 	}
 
-	// 7: versions
-	var versionCount []struct {
-		Total int `json:"total"`
-	}
-	if err := decodeResult(7, &versionCount); err != nil {
+	// 8: versions
+	versionCount, err := decodeTotalCount(8)
+	if err != nil {
 		return nil, fmt.Errorf("decode version count: %w", err)
 	}
-	if len(versionCount) > 0 {
-		stats.VersionCount = versionCount[0].Total
-	}
+	stats.VersionCount = versionCount
 
-	// 8: conversations
+	// 9: conversations
 	var convStats []struct {
 		Total       int   `json:"total"`
 		TokenInput  int64 `json:"token_input"`
 		TokenOutput int64 `json:"token_output"`
 	}
-	if err := decodeResult(8, &convStats); err != nil {
+	if err := decodeResult(9, &convStats); err != nil {
 		return nil, fmt.Errorf("decode conversation stats: %w", err)
 	}
 	if len(convStats) > 0 {

@@ -10,6 +10,12 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
+// stemNormSQL is the SurrealDB expression that normalizes a raw_target to a stem:
+// strips trailing .md extension, lowercases, replaces spaces and underscores with hyphens.
+// Must stay in sync with models.FilenameStem (Go side).
+// Used in both ResolveDanglingLinksByStem and UnresolveStemOnlyLinks.
+const stemNormSQL = `string::replace(string::replace(string::lowercase(IF string::ends_with(raw_target, ".md") THEN string::slice(raw_target, 0, string::len(raw_target) - 3) ELSE raw_target END), " ", "-"), "_", "-")`
+
 // CreateWikiLinks creates wiki-link records for a file in a single batch INSERT.
 func (c *Client) CreateWikiLinks(ctx context.Context, fromFileID, vaultID string, links []WikiLinkInput) error {
 	defer c.logOp(ctx, "wikilink.create", time.Now())
@@ -103,56 +109,101 @@ func (c *Client) UnresolveWikiLinksToFile(ctx context.Context, fileID string) (i
 	return countResults(results), nil
 }
 
-// UpdateWikiLinkRawTargets updates raw_target for all wiki_links in a vault matching oldTarget.
-// Used when a file is moved to keep raw_targets consistent with the new path/title.
-func (c *Client) UpdateWikiLinkRawTargets(ctx context.Context, vaultID, oldTarget, newTarget string) (int, error) {
-	defer c.logOp(ctx, "wikilink.update_raw_targets", time.Now())
-	sql := `UPDATE wiki_link SET raw_target = $new_target WHERE vault = type::record("vault", $vault_id) AND raw_target = $old_target`
-	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":   bareID("vault", vaultID),
-		"old_target": oldTarget,
-		"new_target": newTarget,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("update wiki link raw targets: %w", err)
-	}
-	return countResults(results), nil
-}
-
-// UpdateWikiLinkRawTargetsByPrefix updates raw_target for all wiki_links in a vault
-// where raw_target starts with oldPrefix, replacing the prefix with newPrefix.
-// Used when files are moved by prefix (folder rename).
-func (c *Client) UpdateWikiLinkRawTargetsByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
-	defer c.logOp(ctx, "wikilink.update_raw_targets_by_prefix", time.Now())
-	sql := `UPDATE wiki_link SET raw_target = string::concat($new_prefix, string::slice(raw_target, string::len($old_prefix))) WHERE vault = type::record("vault", $vault_id) AND string::starts_with(raw_target, $old_prefix)`
-	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
-		"vault_id":   bareID("vault", vaultID),
-		"old_prefix": oldPrefix,
-		"new_prefix": newPrefix,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("update wiki link raw targets by prefix: %w", err)
-	}
-	return countResults(results), nil
-}
-
-// ResolveDanglingLinks finds dangling wiki-links in a vault matching a target
-// and resolves them to point to the given file.
-func (c *Client) ResolveDanglingLinks(ctx context.Context, vaultID, rawTarget, toFileID string) (int, error) {
-	defer c.logOp(ctx, "wikilink.resolve_dangling", time.Now())
+// ResolveDanglingLinksByStem resolves dangling stem-only links in a vault matching the given stem.
+// Only links whose raw_target does not contain "/" are matched (pure stem references).
+func (c *Client) ResolveDanglingLinksByStem(ctx context.Context, vaultID, stem, toFileID string) (int, error) {
+	defer c.logOp(ctx, "wikilink.resolve_dangling_by_stem", time.Now())
+	// Normalize raw_target to a stem by: stripping .md, lowering, replacing spaces/underscores with hyphens.
+	// This allows [[Beta Notes]] to match stem "beta-notes".
 	sql := `
 		UPDATE wiki_link SET to_file = type::record("file", $to_file_id)
 		WHERE vault = type::record("vault", $vault_id)
-			AND raw_target = $raw_target
 			AND to_file IS NONE
+			AND !string::contains(raw_target, "/")
+			AND ` + stemNormSQL + ` = $stem
 	`
 	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
 		"vault_id":   bareID("vault", vaultID),
-		"raw_target": rawTarget,
-		"to_file_id": toFileID,
+		"stem":       stem,
+		"to_file_id": bareID("file", toFileID),
 	})
 	if err != nil {
-		return 0, fmt.Errorf("resolve dangling links: %w", err)
+		return 0, fmt.Errorf("resolve dangling links by stem: %w", err)
 	}
 	return countResults(results), nil
+}
+
+// UnresolveStemOnlyLinks sets to_file = NONE on resolved stem-only links matching stem.
+// Used when the target file is deleted or renamed, making those links dangling again.
+func (c *Client) UnresolveStemOnlyLinks(ctx context.Context, vaultID, stem string) (int, error) {
+	defer c.logOp(ctx, "wikilink.unresolve_stem_only", time.Now())
+	sql := `
+		UPDATE wiki_link SET to_file = NONE
+		WHERE vault = type::record("vault", $vault_id)
+			AND to_file IS NOT NONE
+			AND !string::contains(raw_target, "/")
+			AND ` + stemNormSQL + ` = $stem
+	`
+	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"stem":     stem,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unresolve stem only links: %w", err)
+	}
+	return countResults(results), nil
+}
+
+// GetWikiLinksToFile returns all wiki-links where to_file points to the given file.
+func (c *Client) GetWikiLinksToFile(ctx context.Context, fileID string) ([]models.WikiLink, error) {
+	defer c.logOp(ctx, "wikilink.get_to_file", time.Now())
+	sql := `SELECT * FROM wiki_link WHERE to_file = type::record("file", $file_id)`
+	results, err := surrealdb.Query[[]models.WikiLink](ctx, c.DB(), sql, map[string]any{
+		"file_id": bareID("file", fileID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get wiki links to file: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// BatchUpdateWikiLinkRawTargets updates the raw_target of multiple wiki-links in a single query.
+// All links are set to the same newTarget value.
+func (c *Client) BatchUpdateWikiLinkRawTargets(ctx context.Context, linkIDs []string, newTarget string) error {
+	if len(linkIDs) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "wikilink.batch_update_raw_target", time.Now())
+	records := make([]surrealmodels.RecordID, len(linkIDs))
+	for i, id := range linkIDs {
+		records[i] = newRecordID("wiki_link", bareID("wiki_link", id))
+	}
+	sql := `UPDATE wiki_link SET raw_target = $new_target WHERE id IN $ids`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"ids":        records,
+		"new_target": newTarget,
+	}); err != nil {
+		return fmt.Errorf("batch update wiki link raw targets: %w", err)
+	}
+	return nil
+}
+
+// WikiLinkWithTarget holds outgoing link info with the resolved target's path and title.
+type WikiLinkWithTarget struct {
+	RawTarget string  `json:"raw_target"`
+	Path      *string `json:"path"`
+	Title     *string `json:"title"`
+}
+
+// GetWikiLinksWithTargetInfo returns outgoing links from a file with resolved target path and title.
+func (c *Client) GetWikiLinksWithTargetInfo(ctx context.Context, fileID string) ([]WikiLinkWithTarget, error) {
+	defer c.logOp(ctx, "wikilink.get_with_target_info", time.Now())
+	sql := `SELECT raw_target, to_file.path AS path, to_file.title AS title FROM wiki_link WHERE from_file = type::record("file", $file_id)`
+	results, err := surrealdb.Query[[]WikiLinkWithTarget](ctx, c.DB(), sql, map[string]any{
+		"file_id": bareID("file", fileID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get wiki links with target info: %w", err)
+	}
+	return allResults(results), nil
 }

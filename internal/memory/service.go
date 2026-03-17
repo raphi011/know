@@ -141,16 +141,18 @@ func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLa
 		return active[i].Score > active[j].Score
 	})
 
-	// Update access tracking for returned memories
+	// Batch update access tracking for returned memories
+	var accessIDs []string
 	for _, m := range active {
 		docID, err := models.RecordIDString(m.Document.ID)
 		if err != nil {
 			logger.Warn("update access: extract id", "path", m.Document.Path, "error", err)
 			continue
 		}
-		if err := s.db.UpdateFileAccess(ctx, docID); err != nil {
-			logger.Warn("update access", "path", m.Document.Path, "error", err)
-		}
+		accessIDs = append(accessIDs, docID)
+	}
+	if err := s.db.BatchUpdateFileAccess(ctx, accessIDs); err != nil {
+		logger.Warn("batch update access", "error", err)
 	}
 
 	return active, nil
@@ -169,29 +171,34 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 func (s *Service) consolidate(ctx context.Context, vaultID string, memories []ScoredMemory, settings models.VaultSettings) ([]ScoredMemory, error) {
 	logger := logutil.FromCtx(ctx)
 
-	// Collect first-chunk embeddings for each memory
+	// Batch fetch first-chunk embeddings for all memories
 	type memEmbed struct {
 		idx       int
 		embedding []float32
 	}
-	var embeds []memEmbed
 
+	idToIdx := make(map[string]int, len(memories))
+	var fileIDs []string
 	for i, m := range memories {
 		docID, err := models.RecordIDString(m.Document.ID)
 		if err != nil {
 			logger.Warn("consolidate: extract id", "path", m.Document.Path, "error", err)
 			continue
 		}
-		chunks, err := s.db.GetChunks(ctx, docID)
-		if err != nil {
-			logger.Warn("consolidate: get chunks", "path", m.Document.Path, "error", err)
-			continue
-		}
-		if len(chunks) == 0 {
-			continue
-		}
-		if chunks[0].Embedding != nil {
-			embeds = append(embeds, memEmbed{idx: i, embedding: chunks[0].Embedding})
+		idToIdx[docID] = i
+		fileIDs = append(fileIDs, docID)
+	}
+
+	firstChunks, err := s.db.GetFirstChunksByFileIDs(ctx, fileIDs)
+	if err != nil {
+		logger.Warn("consolidate: batch get first chunks", "error", err)
+		return memories, nil
+	}
+
+	var embeds []memEmbed
+	for docID, chunk := range firstChunks {
+		if chunk.Embedding != nil {
+			embeds = append(embeds, memEmbed{idx: idToIdx[docID], embedding: chunk.Embedding})
 		}
 	}
 
