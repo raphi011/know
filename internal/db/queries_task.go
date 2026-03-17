@@ -179,7 +179,7 @@ func (c *Client) ListTasks(ctx context.Context, filter TaskFilter) ([]models.Tas
 	vars["start"] = filter.Offset
 	sql := fmt.Sprintf(`SELECT *, file.path AS doc_path, file.title AS doc_title
 		FROM task WHERE %s
-		ORDER BY due_date IS NONE ASC, due_date ASC, line_number ASC
+		ORDER BY due_date ASC, line_number ASC
 		LIMIT $limit START $start`, where)
 
 	results, err := surrealdb.Query[[]models.TaskWithDoc](ctx, c.DB(), sql, vars)
