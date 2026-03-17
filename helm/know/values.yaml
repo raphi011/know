@@ -37,6 +37,18 @@ embedding:
   model: ""          # e.g. gemini-embedding-001, voyage-3-large, text-embedding-3-small
   dimension: ""      # e.g. 768, 1024
 
+# Speech-to-text (transcription) configuration
+stt:
+  provider: ""       # none | openai
+  model: ""          # e.g. gpt-4o-transcribe (default), whisper-1
+  baseUrl: ""        # custom base URL for STT API (e.g. http://whisper:8080/v1)
+  audioSegmentSeconds: ""  # max audio segment duration (default: 60, max 80 for Gemini)
+
+# Multimodal embedding configuration
+multimodalEmbedding:
+  provider: ""       # none | googleai
+  model: ""          # e.g. multimodalembedding@001
+
 # Ollama settings (when using ollama provider)
 ollama:
   host: ""           # e.g. http://ollama:11434
