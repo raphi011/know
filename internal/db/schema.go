@@ -145,6 +145,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS position   ON chunk TYPE int;
     DEFINE FIELD IF NOT EXISTS source_loc ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS labels     ON chunk TYPE array<string> DEFAULT [];
+    DEFINE FIELD IF NOT EXISTS data_hash  ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS embedding  ON chunk TYPE option<array<float>>;
     DEFINE FIELD IF NOT EXISTS created_at ON chunk TYPE datetime DEFAULT time::now();
 

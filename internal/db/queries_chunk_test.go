@@ -51,6 +51,80 @@ func TestCreateAndGetChunks(t *testing.T) {
 	}
 }
 
+func TestCreateChunksWithDataHash(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/chunk-datahash-test.pdf",
+		Title:   "DataHash Test",
+		Content: "",
+		Labels:  []string{"test"},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	hash := "abc123def456"
+	sourceLoc := "Page 1"
+	err = testDB.CreateChunks(ctx, []models.ChunkInput{
+		{
+			FileID:    docID,
+			Text:      "PDF page text",
+			MimeType:  "image/png",
+			Position:  1,
+			SourceLoc: &sourceLoc,
+			DataHash:  &hash,
+			Labels:    []string{"test"},
+		},
+		{
+			FileID:   docID,
+			Text:     "Text-only chunk",
+			MimeType: "text/plain",
+			Position: 2,
+			Labels:   []string{"test"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	chunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetChunks failed: %v", err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("Expected 2 chunks, got %d", len(chunks))
+	}
+
+	// Chunk with DataHash should round-trip.
+	if chunks[0].DataHash == nil {
+		t.Fatal("Expected DataHash to be set on chunk 0")
+	}
+	if *chunks[0].DataHash != hash {
+		t.Errorf("Expected DataHash %q, got %q", hash, *chunks[0].DataHash)
+	}
+	if chunks[0].MimeType != "image/png" {
+		t.Errorf("Expected MimeType 'image/png', got %q", chunks[0].MimeType)
+	}
+	if !chunks[0].IsMultimodal() {
+		t.Error("Expected chunk with DataHash+image/png to be multimodal")
+	}
+
+	// Chunk without DataHash.
+	if chunks[1].DataHash != nil {
+		t.Errorf("Expected DataHash to be nil on chunk 1, got %v", *chunks[1].DataHash)
+	}
+	if chunks[1].IsMultimodal() {
+		t.Error("Expected text-only chunk to not be multimodal")
+	}
+}
+
 func TestDeleteChunks(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

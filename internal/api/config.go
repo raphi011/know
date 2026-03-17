@@ -22,5 +22,18 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		ChunkMaxSize:           cfg.ChunkMaxSize,
 		VersionCoalesceMinutes: cfg.VersionCoalesceMinutes,
 		VersionRetentionCount:  cfg.VersionRetentionCount,
+
+		STTProvider:          cfg.STTProvider,
+		STTModel:             cfg.STTModel,
+		TranscriptionEnabled: cfg.TranscriptionEnabled,
+		FFmpegInstalled:      cfg.FFmpegInstalled,
+
+		PopplerInstalled:        cfg.PopplerInstalled,
+		PDFIngestionEnabled:     cfg.PDFIngestionEnabled,
+		MultimodalEmbedProvider: cfg.MultimodalEmbedProvider,
+		MultimodalEmbedModel:    cfg.MultimodalEmbedModel,
+		MultimodalEmbedEnabled:  cfg.MultimodalEmbedEnabled,
+		TextExtractorModel:      cfg.TextExtractorModel,
+		TextExtractorEnabled:    cfg.TextExtractorEnabled,
 	})
 }

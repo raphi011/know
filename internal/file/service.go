@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -37,15 +38,18 @@ type VersionConfig struct {
 type Service struct {
 	db                  *db.Client
 	blobStore           blob.Store
-	embedder            atomic.Pointer[llm.Embedder]    // optional — nil disables embedding
-	transcriber         atomic.Pointer[stt.Transcriber] // optional — nil disables transcription
-	model               atomic.Pointer[llm.Model]       // optional — nil disables LLM summarization
+	embedder            atomic.Pointer[llm.Embedder]           // optional — nil disables embedding
+	multimodalEmbedder  atomic.Pointer[llm.MultimodalEmbedder] // optional — nil disables multimodal embedding
+	textExtractor       atomic.Pointer[llm.TextExtractor]      // optional — nil disables LLM text extraction
+	transcriber         atomic.Pointer[stt.Transcriber]        // optional — nil disables transcription
+	model               atomic.Pointer[llm.Model]              // optional — nil disables LLM summarization
 	resolver            *LinkResolver
 	chunkConfig         parser.ChunkConfig
 	versionConfig       VersionConfig
 	bus                 *event.Bus // optional — nil disables change events
 	embedMaxInputChars  int        // hard limit for embedding API input (0 = no limit)
 	audioSegmentSeconds int        // max audio segment duration for chunking (default 60)
+	pdfRenderDPI        int        // DPI for PDF page rendering (default 300)
 }
 
 // SetEmbedder atomically replaces the embedder (used by SIGHUP reload).
@@ -82,12 +86,38 @@ func (s *Service) getModel() *llm.Model {
 	return s.model.Load()
 }
 
+// SetMultimodalEmbedder atomically replaces the multimodal embedder (used by SIGHUP reload).
+func (s *Service) SetMultimodalEmbedder(e *llm.MultimodalEmbedder) {
+	s.multimodalEmbedder.Store(e)
+}
+
+func (s *Service) getMultimodalEmbedder() *llm.MultimodalEmbedder {
+	return s.multimodalEmbedder.Load()
+}
+
+// SetTextExtractor atomically replaces the text extractor (used by SIGHUP reload).
+func (s *Service) SetTextExtractor(e *llm.TextExtractor) {
+	s.textExtractor.Store(e)
+}
+
+func (s *Service) getTextExtractor() *llm.TextExtractor {
+	return s.textExtractor.Load()
+}
+
 // SetAudioSegmentSeconds updates the audio segment duration from config.
 func (s *Service) SetAudioSegmentSeconds(seconds int) {
 	if seconds <= 0 {
 		seconds = 60
 	}
 	s.audioSegmentSeconds = seconds
+}
+
+// SetPDFRenderDPI updates the DPI used for PDF page rendering (used by SIGHUP reload).
+func (s *Service) SetPDFRenderDPI(dpi int) {
+	if dpi <= 0 {
+		dpi = 300
+	}
+	s.pdfRenderDPI = dpi
 }
 
 // BlobStore returns the blob store used by this service.
@@ -367,6 +397,10 @@ func (s *Service) enqueueJob(ctx context.Context, doc *models.File, created bool
 		// the handler skips silently. This ensures files are processed if a
 		// transcriber is later enabled via SIGHUP reload.
 		jobType = "transcribe"
+	} else if isBinary && models.IsPDFFile(doc.Path) {
+		// Always enqueue PDF processing — the handler checks for poppler
+		// availability and degrades gracefully if not installed.
+		jobType = "pdf"
 	} else if !isBinary {
 		jobType = "parse"
 	}
@@ -653,11 +687,15 @@ func stripMarkdownHeadingPrefixes(path string) string {
 }
 
 // EmbedPendingChunksForFile embeds all un-embedded chunks for a specific file.
-// Uses the same batch-first, one-by-one-fallback strategy as EmbedPendingChunks.
+// Text chunks use the regular Embedder; multimodal chunks (with DataHash and
+// non-text MIME type) use the MultimodalEmbedder, falling back to text embedding.
 // Returns the number of chunks successfully embedded.
 func (s *Service) EmbedPendingChunksForFile(ctx context.Context, fileID string) (int, error) {
 	embedder := s.getEmbedder()
-	if embedder == nil {
+	mmEmbedder := s.getMultimodalEmbedder()
+
+	if embedder == nil && mmEmbedder == nil {
+		logutil.FromCtx(ctx).Debug("skipping embedding, no embedders configured", "file_id", fileID)
 		return 0, nil
 	}
 
@@ -673,21 +711,71 @@ func (s *Service) EmbedPendingChunksForFile(ctx context.Context, fileID string) 
 		fileTitle = doc.Title
 	}
 
-	var pending []embeddingTask
+	// Partition chunks into text and multimodal tasks.
+	var textPending []embeddingTask
+	var mmPending []multimodalEmbeddingTask
+
 	for _, chunk := range chunks {
 		chunkID, err := models.RecordIDString(chunk.ID)
 		if err != nil {
 			logger.Warn("failed to extract chunk ID for embedding", "error", err)
 			continue
 		}
-		pending = append(pending, embeddingTask{
-			chunkID: chunkID,
-			text:    buildEmbeddingContext(chunk, fileTitle, s.embedMaxInputChars),
-		})
+
+		if chunk.IsMultimodal() {
+			mmPending = append(mmPending, multimodalEmbeddingTask{
+				chunkID:  chunkID,
+				dataHash: *chunk.DataHash,
+				mimeType: chunk.MimeType,
+				text:     buildEmbeddingContext(chunk, fileTitle, s.embedMaxInputChars),
+			})
+		} else {
+			textPending = append(textPending, embeddingTask{
+				chunkID: chunkID,
+				text:    buildEmbeddingContext(chunk, fileTitle, s.embedMaxInputChars),
+			})
+		}
 	}
-	if len(pending) == 0 {
-		return 0, nil
+
+	var (
+		total int
+		errs  []error
+	)
+
+	// Embed text chunks via regular embedder.
+	if len(textPending) > 0 && embedder != nil {
+		n, err := s.embedTextChunks(ctx, embedder, textPending)
+		if err != nil {
+			logger.Warn("text chunk embedding failed", "error", err)
+			errs = append(errs, fmt.Errorf("text chunks: %w", err))
+		}
+		total += n
 	}
+
+	// Embed multimodal chunks.
+	if len(mmPending) > 0 {
+		n, err := s.embedMultimodalChunks(ctx, mmEmbedder, embedder, mmPending)
+		if err != nil {
+			logger.Warn("multimodal chunk embedding failed", "error", err)
+			errs = append(errs, fmt.Errorf("multimodal chunks: %w", err))
+		}
+		total += n
+	}
+
+	return total, errors.Join(errs...)
+}
+
+// multimodalEmbeddingTask holds the data needed to embed a multimodal chunk.
+type multimodalEmbeddingTask struct {
+	chunkID  string
+	dataHash string // blob store reference for the binary data
+	mimeType string // MIME type of the binary data
+	text     string // extracted text (fallback for text-only embedding)
+}
+
+// embedTextChunks embeds text chunks using the regular text embedder.
+func (s *Service) embedTextChunks(ctx context.Context, embedder *llm.Embedder, pending []embeddingTask) (int, error) {
+	logger := logutil.FromCtx(ctx)
 
 	texts := make([]string, len(pending))
 	for i, p := range pending {
@@ -719,6 +807,107 @@ func (s *Service) EmbedPendingChunksForFile(ctx context.Context, fileID string) 
 	}
 
 	return len(vectors), nil
+}
+
+// embedMultimodalChunks embeds chunks using the MultimodalEmbedder (reading binary
+// data from the blob store), or falls back to text embedding if no multimodal
+// embedder is configured. Blob reads are batched alongside embedding calls to
+// avoid loading all page images into memory at once.
+func (s *Service) embedMultimodalChunks(ctx context.Context, mmEmbedder *llm.MultimodalEmbedder, textEmbedder *llm.Embedder, tasks []multimodalEmbeddingTask) (int, error) {
+	// Fallback: if no multimodal embedder, use text embedder on chunk.text.
+	if mmEmbedder == nil {
+		if textEmbedder == nil {
+			return 0, nil
+		}
+		textTasks := make([]embeddingTask, len(tasks))
+		for i, t := range tasks {
+			textTasks[i] = embeddingTask{chunkID: t.chunkID, text: t.text}
+		}
+		return s.embedTextChunks(ctx, textEmbedder, textTasks)
+	}
+
+	logger := logutil.FromCtx(ctx)
+	embedder := *mmEmbedder
+
+	// Process in batches to avoid loading all page images into memory.
+	const batchSize = 6 // matches geminiEmbedBatchLimit
+	var (
+		total     int
+		errs      []error
+		failedIDs []string
+	)
+
+	for offset := 0; offset < len(tasks); offset += batchSize {
+		end := min(offset+batchSize, len(tasks))
+		batch := tasks[offset:end]
+
+		// Read binary data from blob store for this batch.
+		var inputs []llm.MultimodalInput
+		var chunkIDs []string
+
+		for _, task := range batch {
+			rc, err := s.blobStore.Get(ctx, task.dataHash)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("read blob %s (chunk %s): %w", task.dataHash, task.chunkID, err))
+				failedIDs = append(failedIDs, task.chunkID)
+				continue
+			}
+			data, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("read blob data %s (chunk %s): %w", task.dataHash, task.chunkID, err))
+				failedIDs = append(failedIDs, task.chunkID)
+				continue
+			}
+
+			inputs = append(inputs, llm.MultimodalInput{
+				Data:     data,
+				MimeType: task.mimeType,
+			})
+			chunkIDs = append(chunkIDs, task.chunkID)
+		}
+
+		if len(inputs) == 0 {
+			continue
+		}
+
+		vectors, err := embedder.EmbedMultimodal(ctx, inputs)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("multimodal embedding batch [%d:%d]: %w", offset, end, err))
+			continue
+		}
+
+		if len(vectors) != len(inputs) {
+			errs = append(errs, fmt.Errorf("multimodal embedding returned wrong vector count: expected %d, got %d", len(inputs), len(vectors)))
+			continue
+		}
+
+		updates := make([]db.ChunkEmbeddingUpdate, len(vectors))
+		for j, vec := range vectors {
+			f32 := make([]float32, len(vec))
+			for k, v := range vec {
+				f32[k] = float32(v)
+			}
+			updates[j] = db.ChunkEmbeddingUpdate{
+				ID:        chunkIDs[j],
+				Embedding: f32,
+			}
+		}
+
+		if err := s.db.BatchUpdateChunkEmbeddings(ctx, updates); err != nil {
+			errs = append(errs, fmt.Errorf("store multimodal embeddings: %w", err))
+			continue
+		}
+
+		total += len(vectors)
+	}
+
+	if len(failedIDs) > 0 {
+		logger.Warn("some blobs could not be read for multimodal embedding",
+			"failed_count", len(failedIDs), "failed_chunk_ids", failedIDs, "succeeded", total)
+	}
+
+	return total, errors.Join(errs...)
 }
 
 // Get returns a file by vault+path, or nil if not found.

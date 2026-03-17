@@ -47,6 +47,10 @@ type Config struct {
 	MultimodalEmbedProvider LLMProvider // KNOW_MULTIMODAL_EMBED_PROVIDER (default: "none")
 	MultimodalEmbedModel    string      // KNOW_MULTIMODAL_EMBED_MODEL
 
+	// PDF processing
+	TextExtractorModel string // KNOW_TEXT_EXTRACTOR_MODEL (default: "gemini-2.0-flash")
+	PDFRenderDPI       int    // KNOW_PDF_RENDER_DPI (default: 300)
+
 	// Audio chunking
 	AudioSegmentSeconds int // max audio segment duration in seconds (default: 60, max 80 for Gemini)
 
@@ -196,6 +200,10 @@ func Load() Config {
 		// Multimodal embedding
 		MultimodalEmbedProvider: LLMProvider(getEnv("KNOW_MULTIMODAL_EMBED_PROVIDER", "none")),
 		MultimodalEmbedModel:    getEnv("KNOW_MULTIMODAL_EMBED_MODEL", ""),
+
+		// PDF processing
+		TextExtractorModel: getEnv("KNOW_TEXT_EXTRACTOR_MODEL", "gemini-2.0-flash"),
+		PDFRenderDPI:       getEnvInt("KNOW_PDF_RENDER_DPI", 300),
 
 		// Audio chunking
 		AudioSegmentSeconds: getEnvInt("KNOW_AUDIO_SEGMENT_SECONDS", 60),
