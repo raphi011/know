@@ -173,4 +173,19 @@ type ServerConfig struct {
 	ChunkMaxSize           int    `json:"chunkMaxSize"`
 	VersionCoalesceMinutes int    `json:"versionCoalesceMinutes"`
 	VersionRetentionCount  int    `json:"versionRetentionCount"`
+
+	// Audio pipeline
+	STTProvider          string `json:"sttProvider"`
+	STTModel             string `json:"sttModel"`
+	TranscriptionEnabled bool   `json:"transcriptionEnabled"`
+	FFmpegInstalled      bool   `json:"ffmpegInstalled"`
+
+	// PDF pipeline
+	PopplerInstalled        bool   `json:"popplerInstalled"`
+	PDFIngestionEnabled     bool   `json:"pdfIngestionEnabled"`
+	MultimodalEmbedProvider string `json:"multimodalEmbedProvider"`
+	MultimodalEmbedModel    string `json:"multimodalEmbedModel"`
+	MultimodalEmbedEnabled  bool   `json:"multimodalEmbedEnabled"`
+	TextExtractorModel      string `json:"textExtractorModel"`
+	TextExtractorEnabled    bool   `json:"textExtractorEnabled"`
 }

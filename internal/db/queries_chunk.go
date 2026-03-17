@@ -36,6 +36,9 @@ func (c *Client) CreateChunks(ctx context.Context, chunks []models.ChunkInput) e
 			"labels":     labels,
 			"mime_type":  ch.MimeType,
 		}
+		if ch.DataHash != nil {
+			row["data_hash"] = *ch.DataHash
+		}
 
 		if len(ch.Embedding) > 0 {
 			row["embedding"] = ch.Embedding

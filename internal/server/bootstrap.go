@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,16 @@ type ServerConfig struct {
 	STTProvider            string `json:"sttProvider"`
 	STTModel               string `json:"sttModel"`
 	TranscriptionEnabled   bool   `json:"transcriptionEnabled"`
+	FFmpegInstalled        bool   `json:"ffmpegInstalled"`
+
+	// PDF pipeline
+	PopplerInstalled        bool   `json:"popplerInstalled"`
+	PDFIngestionEnabled     bool   `json:"pdfIngestionEnabled"`
+	MultimodalEmbedProvider string `json:"multimodalEmbedProvider"`
+	MultimodalEmbedModel    string `json:"multimodalEmbedModel"`
+	MultimodalEmbedEnabled  bool   `json:"multimodalEmbedEnabled"`
+	TextExtractorModel      string `json:"textExtractorModel"`
+	TextExtractorEnabled    bool   `json:"textExtractorEnabled"`
 }
 
 // App holds all application services and dependencies.
@@ -181,6 +192,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	bus := event.New()
 	fileSvc := file.NewService(dbClient, blobStore, embedder, chunkConfig, versionConfig, bus, cfg.EmbedMaxInputChars)
 	fileSvc.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
+	fileSvc.SetPDFRenderDPI(cfg.PDFRenderDPI)
 
 	// STT transcriber is optional — nil disables transcription
 	var transcriber stt.Transcriber
@@ -198,6 +210,34 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if model != nil {
 		fileSvc.SetModel(model)
 	}
+
+	// Multimodal embedder is optional — nil disables native image/PDF embedding.
+	// Falls back to text embedding of extracted content.
+	if cfg.MultimodalEmbedProvider.Enabled() {
+		me, err := llm.NewGeminiMultimodalEmbedder(ctx, cfg.GoogleAIAPIKey, cfg.MultimodalEmbedModel, cfg.EmbedDimension)
+		if err != nil {
+			slog.Warn("multimodal embedder initialization failed, multimodal embedding disabled", "error", err)
+		} else {
+			var iface llm.MultimodalEmbedder = me
+			fileSvc.SetMultimodalEmbedder(&iface)
+		}
+	}
+
+	// Text extractor is optional — nil disables LLM-based text extraction from images/PDFs.
+	// Falls back to pdftotext for PDF processing.
+	var textExtractorOK bool
+	if cfg.GoogleAIAPIKey != "" && cfg.TextExtractorModel != "" {
+		te, err := llm.NewGeminiTextExtractor(ctx, cfg.GoogleAIAPIKey, cfg.TextExtractorModel)
+		if err != nil {
+			slog.Warn("text extractor initialization failed, PDF text extraction will use pdftotext fallback", "error", err)
+		} else {
+			var iface llm.TextExtractor = te
+			fileSvc.SetTextExtractor(&iface)
+			textExtractorOK = true
+		}
+	}
+
+	popplerOK := pipeline.CheckPoppler() == nil
 
 	// pipelineWorkerDone defaults to a closed channel so <-pipelineWorkerDone is a no-op in Close
 	pipelineWorkerDone := make(chan struct{})
@@ -236,26 +276,34 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		bus:                bus,
 		pipelineWorkerDone: pipelineWorkerDone,
 		serverConfig: ServerConfig{
-			Version:                cfg.Version,
-			Commit:                 cfg.Commit,
-			SurrealDBURL:           cfg.SurrealDBURL,
-			AuthEnabled:            !cfg.NoAuth,
-			LLMProvider:            string(cfg.LLMProvider),
-			LLMModel:               cfg.LLMModel,
-			EmbedProvider:          string(cfg.EmbedProvider),
-			EmbedModel:             cfg.EmbedModel,
-			EmbedDimension:         cfg.EmbedDimension,
-			SemanticSearchEnabled:  embedder != nil,
-			AgentChatEnabled:       model != nil,
-			WebSearchEnabled:       cfg.TavilyAPIKey != "",
-			ChunkThreshold:         chunkConfig.Threshold,
-			ChunkTargetSize:        chunkConfig.TargetSize,
-			ChunkMaxSize:           chunkConfig.MaxSize,
-			VersionCoalesceMinutes: cfg.VersionCoalesceMinutes,
-			VersionRetentionCount:  cfg.VersionRetentionCount,
-			STTProvider:            string(cfg.STTProvider),
-			STTModel:               cfg.STTModel,
-			TranscriptionEnabled:   transcriber != nil,
+			Version:                 cfg.Version,
+			Commit:                  cfg.Commit,
+			SurrealDBURL:            cfg.SurrealDBURL,
+			AuthEnabled:             !cfg.NoAuth,
+			LLMProvider:             string(cfg.LLMProvider),
+			LLMModel:                cfg.LLMModel,
+			EmbedProvider:           string(cfg.EmbedProvider),
+			EmbedModel:              cfg.EmbedModel,
+			EmbedDimension:          cfg.EmbedDimension,
+			SemanticSearchEnabled:   embedder != nil,
+			AgentChatEnabled:        model != nil,
+			WebSearchEnabled:        cfg.TavilyAPIKey != "",
+			ChunkThreshold:          chunkConfig.Threshold,
+			ChunkTargetSize:         chunkConfig.TargetSize,
+			ChunkMaxSize:            chunkConfig.MaxSize,
+			VersionCoalesceMinutes:  cfg.VersionCoalesceMinutes,
+			VersionRetentionCount:   cfg.VersionRetentionCount,
+			STTProvider:             string(cfg.STTProvider),
+			STTModel:                cfg.STTModel,
+			TranscriptionEnabled:    transcriber != nil,
+			FFmpegInstalled:         isCommandAvailable("ffmpeg"),
+			PopplerInstalled:        popplerOK,
+			PDFIngestionEnabled:     popplerOK,
+			MultimodalEmbedProvider: string(cfg.MultimodalEmbedProvider),
+			MultimodalEmbedModel:    cfg.MultimodalEmbedModel,
+			MultimodalEmbedEnabled:  cfg.MultimodalEmbedProvider.Enabled(),
+			TextExtractorModel:      cfg.TextExtractorModel,
+			TextExtractorEnabled:    textExtractorOK,
 		},
 	}
 
@@ -502,6 +550,59 @@ func (a *App) ReloadLLM() error {
 		a.fileService.SetAudioSegmentSeconds(cfg.AudioSegmentSeconds)
 	}
 
+	// PDF render DPI is independent of the transcriber — always reload.
+	a.fileService.SetPDFRenderDPI(cfg.PDFRenderDPI)
+
+	// Reload multimodal embedder
+	mmEmbedWanted := cfg.MultimodalEmbedProvider.Enabled()
+	var newMMEmbedder *llm.MultimodalEmbedder
+	mmEmbedChanged := false
+
+	if mmEmbedWanted {
+		me, err := llm.NewGeminiMultimodalEmbedder(ctx, cfg.GoogleAIAPIKey, cfg.MultimodalEmbedModel, cfg.EmbedDimension)
+		if err != nil {
+			slog.Error("multimodal embedder reload failed, keeping existing", "error", err)
+			errs = append(errs, fmt.Sprintf("multimodal embedder: %v", err))
+		} else {
+			var iface llm.MultimodalEmbedder = me
+			newMMEmbedder = &iface
+			mmEmbedChanged = true
+		}
+	} else {
+		mmEmbedChanged = true
+		newMMEmbedder = nil
+	}
+
+	if mmEmbedChanged {
+		a.fileService.SetMultimodalEmbedder(newMMEmbedder)
+	}
+
+	// Reload text extractor
+	textExtractorWanted := cfg.GoogleAIAPIKey != "" && cfg.TextExtractorModel != ""
+	var newTextExtractor *llm.TextExtractor
+	textExtractorChanged := false
+
+	if textExtractorWanted {
+		te, err := llm.NewGeminiTextExtractor(ctx, cfg.GoogleAIAPIKey, cfg.TextExtractorModel)
+		if err != nil {
+			slog.Error("text extractor reload failed, keeping existing", "error", err)
+			errs = append(errs, fmt.Sprintf("text extractor: %v", err))
+		} else {
+			var iface llm.TextExtractor = te
+			newTextExtractor = &iface
+			textExtractorChanged = true
+		}
+	} else {
+		textExtractorChanged = true
+		newTextExtractor = nil
+	}
+
+	if textExtractorChanged {
+		a.fileService.SetTextExtractor(newTextExtractor)
+	}
+
+	popplerOK := pipeline.CheckPoppler() == nil
+
 	// Update server config
 	a.mu.Lock()
 	if embedderChanged {
@@ -520,6 +621,18 @@ func (a *App) ReloadLLM() error {
 		a.serverConfig.STTProvider = string(cfg.STTProvider)
 		a.serverConfig.STTModel = cfg.STTModel
 	}
+	if mmEmbedChanged {
+		a.serverConfig.MultimodalEmbedProvider = string(cfg.MultimodalEmbedProvider)
+		a.serverConfig.MultimodalEmbedModel = cfg.MultimodalEmbedModel
+		a.serverConfig.MultimodalEmbedEnabled = newMMEmbedder != nil
+	}
+	if textExtractorChanged {
+		a.serverConfig.TextExtractorModel = cfg.TextExtractorModel
+		a.serverConfig.TextExtractorEnabled = newTextExtractor != nil
+	}
+	a.serverConfig.FFmpegInstalled = isCommandAvailable("ffmpeg")
+	a.serverConfig.PopplerInstalled = popplerOK
+	a.serverConfig.PDFIngestionEnabled = popplerOK
 	a.serverConfig.WebSearchEnabled = cfg.TavilyAPIKey != ""
 	a.serverConfig.ChunkThreshold = chunkConfig.Threshold
 	a.serverConfig.ChunkTargetSize = chunkConfig.TargetSize
@@ -566,6 +679,7 @@ func (a *App) startPipelineWorker(cfg config.Config) {
 	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch)
 	w.Register("parse", file.ParseHandler(a.fileService, a.bus))
 	w.Register("transcribe", file.TranscribeHandler(a.fileService, a.bus))
+	w.Register("pdf", file.PDFHandler(a.fileService, a.bus))
 	w.Register("summarize", file.SummarizeHandler(a.fileService, a.bus))
 	w.Register("embed", file.EmbedHandler(a.fileService))
 	go func() {
@@ -811,4 +925,10 @@ func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+// isCommandAvailable checks if a command is available in PATH.
+func isCommandAvailable(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
