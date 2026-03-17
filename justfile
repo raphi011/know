@@ -28,6 +28,7 @@ export KNOW_STT_MODEL := env_var_or_default("KNOW_STT_MODEL", "whisper-1")
 export KNOW_CHUNK_THRESHOLD := env_var_or_default("KNOW_CHUNK_THRESHOLD", "1200")
 export KNOW_CHUNK_TARGET_SIZE := env_var_or_default("KNOW_CHUNK_TARGET_SIZE", "1000")
 export KNOW_CHUNK_MAX_SIZE := env_var_or_default("KNOW_CHUNK_MAX_SIZE", "1500")
+export KNOW_EMBED_MAX_INPUT_CHARS := env_var_or_default("KNOW_EMBED_MAX_INPUT_CHARS", "2048")
 
 # Server defaults (hardcoded to local dev — ignore shell env)
 export KNOW_SERVER_PORT := "4001"

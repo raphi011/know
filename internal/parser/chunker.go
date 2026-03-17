@@ -99,8 +99,10 @@ func chunkBySections(sections []Section, config ChunkConfig) []ChunkResult {
 		}
 
 		// Keep section as a single chunk if it fits: code blocks get a higher
-		// size ceiling (maxAtomicCodeBlockSize) while regular sections use MaxSize.
-		if (section.CodeBlock && len(trimmed) <= maxAtomicCodeBlockSize) || len(trimmed) <= config.MaxSize {
+		// size ceiling (maxAtomicCodeBlockSize), capped by MaxSize so that
+		// small-context embedding models still produce valid chunks.
+		codeBlockLimit := min(maxAtomicCodeBlockSize, config.MaxSize)
+		if (section.CodeBlock && len(trimmed) <= codeBlockLimit) || len(trimmed) <= config.MaxSize {
 			chunks = append(chunks, ChunkResult{
 				Content:     trimmed,
 				Position:    position,
