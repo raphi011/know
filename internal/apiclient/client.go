@@ -173,6 +173,188 @@ func (c *Client) BulkUpload(ctx context.Context, meta BulkMeta, files []BulkFile
 	return resp.Results, nil
 }
 
+// --- Import (two-phase) ---
+
+// Import result status constants (must match server-side values in api/import.go).
+const (
+	ImportStatusCreated = "created"
+	ImportStatusUpdated = "updated"
+	ImportStatusSkipped = "skipped"
+	ImportStatusError   = "error"
+)
+
+// Import result reason constants.
+const (
+	ImportReasonHashDiffers = "hash_differs"
+)
+
+// ImportManifestFile is a single file entry for the import manifest.
+type ImportManifestFile struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+}
+
+// ImportManifestRequest is the request body for POST /api/import/manifest.
+type ImportManifestRequest struct {
+	VaultID string               `json:"vaultId"`
+	Force   bool                 `json:"force"`
+	DryRun  bool                 `json:"dryRun"`
+	Files   []ImportManifestFile `json:"files"`
+}
+
+// ImportManifestResponse is the response from POST /api/import/manifest.
+type ImportManifestResponse struct {
+	Needed  []string       `json:"needed"`
+	Results []ImportResult `json:"results"`
+}
+
+// ImportResult is a per-file result from the import endpoints.
+type ImportResult struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// ImportUploadResponse is the response from POST /api/import/upload.
+type ImportUploadResponse struct {
+	Results []ImportResult `json:"results"`
+	Error   string         `json:"error,omitempty"`
+}
+
+// ImportManifest sends a file manifest to the server and returns which files need uploading.
+func (c *Client) ImportManifest(ctx context.Context, req ImportManifestRequest) (*ImportManifestResponse, error) {
+	var resp ImportManifestResponse
+	if err := c.Post(ctx, "/api/import/manifest", req, &resp); err != nil {
+		return nil, fmt.Errorf("import manifest: %w", err)
+	}
+	return &resp, nil
+}
+
+// ImportFile represents a single file to upload in the import upload phase.
+type ImportFile struct {
+	Path string    // vault path (used as the multipart form name)
+	Hash string    // SHA256 hash (sent in meta for server-side verification)
+	Data io.Reader // file content (streamed from disk)
+}
+
+// ImportUpload sends only the needed files to the server's import upload endpoint.
+// The meta part includes per-file hashes for server-side verification.
+func (c *Client) ImportUpload(ctx context.Context, vaultID string, files []ImportFile) (*ImportUploadResponse, error) {
+	// Build the multipart request with pipe to avoid buffering all files in memory.
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	// Write multipart parts in a goroutine so the pipe streams to the HTTP request.
+	errCh := make(chan error, 1)
+	go func() {
+		var writeErr error
+		defer func() {
+			// CloseWithError propagates the actual error to the read side.
+			// On success writeErr is nil, which is equivalent to Close().
+			pw.CloseWithError(writeErr)
+		}()
+
+		// Write meta part with vault ID and per-file hashes.
+		metaPart, err := writer.CreateFormField("meta")
+		if err != nil {
+			writeErr = fmt.Errorf("create meta part: %w", err)
+			errCh <- writeErr
+			return
+		}
+		hashes := make(map[string]string, len(files))
+		for _, f := range files {
+			hashes[f.Path] = f.Hash
+		}
+		meta := struct {
+			VaultID string            `json:"vaultId"`
+			Hashes  map[string]string `json:"hashes"`
+		}{VaultID: vaultID, Hashes: hashes}
+		if err := json.NewEncoder(metaPart).Encode(meta); err != nil {
+			writeErr = fmt.Errorf("encode meta: %w", err)
+			errCh <- writeErr
+			return
+		}
+
+		// Write each file as a multipart part.
+		for _, f := range files {
+			part, err := writer.CreateFormFile(f.Path, f.Path)
+			if err != nil {
+				writeErr = fmt.Errorf("create file part %s: %w", f.Path, err)
+				errCh <- writeErr
+				return
+			}
+			if _, err := io.Copy(part, f.Data); err != nil {
+				writeErr = fmt.Errorf("copy file data %s: %w", f.Path, err)
+				errCh <- writeErr
+				return
+			}
+		}
+
+		if err := writer.Close(); err != nil {
+			writeErr = fmt.Errorf("close multipart writer: %w", err)
+			errCh <- writeErr
+			return
+		}
+		errCh <- nil
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/import/upload", pr)
+	if err != nil {
+		pr.Close()
+		<-errCh // drain goroutine to prevent leak
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	// Use a client without timeout — large imports can take much longer than 30s.
+	// Context cancellation still handles user-initiated aborts.
+	noTimeoutClient := &http.Client{}
+	resp2, err := noTimeoutClient.Do(req)
+	if err != nil {
+		if writeErr := <-errCh; writeErr != nil {
+			return nil, fmt.Errorf("%w (write side: %v)", err, writeErr)
+		}
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer resp2.Body.Close()
+
+	respBody, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		<-errCh
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp2.StatusCode >= 400 {
+		<-errCh
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+			return nil, &HTTPError{StatusCode: resp2.StatusCode, Message: errResp.Error}
+		}
+		return nil, &HTTPError{StatusCode: resp2.StatusCode, Message: string(respBody)}
+	}
+
+	var resp ImportUploadResponse
+	if len(respBody) > 0 {
+		if err := json.Unmarshal(respBody, &resp); err != nil {
+			<-errCh
+			return nil, fmt.Errorf("unmarshal response: %w", err)
+		}
+	}
+
+	// Check for write errors from the goroutine.
+	if writeErr := <-errCh; writeErr != nil {
+		return nil, writeErr
+	}
+
+	return &resp, nil
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, target any) error {
 	var bodyReader io.Reader
 	if body != nil {

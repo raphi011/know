@@ -50,7 +50,11 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("GET /api/assets/meta", authMw(http.HandlerFunc(s.getAssetMeta)))
 	mux.Handle("DELETE /api/assets", authMw(http.HandlerFunc(s.deleteAsset)))
 
-	// Bulk upload
+	// Import (two-phase: manifest + upload)
+	mux.Handle("POST /api/import/manifest", authMw(http.HandlerFunc(s.importManifest)))
+	mux.Handle("POST /api/import/upload", authMw(http.HandlerFunc(s.importUpload)))
+
+	// Bulk upload (used by integration tests; CLI uses import/* endpoints)
 	mux.Handle("POST /api/bulk", authMw(http.HandlerFunc(s.bulkUpload)))
 
 	// Search

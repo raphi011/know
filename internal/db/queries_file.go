@@ -14,10 +14,14 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// fileSize returns the appropriate size for a file input: len(Data) for binary
-// files, len(Content) for text files. This ensures FileMeta.Size is non-zero
-// for markdown documents.
+// fileSize returns the appropriate size for a file input. It checks (in order):
+// an explicit Size override, len(Data) for binary files, and len(Content) for
+// text files. The Size override is used by streaming imports where the file data
+// is not buffered in memory.
 func fileSize(input models.FileInput) int {
+	if input.Size > 0 {
+		return input.Size
+	}
 	if len(input.Data) > 0 {
 		return len(input.Data)
 	}
@@ -671,6 +675,29 @@ func (c *Client) GetFileMetaByPath(ctx context.Context, vaultID, filePath string
 		return nil, fmt.Errorf("get file meta by path: %w", err)
 	}
 	return firstResultOpt(results), nil
+}
+
+// GetFileMetaByPaths returns lightweight metadata for multiple files in a single query.
+// Returns a map of path → *FileMeta. Missing files are absent from the map.
+func (c *Client) GetFileMetaByPaths(ctx context.Context, vaultID string, paths []string) (map[string]*models.FileMeta, error) {
+	defer c.logOp(ctx, "file.get_meta_by_paths", time.Now())
+	if len(paths) == 0 {
+		return map[string]*models.FileMeta{}, nil
+	}
+	sql := `SELECT path, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND path IN $paths`
+	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"paths":    paths,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get file meta by paths: %w", err)
+	}
+	all := allResults(results)
+	m := make(map[string]*models.FileMeta, len(all))
+	for i := range all {
+		m[all[i].Path] = &all[i]
+	}
+	return m, nil
 }
 
 // ListFileMetas returns lightweight metadata (no content/data) for files matching the filter.

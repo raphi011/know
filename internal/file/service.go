@@ -268,8 +268,43 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		Data:        input.Data, // carried for fileSize() — not stored in DB
 	}
 
-	// Auto-create parent folders before file upsert
-	if err := s.db.EnsureFolders(ctx, input.VaultID, path); err != nil {
+	return s.postUpsert(ctx, input.VaultID, dbInput, contentHash)
+}
+
+// CreateBinaryFromHash creates or updates DB metadata for a binary file whose blob
+// is already stored in the blob store. This is used by the streaming import path where
+// the blob was written via PutVerified before this method is called.
+// Unlike Create(), this method does not read or buffer the file data.
+func (s *Service) CreateBinaryFromHash(ctx context.Context, input models.FileInput) (*models.File, error) {
+	if input.ContentHash == nil {
+		return nil, fmt.Errorf("content hash required")
+	}
+	if input.MimeType == "" {
+		input.MimeType = models.DetectMimeType(input.Path)
+	}
+
+	title := filenameTitle(input.Path)
+	path := models.NormalizePath(input.Path)
+
+	dbInput := models.FileInput{
+		VaultID:     input.VaultID,
+		Path:        path,
+		Title:       title,
+		ContentHash: input.ContentHash,
+		Labels:      input.Labels,
+		DocType:     input.DocType,
+		Metadata:    input.Metadata,
+		MimeType:    input.MimeType,
+		Size:        input.Size,
+	}
+
+	return s.postUpsert(ctx, input.VaultID, dbInput, *input.ContentHash)
+}
+
+// postUpsert handles the shared lifecycle after building a FileInput:
+// ensure folders → upsert → version snapshot → publish event → enqueue job.
+func (s *Service) postUpsert(ctx context.Context, vaultID string, dbInput models.FileInput, contentHash string) (*models.File, error) {
+	if err := s.db.EnsureFolders(ctx, vaultID, dbInput.Path); err != nil {
 		return nil, fmt.Errorf("ensure parent folders: %w", err)
 	}
 
@@ -278,27 +313,23 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		return nil, fmt.Errorf("upsert file: %w", err)
 	}
 
-	// Create version snapshot of old content (if this was an update with changed content)
 	if !created && previousFile != nil {
 		fileID, idErr := models.RecordIDString(doc.ID)
 		if idErr != nil {
 			logutil.FromCtx(ctx).Warn("failed to extract file ID for versioning", "error", idErr)
 		} else {
-			s.maybeCreateVersion(ctx, fileID, input.VaultID, previousFile, contentHash)
+			s.maybeCreateVersion(ctx, fileID, vaultID, previousFile, contentHash)
 		}
 	}
 
-	// Publish change event (file is stored but not yet processed)
 	if created {
-		s.publishFileEvent("file.created", input.VaultID, doc)
+		s.publishFileEvent("file.created", vaultID, doc)
 	} else {
-		s.publishFileEvent("file.updated", input.VaultID, doc)
+		s.publishFileEvent("file.updated", vaultID, doc)
 	}
 
-	// Enqueue pipeline job for background processing.
-	// On re-ingest with changed content, cancel any outstanding jobs first.
 	if err := s.enqueueJob(ctx, doc, created, previousFile); err != nil {
-		logutil.FromCtx(ctx).Warn("failed to enqueue pipeline job", "path", doc.Path, "error", err)
+		logutil.FromCtx(ctx).Error("failed to enqueue pipeline job", "path", doc.Path, "error", err)
 	}
 
 	return doc, nil
