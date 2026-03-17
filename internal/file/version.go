@@ -9,6 +9,29 @@ import (
 	"github.com/raphi011/know/internal/models"
 )
 
+// resolveVersionConfig returns a VersionConfig that uses vault-specific overrides
+// when explicitly set, falling back to the service-wide defaults.
+// Checks raw vault.Settings (not Defaults()) so that hardcoded model defaults
+// don't override the service-level config from env vars.
+func (s *Service) resolveVersionConfig(ctx context.Context, vaultID string) VersionConfig {
+	vc := s.versionConfig
+	vault, err := s.db.GetVault(ctx, vaultID)
+	if err != nil {
+		logutil.FromCtx(ctx).Warn("failed to load vault for version config, using defaults", "vault_id", vaultID, "error", err)
+		return vc
+	}
+	if vault.Settings == nil {
+		return vc
+	}
+	if vault.Settings.VersionCoalesceMinutes > 0 {
+		vc.CoalesceMinutes = vault.Settings.VersionCoalesceMinutes
+	}
+	if vault.Settings.VersionRetentionCount > 0 {
+		vc.RetentionCount = vault.Settings.VersionRetentionCount
+	}
+	return vc
+}
+
 // maybeCreateVersion snapshots the old file content as a version if the
 // coalescing window has elapsed and the content actually changed.
 func (s *Service) maybeCreateVersion(ctx context.Context, fileID, vaultID string, oldFile *models.File, newContentHash string) {
@@ -19,15 +42,17 @@ func (s *Service) maybeCreateVersion(ctx context.Context, fileID, vaultID string
 		return
 	}
 
+	vc := s.resolveVersionConfig(ctx, vaultID)
+
 	// Coalescing: skip version if last one is too recent (0 = disabled)
-	if s.versionConfig.CoalesceMinutes > 0 {
+	if vc.CoalesceMinutes > 0 {
 		latest, err := s.db.GetLatestVersion(ctx, fileID)
 		if err != nil {
 			logger.Warn("failed to check latest version for coalescing", "file_id", fileID, "error", err)
 			return
 		}
 		if latest != nil {
-			threshold := time.Now().Add(-time.Duration(s.versionConfig.CoalesceMinutes) * time.Minute)
+			threshold := time.Now().Add(-time.Duration(vc.CoalesceMinutes) * time.Minute)
 			if latest.CreatedAt.After(threshold) {
 				return
 			}
@@ -57,13 +82,13 @@ func (s *Service) maybeCreateVersion(ctx context.Context, fileID, vaultID string
 	logger.Info("created version snapshot", "file_id", fileID, "version", nextVersion)
 
 	// Enforce retention cap
-	s.enforceRetention(ctx, fileID)
+	s.enforceRetention(ctx, fileID, vc)
 }
 
 // enforceRetention deletes versions beyond the retention cap.
-func (s *Service) enforceRetention(ctx context.Context, fileID string) {
+func (s *Service) enforceRetention(ctx context.Context, fileID string, vc VersionConfig) {
 	logger := logutil.FromCtx(ctx)
-	deleted, err := s.db.DeleteOldestVersions(ctx, fileID, s.versionConfig.RetentionCount)
+	deleted, err := s.db.DeleteOldestVersions(ctx, fileID, vc.RetentionCount)
 	if err != nil {
 		logger.Warn("failed to enforce version retention", "file_id", fileID, "error", err)
 		return

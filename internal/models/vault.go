@@ -26,6 +26,16 @@ type VaultSettings struct {
 	TemplatePath           string  `json:"template_path,omitempty"`
 	DailyNotePath          string  `json:"daily_note_path,omitempty"`
 	TranscriptTemplate     string  `json:"transcript_template,omitempty"` // path to template for LLM transcript summarization (empty = disabled)
+
+	// Search tuning
+	RRFK               int `json:"rrf_k,omitempty"`
+	HNSWEF             int `json:"hnsw_ef,omitempty"`
+	DefaultSearchLimit int `json:"default_search_limit,omitempty"`
+	MaxSearchLimit     int `json:"max_search_limit,omitempty"`
+
+	// Versioning
+	VersionCoalesceMinutes int `json:"version_coalesce_minutes,omitempty"`
+	VersionRetentionCount  int `json:"version_retention_count,omitempty"`
 }
 
 const (
@@ -41,6 +51,18 @@ const (
 	DefaultMemoryArchiveThreshold = 0.2
 	// DefaultMemoryDecayHalfLife is the half-life in days for memory recency decay.
 	DefaultMemoryDecayHalfLife = 30
+	// DefaultRRFK is the default RRF K parameter for hybrid search fusion.
+	DefaultRRFK = 60
+	// DefaultHNSWEF is the default HNSW EF parameter for vector search.
+	DefaultHNSWEF = 40
+	// DefaultSearchLimit is the default number of search results.
+	DefaultSearchLimit = 20
+	// DefaultMaxSearchLimit is the maximum allowed search result limit.
+	DefaultMaxSearchLimit = 100
+	// DefaultVersionCoalesceMinutes is the default coalescing window for version snapshots.
+	DefaultVersionCoalesceMinutes = 10
+	// DefaultVersionRetentionCount is the default max versions per file.
+	DefaultVersionRetentionCount = 50
 )
 
 // Validate checks that all non-zero fields in VaultSettings are within valid ranges.
@@ -53,6 +75,27 @@ func (s VaultSettings) Validate() error {
 	}
 	if s.MemoryDecayHalfLife < 0 {
 		return fmt.Errorf("memory_decay_half_life must be non-negative, got %d", s.MemoryDecayHalfLife)
+	}
+	if s.RRFK < 0 {
+		return fmt.Errorf("rrf_k must be non-negative, got %d", s.RRFK)
+	}
+	if s.HNSWEF < 0 {
+		return fmt.Errorf("hnsw_ef must be non-negative, got %d", s.HNSWEF)
+	}
+	if s.DefaultSearchLimit < 0 {
+		return fmt.Errorf("default_search_limit must be non-negative, got %d", s.DefaultSearchLimit)
+	}
+	if s.MaxSearchLimit < 0 {
+		return fmt.Errorf("max_search_limit must be non-negative, got %d", s.MaxSearchLimit)
+	}
+	if s.DefaultSearchLimit > 0 && s.MaxSearchLimit > 0 && s.DefaultSearchLimit > s.MaxSearchLimit {
+		return fmt.Errorf("default_search_limit (%d) must not exceed max_search_limit (%d)", s.DefaultSearchLimit, s.MaxSearchLimit)
+	}
+	if s.VersionCoalesceMinutes < 0 {
+		return fmt.Errorf("version_coalesce_minutes must be non-negative, got %d", s.VersionCoalesceMinutes)
+	}
+	if s.VersionRetentionCount < 0 {
+		return fmt.Errorf("version_retention_count must be non-negative, got %d", s.VersionRetentionCount)
 	}
 	return nil
 }
@@ -82,6 +125,24 @@ func (s VaultSettings) Merge(patch VaultSettings) VaultSettings {
 	} else if patch.TranscriptTemplate != "" {
 		s.TranscriptTemplate = patch.TranscriptTemplate
 	}
+	if patch.RRFK > 0 {
+		s.RRFK = patch.RRFK
+	}
+	if patch.HNSWEF > 0 {
+		s.HNSWEF = patch.HNSWEF
+	}
+	if patch.DefaultSearchLimit > 0 {
+		s.DefaultSearchLimit = patch.DefaultSearchLimit
+	}
+	if patch.MaxSearchLimit > 0 {
+		s.MaxSearchLimit = patch.MaxSearchLimit
+	}
+	if patch.VersionCoalesceMinutes > 0 {
+		s.VersionCoalesceMinutes = patch.VersionCoalesceMinutes
+	}
+	if patch.VersionRetentionCount > 0 {
+		s.VersionRetentionCount = patch.VersionRetentionCount
+	}
 	return s
 }
 
@@ -94,6 +155,12 @@ func (v *Vault) Defaults() VaultSettings {
 		MemoryDecayHalfLife:    DefaultMemoryDecayHalfLife,
 		TemplatePath:           DefaultTemplatePath,
 		DailyNotePath:          DefaultDailyNotePath,
+		RRFK:                   DefaultRRFK,
+		HNSWEF:                 DefaultHNSWEF,
+		DefaultSearchLimit:     DefaultSearchLimit,
+		MaxSearchLimit:         DefaultMaxSearchLimit,
+		VersionCoalesceMinutes: DefaultVersionCoalesceMinutes,
+		VersionRetentionCount:  DefaultVersionRetentionCount,
 	}
 	if v.Settings == nil {
 		return s

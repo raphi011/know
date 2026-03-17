@@ -85,18 +85,31 @@ func truncateSnippet(s string, maxLen int) string {
 	return string(runes[:cut]) + "…"
 }
 
-const maxLimit = 100
-
 // Search performs search with graceful degradation.
 // With embedder: hybrid search via SurrealDB's search::rrf() (BM25 + vector, fused in DB).
 // Without embedder: BM25-only chunk search.
 func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult, error) {
+	// Load vault settings for per-vault search tuning. If the vault lookup fails,
+	// fall back to model defaults — the subsequent search query may still succeed,
+	// and using default tuning params is better than blocking search entirely.
+	vault, err := s.db.GetVault(ctx, input.VaultID)
+	if err != nil {
+		logutil.FromCtx(ctx).Warn("failed to load vault settings for search, using defaults",
+			"vault_id", input.VaultID, "error", err)
+	}
+	var settings models.VaultSettings
+	if vault != nil {
+		settings = vault.Defaults()
+	} else {
+		settings = (&models.Vault{}).Defaults()
+	}
+
 	limit := input.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = settings.DefaultSearchLimit
 	}
-	if limit > maxLimit {
-		limit = maxLimit
+	if limit > settings.MaxSearchLimit {
+		limit = settings.MaxSearchLimit
 	}
 
 	filter := db.SearchFilter{
@@ -105,6 +118,8 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		DocType: input.DocType,
 		Folder:  input.Folder,
 		Limit:   limit,
+		RRFK:    settings.RRFK,
+		HNSWEF:  settings.HNSWEF,
 	}
 
 	// BM25-only path: no embedder or explicitly requested
