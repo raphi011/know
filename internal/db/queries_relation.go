@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/raphi011/know/internal/models"
@@ -33,6 +34,40 @@ func (c *Client) CreateRelation(ctx context.Context, input models.FileRelationIn
 		return nil, fmt.Errorf("create relation: no result returned")
 	}
 	return &(*results)[2].Result[0], nil
+}
+
+// BatchCreateRelations creates multiple file relations in a single transaction.
+func (c *Client) BatchCreateRelations(ctx context.Context, inputs []models.FileRelationInput) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "relation.batch_create", time.Now())
+
+	var b strings.Builder
+	vars := make(map[string]any, len(inputs)*4)
+	b.WriteString("BEGIN TRANSACTION;\n")
+	for i, input := range inputs {
+		fromKey := fmt.Sprintf("from_%d", i)
+		toKey := fmt.Sprintf("to_%d", i)
+		rtKey := fmt.Sprintf("rt_%d", i)
+		srcKey := fmt.Sprintf("src_%d", i)
+		fromLetKey := fmt.Sprintf("f_%d", i)
+		toLetKey := fmt.Sprintf("t_%d", i)
+		fmt.Fprintf(&b, "LET $%s = type::record(\"file\", $%s);\n", fromLetKey, fromKey)
+		fmt.Fprintf(&b, "LET $%s = type::record(\"file\", $%s);\n", toLetKey, toKey)
+		fmt.Fprintf(&b, "RELATE $%s->file_relation->$%s SET rel_type = $%s, source = $%s;\n",
+			fromLetKey, toLetKey, rtKey, srcKey)
+		vars[fromKey] = bareID("file", input.FromFileID)
+		vars[toKey] = bareID("file", input.ToFileID)
+		vars[rtKey] = input.RelType
+		vars[srcKey] = input.Source
+	}
+	b.WriteString("COMMIT TRANSACTION;")
+
+	if _, err := surrealdb.Query[any](ctx, c.DB(), b.String(), vars); err != nil {
+		return fmt.Errorf("batch create relations: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) GetRelations(ctx context.Context, fileID string) ([]models.FileRelation, error) {

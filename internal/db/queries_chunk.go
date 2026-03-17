@@ -85,6 +85,37 @@ func (c *Client) GetChunks(ctx context.Context, fileID string) ([]models.Chunk, 
 	return allResults(results), nil
 }
 
+// GetFirstChunksByFileIDs returns the first chunk (by position) for each of the given file IDs.
+// Results are returned as a map from file ID to the first chunk.
+func (c *Client) GetFirstChunksByFileIDs(ctx context.Context, fileIDs []string) (map[string]models.Chunk, error) {
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+	defer c.logOp(ctx, "chunk.get_first_by_file_ids", time.Now())
+	records := make([]surrealmodels.RecordID, len(fileIDs))
+	for i, id := range fileIDs {
+		records[i] = newRecordID("file", id)
+	}
+	sql := `SELECT * FROM chunk WHERE file IN $file_ids ORDER BY position ASC`
+	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
+		"file_ids": records,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get first chunks by file ids: %w", err)
+	}
+	out := make(map[string]models.Chunk)
+	for _, ch := range allResults(results) {
+		fileID, err := models.RecordIDString(ch.File)
+		if err != nil {
+			continue
+		}
+		if _, exists := out[fileID]; !exists {
+			out[fileID] = ch
+		}
+	}
+	return out, nil
+}
+
 // GetUnembeddedChunks returns chunks for a file that have no embedding yet.
 func (c *Client) GetUnembeddedChunks(ctx context.Context, fileID string) ([]models.Chunk, error) {
 	defer c.logOp(ctx, "chunk.get_unembedded", time.Now())
@@ -109,27 +140,52 @@ func (c *Client) DeleteChunks(ctx context.Context, fileID string) error {
 	return nil
 }
 
-// DeleteChunkByID deletes a single chunk by its ID.
-func (c *Client) DeleteChunkByID(ctx context.Context, id string) error {
-	defer c.logOp(ctx, "chunk.delete_by_id", time.Now())
-	sql := `DELETE type::record("chunk", $id)`
+// DeleteChunksByIDs deletes multiple chunks by their IDs in a single query.
+func (c *Client) DeleteChunksByIDs(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "chunk.delete_by_ids", time.Now())
+	records := make([]surrealmodels.RecordID, len(ids))
+	for i, id := range ids {
+		records[i] = newRecordID("chunk", id)
+	}
+	sql := `DELETE FROM chunk WHERE id IN $ids`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id": id,
+		"ids": records,
 	}); err != nil {
-		return fmt.Errorf("delete chunk %s: %w", id, err)
+		return fmt.Errorf("delete chunks by ids: %w", err)
 	}
 	return nil
 }
 
-// UpdateChunkPosition updates only the position field of a chunk.
-func (c *Client) UpdateChunkPosition(ctx context.Context, id string, position int) error {
-	defer c.logOp(ctx, "chunk.update_position", time.Now())
-	sql := `UPDATE type::record("chunk", $id) SET position = $position`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id":       id,
-		"position": position,
-	}); err != nil {
-		return fmt.Errorf("update chunk position: %w", err)
+// ChunkPositionUpdate pairs a chunk ID with its new position.
+type ChunkPositionUpdate struct {
+	ID       string
+	Position int
+}
+
+// BatchUpdateChunkPositions updates position fields for multiple chunks in a single transaction.
+func (c *Client) BatchUpdateChunkPositions(ctx context.Context, updates []ChunkPositionUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "chunk.batch_update_position", time.Now())
+
+	var b strings.Builder
+	vars := make(map[string]any, len(updates)*2)
+	b.WriteString("BEGIN TRANSACTION;\n")
+	for i, u := range updates {
+		idKey := fmt.Sprintf("id_%d", i)
+		posKey := fmt.Sprintf("pos_%d", i)
+		fmt.Fprintf(&b, "UPDATE type::record(\"chunk\", $%s) SET position = $%s;\n", idKey, posKey)
+		vars[idKey] = u.ID
+		vars[posKey] = u.Position
+	}
+	b.WriteString("COMMIT TRANSACTION;")
+
+	if _, err := surrealdb.Query[any](ctx, c.DB(), b.String(), vars); err != nil {
+		return fmt.Errorf("batch update chunk positions: %w", err)
 	}
 	return nil
 }
@@ -178,4 +234,3 @@ func (c *Client) BatchUpdateChunkEmbeddings(ctx context.Context, updates []Chunk
 	}
 	return nil
 }
-

@@ -11,9 +11,10 @@ import (
 )
 
 // stemNormSQL is the SurrealDB expression that normalizes a raw_target to a stem:
-// strips .md extension, lowercases, replaces spaces and underscores with hyphens.
+// strips trailing .md extension, lowercases, replaces spaces and underscores with hyphens.
+// Must stay in sync with models.FilenameStem (Go side).
 // Used in both ResolveDanglingLinksByStem and UnresolveStemOnlyLinks.
-const stemNormSQL = `string::replace(string::replace(string::lowercase(string::replace(raw_target, ".md", "")), " ", "-"), "_", "-")`
+const stemNormSQL = `string::replace(string::replace(string::lowercase(IF string::ends_with(raw_target, ".md") THEN string::slice(raw_target, 0, string::len(raw_target) - 3) ELSE raw_target END), " ", "-"), "_", "-")`
 
 // CreateWikiLinks creates wiki-link records for a file in a single batch INSERT.
 func (c *Client) CreateWikiLinks(ctx context.Context, fromFileID, vaultID string, links []WikiLinkInput) error {
@@ -166,15 +167,23 @@ func (c *Client) GetWikiLinksToFile(ctx context.Context, fileID string) ([]model
 	return allResults(results), nil
 }
 
-// UpdateWikiLinkRawTarget updates the raw_target of a single wiki-link by ID.
-func (c *Client) UpdateWikiLinkRawTarget(ctx context.Context, linkID, newTarget string) error {
-	defer c.logOp(ctx, "wikilink.update_raw_target", time.Now())
-	sql := `UPDATE type::record("wiki_link", $link_id) SET raw_target = $new_target`
+// BatchUpdateWikiLinkRawTargets updates the raw_target of multiple wiki-links in a single query.
+// All links are set to the same newTarget value.
+func (c *Client) BatchUpdateWikiLinkRawTargets(ctx context.Context, linkIDs []string, newTarget string) error {
+	if len(linkIDs) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "wikilink.batch_update_raw_target", time.Now())
+	records := make([]surrealmodels.RecordID, len(linkIDs))
+	for i, id := range linkIDs {
+		records[i] = newRecordID("wiki_link", bareID("wiki_link", id))
+	}
+	sql := `UPDATE wiki_link SET raw_target = $new_target WHERE id IN $ids`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"link_id":    bareID("wiki_link", linkID),
+		"ids":        records,
 		"new_target": newTarget,
 	}); err != nil {
-		return fmt.Errorf("update wiki link raw target: %w", err)
+		return fmt.Errorf("batch update wiki link raw targets: %w", err)
 	}
 	return nil
 }

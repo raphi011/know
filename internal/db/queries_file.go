@@ -552,6 +552,23 @@ func (c *Client) UpdateFileAccess(ctx context.Context, fileID string) error {
 	return nil
 }
 
+// BatchUpdateFileAccess increments access_count and sets last_accessed_at for multiple files.
+func (c *Client) BatchUpdateFileAccess(ctx context.Context, fileIDs []string) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	defer c.logOp(ctx, "file.batch_update_access", time.Now())
+	records := make([]surrealmodels.RecordID, len(fileIDs))
+	for i, id := range fileIDs {
+		records[i] = newRecordID("file", id)
+	}
+	sql := `UPDATE file SET last_accessed_at = time::now(), access_count += 1 WHERE id IN $ids`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{"ids": records}); err != nil {
+		return fmt.Errorf("batch update file access: %w", err)
+	}
+	return nil
+}
+
 // SetFileAccessCount sets access_count to a specific value and updates last_accessed_at.
 func (c *Client) SetFileAccessCount(ctx context.Context, fileID string, count int) error {
 	defer c.logOp(ctx, "file.set_access_count", time.Now())

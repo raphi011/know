@@ -888,9 +888,9 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 		return nil, fmt.Errorf("move file: %w", err)
 	}
 
-	// Recompute raw_targets for incoming wiki-links to use shortest unambiguous target
+	// Best-effort: raw_target recomputation is cosmetic (affects display only)
 	if err := s.recomputeIncomingRawTargets(ctx, vaultID, fileID, normalizedNew); err != nil {
-		return nil, fmt.Errorf("recompute incoming raw targets: %w", err)
+		logutil.FromCtx(ctx).Warn("recompute incoming raw targets", "error", err)
 	}
 
 	// Handle ambiguity for the new stem
@@ -983,13 +983,6 @@ func (s *Service) resolveAfterStemCollisionRemoval(ctx context.Context, vaultID,
 	if stem == "" {
 		return nil
 	}
-	count, err := s.db.CountFilesByStem(ctx, vaultID, stem)
-	if err != nil {
-		return fmt.Errorf("count files by stem: %w", err)
-	}
-	if count != 1 {
-		return nil
-	}
 	remaining, err := s.db.GetFilesByStem(ctx, vaultID, stem)
 	if err != nil {
 		return fmt.Errorf("get files by stem: %w", err)
@@ -1052,6 +1045,7 @@ func (s *Service) recomputeIncomingRawTargets(ctx context.Context, vaultID, file
 	if err != nil {
 		return fmt.Errorf("get wiki links to file: %w", err)
 	}
+	var toUpdate []string
 	for _, link := range links {
 		if link.RawTarget == newTarget {
 			continue
@@ -1061,10 +1055,10 @@ func (s *Service) recomputeIncomingRawTargets(ctx context.Context, vaultID, file
 			logger.Warn("failed to extract link ID", "error", err)
 			continue
 		}
-		if err := s.db.UpdateWikiLinkRawTarget(ctx, linkID, newTarget); err != nil {
-			logger.Warn("failed to update raw target", "link_id", linkID, "error", err)
-			continue
-		}
+		toUpdate = append(toUpdate, linkID)
+	}
+	if err := s.db.BatchUpdateWikiLinkRawTargets(ctx, toUpdate, newTarget); err != nil {
+		logger.Warn("failed to batch update raw targets", "error", err)
 	}
 	return nil
 }
@@ -1104,6 +1098,7 @@ func (s *Service) syncChunks(ctx context.Context, fileID string, parsed *parser.
 
 	matchedOldIDs := make(map[string]bool)
 	var toCreate []models.ChunkInput
+	var positionUpdates []db.ChunkPositionUpdate
 
 	for i, newChunk := range newChunkResults {
 		if entry, ok := oldByContent[newChunk.Content]; ok && !matchedOldIDs[entry.id] {
@@ -1111,9 +1106,7 @@ func (s *Service) syncChunks(ctx context.Context, fileID string, parsed *parser.
 			matchedOldIDs[entry.id] = true
 			// Update position if it changed
 			if entry.chunk.Position != i {
-				if err := s.db.UpdateChunkPosition(ctx, entry.id, i); err != nil {
-					logger.Warn("failed to update chunk position", "chunk_id", entry.id, "error", err)
-				}
+				positionUpdates = append(positionUpdates, db.ChunkPositionUpdate{ID: entry.id, Position: i})
 			}
 		} else {
 			// New or changed chunk — create with embed_at
@@ -1136,13 +1129,20 @@ func (s *Service) syncChunks(ctx context.Context, fileID string, parsed *parser.
 		}
 	}
 
-	// Delete old chunks that were not matched (removed content)
+	// Batch update positions for reordered chunks
+	if err := s.db.BatchUpdateChunkPositions(ctx, positionUpdates); err != nil {
+		logger.Warn("failed to batch update chunk positions", "error", err)
+	}
+
+	// Batch delete old chunks that were not matched (removed content)
+	var toDelete []string
 	for _, id := range allOldIDs {
 		if !matchedOldIDs[id] {
-			if err := s.db.DeleteChunkByID(ctx, id); err != nil {
-				logger.Warn("failed to delete removed chunk", "chunk_id", id, "error", err)
-			}
+			toDelete = append(toDelete, id)
 		}
+	}
+	if err := s.db.DeleteChunksByIDs(ctx, toDelete); err != nil {
+		logger.Warn("failed to batch delete removed chunks", "error", err)
 	}
 
 	// Create new chunks
@@ -1178,6 +1178,7 @@ func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, 
 		targets = []string{v}
 	}
 
+	var inputs []models.FileRelationInput
 	for _, target := range targets {
 		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
 		if err != nil {
@@ -1191,14 +1192,15 @@ func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, 
 		if err != nil {
 			return fmt.Errorf("extract resolved file id for %q: %w", target, err)
 		}
-		if _, err := s.db.CreateRelation(ctx, models.FileRelationInput{
+		inputs = append(inputs, models.FileRelationInput{
 			FromFileID: fileID,
 			ToFileID:   toFileID,
 			RelType:    string(models.RelRelatesTo),
 			Source:     string(models.RelSourceFrontmatter),
-		}); err != nil {
-			return fmt.Errorf("create relates_to relation for %q: %w", target, err)
-		}
+		})
+	}
+	if err := s.db.BatchCreateRelations(ctx, inputs); err != nil {
+		return fmt.Errorf("create relates_to relations: %w", err)
 	}
 
 	return nil
