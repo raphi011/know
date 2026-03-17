@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/logutil"
@@ -13,7 +14,7 @@ import (
 
 // ParseHandler returns a pipeline.Handler that runs the full text-file processing
 // pipeline for a file: chunking, wiki-links, dangling link resolution, relations,
-// tasks, external links, and label sync. On success it enqueues a "chunk" job so
+// tasks, external links, and label sync. On success it enqueues an "embed" job so
 // the embedding worker can pick up the freshly created chunks.
 func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 	return func(ctx context.Context, job models.PipelineJob) error {
@@ -125,12 +126,116 @@ func TranscribeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			}
 		}
 
+		// Enqueue summarize job if LLM is available — the handler checks
+		// whether the vault has a transcript_template configured.
+		if svc.getModel() != nil {
+			if err := svc.db.CreateJob(ctx, fileID, "summarize", 0); err != nil {
+				return fmt.Errorf("create summarize job: %w", err)
+			}
+			if bus != nil {
+				bus.Publish(event.ChangeEvent{Type: "job.created"})
+			}
+		}
+
 		vaultID, err := models.RecordIDString(doc.Vault)
 		if err != nil {
 			logutil.FromCtx(ctx).Warn("failed to extract vault id after transcription", "file_id", fileID, "error", err)
 		} else {
 			svc.publishFileEvent("file.processed", vaultID, doc)
 		}
+		return nil
+	}
+}
+
+// SummarizeHandler returns a pipeline.Handler that uses an LLM to summarize
+// an audio transcript using a vault template. If no transcript_template is
+// configured on the vault, the handler completes without action.
+func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
+	return func(ctx context.Context, job models.PipelineJob) error {
+		logger := logutil.FromCtx(ctx)
+
+		fileID, err := models.RecordIDString(job.File)
+		if err != nil {
+			return fmt.Errorf("extract file id: %w", err)
+		}
+
+		model := svc.getModel()
+		if model == nil {
+			logger.Warn("LLM model not available, skipping summarization", "file_id", fileID)
+			return nil
+		}
+
+		doc, err := svc.db.GetFileByID(ctx, fileID)
+		if err != nil {
+			return fmt.Errorf("get file: %w", err)
+		}
+		if doc == nil {
+			logger.Warn("file deleted before summarization", "file_id", fileID)
+			return nil
+		}
+
+		vaultID, err := models.RecordIDString(doc.Vault)
+		if err != nil {
+			return fmt.Errorf("extract vault id: %w", err)
+		}
+
+		// Check vault setting for transcript template
+		vault, err := svc.db.GetVault(ctx, vaultID)
+		if err != nil {
+			return fmt.Errorf("get vault: %w", err)
+		}
+		if vault == nil {
+			logger.Warn("vault not found, skipping summarization", "vault_id", vaultID, "file_id", fileID)
+			return nil
+		}
+		templatePath := vault.Defaults().TranscriptTemplate
+		if templatePath == "" {
+			// No template configured — nothing to do.
+			return nil
+		}
+
+		// Fetch template content
+		tpl, err := svc.db.GetFileByPath(ctx, vaultID, templatePath)
+		if err != nil {
+			return fmt.Errorf("get template %s: %w", templatePath, err)
+		}
+		if tpl == nil {
+			logger.Warn("transcript template not found, skipping summarization",
+				"template_path", templatePath, "vault", vaultID)
+			return nil
+		}
+
+		if doc.Content == "" {
+			logger.Warn("file has no transcript content, skipping summarization", "file_id", fileID)
+			return nil
+		}
+
+		// Apply template variables before LLM fill
+		templateContent := ApplyTemplateVars(tpl.Content, DefaultTemplateVars(time.Now(), doc.Path, vault.Name))
+
+		logger.Info("summarizing transcript with template",
+			"file_id", fileID, "template", templatePath, "transcript_len", len(doc.Content))
+
+		summary, err := model.FillTemplate(ctx, templateContent, doc.Content)
+		if err != nil {
+			return fmt.Errorf("fill template: %w", err)
+		}
+
+		// Overwrite the raw transcript with the LLM-rendered summary.
+		if err := svc.db.UpdateFileTranscript(ctx, fileID, summary); err != nil {
+			return fmt.Errorf("update summary: %w", err)
+		}
+
+		// Re-parse so chunks are regenerated from the summary content.
+		if err := svc.db.CreateJob(ctx, fileID, "parse", 0); err != nil {
+			return fmt.Errorf("create parse job after summarization: %w", err)
+		}
+		if bus != nil {
+			bus.Publish(event.ChangeEvent{Type: "job.created"})
+		}
+
+		doc.Content = summary
+		svc.publishFileEvent("file.processed", vaultID, doc)
 		return nil
 	}
 }

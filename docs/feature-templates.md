@@ -15,7 +15,7 @@ Templates are reusable document structures stored as regular documents in a conf
 
 ```bash
 # Copy a template file into the vault
-know cp ./my-template.md /templates/research.md --vault default
+know import ./my-template.md /templates/research.md --vault default
 ```
 
 ### Via MCP

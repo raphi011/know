@@ -4,7 +4,7 @@ The ingestion pipeline handles copying, parsing, embedding, and chunking documen
 
 ## Overview
 
-When a document is ingested via `know cp` or the WebDAV interface, it passes through the full document pipeline: **parse -> embed -> link -> chunk**. Unchanged files are automatically skipped based on content hash comparison, and every update creates an immutable version for rollback support.
+When a document is ingested via `know import` or the WebDAV interface, it passes through the full document pipeline: **parse -> embed -> link -> chunk**. Unchanged files are automatically skipped based on content hash comparison, and every update creates an immutable version for rollback support.
 
 ## How It Works
 
@@ -62,27 +62,30 @@ Documents can embed live queries using an inline DSL inside `know` code blocks. 
 
 ## Usage
 
-### Copying Files
+### Importing Files
 
 ```bash
-# Copy top-level files (unchanged files are automatically skipped)
-know cp ./docs / --vault default
+# Import a single file
+know import ./speech.mp3 / --vault default
 
-# Recursive copy with labels
-know cp ./notes /notes --vault default -r --labels "personal"
+# Import top-level files from a directory (unchanged files are automatically skipped)
+know import ./docs / --vault default
 
-# Dry run (preview which files would be copied)
-know cp ./wiki /wiki --vault default --dry-run
+# Recursive import with labels
+know import ./notes /notes --vault default -r --labels "personal"
+
+# Dry run (preview which files would be imported)
+know import ./wiki /wiki --vault default --dry-run
 
 # Force overwrite files with different content hash
-know cp ./docs /docs --vault default --force
+know import ./docs /docs --vault default --force
 ```
 
 Writing a file through the WebDAV interface also triggers the full pipeline on save.
 
 ## Reference
 
-### CLI Flags for `know cp`
+### CLI Flags for `know import`
 
 | Flag | Description |
 |------|-------------|
@@ -91,7 +94,8 @@ Writing a file through the WebDAV interface also triggers the full pipeline on s
 | `--force` | Overwrite existing files if content hash differs |
 | `--dry-run` | Preview without changes |
 | `-l, --labels` | Comma-separated labels to apply |
-| `--source` | Document source tag (default: `cp`) |
+| `-y, --yes` | Skip confirmation prompt |
+| `--no-ignore` | Import all files, ignoring .gitignore rules and dotfile filtering |
 | `--api-url` | REST API base URL (default: `KNOW_SERVER_URL` or `http://localhost:8484`) |
 | `--token` | API bearer token (or `KNOW_TOKEN`) |
 

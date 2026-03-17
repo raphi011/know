@@ -25,6 +25,7 @@ type VaultSettings struct {
 	MemoryDecayHalfLife    int     `json:"memory_decay_half_life,omitempty"`
 	TemplatePath           string  `json:"template_path,omitempty"`
 	DailyNotePath          string  `json:"daily_note_path,omitempty"`
+	TranscriptTemplate     string  `json:"transcript_template,omitempty"` // path to template for LLM transcript summarization (empty = disabled)
 
 	// Search tuning
 	RRFK               int `json:"rrf_k,omitempty"`
@@ -118,6 +119,11 @@ func (s VaultSettings) Merge(patch VaultSettings) VaultSettings {
 	}
 	if patch.DailyNotePath != "" {
 		s.DailyNotePath = patch.DailyNotePath
+	}
+	if patch.TranscriptTemplate == "-" {
+		s.TranscriptTemplate = ""
+	} else if patch.TranscriptTemplate != "" {
+		s.TranscriptTemplate = patch.TranscriptTemplate
 	}
 	if patch.RRFK > 0 {
 		s.RRFK = patch.RRFK

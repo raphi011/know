@@ -55,11 +55,13 @@ func newFinder(files []models.FileEntry) finderModel {
 		allFiles: files,
 	}
 	f.refilter()
+	// Focus the input at construction time so it accepts keystrokes immediately.
+	f.input.Focus()
 	return f
 }
 
 func (f finderModel) Init() tea.Cmd {
-	return f.input.Focus()
+	return nil
 }
 
 func (f finderModel) Update(msg tea.Msg) (finderModel, tea.Cmd) {
@@ -74,6 +76,8 @@ func (f finderModel) Update(msg tea.Msg) (finderModel, tea.Cmd) {
 				}
 			}
 			return f, nil
+		case "escape":
+			return f, tea.Quit
 		case "up":
 			if f.cursor > 0 {
 				f.cursor--

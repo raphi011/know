@@ -31,14 +31,16 @@ var (
 var importCmd = &cobra.Command{
 	Use:   "import <source> [vault-path]",
 	Short: "Import local files or an export archive into a vault",
-	Long: `Import Markdown files and images from a local directory or export archive into a vault.
+	Long: `Import files from a local path or export archive into a vault.
 
-The source can be a directory or a .tar.gz archive created by 'know export'.
+The source can be a single file, a directory, or a .tar.gz archive created by 'know export'.
 If vault-path is omitted, files are imported to / (root).
 
 Unchanged files are skipped by comparing content hashes, unless --force is set.
 Markdown files go through the full document pipeline (parse, embed, link, chunk).
 Image files (PNG, JPEG, GIF, SVG, WebP) are uploaded as binary assets.
+Audio files (MP3, WAV, M4A, OGG, FLAC, etc.) are uploaded as binary assets
+and transcribed if STT is configured.
 
 By default only top-level files are imported from directories. Use -r to recurse
 into subdirectories. Archives are always imported recursively.
@@ -49,6 +51,7 @@ directory, dotfiles (e.g. .DS_Store) and dot-directories (e.g. .obsidian/) are s
 Use --no-ignore to disable all filtering and import everything.
 
 Examples:
+  know import ./speech.mp3 / --vault default
   know import ./docs --vault default -r
   know import ./docs /imported --vault default -r
   know import ./notes /notes --vault default --labels personal,notes
@@ -120,7 +123,37 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if isArchiveFile(sourcePath) {
 		return importFromArchive(ctx, sourcePath, vaultPath)
 	}
-	return fmt.Errorf("source must be a directory or .tar.gz archive: %s", sourcePath)
+	if info.Mode().IsRegular() {
+		return importSingleFile(ctx, sourcePath, vaultPath)
+	}
+	return fmt.Errorf("source must be a file, directory, or .tar.gz archive: %s", sourcePath)
+}
+
+func importSingleFile(ctx context.Context, sourcePath, vaultPath string) error {
+	if !isSupportedFile(sourcePath) {
+		return fmt.Errorf("unsupported file type %s (supported: .md, .markdown, images, audio)", filepath.Ext(sourcePath))
+	}
+
+	// If vault path ends with /, append the filename
+	targetPath := vaultPath
+	if strings.HasSuffix(targetPath, "/") {
+		targetPath += filepath.Base(sourcePath)
+	}
+
+	if importDryRun {
+		fmt.Printf("  %s -> %s\n", sourcePath, targetPath)
+		fmt.Printf("\nDry run: 1 file would be imported to vault %s\n", importVaultID)
+		return nil
+	}
+
+	f, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	bulkFiles := []apiclient.BulkFile{{Path: targetPath, Data: f}}
+	return uploadAndPrintResults(ctx, bulkFiles, 0)
 }
 
 func importFromDirectory(ctx context.Context, dirPath, vaultPath string) error {
@@ -543,7 +576,7 @@ func collectWalkFiles(dirPath string, recursive, skipDot bool) (files []string, 
 
 func isSupportedFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
-	return ext == ".md" || ext == ".markdown" || models.IsImageFile(path)
+	return ext == ".md" || ext == ".markdown" || models.IsImageFile(path) || models.IsAudioFile(path)
 }
 
 func isArchiveFile(path string) bool {

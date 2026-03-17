@@ -53,6 +53,7 @@ type Config struct {
 	// Speech-to-text configuration
 	STTProvider LLMProvider // KNOW_STT_PROVIDER (default: "none")
 	STTModel    string      // KNOW_STT_MODEL (default: "gpt-4o-transcribe")
+	STTBaseURL  string      // KNOW_STT_BASE_URL (default: "" = OpenAI API)
 
 	// LLM configuration (for ask, extract-graph, render)
 	LLMProvider      LLMProvider
@@ -202,6 +203,7 @@ func Load() Config {
 		// Speech-to-text
 		STTProvider: LLMProvider(getEnv("KNOW_STT_PROVIDER", "none")),
 		STTModel:    getEnv("KNOW_STT_MODEL", "gpt-4o-transcribe"),
+		STTBaseURL:  getEnv("KNOW_STT_BASE_URL", ""),
 
 		// LLM (default to Anthropic)
 		LLMProvider:      LLMProvider(getEnv("KNOW_LLM_PROVIDER", "anthropic")),

@@ -38,6 +38,12 @@ bedrock-setup.fish
 .DS_Store
 Thumbs.db
 
+# Whisper models (downloaded via `just whisper-pull`)
+/models/
+
+# Test audio files
+*.mp3
+
 # Claude Code
 .claude/settings.local.json
 

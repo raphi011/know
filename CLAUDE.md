@@ -158,7 +158,7 @@ Each major feature has its own documentation file:
 - `docs/feature-mcp.md` - MCP server, tools, multi-instance setup, Claude Code/Cursor config
 - `docs/feature-agent.md` - Agent chat, TUI, tool approval, SSE streaming
 - `docs/feature-search.md` - Hybrid BM25+vector search, RRF fusion, LLM synthesis
-- `docs/feature-ingestion.md` - Document pipeline, cp command, frontmatter, wiki-links, versioning
+- `docs/feature-ingestion.md` - Document pipeline, import command, frontmatter, wiki-links, versioning
 - `docs/feature-memory.md` - Memory system, decay scoring, consolidation, archiving
 - `docs/feature-vaults.md` - Vaults, folders, access control, share links
 - `docs/feature-webdav.md` - WebDAV editing, auth, editor support
@@ -181,7 +181,7 @@ Best practices, framework gotchas, and library references have been moved to the
 ### Project Structure
 
 ```
-cmd/know/            # Single binary: CLI (cp, info, ui, db seed, db wipe) + server (serve)
+cmd/know/            # Single binary: CLI (import, info, agent, db seed, db wipe) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection
@@ -213,7 +213,7 @@ internal/
 - **Auth**: Bearer token → SHA256 hash → DB lookup → vault-scoped access
 - **REST API**: JSON endpoints at `/api/`, auth via `Authorization: Bearer` header
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
-- **CLI uses REST API**: `cp`/`info`/`ui` commands communicate via REST
+- **CLI uses REST API**: `import`/`info`/`agent` commands communicate via REST
 - **`serve` connects directly to DB**: starts the HTTP server (REST API, WebDAV, MCP, SSH)
 - **`db` commands connect directly to DB**: `db seed` bootstraps schema + user/vault/token, `db wipe` clears all data
 
@@ -229,8 +229,8 @@ just bootstrap
 # 3. Start server with live-reload
 just dev
 
-# 4. Copy documents (KNOW_TOKEN is set by justfile)
-just run cp ./docs / --vault default
+# 4. Import documents (KNOW_TOKEN is set by justfile)
+just run import ./docs / --vault default -y
 
 # 5. Launch TUI
 just run agent

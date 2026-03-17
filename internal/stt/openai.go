@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"time"
 )
 
 // OpenAITranscriber implements Transcriber using OpenAI's audio transcription API.
@@ -18,17 +19,21 @@ type OpenAITranscriber struct {
 	client  *http.Client
 }
 
-// NewOpenAI creates an OpenAITranscriber with the given API key and model.
-// If model is empty, it defaults to "gpt-4o-transcribe".
-func NewOpenAI(apiKey, model string) *OpenAITranscriber {
+// NewOpenAI creates an OpenAITranscriber with the given API key, model, and
+// base URL. If model is empty, it defaults to "gpt-4o-transcribe". If baseURL
+// is empty, it defaults to the OpenAI API.
+func NewOpenAI(apiKey, model, baseURL string) *OpenAITranscriber {
 	if model == "" {
 		model = "gpt-4o-transcribe"
+	}
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
 	}
 	return &OpenAITranscriber{
 		apiKey:  apiKey,
 		model:   model,
-		baseURL: "https://api.openai.com/v1",
-		client:  http.DefaultClient,
+		baseURL: baseURL,
+		client:  &http.Client{Timeout: 5 * time.Minute},
 	}
 }
 
