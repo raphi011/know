@@ -2,11 +2,15 @@ package blob
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/raphi011/know/internal/logutil"
 )
 
 // Compile-time check that FS implements LocalPathStore.
@@ -72,6 +76,69 @@ func (f *FS) Put(_ context.Context, hash string, r io.Reader, _ int64) error {
 	return nil
 }
 
+// PutVerified streams r to a temp file while computing its SHA256 hash.
+// If the computed hash matches expectedHash, the temp file is atomically renamed
+// to the final path. If it doesn't match, the temp file is deleted and a
+// *HashMismatchError is returned. This ensures the content-addressed store is
+// never corrupted by incorrect data — the final path is never written with
+// unverified content.
+func (f *FS) PutVerified(ctx context.Context, expectedHash string, r io.Reader, _ int64) error {
+	path := f.LocalPath(expectedHash)
+
+	exists, err := f.exists(path)
+	if err != nil {
+		return fmt.Errorf("put verified: %w", err)
+	}
+	if exists {
+		// Drain the reader so callers using streaming readers (e.g. multipart
+		// parts) don't have unconsumed bytes corrupt subsequent reads.
+		if _, err := io.Copy(io.Discard, r); err != nil {
+			return fmt.Errorf("put verified: drain existing: %w", err)
+		}
+		return nil
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("put verified: mkdir: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(dir, ".blob-*")
+	if err != nil {
+		return fmt.Errorf("put verified: create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	// TeeReader: every byte read from r is also written to the hasher.
+	hasher := sha256.New()
+	tee := io.TeeReader(r, hasher)
+
+	if _, err := io.Copy(tmp, tee); err != nil {
+		tmp.Close()
+		f.removeTmp(ctx, tmpName)
+		return fmt.Errorf("put verified: write: %w", err)
+	}
+
+	if err := tmp.Close(); err != nil {
+		f.removeTmp(ctx, tmpName)
+		return fmt.Errorf("put verified: close: %w", err)
+	}
+
+	// Verify hash before committing. If mismatch, delete temp — final path is never touched.
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	if actualHash != expectedHash {
+		f.removeTmp(ctx, tmpName)
+		return &HashMismatchError{Expected: expectedHash, Actual: actualHash}
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		f.removeTmp(ctx, tmpName)
+		return fmt.Errorf("put verified: rename: %w", err)
+	}
+
+	return nil
+}
+
 // Get opens the blob identified by hash for reading.
 // Returns os.ErrNotExist if the blob does not exist.
 func (f *FS) Get(_ context.Context, hash string) (io.ReadCloser, error) {
@@ -98,6 +165,13 @@ func (f *FS) Delete(_ context.Context, hash string) error {
 		return fmt.Errorf("delete: %w", err)
 	}
 	return nil
+}
+
+// removeTmp attempts to remove a temp file and logs a warning on failure.
+func (f *FS) removeTmp(ctx context.Context, path string) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logutil.FromCtx(ctx).Warn("failed to remove temp blob file", "path", path, "error", err)
+	}
 }
 
 func (f *FS) exists(path string) (bool, error) {

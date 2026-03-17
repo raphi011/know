@@ -5,12 +5,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/raphi011/know/internal/apiclient"
 	"github.com/raphi011/know/internal/models"
@@ -93,10 +97,12 @@ func init() {
 	}
 }
 
-// fileMapping describes a file to import with its source label and target vault path.
+// fileMapping describes a file to import with its source label, target vault path, and content hash.
 type fileMapping struct {
 	sourceLabel string // display path (abs path for dirs, archive entry for archives)
 	targetPath  string
+	hash        string // SHA256 content hash (computed client-side)
+	data        []byte // non-nil for in-memory sources (archives); nil for disk files
 }
 
 func runImport(cmd *cobra.Command, args []string) error {
@@ -134,26 +140,18 @@ func importSingleFile(ctx context.Context, sourcePath, vaultPath string) error {
 		return fmt.Errorf("unsupported file type %s (supported: .md, .markdown, images, audio)", filepath.Ext(sourcePath))
 	}
 
-	// If vault path ends with /, append the filename
 	targetPath := vaultPath
 	if strings.HasSuffix(targetPath, "/") {
 		targetPath += filepath.Base(sourcePath)
 	}
 
-	if importDryRun {
-		fmt.Printf("  %s -> %s\n", sourcePath, targetPath)
-		fmt.Printf("\nDry run: 1 file would be imported to vault %s\n", importVaultID)
-		return nil
-	}
-
-	f, err := os.Open(sourcePath)
+	hash, err := hashFile(sourcePath)
 	if err != nil {
-		return fmt.Errorf("open file: %w", err)
+		return fmt.Errorf("hash file: %w", err)
 	}
-	defer f.Close()
 
-	bulkFiles := []apiclient.BulkFile{{Path: targetPath, Data: f}}
-	return uploadAndPrintResults(ctx, bulkFiles, 0)
+	mappings := []fileMapping{{sourceLabel: sourcePath, targetPath: targetPath, hash: hash}}
+	return importWithManifest(ctx, mappings, 0)
 }
 
 func importFromDirectory(ctx context.Context, dirPath, vaultPath string) error {
@@ -172,7 +170,7 @@ func importFromDirectory(ctx context.Context, dirPath, vaultPath string) error {
 		return nil
 	}
 
-	// Build target path list
+	// Build mappings with target paths.
 	var mappings []fileMapping
 	var localErrors int
 	for _, absPath := range filePaths {
@@ -197,47 +195,27 @@ func importFromDirectory(ctx context.Context, dirPath, vaultPath string) error {
 		return nil
 	}
 
-	if importDryRun {
-		for _, m := range mappings {
-			fmt.Printf("  %s -> %s\n", m.sourceLabel, m.targetPath)
-		}
-		fmt.Printf("\nDry run: %d files would be imported to %s in vault %s\n", len(mappings), vaultPath, importVaultID)
-		return nil
-	}
-
-	if !importYes {
+	if !importYes && !importDryRun {
 		if !confirmPrompt(fmt.Sprintf("%d files will be imported to %s in vault %s. Proceed? [y/N] ", len(mappings), vaultPath, importVaultID)) {
 			fmt.Println("Aborted.")
 			return nil
 		}
 	}
 
-	// Open files and build bulk upload list
-	var bulkFiles []apiclient.BulkFile
-	var openFiles []*os.File
-	defer func() {
-		for _, f := range openFiles {
-			if err := f.Close(); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: close %s: %v\n", f.Name(), err)
-			}
-		}
-	}()
+	// Compute hashes in parallel.
+	fmt.Fprintf(os.Stderr, "Computing file hashes...\n")
+	hashErrors := hashMappings(mappings)
+	localErrors += hashErrors
 
+	// Filter out mappings that failed hashing.
+	var valid []fileMapping
 	for _, m := range mappings {
-		f, err := os.Open(m.sourceLabel)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "- %s: %v\n", m.sourceLabel, err)
-			localErrors++
-			continue
+		if m.hash != "" {
+			valid = append(valid, m)
 		}
-		openFiles = append(openFiles, f)
-		bulkFiles = append(bulkFiles, apiclient.BulkFile{
-			Path: m.targetPath,
-			Data: f,
-		})
 	}
 
-	return uploadAndPrintResults(ctx, bulkFiles, localErrors)
+	return importWithManifest(ctx, valid, localErrors)
 }
 
 func importFromArchive(ctx context.Context, archivePath, vaultPath string) error {
@@ -257,7 +235,7 @@ func importFromArchive(ctx context.Context, archivePath, vaultPath string) error
 		return nil
 	}
 
-	// Build mappings
+	// Build mappings with hashes (archive entries are already in memory).
 	var mappings []fileMapping
 	for _, e := range entries {
 		targetPath := vaultPath
@@ -266,77 +244,233 @@ func importFromArchive(ctx context.Context, archivePath, vaultPath string) error
 		}
 		targetPath += e.path
 
-		mappings = append(mappings, fileMapping{sourceLabel: e.path, targetPath: targetPath})
+		h := sha256.Sum256(e.data)
+		hash := hex.EncodeToString(h[:])
+		mappings = append(mappings, fileMapping{sourceLabel: e.path, targetPath: targetPath, hash: hash, data: e.data})
 	}
 
-	if importDryRun {
-		for _, m := range mappings {
-			fmt.Printf("  %s -> %s\n", m.sourceLabel, m.targetPath)
-		}
-		fmt.Printf("\nDry run: %d files would be imported from archive to %s in vault %s\n", len(mappings), vaultPath, importVaultID)
-		return nil
-	}
-
-	if !importYes {
+	if !importYes && !importDryRun {
 		if !confirmPrompt(fmt.Sprintf("%d files will be imported from archive to %s in vault %s. Proceed? [y/N] ", len(mappings), vaultPath, importVaultID)) {
 			fmt.Println("Aborted.")
 			return nil
 		}
 	}
 
-	// Build bulk file list from archive entries
-	var bulkFiles []apiclient.BulkFile
-	for i, e := range entries {
-		bulkFiles = append(bulkFiles, apiclient.BulkFile{
-			Path: mappings[i].targetPath,
-			Data: bytes.NewReader(e.data),
-		})
-	}
-
-	return uploadAndPrintResults(ctx, bulkFiles, 0)
+	return importWithManifest(ctx, mappings, 0)
 }
 
-// uploadAndPrintResults uploads files via the bulk API and prints per-file results.
-func uploadAndPrintResults(ctx context.Context, bulkFiles []apiclient.BulkFile, localErrors int) error {
-	if len(bulkFiles) == 0 {
-		fmt.Println("No files to upload")
+// importWithManifest implements the two-phase import protocol:
+// 1. Send manifest (file paths + hashes) to server to determine which files are needed
+// 2. Upload only the needed files
+func importWithManifest(ctx context.Context, mappings []fileMapping, localErrors int) error {
+	if len(mappings) == 0 {
+		fmt.Println("No files to import")
 		return nil
 	}
 
 	client := importAPI.newClient()
-	meta := apiclient.BulkMeta{
+
+	// Normalize all target paths before sending to the server, so that
+	// manifest lookups match the paths stored in the DB (which are also normalized).
+	for i := range mappings {
+		mappings[i].targetPath = models.NormalizePath(mappings[i].targetPath)
+	}
+
+	// Phase 1: Send manifest
+	manifestFiles := make([]apiclient.ImportManifestFile, len(mappings))
+	for i, m := range mappings {
+		manifestFiles[i] = apiclient.ImportManifestFile{Path: m.targetPath, Hash: m.hash}
+	}
+
+	manifestResp, err := client.ImportManifest(ctx, apiclient.ImportManifestRequest{
 		VaultID: importVaultID,
 		Force:   importForce,
-		DryRun:  false,
-	}
-
-	results, err := client.BulkUpload(ctx, meta, bulkFiles)
+		DryRun:  importDryRun,
+		Files:   manifestFiles,
+	})
 	if err != nil {
-		return fmt.Errorf("import: %w", err)
+		return fmt.Errorf("import manifest: %w", err)
 	}
 
+	// Print results from manifest (skipped files).
 	var created, updated, skipped, errCount int
+	c, u, s, e := printImportResults(manifestResp.Results)
+	created += c
+	updated += u
+	skipped += s
+	errCount += e
+
+	// If dry-run or no files needed, we're done.
+	if importDryRun || len(manifestResp.Needed) == 0 {
+		printImportSummary(created, updated, skipped, errCount+localErrors)
+		return nil
+	}
+
+	// Phase 2: Upload only needed files.
+	mappingByPath := make(map[string]fileMapping, len(mappings))
+	for _, m := range mappings {
+		mappingByPath[m.targetPath] = m
+	}
+
+	var importFiles []apiclient.ImportFile
+	var openFiles []*os.File
+	defer func() {
+		for _, f := range openFiles {
+			if err := f.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: close %s: %v\n", f.Name(), err)
+			}
+		}
+	}()
+
+	for _, path := range manifestResp.Needed {
+		m, ok := mappingByPath[path]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "- %s: server requested unknown path\n", path)
+			errCount++
+			continue
+		}
+
+		var data io.Reader
+		if m.data != nil {
+			// In-memory source (archive entries)
+			data = bytes.NewReader(m.data)
+		} else {
+			// Disk file
+			f, err := os.Open(m.sourceLabel)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "- %s: %v\n", m.sourceLabel, err)
+				errCount++
+				continue
+			}
+			openFiles = append(openFiles, f)
+			data = f
+		}
+
+		importFiles = append(importFiles, apiclient.ImportFile{
+			Path: m.targetPath,
+			Hash: m.hash,
+			Data: data,
+		})
+	}
+
+	if len(importFiles) == 0 {
+		printImportSummary(created, updated, skipped, errCount+localErrors)
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Uploading %d file(s)...\n", len(importFiles))
+	uploadResp, err := client.ImportUpload(ctx, importVaultID, importFiles)
+	if err != nil {
+		return fmt.Errorf("import upload: %w", err)
+	}
+
+	// Print upload results.
+	c, u, s, e = printImportResults(uploadResp.Results)
+	created += c
+	updated += u
+	skipped += s
+	errCount += e
+
+	if uploadResp.Error != "" {
+		fmt.Fprintf(os.Stderr, "\nImport aborted: %s\n", uploadResp.Error)
+		return fmt.Errorf("import aborted: %s", uploadResp.Error)
+	}
+
+	printImportSummary(created, updated, skipped, errCount+localErrors)
+	return nil
+}
+
+// printImportResults prints per-file results and returns counts by status.
+func printImportResults(results []apiclient.ImportResult) (created, updated, skipped, errors int) {
 	for _, r := range results {
 		switch r.Status {
-		case "created":
+		case apiclient.ImportStatusCreated:
 			fmt.Printf("+ %s\n", r.Path)
 			created++
-		case "updated":
+		case apiclient.ImportStatusUpdated:
 			fmt.Printf("~ %s\n", r.Path)
 			updated++
-		case "skipped":
-			fmt.Printf("= %s (%s)\n", r.Path, r.Reason)
+		case apiclient.ImportStatusSkipped:
+			if r.Reason == apiclient.ImportReasonHashDiffers {
+				fmt.Fprintf(os.Stderr, "  %s: skipped (changed, use --force to update)\n", r.Path)
+			} else {
+				fmt.Printf("= %s (%s)\n", r.Path, r.Reason)
+			}
 			skipped++
-		case "error":
+		case apiclient.ImportStatusError:
 			fmt.Fprintf(os.Stderr, "- %s: %s\n", r.Path, r.Error)
-			errCount++
+			errors++
 		}
 	}
+	return
+}
 
-	totalErrors := errCount + localErrors
-	fmt.Printf("\nDone: %d created, %d updated, %d skipped, %d errors\n", created, updated, skipped, totalErrors)
+// printImportSummary prints the final import summary line.
+func printImportSummary(created, updated, skipped, errors int) {
+	fmt.Printf("\nDone: %d created, %d updated, %d skipped, %d errors\n", created, updated, skipped, errors)
+}
 
-	return nil
+// hashFile computes the SHA256 hash of a file.
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// hashMappings computes SHA256 hashes for all mappings using parallel workers.
+// Mappings that fail hashing have their hash set to "" and an error is printed.
+// Returns the number of errors encountered.
+func hashMappings(mappings []fileMapping) int {
+	type result struct {
+		index int
+		hash  string
+		err   error
+	}
+
+	workers := min(runtime.NumCPU(), len(mappings))
+
+	jobs := make(chan int, len(mappings))
+	results := make(chan result, len(mappings))
+
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for i := range jobs {
+				h, err := hashFile(mappings[i].sourceLabel)
+				results <- result{index: i, hash: h, err: err}
+			}
+		})
+	}
+
+	for i := range mappings {
+		jobs <- i
+	}
+	close(jobs)
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var errCount int
+	for r := range results {
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "- %s: hash: %v\n", mappings[r.index].sourceLabel, r.err)
+			errCount++
+			continue
+		}
+		mappings[r.index].hash = r.hash
+	}
+
+	return errCount
 }
 
 // maxArchiveEntrySize is the maximum size of a single file in an archive (100 MB).

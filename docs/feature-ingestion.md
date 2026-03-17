@@ -99,6 +99,16 @@ know import ./docs /docs --vault default --force
 
 Writing a file through the WebDAV interface also triggers the full pipeline on save.
 
+### Import Protocol
+
+The `know import` CLI uses a two-phase sync protocol to efficiently transfer files:
+
+1. **Manifest phase** (`POST /api/import/manifest`) -- The client computes SHA256 hashes locally and sends a manifest of all files with their hashes. The server checks each hash against existing records and responds with which files need uploading (skipping unchanged files without transferring any data).
+
+2. **Upload phase** (`POST /api/import/upload`) -- Only the needed files are sent as a multipart request. Binary files (images, audio) are streamed directly to the blob store without buffering the entire file in memory. Text files are buffered for markdown parsing. The server verifies each file's hash during upload — if any hash mismatch is detected (corrupt or malicious client), the import is aborted immediately.
+
+This design minimizes bandwidth (unchanged files never leave the client), reduces server memory usage (binary files stream to storage), and provides integrity guarantees (hash verification on every upload).
+
 ## Reference
 
 ### CLI Flags for `know import`

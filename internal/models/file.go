@@ -59,6 +59,7 @@ type FileInput struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	MimeType    string         `json:"mime_type"`
 	Data        []byte         `json:"data,omitempty"`
+	Size        int            `json:"size,omitempty"` // explicit size override (e.g. streaming imports where Data is not buffered)
 	IsFolder    bool           `json:"is_folder"`
 }
 
