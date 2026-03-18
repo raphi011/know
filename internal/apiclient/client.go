@@ -593,8 +593,8 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]mo
 
 // JobStatusResponse is the response from GET /api/jobs.
 type JobStatusResponse struct {
-	Stats        models.JobStats           `json:"stats"`
-	Durations    []models.JobTypeDuration  `json:"durations"`
+	Stats        models.JobStats            `json:"stats"`
+	Durations    []models.JobTypeDuration   `json:"durations"`
 	Active       []models.PipelineJobDetail `json:"active"`
 	RecentFailed []models.PipelineJobDetail `json:"recent_failed"`
 }
@@ -671,6 +671,29 @@ func (c *Client) UpdateVaultSettings(ctx context.Context, vaultName string, patc
 		return nil, fmt.Errorf("update vault settings: %w", err)
 	}
 	return &settings, nil
+}
+
+// FetchWebpageRequest is the body for the fetch webpage endpoint.
+type FetchWebpageRequest struct {
+	URL     string  `json:"url"`
+	VaultID string  `json:"vault_id"`
+	Path    *string `json:"path,omitempty"`
+}
+
+// FetchWebpageResponse is the response from the fetch webpage endpoint.
+type FetchWebpageResponse struct {
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	VaultID string `json:"vault_id"`
+}
+
+// FetchWebpage fetches a web page via the server and saves it to the vault.
+func (c *Client) FetchWebpage(ctx context.Context, req FetchWebpageRequest) (*FetchWebpageResponse, error) {
+	var resp FetchWebpageResponse
+	if err := c.Post(ctx, "/api/fetch", req, &resp); err != nil {
+		return nil, fmt.Errorf("fetch webpage: %w", err)
+	}
+	return &resp, nil
 }
 
 // DownloadExport downloads a vault export archive to the given output path.

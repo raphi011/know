@@ -85,6 +85,7 @@ func main() {
 	rootCmd.AddCommand(taskCmd)
 	rootCmd.AddCommand(browseCmd)
 	rootCmd.AddCommand(jobCmd)
+	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(completionCmd)
 
 	if err := rootCmd.Execute(); err != nil {

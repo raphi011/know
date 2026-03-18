@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/tools"
@@ -18,7 +19,7 @@ import (
 // NewHandler creates the MCP HTTP handler that serves know tools at the
 // given path. Auth is handled externally via auth.Middleware wrapping this handler.
 // remoteService and memoryService may be nil if not configured.
-func NewHandler(executor tools.ToolExecutor, dbClient *db.Client, vaultService *vault.Service, remoteService *remote.Service, memoryService *memory.Service, apifyClient *apify.Client) http.Handler {
+func NewHandler(executor tools.ToolExecutor, dbClient *db.Client, vaultService *vault.Service, remoteService *remote.Service, memoryService *memory.Service, apifyClient *apify.Client, jinaClient *jina.Client) http.Handler {
 	t := &mcpTools{
 		executor:      executor,
 		db:            dbClient,
@@ -26,6 +27,7 @@ func NewHandler(executor tools.ToolExecutor, dbClient *db.Client, vaultService *
 		remoteService: remoteService,
 		memoryService: memoryService,
 		apifyClient:   apifyClient,
+		jinaClient:    jinaClient,
 		cache:         newCache(60 * time.Second),
 	}
 

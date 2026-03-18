@@ -162,6 +162,7 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `GET /api/external-links/stats?vault={id}` — aggregated external link counts by hostname
 - `GET /api/external-links?vault={id}&hostname=...&limit=...&offset=...` — list external links
 - `GET /api/jobs?since=24h&limit=10` — pipeline job stats, active jobs, recent failures
+- `POST /api/fetch` — fetch web page as markdown and save to vault (`{url, vault_id, path}`)
 
 Agent endpoints (background execution):
 - `POST /agent/chat` — start agent, returns 202 `{conversationId, status}`
@@ -187,6 +188,7 @@ Each major feature has its own documentation file:
 - `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-nfs.md` - NFS file access, mount instructions for macOS/Linux/Windows
 - `docs/feature-tasks.md` - Task extraction from checkboxes, filtering, toggling, API
+- `docs/feature-web-clipping.md` - Web page fetching via Jina Reader, CLI/MCP/API, vault settings
 
 ### Project-Specific Docs (`docs/`)
 

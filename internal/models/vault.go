@@ -36,6 +36,9 @@ type VaultSettings struct {
 	// Versioning
 	VersionCoalesceMinutes int `json:"version_coalesce_minutes,omitempty"`
 	VersionRetentionCount  int `json:"version_retention_count,omitempty"`
+
+	// Web clipping
+	WebClipPath string `json:"web_clip_path,omitempty"`
 }
 
 const (
@@ -63,6 +66,8 @@ const (
 	DefaultVersionCoalesceMinutes = 10
 	// DefaultVersionRetentionCount is the default max versions per file.
 	DefaultVersionRetentionCount = 50
+	// DefaultWebClipPath is the default folder for web-clipped pages.
+	DefaultWebClipPath = "/web"
 )
 
 // Validate checks that all non-zero fields in VaultSettings are within valid ranges.
@@ -143,6 +148,9 @@ func (s VaultSettings) Merge(patch VaultSettings) VaultSettings {
 	if patch.VersionRetentionCount > 0 {
 		s.VersionRetentionCount = patch.VersionRetentionCount
 	}
+	if patch.WebClipPath != "" {
+		s.WebClipPath = patch.WebClipPath
+	}
 	return s
 }
 
@@ -161,6 +169,7 @@ func (v *Vault) Defaults() VaultSettings {
 		MaxSearchLimit:         DefaultMaxSearchLimit,
 		VersionCoalesceMinutes: DefaultVersionCoalesceMinutes,
 		VersionRetentionCount:  DefaultVersionRetentionCount,
+		WebClipPath:            DefaultWebClipPath,
 	}
 	if v.Settings == nil {
 		return s
