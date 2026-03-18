@@ -33,6 +33,7 @@ type File struct {
 	Title          string                 `json:"title"`
 	Stem           string                 `json:"stem"`
 	IsFolder       bool                   `json:"is_folder"`
+	NoEmbed        bool                   `json:"no_embed"`
 	MimeType       string                 `json:"mime_type"`
 	Content        string                 `json:"content"`
 	ContentLength  int                    `json:"content_length"`

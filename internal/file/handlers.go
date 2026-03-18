@@ -78,7 +78,7 @@ func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 		}
 
 		// Enqueue embed job so new chunks get embeddings.
-		if svc.getEmbedder() != nil {
+		if svc.getEmbedder() != nil && svc.shouldEmbed(ctx, vaultID, doc.Path) {
 			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
 				return fmt.Errorf("create embed job for %s: %w", doc.Path, err)
 			}
@@ -120,7 +120,12 @@ func TranscribeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return fmt.Errorf("transcribe file: %w", err)
 		}
 
-		if svc.getEmbedder() != nil {
+		vaultID, err := models.RecordIDString(doc.Vault)
+		if err != nil {
+			logutil.FromCtx(ctx).Warn("failed to extract vault id after transcription", "file_id", fileID, "error", err)
+		}
+
+		if svc.getEmbedder() != nil && (vaultID == "" || svc.shouldEmbed(ctx, vaultID, doc.Path)) {
 			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
 				return fmt.Errorf("create embed job after transcription: %w", err)
 			}
@@ -140,10 +145,7 @@ func TranscribeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			}
 		}
 
-		vaultID, err := models.RecordIDString(doc.Vault)
-		if err != nil {
-			logutil.FromCtx(ctx).Warn("failed to extract vault id after transcription", "file_id", fileID, "error", err)
-		} else {
+		if vaultID != "" {
 			svc.publishFileEvent("file.processed", vaultID, doc)
 		}
 		return nil
@@ -250,6 +252,22 @@ func EmbedHandler(svc *Service) pipeline.Handler {
 		fileID, err := models.RecordIDString(job.File)
 		if err != nil {
 			return fmt.Errorf("extract file id: %w", err)
+		}
+
+		// Check if the file's folder has embeddings disabled (handles race
+		// where folder was marked no_embed after the embed job was enqueued).
+		doc, err := svc.db.GetFileByID(ctx, fileID)
+		if err != nil {
+			return fmt.Errorf("get file: %w", err)
+		}
+		if doc == nil {
+			return nil
+		}
+		if vaultID, vErr := models.RecordIDString(doc.Vault); vErr == nil {
+			if !svc.shouldEmbed(ctx, vaultID, doc.Path) {
+				logutil.FromCtx(ctx).Debug("skipping embedding, folder has no_embed", "file_id", fileID, "path", doc.Path)
+				return nil
+			}
 		}
 
 		n, err := svc.EmbedPendingChunksForFile(ctx, fileID)

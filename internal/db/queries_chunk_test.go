@@ -438,6 +438,80 @@ func TestGetUnembeddedChunks(t *testing.T) {
 	}
 }
 
+func TestStripEmbeddingsByFolder(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	prefix := "/strip-embed-" + t.Name()
+
+	// Create folders
+	if err := testDB.EnsureFolderPath(ctx, vaultID, prefix+"/sub"); err != nil {
+		t.Fatalf("EnsureFolderPath failed: %v", err)
+	}
+
+	// Create a file inside the folder and one outside
+	inside, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: prefix + "/sub/doc.md", Title: "Inside",
+		Content: "inside content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile inside failed: %v", err)
+	}
+	outside, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/outside-strip-test.md", Title: "Outside",
+		Content: "outside content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile outside failed: %v", err)
+	}
+	insideID := models.MustRecordIDString(inside.ID)
+	outsideID := models.MustRecordIDString(outside.ID)
+
+	// Create chunks with embeddings for both files
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: insideID, Text: "Inside chunk", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: outsideID, Text: "Outside chunk", Position: 0, Embedding: dummyEmbedding()},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	// Strip embeddings for the folder
+	stripped, err := testDB.StripEmbeddingsByFolder(ctx, vaultID, prefix)
+	if err != nil {
+		t.Fatalf("StripEmbeddingsByFolder failed: %v", err)
+	}
+	if stripped != 1 {
+		t.Errorf("Expected 1 stripped chunk, got %d", stripped)
+	}
+
+	// Inside file's chunks should have no embedding
+	insideChunks, err := testDB.GetChunks(ctx, insideID)
+	if err != nil {
+		t.Fatalf("GetChunks inside failed: %v", err)
+	}
+	if len(insideChunks) != 1 {
+		t.Fatalf("Expected 1 inside chunk, got %d", len(insideChunks))
+	}
+	if len(insideChunks[0].Embedding) != 0 {
+		t.Errorf("Expected embedding to be stripped from inside chunk, got length %d", len(insideChunks[0].Embedding))
+	}
+
+	// Outside file's chunks should still have embeddings
+	outsideChunks, err := testDB.GetChunks(ctx, outsideID)
+	if err != nil {
+		t.Fatalf("GetChunks outside failed: %v", err)
+	}
+	if len(outsideChunks) != 1 {
+		t.Fatalf("Expected 1 outside chunk, got %d", len(outsideChunks))
+	}
+	if len(outsideChunks[0].Embedding) != 384 {
+		t.Errorf("Expected outside chunk embedding to be preserved (384), got %d", len(outsideChunks[0].Embedding))
+	}
+}
+
 func TestBatchUpdateChunkEmbeddings(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

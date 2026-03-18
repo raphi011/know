@@ -120,6 +120,17 @@ func (s *Service) SetPDFRenderDPI(dpi int) {
 	s.pdfRenderDPI = dpi
 }
 
+// shouldEmbed returns true if the file at filePath should have embeddings generated.
+// It checks whether any ancestor folder has no_embed = true. Fails open (returns true) on error.
+func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) bool {
+	noEmbed, err := s.db.IsPathNoEmbed(ctx, vaultID, filePath)
+	if err != nil {
+		logutil.FromCtx(ctx).Warn("failed to check no_embed, proceeding with embedding", "path", filePath, "error", err)
+		return true
+	}
+	return !noEmbed
+}
+
 // BlobStore returns the blob store used by this service.
 func (s *Service) BlobStore() blob.Store { return s.blobStore }
 
@@ -503,7 +514,7 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	}
 
 	// 7. Enqueue embed job for new chunks (mirrors ParseHandler behaviour).
-	if !models.IsAudioFile(doc.Path) && s.getEmbedder() != nil {
+	if !models.IsAudioFile(doc.Path) && s.getEmbedder() != nil && s.shouldEmbed(ctx, vaultID, doc.Path) {
 		if err := s.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
 			logutil.FromCtx(ctx).Warn("failed to enqueue embed job after sync process", "path", doc.Path, "error", err)
 		} else if s.bus != nil {

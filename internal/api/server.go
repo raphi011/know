@@ -62,6 +62,7 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 
 	// Folders
 	mux.Handle("GET /api/folders", authMw(http.HandlerFunc(s.listFolders)))
+	mux.Handle("PATCH /api/folders", authMw(http.HandlerFunc(s.updateFolder)))
 
 	// Versions
 	mux.Handle("GET /api/versions", authMw(http.HandlerFunc(s.listVersions)))
