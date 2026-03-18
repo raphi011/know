@@ -7,11 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 )
 
 // RequestLogMiddleware generates a request_id, enriches the context logger,
-// and logs request completion at Debug level with timing.
-func RequestLogMiddleware(next http.Handler) http.Handler {
+// logs request completion at Debug level with timing, and records HTTP metrics.
+// If m is nil, metrics recording is skipped.
+func RequestLogMiddleware(m *metrics.Metrics, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		requestID := uuid.NewString()
@@ -26,7 +28,18 @@ func RequestLogMiddleware(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rec, r.WithContext(ctx))
 
-		logger.Debug("http request", "status", rec.statusCode, "duration_ms", time.Since(start).Milliseconds())
+		duration := time.Since(start)
+		logger.Debug("http request", "status", rec.statusCode, "duration_ms", duration.Milliseconds())
+
+		if m != nil {
+			// Use r.Pattern (Go 1.22+) for the route pattern to avoid high
+			// cardinality from path parameters like /conversations/{id}.
+			pattern := r.Pattern
+			if pattern == "" {
+				pattern = r.URL.Path
+			}
+			m.RecordHTTPRequest(r.Method, pattern, rec.statusCode, duration)
+		}
 	})
 }
 

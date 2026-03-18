@@ -163,7 +163,7 @@ func TestWorker_NewWorker_Panics(t *testing.T) {
 					t.Fatal("expected panic but did not panic")
 				}
 			}()
-			NewWorker(nil, nil, tt.interval, tt.batch)
+			NewWorker(nil, nil, tt.interval, tt.batch, nil)
 		})
 	}
 }

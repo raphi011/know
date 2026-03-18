@@ -28,6 +28,7 @@ import (
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/pipeline"
 	"github.com/raphi011/know/internal/remote"
@@ -79,6 +80,7 @@ type App struct {
 	blobStore    blob.Store
 	vaultService *vault.Service
 	fileService  *file.Service
+	metrics      *metrics.Metrics
 
 	searchService        *search.Service
 	agentService         *agent.Service
@@ -94,6 +96,9 @@ type App struct {
 
 // New creates a new App with all dependencies initialized.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
+	// Create metrics collector (always created; exposed only if metrics port is configured)
+	m := metrics.NewMetrics()
+
 	dbCfg := db.Config{
 		URL:       cfg.SurrealDBURL,
 		Namespace: cfg.SurrealDBNamespace,
@@ -103,7 +108,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		AuthLevel: cfg.SurrealDBAuthLevel,
 	}
 
-	dbClient, err := db.NewClient(ctx, dbCfg, nil, nil)
+	dbClient, err := db.NewClient(ctx, dbCfg, nil, m)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +152,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// Embedder is optional — nil disables AI features
 	var embedder *llm.Embedder
 	if cfg.EmbedProvider.Enabled() {
-		e, err := llm.NewEmbedder(ctx, cfg, nil)
+		e, err := llm.NewEmbedder(ctx, cfg, m)
 		if err != nil {
 			slog.Warn("embedder initialization failed, AI features disabled", "error", err)
 		} else {
@@ -158,11 +163,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// LLM model is optional — nil disables agent chat
 	var model *llm.Model
 	if cfg.LLMProvider.Enabled() {
-		m, err := llm.NewModel(ctx, cfg, nil)
+		lm, err := llm.NewModel(ctx, cfg, m)
 		if err != nil {
 			slog.Warn("LLM model initialization failed, agent chat disabled", "error", err)
 		} else {
-			model = m
+			model = lm
 		}
 	}
 
@@ -269,6 +274,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		remoteService:      remoteSvc,
 		memoryService:      memorySvc,
 		fileService:        fileSvc,
+		metrics:            m,
 		searchService:      searchSvc,
 		agentService:       agentSvc,
 		agentRunner:        agentRunner,
@@ -325,6 +331,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	app.startPipelineWorker(cfg)
 
 	return app, nil
+}
+
+// Metrics returns the Prometheus metrics collector.
+func (a *App) Metrics() *metrics.Metrics {
+	return a.metrics
 }
 
 // DBClient returns the underlying DB client.
@@ -471,7 +482,7 @@ func (a *App) ReloadLLM() error {
 	embedderChanged := false
 
 	if embedderWanted {
-		e, err := llm.NewEmbedder(ctx, cfg, nil)
+		e, err := llm.NewEmbedder(ctx, cfg, a.metrics)
 		if err != nil {
 			slog.Error("embedder reload failed, keeping existing", "error", err)
 			errs = append(errs, fmt.Sprintf("embedder: %v", err))
@@ -491,7 +502,7 @@ func (a *App) ReloadLLM() error {
 	modelChanged := false
 
 	if modelWanted {
-		m, err := llm.NewModel(ctx, cfg, nil)
+		m, err := llm.NewModel(ctx, cfg, a.metrics)
 		if err != nil {
 			slog.Error("LLM model reload failed, keeping existing", "error", err)
 			errs = append(errs, fmt.Sprintf("model: %v", err))
@@ -676,7 +687,7 @@ func (a *App) startPipelineWorker(cfg config.Config) {
 	a.mu.Unlock()
 
 	interval := time.Duration(cfg.PipelineWorkerInterval) * time.Second
-	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch)
+	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch, a.metrics)
 	w.Register("parse", file.ParseHandler(a.fileService, a.bus))
 	w.Register("transcribe", file.TranscribeHandler(a.fileService, a.bus))
 	w.Register("pdf", file.PDFHandler(a.fileService, a.bus))

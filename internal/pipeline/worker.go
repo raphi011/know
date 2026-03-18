@@ -7,6 +7,7 @@ import (
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/worker"
 )
@@ -29,13 +30,14 @@ type Worker struct {
 	db       jobStore
 	handlers map[string]Handler
 	bus      *event.Bus
+	metrics  *metrics.Metrics
 	interval time.Duration
 	batch    int
 }
 
 // NewWorker creates a new PipelineWorker.
 // Panics if interval <= 0 or batch <= 0 (programmer errors).
-func NewWorker(dbClient *db.Client, bus *event.Bus, interval time.Duration, batch int) *Worker {
+func NewWorker(dbClient *db.Client, bus *event.Bus, interval time.Duration, batch int, m *metrics.Metrics) *Worker {
 	if interval <= 0 {
 		panic("pipeline.Worker: interval must be positive")
 	}
@@ -46,6 +48,7 @@ func NewWorker(dbClient *db.Client, bus *event.Bus, interval time.Duration, batc
 		db:       dbClient,
 		handlers: make(map[string]Handler),
 		bus:      bus,
+		metrics:  m,
 		interval: interval,
 		batch:    batch,
 	}
@@ -97,13 +100,20 @@ func (w *Worker) tick(ctx context.Context) {
 			continue
 		}
 
+		start := time.Now()
 		if err := handler(ctx, job); err != nil {
 			w.handleFailure(ctx, job, jobID, err)
+			if w.metrics != nil {
+				w.metrics.RecordPipelineJob(job.Type, "failed", time.Since(start))
+			}
 			continue
 		}
 
 		if err := w.db.CompleteJob(ctx, jobID); err != nil {
 			logger.Error("pipeline worker: complete job", "job_id", jobID, "type", job.Type, "error", err)
+		}
+		if w.metrics != nil {
+			w.metrics.RecordPipelineJob(job.Type, "completed", time.Since(start))
 		}
 	}
 }

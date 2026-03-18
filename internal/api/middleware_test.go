@@ -18,7 +18,7 @@ func TestRequestLogMiddleware_setsRequestID(t *testing.T) {
 	slog.SetDefault(logger)
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	handler := RequestLogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequestLogMiddleware(nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify logger is in context with request_id
 		l := logutil.FromCtx(r.Context())
 		l.Info("inner handler")
@@ -48,7 +48,7 @@ func TestRequestLogMiddleware_capturesStatusCode(t *testing.T) {
 	slog.SetDefault(logger)
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	handler := RequestLogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequestLogMiddleware(nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 

@@ -36,12 +36,12 @@ type Embedder struct {
 	model     einoEmbedder
 	dimension int
 	modelName string
-	metrics   *metrics.Collector
+	metrics   *metrics.Metrics
 }
 
 // NewEmbedder creates an embedder based on configuration.
 // If mc is nil, metrics recording is disabled.
-func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*Embedder, error) {
+func NewEmbedder(ctx context.Context, cfg config.Config, mc *metrics.Metrics) (*Embedder, error) {
 	var model einoEmbedder
 	var err error
 
@@ -158,7 +158,7 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	logger.Debug("embedding complete", "text_len", textLen, "duration_ms", duration.Milliseconds())
 
 	if e.metrics != nil {
-		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
+		e.metrics.RecordEmbedding(e.modelName, duration)
 	}
 
 	return float64sToFloat32s(vec), nil
@@ -197,7 +197,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 	}
 
 	if e.metrics != nil {
-		e.metrics.RecordTiming(metrics.OpEmbedding, duration)
+		e.metrics.RecordEmbedding(e.modelName, duration)
 	}
 
 	return result, nil

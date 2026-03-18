@@ -77,8 +77,9 @@ type Config struct {
 
 	// Server settings
 	IngestConcurrency int
-	NoAuth            bool // bypass token auth (for local/Docker use)
-	MCPEnabled        bool // serve MCP endpoint at /mcp (default: true)
+	NoAuth            bool   // bypass token auth (for local/Docker use)
+	MCPEnabled        bool   // serve MCP endpoint at /mcp (default: true)
+	MetricsPort       string // KNOW_METRICS_PORT — separate port for /metrics (default: "" = disabled)
 
 	// SSH/SFTP server
 	SSHEnabled     bool   // KNOW_SSH_ENABLED (default: false)
@@ -236,6 +237,7 @@ func Load() Config {
 		SSHEnabled:        getEnvBool("KNOW_SSH_ENABLED", false),
 		SSHPort:           getEnv("KNOW_SSH_PORT", "2222"),
 		SSHHostKeyPath:    getEnv("KNOW_SSH_HOST_KEY", ""),
+		MetricsPort:       getEnv("KNOW_METRICS_PORT", ""),
 		NFSEnabled:        getEnvBool("KNOW_NFS_ENABLED", false),
 		NFSPort:           getEnv("KNOW_NFS_PORT", "2049"),
 

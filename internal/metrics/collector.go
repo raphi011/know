@@ -1,203 +1,131 @@
-// Package metrics provides in-memory runtime statistics collection.
+// Package metrics provides Prometheus metrics for the Know server.
 package metrics
 
 import (
-	"math"
-	"sync"
+	"strconv"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-// OperationMetrics holds aggregated metrics for a single operation type.
-type OperationMetrics struct {
-	Count     int64
-	TotalTime time.Duration
-	MinTime   time.Duration
-	MaxTime   time.Duration
-
-	// Token metrics (only for LLM operations)
-	TotalInputTokens  int64
-	TotalOutputTokens int64
-	MinInputTokens    int64
-	MaxInputTokens    int64
-	MinOutputTokens   int64
-	MaxOutputTokens   int64
+// Metrics holds all Prometheus metrics for the application.
+// All methods are safe to call on a nil receiver (no-op).
+type Metrics struct {
+	dbDuration        *prometheus.HistogramVec
+	httpDuration      *prometheus.HistogramVec
+	httpRequestsTotal *prometheus.CounterVec
+	embedDuration     *prometheus.HistogramVec
+	llmDuration       *prometheus.HistogramVec
+	llmTokens         *prometheus.CounterVec
+	pipelineDuration  *prometheus.HistogramVec
+	pipelineTotal     *prometheus.CounterVec
 }
 
-// OperationSnapshot provides computed stats from raw metrics.
-type OperationSnapshot struct {
-	Count       int64
-	TotalTimeMs int64
-	AvgTimeMs   float64
-	MinTimeMs   int64
-	MaxTimeMs   int64
+// NewMetrics creates and registers all Prometheus metrics.
+func NewMetrics() *Metrics {
+	m := &Metrics{
+		dbDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "know_db_operation_duration_seconds",
+			Help:    "Duration of database operations in seconds.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+		}, []string{"operation"}),
 
-	// Token stats (nil if not applicable)
-	TotalInputTokens  *int64
-	TotalOutputTokens *int64
-	AvgInputTokens    *float64
-	AvgOutputTokens   *float64
-	MinInputTokens    *int64
-	MaxInputTokens    *int64
-	MinOutputTokens   *int64
-	MaxOutputTokens   *int64
-}
+		httpDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "know_http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"method", "path", "status"}),
 
-// Snapshot represents the full server statistics at a point in time.
-type Snapshot struct {
-	UptimeSeconds float64
-	Embedding     *OperationSnapshot
-	LLMGenerate   *OperationSnapshot
-	LLMStream     *OperationSnapshot
-	DBQuery       *OperationSnapshot
-	DBSearch      *OperationSnapshot
-}
+		httpRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "know_http_requests_total",
+			Help: "Total number of HTTP requests.",
+		}, []string{"method", "path", "status"}),
 
-// Operation names for the collector.
-const (
-	OpEmbedding   = "embedding"
-	OpLLMGenerate = "llm_generate"
-	OpLLMStream   = "llm_stream"
-	OpDBQuery     = "db_query"
-	OpDBSearch    = "db_search"
-)
+		embedDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "know_embedding_duration_seconds",
+			Help:    "Duration of embedding operations in seconds.",
+			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+		}, []string{"model"}),
 
-// Collector aggregates in-memory runtime statistics.
-// All methods are thread-safe.
-type Collector struct {
-	mu        sync.RWMutex
-	startTime time.Time
-	ops       map[string]*OperationMetrics
-}
+		llmDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "know_llm_operation_duration_seconds",
+			Help:    "Duration of LLM operations in seconds.",
+			Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120},
+		}, []string{"operation", "model"}),
 
-// NewCollector creates a new metrics collector.
-func NewCollector() *Collector {
-	return &Collector{
-		startTime: time.Now(),
-		ops:       make(map[string]*OperationMetrics),
+		llmTokens: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "know_llm_tokens_total",
+			Help: "Total number of LLM tokens processed.",
+		}, []string{"operation", "model", "direction"}),
+
+		pipelineDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "know_pipeline_job_duration_seconds",
+			Help:    "Duration of pipeline jobs in seconds.",
+			Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60},
+		}, []string{"type"}),
+
+		pipelineTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "know_pipeline_jobs_total",
+			Help: "Total number of pipeline jobs by type and status.",
+		}, []string{"type", "status"}),
 	}
-}
 
-// getOrCreate returns existing metrics or creates new ones for an operation.
-// Caller must hold write lock.
-func (c *Collector) getOrCreate(op string) *OperationMetrics {
-	m, ok := c.ops[op]
-	if !ok {
-		m = &OperationMetrics{
-			MinTime:         time.Duration(math.MaxInt64),
-			MinInputTokens:  math.MaxInt64,
-			MinOutputTokens: math.MaxInt64,
-		}
-		c.ops[op] = m
-	}
+	prometheus.MustRegister(
+		m.dbDuration,
+		m.httpDuration,
+		m.httpRequestsTotal,
+		m.embedDuration,
+		m.llmDuration,
+		m.llmTokens,
+		m.pipelineDuration,
+		m.pipelineTotal,
+	)
+
 	return m
 }
 
-// RecordTiming records timing for an operation.
-func (c *Collector) RecordTiming(op string, duration time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	m := c.getOrCreate(op)
-	m.Count++
-	m.TotalTime += duration
-
-	if duration < m.MinTime {
-		m.MinTime = duration
+// RecordTiming records a DB operation duration. The op parameter should include
+// the table prefix, e.g. "db.file.create".
+func (m *Metrics) RecordTiming(op string, duration time.Duration) {
+	if m == nil {
+		return
 	}
-	if duration > m.MaxTime {
-		m.MaxTime = duration
-	}
+	m.dbDuration.WithLabelValues(op).Observe(duration.Seconds())
 }
 
-// RecordLLMUsage records timing and token usage for an LLM operation.
-func (c *Collector) RecordLLMUsage(op string, duration time.Duration, inputTokens, outputTokens int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	m := c.getOrCreate(op)
-	m.Count++
-	m.TotalTime += duration
-
-	if duration < m.MinTime {
-		m.MinTime = duration
+// RecordLLMUsage records LLM operation duration and token counts.
+func (m *Metrics) RecordLLMUsage(op string, model string, duration time.Duration, inputTokens, outputTokens int64) {
+	if m == nil {
+		return
 	}
-	if duration > m.MaxTime {
-		m.MaxTime = duration
-	}
-
-	m.TotalInputTokens += inputTokens
-	m.TotalOutputTokens += outputTokens
-
-	if inputTokens < m.MinInputTokens {
-		m.MinInputTokens = inputTokens
-	}
-	if inputTokens > m.MaxInputTokens {
-		m.MaxInputTokens = inputTokens
-	}
-	if outputTokens < m.MinOutputTokens {
-		m.MinOutputTokens = outputTokens
-	}
-	if outputTokens > m.MaxOutputTokens {
-		m.MaxOutputTokens = outputTokens
-	}
+	m.llmDuration.WithLabelValues(op, model).Observe(duration.Seconds())
+	m.llmTokens.WithLabelValues(op, model, "input").Add(float64(inputTokens))
+	m.llmTokens.WithLabelValues(op, model, "output").Add(float64(outputTokens))
 }
 
-// snapshotOp creates a snapshot for an operation, returning nil if no data.
-func snapshotOp(m *OperationMetrics, includeTokens bool) *OperationSnapshot {
-	if m == nil || m.Count == 0 {
-		return nil
+// RecordEmbedding records an embedding operation duration.
+func (m *Metrics) RecordEmbedding(model string, duration time.Duration) {
+	if m == nil {
+		return
 	}
-
-	snap := &OperationSnapshot{
-		Count:       m.Count,
-		TotalTimeMs: m.TotalTime.Milliseconds(),
-		AvgTimeMs:   float64(m.TotalTime.Milliseconds()) / float64(m.Count),
-		MinTimeMs:   m.MinTime.Milliseconds(),
-		MaxTimeMs:   m.MaxTime.Milliseconds(),
-	}
-
-	if includeTokens && (m.TotalInputTokens > 0 || m.TotalOutputTokens > 0) {
-		totalIn := m.TotalInputTokens
-		totalOut := m.TotalOutputTokens
-		avgIn := float64(m.TotalInputTokens) / float64(m.Count)
-		avgOut := float64(m.TotalOutputTokens) / float64(m.Count)
-		minIn := m.MinInputTokens
-		maxIn := m.MaxInputTokens
-		minOut := m.MinOutputTokens
-		maxOut := m.MaxOutputTokens
-
-		// Reset sentinel values for display
-		if minIn == math.MaxInt64 {
-			minIn = 0
-		}
-		if minOut == math.MaxInt64 {
-			minOut = 0
-		}
-
-		snap.TotalInputTokens = &totalIn
-		snap.TotalOutputTokens = &totalOut
-		snap.AvgInputTokens = &avgIn
-		snap.AvgOutputTokens = &avgOut
-		snap.MinInputTokens = &minIn
-		snap.MaxInputTokens = &maxIn
-		snap.MinOutputTokens = &minOut
-		snap.MaxOutputTokens = &maxOut
-	}
-
-	return snap
+	m.embedDuration.WithLabelValues(model).Observe(duration.Seconds())
 }
 
-// Snapshot returns a point-in-time snapshot of all metrics.
-func (c *Collector) Snapshot() Snapshot {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return Snapshot{
-		UptimeSeconds: time.Since(c.startTime).Seconds(),
-		Embedding:     snapshotOp(c.ops[OpEmbedding], false),
-		LLMGenerate:   snapshotOp(c.ops[OpLLMGenerate], true),
-		LLMStream:     snapshotOp(c.ops[OpLLMStream], true),
-		DBQuery:       snapshotOp(c.ops[OpDBQuery], false),
-		DBSearch:      snapshotOp(c.ops[OpDBSearch], false),
+// RecordHTTPRequest records an HTTP request's duration and increments the request counter.
+func (m *Metrics) RecordHTTPRequest(method, path string, status int, duration time.Duration) {
+	if m == nil {
+		return
 	}
+	s := strconv.Itoa(status)
+	m.httpDuration.WithLabelValues(method, path, s).Observe(duration.Seconds())
+	m.httpRequestsTotal.WithLabelValues(method, path, s).Inc()
+}
+
+// RecordPipelineJob records a pipeline job completion.
+func (m *Metrics) RecordPipelineJob(jobType, status string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.pipelineDuration.WithLabelValues(jobType).Observe(duration.Seconds())
+	m.pipelineTotal.WithLabelValues(jobType, status).Inc()
 }
