@@ -11,6 +11,30 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.protocol.enabled }}
+    - port: {{ .Values.protocol.port | default "4002" }}
+      targetPort: protocol
+      protocol: TCP
+      name: protocol
+    {{- end }}
+    {{- if .Values.ssh.enabled }}
+    - port: {{ .Values.ssh.port | default "2222" }}
+      targetPort: ssh
+      protocol: TCP
+      name: ssh
+    {{- end }}
+    {{- if .Values.nfs.enabled }}
+    - port: {{ .Values.nfs.port | default "2049" }}
+      targetPort: nfs
+      protocol: TCP
+      name: nfs
+    {{- end }}
+    {{- if .Values.metrics.port }}
+    - port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "know.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: backend

@@ -134,6 +134,8 @@ When removing or renaming a metric, check for Grafana dashboard references or al
 
 All env vars use the `KNOW_` prefix: `KNOW_LOG_LEVEL`, `KNOW_LOG_FILE`, etc.
 
+**IMPORTANT**: When adding or removing environment variables, always update the Helm chart (`helm/know/values.yaml` and `helm/know/templates/deployment.yaml`) to keep it in sync. API keys go in `secret.yaml`. New network-facing services (ports) also need entries in `service.yaml` and `networkpolicy.yaml`.
+
 ## REST API
 
 The server exposes a REST API at `/api/` for CLI and TUI communication, and agent endpoints at `/agent/`. Auth via `Authorization: Bearer` header.
