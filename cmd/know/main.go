@@ -78,7 +78,6 @@ func main() {
 	rootCmd.AddCommand(labelsCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(lsCmd)
-	rootCmd.AddCommand(catCmd)
 	rootCmd.AddCommand(noteCmd)
 	rootCmd.AddCommand(rmCmd)
 	rootCmd.AddCommand(vaultCmd)

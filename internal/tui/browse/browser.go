@@ -28,34 +28,39 @@ type documentFetchedMsg struct {
 
 // Model is the root browser model composing a finder and viewer.
 type Model struct {
-	state   viewState
-	finder  finderModel
-	viewer  viewerModel
-	client  *apiclient.Client
-	vaultID string
-	width   int
-	height  int
+	state    viewState
+	finder   finderModel
+	viewer   viewerModel
+	client   *apiclient.Client
+	vaultID  string
+	noFinder bool // true when opened with a direct path (skip finder on Escape)
+	width    int
+	height   int
 
 	glamourStyle string
 	renderer     *glamour.TermRenderer
 }
 
-// NewModel creates a browser with a pre-fetched file list.
-// isDark should be detected before bubbletea starts.
-func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry, isDark bool) Model {
-	glamourStyle := "light"
+// initGlamour creates a glamour renderer for the given terminal background.
+func initGlamour(isDark bool) (string, *glamour.TermRenderer) {
+	style := "light"
 	if isDark {
-		glamourStyle = "dark"
+		style = "dark"
 	}
-
 	r, err := glamour.NewTermRenderer(
-		glamour.WithStandardStyle(glamourStyle),
+		glamour.WithStandardStyle(style),
 		glamour.WithWordWrap(100),
 	)
 	if err != nil {
 		slog.Warn("glamour renderer init failed", "error", err)
 	}
+	return style, r
+}
 
+// NewModel creates a browser with a pre-fetched file list.
+// isDark should be detected before bubbletea starts.
+func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry, isDark bool) Model {
+	glamourStyle, r := initGlamour(isDark)
 	return Model{
 		state:        stateFinding,
 		finder:       newFinder(files),
@@ -64,6 +69,34 @@ func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry
 		glamourStyle: glamourStyle,
 		renderer:     r,
 	}
+}
+
+// NewModelWithDocument creates a browser that starts directly in the viewer
+// with the given document, skipping the fuzzy finder.
+func NewModelWithDocument(doc *apiclient.Document, client *apiclient.Client, vaultID string, isDark bool) Model {
+	glamourStyle, r := initGlamour(isDark)
+	return Model{
+		state:        stateViewing,
+		client:       client,
+		vaultID:      vaultID,
+		noFinder:     true,
+		glamourStyle: glamourStyle,
+		renderer:     r,
+		viewer:       newViewer(doc.Path, renderContent(r, doc), 80, 24),
+	}
+}
+
+// renderContent renders document content with glamour, falling back to raw content.
+func renderContent(r *glamour.TermRenderer, doc *apiclient.Document) string {
+	if r == nil {
+		return doc.Content
+	}
+	rendered, err := r.Render(doc.Content)
+	if err != nil {
+		slog.Warn("glamour render failed, showing raw content", "path", doc.Path, "error", err)
+		return doc.Content
+	}
+	return rendered
 }
 
 func (m Model) Init() tea.Cmd {
@@ -75,8 +108,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.finder.width = msg.Width
-		m.finder.height = msg.Height
+		m.finder.picker.Width = msg.Width
+		m.finder.picker.Height = msg.Height
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
@@ -101,22 +134,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.finder.statusErr = ""
-		content := msg.doc.Content
-		if m.renderer != nil {
-			rendered, err := m.renderer.Render(content)
-			if err != nil {
-				slog.Warn("glamour render failed, showing raw content", "path", msg.doc.Path, "error", err)
-			} else {
-				content = rendered
-			}
-		}
-		m.viewer = newViewer(msg.doc.Path, content, m.width, m.height)
+		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
 		m.state = stateViewing
 		return m, nil
 
 	case backToFinderMsg:
+		if m.noFinder {
+			return m, tea.Quit
+		}
 		m.state = stateFinding
-		return m, m.finder.input.Focus()
+		return m, m.finder.picker.Input.Focus()
 	}
 
 	// Route to active sub-model

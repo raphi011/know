@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -102,7 +103,7 @@ func runNote(_ *cobra.Command, args []string) error {
 
 	case prompt == "" && noteEdit:
 		// Mode C: editor only.
-		return editNote(ctx, client, *noteVaultID, docPath, doc.Content)
+		return editAndSave(ctx, client, *noteVaultID, docPath, doc.Content)
 
 	default:
 		// Mode D: agent draft then editor.
@@ -114,7 +115,7 @@ func runNote(_ *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("fetch updated note: %w", err)
 		}
-		return editNote(ctx, client, *noteVaultID, docPath, updated.Content)
+		return editAndSave(ctx, client, *noteVaultID, docPath, updated.Content)
 	}
 }
 
@@ -206,38 +207,19 @@ func streamToStdout(events <-chan tui.StreamEvent) error {
 	return fmt.Errorf("agent: stream ended unexpectedly")
 }
 
-// editNote opens the note content in $EDITOR and saves changes back.
-func editNote(ctx context.Context, client *apiclient.Client, vaultID, path, content string) error {
-	updated, err := openInEditor(content)
-	if err != nil {
-		return err
-	}
-
-	if updated == content {
-		fmt.Println("no changes")
-		return nil
-	}
-
-	if _, err := client.EditDocument(ctx, apiclient.EditDocumentRequest{
-		VaultID: vaultID,
-		Path:    path,
-		Content: updated,
-	}); err != nil {
-		return fmt.Errorf("save note: %w", err)
-	}
-
-	fmt.Println("saved")
-	return nil
-}
-
 // openInEditor writes content to a temp file, opens $EDITOR, and returns the edited content.
-func openInEditor(content string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "know-note-*.md")
+// ext is the file extension including the dot (e.g. ".md", ".txt").
+func openInEditor(content, ext string) (string, error) {
+	tmpFile, err := os.CreateTemp("", "know-*"+ext)
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) // best-effort cleanup; OS cleans /tmp periodically
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil {
+			slog.Warn("failed to remove temp file", "path", tmpPath, "error", err)
+		}
+	}()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		tmpFile.Close()
