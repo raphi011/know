@@ -19,6 +19,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.8
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.8
 	github.com/go-git/go-billy/v5 v5.8.0
+	github.com/go-shiori/go-epub v1.2.1
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/pkg/sftp v1.13.10
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
@@ -29,6 +30,7 @@ require (
 	github.com/surrealdb/surrealdb.go v1.4.0
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/tmc/langchaingo v0.1.14
+	github.com/vincent-petithory/dataurl v1.0.0
 	github.com/willscott/go-nfs v0.0.3
 	github.com/yuin/goldmark v1.7.16
 	github.com/yuin/goldmark-meta v1.1.0
@@ -45,6 +47,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.20 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
+	github.com/gofrs/uuid/v5 v5.0.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect

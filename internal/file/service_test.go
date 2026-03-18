@@ -77,69 +77,69 @@ func TestBuildEmbeddingContext(t *testing.T) {
 	hp := func(s string) *string { return &s }
 
 	tests := []struct {
-		name     string
-		chunk    models.Chunk
+		name      string
+		chunk     models.Chunk
 		fileTitle string
-		maxChars int
-		want     string
+		maxChars  int
+		want      string
 	}{
 		{
-			name:     "full context",
-			chunk:    models.Chunk{Text: "Install with pip.", SourceLoc: hp("## Setup > ### Install")},
+			name:      "full context",
+			chunk:     models.Chunk{Text: "Install with pip.", SourceLoc: hp("## Setup > ### Install")},
 			fileTitle: "Getting Started",
-			want:     "File: Getting Started\nSection: Setup > Install\n\nInstall with pip.",
+			want:      "File: Getting Started\nSection: Setup > Install\n\nInstall with pip.",
 		},
 		{
-			name:     "no title",
-			chunk:    models.Chunk{Text: "Some content.", SourceLoc: hp("## Section")},
+			name:      "no title",
+			chunk:     models.Chunk{Text: "Some content.", SourceLoc: hp("## Section")},
 			fileTitle: "",
-			want:     "Section: Section\n\nSome content.",
+			want:      "Section: Section\n\nSome content.",
 		},
 		{
-			name:     "no heading path",
-			chunk:    models.Chunk{Text: "Preamble text."},
+			name:      "no heading path",
+			chunk:     models.Chunk{Text: "Preamble text."},
 			fileTitle: "My Doc",
-			want:     "File: My Doc\n\nPreamble text.",
+			want:      "File: My Doc\n\nPreamble text.",
 		},
 		{
-			name:     "no context at all",
-			chunk:    models.Chunk{Text: "Raw content."},
+			name:      "no context at all",
+			chunk:     models.Chunk{Text: "Raw content."},
 			fileTitle: "",
-			want:     "Raw content.",
+			want:      "Raw content.",
 		},
 		{
-			name:     "empty heading path",
-			chunk:    models.Chunk{Text: "Some text.", SourceLoc: hp("")},
+			name:      "empty heading path",
+			chunk:     models.Chunk{Text: "Some text.", SourceLoc: hp("")},
 			fileTitle: "My Doc",
-			want:     "File: My Doc\n\nSome text.",
+			want:      "File: My Doc\n\nSome text.",
 		},
 		{
-			name:     "truncation preserves prefix",
-			chunk:    models.Chunk{Text: "word1 word2 word3 word4 word5", SourceLoc: hp("## Section")},
+			name:      "truncation preserves prefix",
+			chunk:     models.Chunk{Text: "word1 word2 word3 word4 word5", SourceLoc: hp("## Section")},
 			fileTitle: "Doc",
-			maxChars: 40, // "File: Doc\nSection: Section\n\n" = 29 chars, leaves 11 for content
-			want:     "File: Doc\nSection: Section\n\nword1 word2",
+			maxChars:  40, // "File: Doc\nSection: Section\n\n" = 29 chars, leaves 11 for content
+			want:      "File: Doc\nSection: Section\n\nword1 word2",
 		},
 		{
-			name:     "no truncation when within limit",
-			chunk:    models.Chunk{Text: "short"},
+			name:      "no truncation when within limit",
+			chunk:     models.Chunk{Text: "short"},
 			fileTitle: "D",
-			maxChars: 100,
-			want:     "File: D\n\nshort",
+			maxChars:  100,
+			want:      "File: D\n\nshort",
 		},
 		{
-			name:     "no truncation when maxChars is zero",
-			chunk:    models.Chunk{Text: "anything goes"},
+			name:      "no truncation when maxChars is zero",
+			chunk:     models.Chunk{Text: "anything goes"},
 			fileTitle: "Title",
-			maxChars: 0,
-			want:     "File: Title\n\nanything goes",
+			maxChars:  0,
+			want:      "File: Title\n\nanything goes",
 		},
 		{
-			name:     "prefix exceeds maxChars truncates entire string",
-			chunk:    models.Chunk{Text: "body text here", SourceLoc: hp("## Long Section Name")},
+			name:      "prefix exceeds maxChars truncates entire string",
+			chunk:     models.Chunk{Text: "body text here", SourceLoc: hp("## Long Section Name")},
 			fileTitle: "A Document With A Long Title",
-			maxChars: 20, // prefix "File: A Document With A Long Title\nSection: Long Section Name\n\n" >> 20
-			want:     "File: A Document Wit",
+			maxChars:  20, // prefix "File: A Document With A Long Title\nSection: Long Section Name\n\n" >> 20
+			want:      "File: A Document Wit",
 		},
 	}
 

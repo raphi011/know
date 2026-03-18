@@ -154,6 +154,7 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `POST /api/import/manifest` — send file manifest (paths+hashes), get back which files need uploading
 - `POST /api/import/upload` — upload needed files (multipart, streams binaries to blob store)
 - `GET /api/export?vault={id}` — download vault export as .tar.gz archive
+- `GET /api/export/epub?vault={id}&path={path}&title=...&author=...` — export document or folder as EPUB
 - `GET /api/config` — server configuration
 - `GET /api/tasks?vault={id}&status=open&labels=work&due_before=2026-03-20&folder=/daily/` — list tasks
 - `POST /api/tasks/{id}/toggle` — toggle task status (modifies source document)

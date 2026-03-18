@@ -591,49 +591,6 @@ func (s *Service) embedChunksOneByOne(ctx context.Context, embedder *llm.Embedde
 	return stored, nil
 }
 
-// fetchFileTitles collects unique file IDs from a batch of chunks and
-// batch-fetches their titles. Returns a map of fileID → title.
-func (s *Service) fetchFileTitles(ctx context.Context, chunks []models.Chunk) map[string]string {
-	logger := logutil.FromCtx(ctx)
-	titles := make(map[string]string)
-
-	// Collect unique file IDs
-	fileIDSet := make(map[string]struct{})
-	for _, chunk := range chunks {
-		fileID, err := models.RecordIDString(chunk.File)
-		if err != nil {
-			logger.Warn("failed to extract file ID for title lookup", "error", err)
-			continue
-		}
-		fileIDSet[fileID] = struct{}{}
-	}
-	fileIDs := make([]string, 0, len(fileIDSet))
-	for id := range fileIDSet {
-		fileIDs = append(fileIDs, id)
-	}
-
-	if len(fileIDs) == 0 {
-		return titles
-	}
-
-	docs, err := s.db.GetFilesByIDs(ctx, fileIDs)
-	if err != nil {
-		logger.Warn("failed to fetch file titles for contextual embedding", "error", err)
-		return titles
-	}
-
-	for _, doc := range docs {
-		fileID, err := models.RecordIDString(doc.ID)
-		if err != nil {
-			logger.Warn("failed to extract file ID from fetched file", "error", err)
-			continue
-		}
-		titles[fileID] = doc.Title
-	}
-
-	return titles
-}
-
 // buildEmbeddingContext prepends file and section context to chunk content
 // for better embedding quality (contextual retrieval technique).
 // The context prefix is only used at embedding time, not stored in the chunk.

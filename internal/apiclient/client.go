@@ -699,7 +699,26 @@ func (c *Client) FetchWebpage(ctx context.Context, req FetchWebpageRequest) (*Fe
 // DownloadExport downloads a vault export archive to the given output path.
 // Returns the number of bytes written.
 func (c *Client) DownloadExport(ctx context.Context, vaultID, outputPath string) (int64, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/export?vault="+url.QueryEscape(vaultID), nil)
+	return c.downloadToFile(ctx, "/api/export?vault="+url.QueryEscape(vaultID), outputPath)
+}
+
+// DownloadExportEPUB downloads an EPUB export to the given output path.
+// Returns the number of bytes written.
+func (c *Client) DownloadExportEPUB(ctx context.Context, vaultID, path, title, author, outputPath string) (int64, error) {
+	params := url.Values{"vault": {vaultID}, "path": {path}}
+	if title != "" {
+		params.Set("title", title)
+	}
+	if author != "" {
+		params.Set("author", author)
+	}
+	return c.downloadToFile(ctx, "/api/export/epub?"+params.Encode(), outputPath)
+}
+
+// downloadToFile performs a GET request and streams the response body to a file.
+// Uses no HTTP timeout — context controls cancellation for large downloads.
+func (c *Client) downloadToFile(ctx context.Context, apiPath, outputPath string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+apiPath, nil)
 	if err != nil {
 		return 0, fmt.Errorf("create request: %w", err)
 	}
@@ -707,10 +726,8 @@ func (c *Client) DownloadExport(ctx context.Context, vaultID, outputPath string)
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
-	// Use a client with no timeout — large vaults may take a while.
-	// Context controls cancellation instead.
-	noTimeoutClient := &http.Client{}
-	resp, err := noTimeoutClient.Do(req)
+	// No timeout — large exports may take a while. Context controls cancellation.
+	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("send request: %w", err)
 	}
@@ -741,7 +758,7 @@ func (c *Client) DownloadExport(ctx context.Context, vaultID, outputPath string)
 	}
 	if copyErr != nil {
 		if removeErr := os.Remove(outputPath); removeErr != nil {
-			logutil.FromCtx(ctx).Warn("failed to clean up partial export file", "path", outputPath, "error", removeErr)
+			logutil.FromCtx(ctx).Warn("failed to clean up partial file", "path", outputPath, "error", removeErr)
 		}
 		return 0, fmt.Errorf("write output file: %w", copyErr)
 	}
