@@ -18,10 +18,9 @@ import (
 
 // readFile provides read-only access to a document's content.
 type readFile struct {
-	name    string
-	doc     *models.File
-	reader  *bytes.Reader
-	closeFn func()
+	name   string
+	doc    *models.File
+	reader *bytes.Reader
 }
 
 func newReadFile(name string, doc *models.File) *readFile {

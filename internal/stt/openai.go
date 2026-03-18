@@ -134,11 +134,7 @@ func (t *OpenAITranscriber) Transcribe(ctx context.Context, audio []byte, mimeTy
 		Segments: make([]Segment, len(vr.Segments)),
 	}
 	for i, s := range vr.Segments {
-		result.Segments[i] = Segment{
-			Start: s.Start,
-			End:   s.End,
-			Text:  s.Text,
-		}
+		result.Segments[i] = Segment(s)
 	}
 
 	return result, nil

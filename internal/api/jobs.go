@@ -12,8 +12,8 @@ import (
 )
 
 type jobStatusResponse struct {
-	Stats        models.JobStats           `json:"stats"`
-	Durations    []models.JobTypeDuration  `json:"durations"`
+	Stats        models.JobStats            `json:"stats"`
+	Durations    []models.JobTypeDuration   `json:"durations"`
 	Active       []models.PipelineJobDetail `json:"active"`
 	RecentFailed []models.PipelineJobDetail `json:"recent_failed"`
 }
@@ -88,8 +88,8 @@ func parseSinceDuration(s string) (time.Duration, error) {
 	var d time.Duration
 	var err error
 
-	if strings.HasSuffix(s, "d") {
-		n, parseErr := strconv.Atoi(strings.TrimSuffix(s, "d"))
+	if before, ok := strings.CutSuffix(s, "d"); ok {
+		n, parseErr := strconv.Atoi(before)
 		if parseErr != nil {
 			return 0, fmt.Errorf("invalid day count %q", s)
 		}

@@ -140,7 +140,6 @@ func TestProcessAllPending_ProcessesMultipleFiles(t *testing.T) {
 	}
 }
 
-
 func TestProcessDocument_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	vaultID, fileSvc := setupProcessingTest(t, ctx)

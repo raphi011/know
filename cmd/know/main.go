@@ -77,6 +77,7 @@ func main() {
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(labelsCmd)
 	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(epubCmd)
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(noteCmd)
 	rootCmd.AddCommand(rmCmd)

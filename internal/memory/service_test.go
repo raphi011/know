@@ -285,11 +285,6 @@ func TestExtractProject(t *testing.T) {
 	}
 }
 
-//go:fix inline
-func timePtr(t time.Time) *time.Time {
-	return new(t)
-}
-
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
