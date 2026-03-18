@@ -12,16 +12,7 @@ import (
 )
 
 func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 
 	folder := r.URL.Query().Get("path")
 	if folder == "" {

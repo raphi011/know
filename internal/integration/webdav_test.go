@@ -56,7 +56,7 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	vaultID, vaultSvc := setupVault(t, ctx, "webdav-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "webdav-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 	blobStore := blob.NewFS(t.TempDir())
 	docSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 

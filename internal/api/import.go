@@ -57,10 +57,9 @@ type importManifestFile struct {
 
 // importManifestRequest is the request body for POST /api/import/manifest.
 type importManifestRequest struct {
-	VaultID string               `json:"vaultId"`
-	Force   bool                 `json:"force"`
-	DryRun  bool                 `json:"dryRun"`
-	Files   []importManifestFile `json:"files"`
+	Force  bool                 `json:"force"`
+	DryRun bool                 `json:"dryRun"`
+	Files  []importManifestFile `json:"files"`
 }
 
 // importManifestResponse is the response body for POST /api/import/manifest.
@@ -86,26 +85,23 @@ func (s *Server) importManifest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if req.VaultID == "" {
-		writeError(w, http.StatusBadRequest, "vaultId is required")
-		return
-	}
-	if err := auth.RequireVaultRole(r.Context(), req.VaultID, models.RoleWrite); err != nil {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	logger := logutil.FromCtx(r.Context())
-	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
 
 	// Batch-query existing file metadata for all paths in one DB round-trip.
 	paths := make([]string, len(req.Files))
 	for i, f := range req.Files {
 		paths[i] = f.Path
 	}
-	existingMap, err := s.app.DBClient().GetFileMetaByPaths(ctx, req.VaultID, paths)
+	existingMap, err := s.app.DBClient().GetFileMetaByPaths(ctx, vaultID, paths)
 	if err != nil {
-		logger.Error("import manifest: batch query", "vault", req.VaultID, "error", err)
+		logger.Error("import manifest: batch query", "vault", vaultID, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to check existing files")
 		return
 	}
@@ -153,8 +149,7 @@ func (s *Server) importManifest(w http.ResponseWriter, r *http.Request) {
 
 // importUploadMeta is the JSON metadata in the first multipart part of an upload.
 type importUploadMeta struct {
-	VaultID string            `json:"vaultId"`
-	Hashes  map[string]string `json:"hashes"` // path → expected SHA256 hash
+	Hashes map[string]string `json:"hashes"` // path → expected SHA256 hash
 }
 
 // importUpload handles POST /api/import/upload.
@@ -185,18 +180,14 @@ func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid meta JSON: %v", err))
 		return
 	}
-	if meta.VaultID == "" {
-		writeError(w, http.StatusBadRequest, "vaultId is required in meta")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), meta.VaultID, models.RoleWrite); err != nil {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	logger := logutil.FromCtx(r.Context())
-	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
 	var results []importFileResult
 
 	// Process remaining parts — each is a file identified by form name (vault path).
@@ -207,7 +198,7 @@ func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
-			logger.Error("import upload: read part", "vault", meta.VaultID, "error", err)
+			logger.Error("import upload: read part", "vault", vaultID, "error", err)
 			streamErr = err
 			break
 		}
@@ -226,7 +217,7 @@ func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		result := s.processImportPart(ctx, part, path, expectedHash, meta.VaultID)
+		result := s.processImportPart(ctx, part, path, expectedHash, vaultID)
 
 		// Hash mismatch = abort entire import. The client is faulty or malicious.
 		if result.Status == statusError && result.Reason == reasonHashMismatch {

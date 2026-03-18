@@ -7,21 +7,15 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/logutil"
-	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/search"
 )
 
 func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	query := r.URL.Query().Get("query")
 
-	if vaultID == "" || query == "" {
-		writeError(w, http.StatusBadRequest, "vault and query parameters required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query parameter required")
 		return
 	}
 

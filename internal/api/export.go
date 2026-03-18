@@ -18,17 +18,7 @@ import (
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter is required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, err.Error())
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(ctx)
 
 	logger := logutil.FromCtx(ctx)
 	dbClient := s.app.DBClient()

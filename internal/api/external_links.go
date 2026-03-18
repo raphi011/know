@@ -11,16 +11,7 @@ import (
 )
 
 func (s *Server) externalLinkStats(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 
 	stats, err := s.app.DBClient().GetExternalLinkStats(r.Context(), vaultID)
 	if err != nil {
@@ -37,16 +28,7 @@ func (s *Server) externalLinkStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listExternalLinks(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 
 	filter := db.ExternalLinkFilter{
 		VaultID: vaultID,

@@ -192,9 +192,9 @@ func editAndSave(ctx context.Context, client *apiclient.Client, vaultID, path, c
 	}
 
 	if _, err := client.EditDocument(ctx, apiclient.EditDocumentRequest{
-		VaultID: vaultID,
-		Path:    path,
-		Content: updated,
+		VaultName: vaultID,
+		Path:      path,
+		Content:   updated,
 	}); err != nil {
 		return fmt.Errorf("save: %w", err)
 	}

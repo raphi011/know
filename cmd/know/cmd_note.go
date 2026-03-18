@@ -138,9 +138,9 @@ func ensureDailyNote(ctx context.Context, client *apiclient.Client, vaultID, pat
 		return nil, fmt.Errorf("daily note content: %w", err)
 	}
 	doc, err = client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
-		VaultID: vaultID,
-		Path:    path,
-		Content: content,
+		VaultName: vaultID,
+		Path:      path,
+		Content:   content,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create daily note: %w", err)

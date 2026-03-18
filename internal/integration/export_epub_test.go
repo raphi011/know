@@ -12,16 +12,15 @@ import (
 )
 
 func TestExportEPUB_SingleDocument(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "epub-single")
+	srv, _, vaultName := setupBulkServer(t, "epub-single")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/hello.md": []byte("# Hello World\n\nSome content here."),
 	})
 
-	resp, err := http.Get(srv.URL + "/api/export/epub?vault=" + vaultID + "&path=/docs/hello.md")
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export/epub?path=/docs/hello.md")
 	if err != nil {
 		t.Fatalf("GET export/epub: %v", err)
 	}
@@ -45,18 +44,17 @@ func TestExportEPUB_SingleDocument(t *testing.T) {
 }
 
 func TestExportEPUB_FolderMultiChapter(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "epub-folder")
+	srv, _, vaultName := setupBulkServer(t, "epub-folder")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/book/01-intro.md":      []byte("# Introduction\n\nWelcome."),
 		"/book/02-chapter.md":    []byte("# Chapter 1\n\nContent."),
 		"/book/03-conclusion.md": []byte("# Conclusion\n\nThe end."),
 	})
 
-	resp, err := http.Get(srv.URL + "/api/export/epub?vault=" + vaultID + "&path=/book/")
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export/epub?path=/book/")
 	if err != nil {
 		t.Fatalf("GET export/epub: %v", err)
 	}
@@ -92,7 +90,7 @@ func TestExportEPUB_FolderMultiChapter(t *testing.T) {
 }
 
 func TestExportEPUB_WithImages(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "epub-images")
+	srv, _, vaultName := setupBulkServer(t, "epub-images")
 
 	// Minimal valid PNG (1x1 red pixel).
 	pngData := []byte{
@@ -104,15 +102,14 @@ func TestExportEPUB_WithImages(t *testing.T) {
 		0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 	}
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/with-image.md": []byte("# Doc\n\n![logo](/images/logo.png)\n"),
 		"/images/logo.png":    pngData,
 	})
 
-	resp, err := http.Get(srv.URL + "/api/export/epub?vault=" + vaultID + "&path=/docs/with-image.md")
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export/epub?path=/docs/with-image.md")
 	if err != nil {
 		t.Fatalf("GET export/epub: %v", err)
 	}
@@ -148,22 +145,20 @@ func TestExportEPUB_WithImages(t *testing.T) {
 }
 
 func TestExportEPUB_TitleAuthorOverride(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "epub-meta")
+	srv, _, vaultName := setupBulkServer(t, "epub-meta")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/doc.md": []byte("# Original Title\n\nContent."),
 	})
 
 	params := url.Values{
-		"vault":  {vaultID},
 		"path":   {"/doc.md"},
 		"title":  {"Custom Title"},
 		"author": {"Custom Author"},
 	}
-	resp, err := http.Get(srv.URL + "/api/export/epub?" + params.Encode())
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export/epub?" + params.Encode())
 	if err != nil {
 		t.Fatalf("GET export/epub: %v", err)
 	}
@@ -188,9 +183,9 @@ func TestExportEPUB_TitleAuthorOverride(t *testing.T) {
 }
 
 func TestExportEPUB_MissingPath(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "epub-no-path")
+	srv, _, vaultName := setupBulkServer(t, "epub-no-path")
 
-	resp, err := http.Get(srv.URL + "/api/export/epub?vault=" + vaultID)
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export/epub")
 	if err != nil {
 		t.Fatalf("GET export/epub: %v", err)
 	}
@@ -212,9 +207,9 @@ func TestExportEPUB_MissingPath(t *testing.T) {
 }
 
 func TestExportEPUB_NonexistentPath(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "epub-404")
+	srv, _, vaultName := setupBulkServer(t, "epub-404")
 
-	resp, err := http.Get(srv.URL + "/api/export/epub?vault=" + vaultID + "&path=/nonexistent/")
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export/epub?path=/nonexistent/")
 	if err != nil {
 		t.Fatalf("GET export/epub: %v", err)
 	}

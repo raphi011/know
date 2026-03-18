@@ -14,26 +14,16 @@ import (
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/epub"
 	"github.com/raphi011/know/internal/logutil"
-	"github.com/raphi011/know/internal/models"
 )
 
 func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter is required")
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(ctx)
 	filePath := r.URL.Query().Get("path")
 	if filePath == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 

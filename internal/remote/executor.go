@@ -242,9 +242,9 @@ func (e *Executor) execUpsertDocument(ctx context.Context, vaultID, arguments, v
 
 	start := time.Now()
 	doc, err := e.client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
-		VaultID: vaultID,
-		Path:    input.Path,
-		Content: input.Content,
+		VaultName: vaultID,
+		Path:      input.Path,
+		Content:   input.Content,
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
@@ -280,9 +280,9 @@ func (e *Executor) execCreateMemory(ctx context.Context, vaultID, arguments stri
 
 	start := time.Now()
 	doc, err := e.client.CreateDocument(ctx, apiclient.CreateDocumentRequest{
-		VaultID: vaultID,
-		Path:    path,
-		Content: fullContent,
+		VaultName: vaultID,
+		Path:      path,
+		Content:   fullContent,
 	})
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {

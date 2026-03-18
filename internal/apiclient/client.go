@@ -45,6 +45,11 @@ func New(baseURL, token string) *Client {
 	}
 }
 
+// vaultPath constructs a vault-scoped API path: /api/v1/vaults/{name}{resource}.
+func vaultPath(vaultName, resource string) string {
+	return "/api/v1/vaults/" + url.PathEscape(vaultName) + resource
+}
+
 // Get performs a GET request and decodes the JSON response into target.
 func (c *Client) Get(ctx context.Context, path string, target any) error {
 	return c.do(ctx, http.MethodGet, path, nil, target)
@@ -108,9 +113,8 @@ type BulkFile struct {
 
 // BulkMeta holds shared metadata for a bulk upload request.
 type BulkMeta struct {
-	VaultID string `json:"vaultId"`
-	Force   bool   `json:"force"`
-	DryRun  bool   `json:"dryRun"`
+	Force  bool `json:"force"`
+	DryRun bool `json:"dryRun"`
 }
 
 // BulkResult is a per-file result from the bulk upload endpoint.
@@ -127,7 +131,7 @@ type BulkResult struct {
 //
 // A nil error means the HTTP request succeeded, but individual files may still have
 // failed — callers must check each BulkResult.Status for "error" entries.
-func (c *Client) BulkUpload(ctx context.Context, meta BulkMeta, files []BulkFile) ([]BulkResult, error) {
+func (c *Client) BulkUpload(ctx context.Context, vaultName string, meta BulkMeta, files []BulkFile) ([]BulkResult, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
@@ -155,7 +159,7 @@ func (c *Client) BulkUpload(ctx context.Context, meta BulkMeta, files []BulkFile
 		return nil, fmt.Errorf("close multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/bulk", &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+vaultPath(vaultName, "/documents/bulk"), &buf)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -194,12 +198,11 @@ type ImportManifestFile struct {
 	Hash string `json:"hash"`
 }
 
-// ImportManifestRequest is the request body for POST /api/import/manifest.
+// ImportManifestRequest is the request body for POST /api/v1/vaults/{name}/import/manifest.
 type ImportManifestRequest struct {
-	VaultID string               `json:"vaultId"`
-	Force   bool                 `json:"force"`
-	DryRun  bool                 `json:"dryRun"`
-	Files   []ImportManifestFile `json:"files"`
+	Force  bool                 `json:"force"`
+	DryRun bool                 `json:"dryRun"`
+	Files  []ImportManifestFile `json:"files"`
 }
 
 // ImportManifestResponse is the response from POST /api/import/manifest.
@@ -223,9 +226,9 @@ type ImportUploadResponse struct {
 }
 
 // ImportManifest sends a file manifest to the server and returns which files need uploading.
-func (c *Client) ImportManifest(ctx context.Context, req ImportManifestRequest) (*ImportManifestResponse, error) {
+func (c *Client) ImportManifest(ctx context.Context, vaultName string, req ImportManifestRequest) (*ImportManifestResponse, error) {
 	var resp ImportManifestResponse
-	if err := c.Post(ctx, "/api/import/manifest", req, &resp); err != nil {
+	if err := c.Post(ctx, vaultPath(vaultName, "/import/manifest"), req, &resp); err != nil {
 		return nil, fmt.Errorf("import manifest: %w", err)
 	}
 	return &resp, nil
@@ -240,7 +243,7 @@ type ImportFile struct {
 
 // ImportUpload sends only the needed files to the server's import upload endpoint.
 // The meta part includes per-file hashes for server-side verification.
-func (c *Client) ImportUpload(ctx context.Context, vaultID string, files []ImportFile) (*ImportUploadResponse, error) {
+func (c *Client) ImportUpload(ctx context.Context, vaultName string, files []ImportFile) (*ImportUploadResponse, error) {
 	// Build the multipart request with pipe to avoid buffering all files in memory.
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
@@ -267,9 +270,8 @@ func (c *Client) ImportUpload(ctx context.Context, vaultID string, files []Impor
 			hashes[f.Path] = f.Hash
 		}
 		meta := struct {
-			VaultID string            `json:"vaultId"`
-			Hashes  map[string]string `json:"hashes"`
-		}{VaultID: vaultID, Hashes: hashes}
+			Hashes map[string]string `json:"hashes"`
+		}{Hashes: hashes}
 		if err := json.NewEncoder(metaPart).Encode(meta); err != nil {
 			writeErr = fmt.Errorf("encode meta: %w", err)
 			errCh <- writeErr
@@ -299,7 +301,7 @@ func (c *Client) ImportUpload(ctx context.Context, vaultID string, files []Impor
 		errCh <- nil
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/import/upload", pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+vaultPath(vaultName, "/import/upload"), pr)
 	if err != nil {
 		pr.Close()
 		<-errCh // drain goroutine to prevent leak
@@ -388,15 +390,14 @@ type MoveResult struct {
 }
 
 // Move moves a document or folder to a new path within the same vault.
-func (c *Client) Move(ctx context.Context, vaultID, source, destination string, dryRun bool) (*MoveResult, error) {
+func (c *Client) Move(ctx context.Context, vaultName, source, destination string, dryRun bool) (*MoveResult, error) {
 	body := map[string]any{
-		"vaultId":     vaultID,
 		"source":      source,
 		"destination": destination,
 		"dryRun":      dryRun,
 	}
 	var result MoveResult
-	if err := c.Post(ctx, "/api/move", body, &result); err != nil {
+	if err := c.Post(ctx, vaultPath(vaultName, "/documents/move"), body, &result); err != nil {
 		return nil, fmt.Errorf("move: %w", err)
 	}
 	return &result, nil
@@ -413,7 +414,7 @@ type Vault struct {
 // ListVaults returns all accessible vaults.
 func (c *Client) ListVaults(ctx context.Context) ([]Vault, error) {
 	var vaults []Vault
-	if err := c.Get(ctx, "/api/vaults", &vaults); err != nil {
+	if err := c.Get(ctx, "/api/v1/vaults", &vaults); err != nil {
 		return nil, fmt.Errorf("list vaults: %w", err)
 	}
 	return vaults, nil
@@ -436,13 +437,13 @@ type ChunkMatch struct {
 }
 
 // SearchDocuments searches documents on the remote server.
-func (c *Client) SearchDocuments(ctx context.Context, vaultID, query string, limit int) ([]SearchResult, error) {
-	q := url.Values{"vault": {vaultID}, "query": {query}}
+func (c *Client) SearchDocuments(ctx context.Context, vaultName, query string, limit int) ([]SearchResult, error) {
+	q := url.Values{"query": {query}}
 	if limit > 0 {
 		q.Set("limit", fmt.Sprintf("%d", limit))
 	}
 	var results []SearchResult
-	if err := c.Get(ctx, "/api/search?"+q.Encode(), &results); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/search")+"?"+q.Encode(), &results); err != nil {
 		return nil, fmt.Errorf("search documents: %w", err)
 	}
 	return results, nil
@@ -455,13 +456,17 @@ type Folder struct {
 }
 
 // ListFolders lists folders in a vault, optionally under a parent path.
-func (c *Client) ListFolders(ctx context.Context, vaultID string, parent *string) ([]Folder, error) {
-	q := url.Values{"vault": {vaultID}}
+func (c *Client) ListFolders(ctx context.Context, vaultName string, parent *string) ([]Folder, error) {
+	q := url.Values{}
 	if parent != nil {
 		q.Set("parent", *parent)
 	}
+	path := vaultPath(vaultName, "/folders")
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
 	var folders []Folder
-	if err := c.Get(ctx, "/api/folders?"+q.Encode(), &folders); err != nil {
+	if err := c.Get(ctx, path, &folders); err != nil {
 		return nil, fmt.Errorf("list folders: %w", err)
 	}
 	return folders, nil
@@ -469,15 +474,15 @@ func (c *Client) ListFolders(ctx context.Context, vaultID string, parent *string
 
 // CreateDocumentRequest is the body for creating a document via REST API.
 type CreateDocumentRequest struct {
-	VaultID string `json:"vaultId"`
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	VaultName string `json:"-"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
 }
 
 // CreateDocument creates a new document on the remote server.
 func (c *Client) CreateDocument(ctx context.Context, req CreateDocumentRequest) (*Document, error) {
 	var doc Document
-	if err := c.Post(ctx, "/api/documents", req, &doc); err != nil {
+	if err := c.Post(ctx, vaultPath(req.VaultName, "/documents"), req, &doc); err != nil {
 		return nil, fmt.Errorf("create document: %w", err)
 	}
 	return &doc, nil
@@ -490,7 +495,7 @@ type EditDocumentRequest = CreateDocumentRequest
 // EditDocument updates an existing document on the remote server.
 func (c *Client) EditDocument(ctx context.Context, req EditDocumentRequest) (*Document, error) {
 	var doc Document
-	if err := c.Post(ctx, "/api/documents", req, &doc); err != nil {
+	if err := c.Post(ctx, vaultPath(req.VaultName, "/documents"), req, &doc); err != nil {
 		return nil, fmt.Errorf("edit document: %w", err)
 	}
 	return &doc, nil
@@ -505,13 +510,13 @@ type Version struct {
 }
 
 // ListVersions returns version history for a document.
-func (c *Client) ListVersions(ctx context.Context, vaultID, path string, limit int) ([]Version, error) {
-	q := url.Values{"vault": {vaultID}, "path": {path}}
+func (c *Client) ListVersions(ctx context.Context, vaultName, path string, limit int) ([]Version, error) {
+	q := url.Values{"path": {path}}
 	if limit > 0 {
 		q.Set("limit", fmt.Sprintf("%d", limit))
 	}
 	var versions []Version
-	if err := c.Get(ctx, "/api/versions?"+q.Encode(), &versions); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/versions")+"?"+q.Encode(), &versions); err != nil {
 		return nil, fmt.Errorf("list versions: %w", err)
 	}
 	return versions, nil
@@ -528,10 +533,10 @@ type Document struct {
 }
 
 // GetDocument fetches a document by vault and path.
-func (c *Client) GetDocument(ctx context.Context, vaultID, path string) (*Document, error) {
-	q := url.Values{"vault": {vaultID}, "path": {path}}
+func (c *Client) GetDocument(ctx context.Context, vaultName, path string) (*Document, error) {
+	q := url.Values{"path": {path}}
 	var doc Document
-	if err := c.Get(ctx, "/api/documents?"+q.Encode(), &doc); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/documents")+"?"+q.Encode(), &doc); err != nil {
 		return nil, fmt.Errorf("get document: %w", err)
 	}
 	return &doc, nil
@@ -545,8 +550,8 @@ type DeleteResult struct {
 }
 
 // DeleteDocuments deletes a document or folder (with recursive flag) from a vault.
-func (c *Client) DeleteDocuments(ctx context.Context, vaultID, path string, recursive, dryRun bool) (*DeleteResult, error) {
-	q := url.Values{"vault": {vaultID}, "path": {path}}
+func (c *Client) DeleteDocuments(ctx context.Context, vaultName, path string, recursive, dryRun bool) (*DeleteResult, error) {
+	q := url.Values{"path": {path}}
 	if recursive {
 		q.Set("recursive", "true")
 	}
@@ -554,38 +559,38 @@ func (c *Client) DeleteDocuments(ctx context.Context, vaultID, path string, recu
 		q.Set("dry-run", "true")
 	}
 	var result DeleteResult
-	if err := c.do(ctx, http.MethodDelete, "/api/documents?"+q.Encode(), nil, &result); err != nil {
+	if err := c.do(ctx, http.MethodDelete, vaultPath(vaultName, "/documents")+"?"+q.Encode(), nil, &result); err != nil {
 		return nil, fmt.Errorf("delete documents: %w", err)
 	}
 	return &result, nil
 }
 
 // ListFiles lists files and folders at the given path in a vault.
-func (c *Client) ListFiles(ctx context.Context, vaultID, path string, recursive bool) ([]models.FileEntry, error) {
-	q := url.Values{"vault": {vaultID}, "path": {path}}
+func (c *Client) ListFiles(ctx context.Context, vaultName, path string, recursive bool) ([]models.FileEntry, error) {
+	q := url.Values{"path": {path}}
 	if recursive {
 		q.Set("recursive", "true")
 	}
 	var entries []models.FileEntry
-	if err := c.Get(ctx, "/api/ls?"+q.Encode(), &entries); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/documents/ls")+"?"+q.Encode(), &entries); err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}
 	return entries, nil
 }
 
 // ListLabels returns all distinct labels in the given vault.
-func (c *Client) ListLabels(ctx context.Context, vaultID string) ([]string, error) {
+func (c *Client) ListLabels(ctx context.Context, vaultName string) ([]string, error) {
 	var labels []string
-	if err := c.Get(ctx, "/api/labels?vault="+url.QueryEscape(vaultID), &labels); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/labels"), &labels); err != nil {
 		return nil, fmt.Errorf("list labels: %w", err)
 	}
 	return labels, nil
 }
 
 // ListLabelsWithCounts returns labels with their document counts for the given vault.
-func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]models.LabelCount, error) {
+func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultName string) ([]models.LabelCount, error) {
 	var counts []models.LabelCount
-	if err := c.Get(ctx, "/api/labels?vault="+url.QueryEscape(vaultID)+"&counts=true", &counts); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/labels")+"?counts=true", &counts); err != nil {
 		return nil, fmt.Errorf("list labels with counts: %w", err)
 	}
 	return counts, nil
@@ -605,7 +610,7 @@ func (c *Client) GetJobStatus(ctx context.Context, since string) (*JobStatusResp
 	if since != "" {
 		q.Set("since", since)
 	}
-	path := "/api/jobs"
+	path := "/api/v1/jobs"
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
@@ -649,7 +654,7 @@ type VaultInfo struct {
 // GetVaultInfo fetches comprehensive stats about a vault.
 func (c *Client) GetVaultInfo(ctx context.Context, vaultName string) (*VaultInfo, error) {
 	var info VaultInfo
-	if err := c.Get(ctx, "/api/vaults/"+url.PathEscape(vaultName)+"/info", &info); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, ""), &info); err != nil {
 		return nil, fmt.Errorf("get vault info: %w", err)
 	}
 	return &info, nil
@@ -658,7 +663,7 @@ func (c *Client) GetVaultInfo(ctx context.Context, vaultName string) (*VaultInfo
 // GetVaultSettings fetches vault settings with defaults applied.
 func (c *Client) GetVaultSettings(ctx context.Context, vaultName string) (*models.VaultSettings, error) {
 	var settings models.VaultSettings
-	if err := c.Get(ctx, "/api/vaults/"+url.PathEscape(vaultName)+"/settings", &settings); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/settings"), &settings); err != nil {
 		return nil, fmt.Errorf("get vault settings: %w", err)
 	}
 	return &settings, nil
@@ -667,7 +672,7 @@ func (c *Client) GetVaultSettings(ctx context.Context, vaultName string) (*model
 // UpdateVaultSettings updates vault settings (partial: only non-zero fields are applied).
 func (c *Client) UpdateVaultSettings(ctx context.Context, vaultName string, patch models.VaultSettings) (*models.VaultSettings, error) {
 	var settings models.VaultSettings
-	if err := c.Patch(ctx, "/api/vaults/"+url.PathEscape(vaultName)+"/settings", patch, &settings); err != nil {
+	if err := c.Patch(ctx, vaultPath(vaultName, "/settings"), patch, &settings); err != nil {
 		return nil, fmt.Errorf("update vault settings: %w", err)
 	}
 	return &settings, nil
@@ -675,22 +680,21 @@ func (c *Client) UpdateVaultSettings(ctx context.Context, vaultName string, patc
 
 // FetchWebpageRequest is the body for the fetch webpage endpoint.
 type FetchWebpageRequest struct {
-	URL     string  `json:"url"`
-	VaultID string  `json:"vault_id"`
-	Path    *string `json:"path,omitempty"`
+	URL       string  `json:"url"`
+	VaultName string  `json:"-"`
+	Path      *string `json:"path,omitempty"`
 }
 
 // FetchWebpageResponse is the response from the fetch webpage endpoint.
 type FetchWebpageResponse struct {
-	Path    string `json:"path"`
-	Title   string `json:"title"`
-	VaultID string `json:"vault_id"`
+	Path  string `json:"path"`
+	Title string `json:"title"`
 }
 
 // FetchWebpage fetches a web page via the server and saves it to the vault.
 func (c *Client) FetchWebpage(ctx context.Context, req FetchWebpageRequest) (*FetchWebpageResponse, error) {
 	var resp FetchWebpageResponse
-	if err := c.Post(ctx, "/api/fetch", req, &resp); err != nil {
+	if err := c.Post(ctx, vaultPath(req.VaultName, "/documents/clip"), req, &resp); err != nil {
 		return nil, fmt.Errorf("fetch webpage: %w", err)
 	}
 	return &resp, nil
@@ -698,14 +702,14 @@ func (c *Client) FetchWebpage(ctx context.Context, req FetchWebpageRequest) (*Fe
 
 // DownloadExport downloads a vault export archive to the given output path.
 // Returns the number of bytes written.
-func (c *Client) DownloadExport(ctx context.Context, vaultID, outputPath string) (int64, error) {
-	return c.downloadToFile(ctx, "/api/export?vault="+url.QueryEscape(vaultID), outputPath)
+func (c *Client) DownloadExport(ctx context.Context, vaultName, outputPath string) (int64, error) {
+	return c.downloadToFile(ctx, vaultPath(vaultName, "/export"), outputPath)
 }
 
 // DownloadBackup downloads a manifest-based backup archive to the given output path.
 // Returns the number of bytes written.
-func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string) (int64, error) {
-	return c.downloadToFile(ctx, "/api/backup?vault="+url.QueryEscape(vaultID), outputPath)
+func (c *Client) DownloadBackup(ctx context.Context, vaultName, outputPath string) (int64, error) {
+	return c.downloadToFile(ctx, vaultPath(vaultName, "/backup"), outputPath)
 }
 
 // RestoreBackup uploads a backup archive to the server for restoration.
@@ -716,7 +720,7 @@ func (c *Client) RestoreBackup(ctx context.Context, archivePath string) error {
 	}
 	defer f.Close()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/backup/restore", f)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/backup/restore", f)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -743,15 +747,15 @@ func (c *Client) RestoreBackup(ctx context.Context, archivePath string) error {
 
 // DownloadExportEPUB downloads an EPUB export to the given output path.
 // Returns the number of bytes written.
-func (c *Client) DownloadExportEPUB(ctx context.Context, vaultID, path, title, author, outputPath string) (int64, error) {
-	params := url.Values{"vault": {vaultID}, "path": {path}}
+func (c *Client) DownloadExportEPUB(ctx context.Context, vaultName, path, title, author, outputPath string) (int64, error) {
+	params := url.Values{"path": {path}}
 	if title != "" {
 		params.Set("title", title)
 	}
 	if author != "" {
 		params.Set("author", author)
 	}
-	return c.downloadToFile(ctx, "/api/export/epub?"+params.Encode(), outputPath)
+	return c.downloadToFile(ctx, vaultPath(vaultName, "/export/epub")+"?"+params.Encode(), outputPath)
 }
 
 // downloadToFile performs a GET request and streams the response body to a file.

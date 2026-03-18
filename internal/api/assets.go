@@ -21,10 +21,10 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultID := r.FormValue("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.FormValue("path")
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path fields are required")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path field is required")
 		return
 	}
 
@@ -76,16 +76,11 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.URL.Query().Get("path")
 
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path query parameters required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
@@ -125,16 +120,11 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.URL.Query().Get("path")
 
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path query parameters required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
@@ -161,11 +151,11 @@ func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.URL.Query().Get("path")
 
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path query parameters required")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 

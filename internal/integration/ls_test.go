@@ -12,11 +12,10 @@ import (
 )
 
 func TestLs_NonRecursiveRoot(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "ls-root")
+	srv, _, vaultName := setupBulkServer(t, "ls-root")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/readme.md":        []byte("# Readme"),
 		"/docs/guide.md":    []byte("# Guide"),
@@ -24,7 +23,7 @@ func TestLs_NonRecursiveRoot(t *testing.T) {
 		"/notes/todo.md":    []byte("# Todo"),
 	})
 
-	entries := lsRequest(t, srv, vaultID, "/", false)
+	entries := lsRequest(t, srv, vaultName, "/", false)
 
 	// Should list direct children only: readme.md + folders docs/ and notes/
 	names := entryNames(entries)
@@ -57,18 +56,17 @@ func TestLs_NonRecursiveRoot(t *testing.T) {
 }
 
 func TestLs_NonRecursiveSubfolder(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "ls-subfolder")
+	srv, _, vaultName := setupBulkServer(t, "ls-subfolder")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/guide.md":    []byte("# Guide"),
 		"/docs/setup.md":    []byte("# Setup"),
 		"/docs/sub/deep.md": []byte("# Deep"),
 	})
 
-	entries := lsRequest(t, srv, vaultID, "/docs", false)
+	entries := lsRequest(t, srv, vaultName, "/docs", false)
 
 	names := entryNames(entries)
 	sort.Strings(names)
@@ -86,17 +84,16 @@ func TestLs_NonRecursiveSubfolder(t *testing.T) {
 }
 
 func TestLs_Recursive(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "ls-recursive")
+	srv, _, vaultName := setupBulkServer(t, "ls-recursive")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/guide.md":    []byte("# Guide"),
 		"/docs/sub/deep.md": []byte("# Deep"),
 	})
 
-	entries := lsRequest(t, srv, vaultID, "/docs", true)
+	entries := lsRequest(t, srv, vaultName, "/docs", true)
 
 	paths := entryPaths(entries)
 	sort.Strings(paths)
@@ -114,19 +111,18 @@ func TestLs_Recursive(t *testing.T) {
 }
 
 func TestLs_PrefixIsolation(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "ls-prefix")
+	srv, _, vaultName := setupBulkServer(t, "ls-prefix")
 
 	// Create docs under /docs and /docs-other — they share the "/docs" prefix
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/a.md":       []byte("# A"),
 		"/docs-other/b.md": []byte("# B"),
 	})
 
 	// Non-recursive ls of /docs should NOT include /docs-other/b.md
-	entries := lsRequest(t, srv, vaultID, "/docs", false)
+	entries := lsRequest(t, srv, vaultName, "/docs", false)
 	for _, e := range entries {
 		if e.Name == "b.md" || e.Path == "/docs-other/b.md" {
 			t.Errorf("ls /docs should not include /docs-other entries: got %+v", e)
@@ -137,7 +133,7 @@ func TestLs_PrefixIsolation(t *testing.T) {
 	}
 
 	// Recursive ls of /docs should also not include /docs-other
-	entries = lsRequest(t, srv, vaultID, "/docs", true)
+	entries = lsRequest(t, srv, vaultName, "/docs", true)
 	for _, e := range entries {
 		if e.Name == "b.md" || e.Path == "/docs-other/b.md" {
 			t.Errorf("recursive ls /docs should not include /docs-other entries: got %+v", e)
@@ -146,33 +142,33 @@ func TestLs_PrefixIsolation(t *testing.T) {
 }
 
 func TestLs_EmptyVault(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "ls-empty")
+	srv, _, vaultName := setupBulkServer(t, "ls-empty")
 
-	entries := lsRequest(t, srv, vaultID, "/", false)
+	entries := lsRequest(t, srv, vaultName, "/", false)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for empty vault, got %d", len(entries))
 	}
 }
 
-func TestLs_MissingVaultParam(t *testing.T) {
-	srv, _ := setupBulkServer(t, "ls-no-vault")
+func TestLs_NonexistentVault(t *testing.T) {
+	srv, _, _ := setupBulkServer(t, "ls-no-vault")
 
-	resp, err := http.Get(srv.URL + "/api/ls")
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/nonexistent/documents/ls?path=/")
 	if err != nil {
 		t.Fatalf("GET ls: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
-// lsRequest performs a GET /api/ls and returns the parsed entries.
-func lsRequest(t *testing.T, srv *httptest.Server, vaultID, path string, recursive bool) []models.FileEntry {
+// lsRequest performs a GET /api/v1/vaults/{vault}/documents/ls and returns the parsed entries.
+func lsRequest(t *testing.T, srv *httptest.Server, vaultName, path string, recursive bool) []models.FileEntry {
 	t.Helper()
 
-	u := srv.URL + "/api/ls?vault=" + vaultID + "&path=" + path
+	u := srv.URL + "/api/v1/vaults/" + vaultName + "/documents/ls?path=" + path
 	if recursive {
 		u += "&recursive=true"
 	}

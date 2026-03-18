@@ -33,11 +33,12 @@ type errorResponse struct {
 }
 
 // setupMoveServer creates a vault and httptest.Server with the move endpoint.
-func setupMoveServer(t *testing.T, suffix string) (*httptest.Server, string) {
+// Returns the server, the bare vault ID, and the vault name (for URL paths).
+func setupMoveServer(t *testing.T, suffix string) (*httptest.Server, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	vaultID, vaultSvc := setupVault(t, ctx, "move-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, vaultName, vaultSvc := setupVault(t, ctx, "move-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 	blobStore := blob.NewFS(t.TempDir())
 	fileSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -45,19 +46,18 @@ func setupMoveServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	apiSrv := api.NewServer(app)
 
 	mux := http.NewServeMux()
-	apiSrv.Register(mux, auth.NoAuthMiddleware)
+	apiSrv.Register(mux, auth.NoAuthMiddleware, nil)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	return srv, vaultID
+	return srv, vaultID, vaultName
 }
 
-// moveRequest sends a POST /api/move request and returns the HTTP response.
-func moveRequest(t *testing.T, srv *httptest.Server, vaultID, source, destination string, dryRun bool) (*http.Response, []byte) {
+// moveRequest sends a POST /api/v1/vaults/{vault}/documents/move request and returns the HTTP response.
+func moveRequest(t *testing.T, srv *httptest.Server, vaultName, source, destination string, dryRun bool) (*http.Response, []byte) {
 	t.Helper()
 
 	body, err := json.Marshal(map[string]any{
-		"vaultId":     vaultID,
 		"source":      source,
 		"destination": destination,
 		"dryRun":      dryRun,
@@ -66,7 +66,7 @@ func moveRequest(t *testing.T, srv *httptest.Server, vaultID, source, destinatio
 		t.Fatalf("marshal move request: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/move", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/vaults/"+vaultName+"/documents/move", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
@@ -87,26 +87,25 @@ func moveRequest(t *testing.T, srv *httptest.Server, vaultID, source, destinatio
 }
 
 // createDoc creates a document via the bulk upload endpoint.
-func createDoc(t *testing.T, srv *httptest.Server, vaultID, path, content string) {
+func createDoc(t *testing.T, srv *httptest.Server, vaultName, path, content string) {
 	t.Helper()
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		path: []byte(content),
 	})
 }
 
 func TestMove_DocumentToExistingDocument_Conflict(t *testing.T) {
-	srv, vaultID := setupMoveServer(t, "doc-to-doc")
+	srv, _, vaultName := setupMoveServer(t, "doc-to-doc")
 
 	// Create two documents
-	createDoc(t, srv, vaultID, "/doc-a.md", "# Doc A")
-	createDoc(t, srv, vaultID, "/doc-b.md", "# Doc B")
+	createDoc(t, srv, vaultName, "/doc-a.md", "# Doc A")
+	createDoc(t, srv, vaultName, "/doc-b.md", "# Doc B")
 
 	// Try to move doc-a to doc-b's path — should 409
-	resp, body := moveRequest(t, srv, vaultID, "/doc-a.md", "/doc-b.md", false)
+	resp, body := moveRequest(t, srv, vaultName, "/doc-a.md", "/doc-b.md", false)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", resp.StatusCode, string(body))
 	}
@@ -121,14 +120,14 @@ func TestMove_DocumentToExistingDocument_Conflict(t *testing.T) {
 }
 
 func TestMove_DocumentToExistingFolder_Conflict(t *testing.T) {
-	srv, vaultID := setupMoveServer(t, "doc-to-folder")
+	srv, _, vaultName := setupMoveServer(t, "doc-to-folder")
 
 	// Create a document and a folder (by creating a doc inside a folder)
-	createDoc(t, srv, vaultID, "/doc.md", "# Document")
-	createDoc(t, srv, vaultID, "/myfolder/nested.md", "# Nested")
+	createDoc(t, srv, vaultName, "/doc.md", "# Document")
+	createDoc(t, srv, vaultName, "/myfolder/nested.md", "# Nested")
 
 	// Try to move /doc.md to /myfolder — should 409 (cross-type: document → folder)
-	resp, body := moveRequest(t, srv, vaultID, "/doc.md", "/myfolder", false)
+	resp, body := moveRequest(t, srv, vaultName, "/doc.md", "/myfolder", false)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", resp.StatusCode, string(body))
 	}
@@ -143,14 +142,14 @@ func TestMove_DocumentToExistingFolder_Conflict(t *testing.T) {
 }
 
 func TestMove_FolderToExistingDocument_Conflict(t *testing.T) {
-	srv, vaultID := setupMoveServer(t, "folder-to-doc")
+	srv, _, vaultName := setupMoveServer(t, "folder-to-doc")
 
 	// Create a folder (by creating a doc inside it) and a standalone document
-	createDoc(t, srv, vaultID, "/myfolder/nested.md", "# Nested")
-	createDoc(t, srv, vaultID, "/target.md", "# Target")
+	createDoc(t, srv, vaultName, "/myfolder/nested.md", "# Nested")
+	createDoc(t, srv, vaultName, "/target.md", "# Target")
 
 	// Try to move /myfolder to /target.md — should 409 (cross-type: folder → document)
-	resp, body := moveRequest(t, srv, vaultID, "/myfolder", "/target.md", false)
+	resp, body := moveRequest(t, srv, vaultName, "/myfolder", "/target.md", false)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", resp.StatusCode, string(body))
 	}
@@ -165,12 +164,12 @@ func TestMove_FolderToExistingDocument_Conflict(t *testing.T) {
 }
 
 func TestMove_FolderToNewPath_Success(t *testing.T) {
-	srv, vaultID := setupMoveServer(t, "folder-success")
+	srv, vaultID, vaultName := setupMoveServer(t, "folder-success")
 
-	createDoc(t, srv, vaultID, "/src/a.md", "# A")
-	createDoc(t, srv, vaultID, "/src/b.md", "# B")
+	createDoc(t, srv, vaultName, "/src/a.md", "# A")
+	createDoc(t, srv, vaultName, "/src/b.md", "# B")
 
-	resp, body := moveRequest(t, srv, vaultID, "/src", "/dst", false)
+	resp, body := moveRequest(t, srv, vaultName, "/src", "/dst", false)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
 	}
@@ -209,24 +208,24 @@ func TestMove_FolderToNewPath_Success(t *testing.T) {
 }
 
 func TestMove_DryRunReportsConflict(t *testing.T) {
-	srv, vaultID := setupMoveServer(t, "dryrun-conflict")
+	srv, _, vaultName := setupMoveServer(t, "dryrun-conflict")
 
-	createDoc(t, srv, vaultID, "/doc.md", "# Document")
-	createDoc(t, srv, vaultID, "/myfolder/nested.md", "# Nested")
+	createDoc(t, srv, vaultName, "/doc.md", "# Document")
+	createDoc(t, srv, vaultName, "/myfolder/nested.md", "# Nested")
 
 	// Dry-run move of doc to existing folder path — should still 409
-	resp, body := moveRequest(t, srv, vaultID, "/doc.md", "/myfolder", true)
+	resp, body := moveRequest(t, srv, vaultName, "/doc.md", "/myfolder", true)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409 even with dry-run, got %d: %s", resp.StatusCode, string(body))
 	}
 }
 
 func TestMove_DocumentToNewPath_Success(t *testing.T) {
-	srv, vaultID := setupMoveServer(t, "doc-success")
+	srv, vaultID, vaultName := setupMoveServer(t, "doc-success")
 
-	createDoc(t, srv, vaultID, "/original.md", "# Original")
+	createDoc(t, srv, vaultName, "/original.md", "# Original")
 
-	resp, body := moveRequest(t, srv, vaultID, "/original.md", "/renamed.md", false)
+	resp, body := moveRequest(t, srv, vaultName, "/original.md", "/renamed.md", false)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
 	}

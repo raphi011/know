@@ -16,7 +16,6 @@ const maxAttachments = 20
 
 type chatRequestBody struct {
 	ConversationID string                  `json:"conversationId"`
-	VaultID        string                  `json:"vaultId"`
 	Content        string                  `json:"content"`
 	DocRefs        []string                `json:"docRefs"`
 	Attachments    []models.ChatAttachment `json:"attachments,omitempty"`
@@ -55,10 +54,8 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 			return
 		}
 
-		if body.VaultID == "" {
-			http.Error(w, "vaultId is required", http.StatusBadRequest)
-			return
-		}
+		vaultID := auth.MustVaultIDFromCtx(r.Context())
+
 		if body.Content == "" {
 			http.Error(w, "content is required", http.StatusBadRequest)
 			return
@@ -87,14 +84,14 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 			}
 		}
 
-		if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
+		if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 
 		req := ChatRequest{
 			ConversationID: body.ConversationID,
-			VaultID:        body.VaultID,
+			VaultID:        vaultID,
 			UserID:         ac.UserID,
 			Content:        body.Content,
 			DocRefs:        body.DocRefs,

@@ -10,16 +10,11 @@ import (
 )
 
 func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.URL.Query().Get("path")
 
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path parameters required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path parameter required")
 		return
 	}
 

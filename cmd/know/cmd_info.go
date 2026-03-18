@@ -64,7 +64,7 @@ func runInfo(_ *cobra.Command, _ []string) error {
 	client := infoAPI.newClient()
 
 	var cfg serverInfo
-	if err := client.Get(context.Background(), "/api/config", &cfg); err != nil {
+	if err := client.Get(context.Background(), "/api/v1/config", &cfg); err != nil {
 		return fmt.Errorf("info: %w", err)
 	}
 

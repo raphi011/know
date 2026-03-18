@@ -22,6 +22,7 @@ type VaultResolver interface {
 }
 
 type contextKey struct{}
+type vaultIDKey struct{}
 
 // WildcardVaultAccess grants admin access to all vaults (used in no-auth mode).
 const WildcardVaultAccess = "*"
@@ -44,6 +45,29 @@ type AuthContext struct {
 // WithAuth stores auth context in the request context.
 func WithAuth(ctx context.Context, ac AuthContext) context.Context {
 	return context.WithValue(ctx, contextKey{}, ac)
+}
+
+// WithVaultID stores a resolved vault ID in the request context.
+// Used by the vault-scoping middleware so handlers can retrieve it via VaultIDFromCtx.
+func WithVaultID(ctx context.Context, vaultID string) context.Context {
+	return context.WithValue(ctx, vaultIDKey{}, vaultID)
+}
+
+// VaultIDFromCtx retrieves the vault ID injected by the vault-scoping middleware.
+// Returns an empty string if no vault ID is present.
+func VaultIDFromCtx(ctx context.Context) string {
+	v, _ := ctx.Value(vaultIDKey{}).(string)
+	return v
+}
+
+// MustVaultIDFromCtx retrieves the vault ID injected by the vault-scoping middleware.
+// Panics if no vault ID is present — use only in handlers guaranteed to run behind vaultScope.
+func MustVaultIDFromCtx(ctx context.Context) string {
+	v, ok := ctx.Value(vaultIDKey{}).(string)
+	if !ok || v == "" {
+		panic("bug: MustVaultIDFromCtx called without vault scope middleware")
+	}
+	return v
 }
 
 // DetachContext creates a new context.Background() with the auth context copied

@@ -12,16 +12,11 @@ import (
 )
 
 func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.URL.Query().Get("path")
 
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path query parameters required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
@@ -80,7 +75,6 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 type upsertDocumentRequest struct {
-	VaultID string `json:"vaultId"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
 }
@@ -90,20 +84,22 @@ func (s *Server) upsertDocument(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if body.VaultID == "" || body.Path == "" {
-		writeError(w, http.StatusBadRequest, "vaultId and path are required")
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
 
-	if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	logger := logutil.FromCtx(r.Context())
+	logger := logutil.FromCtx(ctx)
 
-	doc, err := s.app.FileService().Create(r.Context(), models.FileInput{
-		VaultID: body.VaultID,
+	doc, err := s.app.FileService().Create(ctx, models.FileInput{
+		VaultID: vaultID,
 		Path:    body.Path,
 		Content: body.Content,
 	})
@@ -123,15 +119,16 @@ type deleteDocumentsResponse struct {
 }
 
 func (s *Server) deleteDocuments(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
 	path := r.URL.Query().Get("path")
 
-	if vaultID == "" || path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path query parameters required")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
@@ -140,7 +137,6 @@ func (s *Server) deleteDocuments(w http.ResponseWriter, r *http.Request) {
 	recursive := r.URL.Query().Get("recursive") == "true"
 	dryRun := r.URL.Query().Get("dry-run") == "true"
 
-	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
 	// Check if path exists (documents and folders are in the same table)
@@ -213,7 +209,6 @@ func (s *Server) deleteDocuments(w http.ResponseWriter, r *http.Request) {
 }
 
 type moveRequest struct {
-	VaultID     string `json:"vaultId"`
 	Source      string `json:"source"`
 	Destination string `json:"destination"`
 	DryRun      bool   `json:"dryRun"`
@@ -231,12 +226,14 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if body.VaultID == "" || body.Source == "" || body.Destination == "" {
-		writeError(w, http.StatusBadRequest, "vaultId, source, and destination are required")
+	if body.Source == "" || body.Destination == "" {
+		writeError(w, http.StatusBadRequest, "source and destination are required")
 		return
 	}
 
-	if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
@@ -249,11 +246,10 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
 	// Single lookup — documents and folders are in the same table
-	sourceFile, err := s.app.DBClient().GetFileByPath(ctx, body.VaultID, source)
+	sourceFile, err := s.app.DBClient().GetFileByPath(ctx, vaultID, source)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check source: %s", source))
 		logger.Error("move: get source", "source", source, "error", err)
@@ -265,7 +261,7 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for destination conflict (same table — covers both docs and folders)
-	existing, err := s.app.DBClient().GetFileByPath(ctx, body.VaultID, destination)
+	existing, err := s.app.DBClient().GetFileByPath(ctx, vaultID, destination)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to check destination: %s", destination))
 		logger.Error("move: check destination", "destination", destination, "error", err)
@@ -287,7 +283,7 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	// Document move
 	if !sourceFile.IsFolder {
 		if !body.DryRun {
-			if _, err := s.app.FileService().Move(ctx, body.VaultID, source, destination); err != nil {
+			if _, err := s.app.FileService().Move(ctx, vaultID, source, destination); err != nil {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to move document: %s", source))
 				logger.Error("move document", "source", source, "destination", destination, "error", err)
 				return
@@ -306,7 +302,7 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	prefix := source + "/"
 	isNotFolder := false
 	metas, err := s.app.DBClient().ListFileMetas(ctx, db.ListFilesFilter{
-		VaultID:  body.VaultID,
+		VaultID:  vaultID,
 		Folder:   &prefix,
 		IsFolder: &isNotFolder,
 		Limit:    10000,
@@ -323,7 +319,7 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !body.DryRun {
-		if err := s.app.VaultService().MoveFolder(ctx, body.VaultID, source, destination); err != nil {
+		if err := s.app.VaultService().MoveFolder(ctx, vaultID, source, destination); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to move folder: %s", source))
 			logger.Error("move folder", "source", source, "destination", destination, "error", err)
 			return

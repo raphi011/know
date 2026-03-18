@@ -13,7 +13,7 @@ import (
 	"github.com/raphi011/know/internal/vault"
 )
 
-func setupVault(t *testing.T, ctx context.Context, suffix string) (string, *vault.Service) {
+func setupVault(t *testing.T, ctx context.Context, suffix string) (string, string, *vault.Service) {
 	t.Helper()
 	user, err := testDB.CreateUser(ctx, models.UserInput{Name: "folder-test-user-" + suffix})
 	if err != nil {
@@ -21,18 +21,19 @@ func setupVault(t *testing.T, ctx context.Context, suffix string) (string, *vaul
 	}
 	userID := models.MustRecordIDString(user.ID)
 
+	vaultName := "folder-test-" + suffix
 	vaultSvc := vault.NewService(testDB)
-	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: "folder-test-" + suffix})
+	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{Name: vaultName})
 	if err != nil {
 		t.Fatalf("create vault: %v", err)
 	}
 	vaultID := models.MustRecordIDString(v.ID)
-	return vaultID, vaultSvc
+	return vaultID, vaultName, vaultSvc
 }
 
 func TestFolderAutoCreate(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "autocreate-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "autocreate-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -69,7 +70,7 @@ func TestFolderAutoCreate(t *testing.T) {
 
 func TestFolderRootDocNoFolders(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "rootdoc-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "rootdoc-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -97,7 +98,7 @@ func TestFolderRootDocNoFolders(t *testing.T) {
 
 func TestFolderEnsureIdempotency(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "idempotent-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "idempotent-"+fmt.Sprint(time.Now().UnixNano()))
 
 	if err := testDB.EnsureFolders(ctx, vaultID, "/guides/sub/file.md"); err != nil {
 		t.Fatalf("first EnsureFolders: %v", err)
@@ -122,7 +123,7 @@ func TestFolderEnsureIdempotency(t *testing.T) {
 
 func TestFolderEmptyPersistence(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "empty-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "empty-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -154,7 +155,7 @@ func TestFolderEmptyPersistence(t *testing.T) {
 
 func TestFolderExplicitCreate(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "explicit-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "explicit-"+fmt.Sprint(time.Now().UnixNano()))
 
 	folder, err := vaultSvc.CreateFolder(ctx, vaultID, "/projects/new-idea")
 	if err != nil {
@@ -189,7 +190,7 @@ func TestFolderExplicitCreate(t *testing.T) {
 
 func TestFolderDeleteCascade(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "cascade-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "cascade-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -252,7 +253,7 @@ func TestFolderDeleteCascade(t *testing.T) {
 
 func TestFolderMoveBasic(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "move-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "move-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -333,7 +334,7 @@ func TestFolderMoveBasic(t *testing.T) {
 
 func TestFolderMoveCreatesAncestors(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "move-ancestors-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "move-ancestors-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -372,7 +373,7 @@ func TestFolderMoveCreatesAncestors(t *testing.T) {
 
 func TestFolderListByParent(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "listparent-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "listparent-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -425,7 +426,7 @@ func TestFolderListByParent(t *testing.T) {
 
 func TestFolderListAll(t *testing.T) {
 	ctx := context.Background()
-	vaultID, vaultSvc := setupVault(t, ctx, "listall-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, vaultSvc := setupVault(t, ctx, "listall-"+fmt.Sprint(time.Now().UnixNano()))
 
 	fileSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 

@@ -79,6 +79,7 @@ type Config struct {
 	IngestConcurrency int
 	NoAuth            bool   // bypass token auth (for local/Docker use)
 	MCPEnabled        bool   // serve MCP endpoint at /mcp (default: true)
+	ProtocolPort      string // KNOW_PROTOCOL_PORT — separate port for WebDAV + MCP (default: "4002")
 	MetricsPort       string // KNOW_METRICS_PORT — separate port for /metrics (default: "" = disabled)
 
 	// SSH/SFTP server
@@ -237,6 +238,7 @@ func Load() Config {
 		IngestConcurrency: getEnvInt("KNOW_INGEST_CONCURRENCY", 4),
 		NoAuth:            getEnvBool("KNOW_NO_AUTH", false),
 		MCPEnabled:        getEnvBool("KNOW_MCP_ENABLED", true),
+		ProtocolPort:      getEnv("KNOW_PROTOCOL_PORT", "4002"),
 		SSHEnabled:        getEnvBool("KNOW_SSH_ENABLED", false),
 		SSHPort:           getEnv("KNOW_SSH_PORT", "2222"),
 		SSHHostKeyPath:    getEnv("KNOW_SSH_HOST_KEY", ""),
