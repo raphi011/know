@@ -142,8 +142,9 @@ type ChunkMatchResponse struct {
 
 // FolderResponse is the JSON representation of a folder.
 type FolderResponse struct {
-	Path string `json:"path"`
-	Name string `json:"name"`
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	NoEmbed bool   `json:"noEmbed"`
 }
 
 // VersionResponse is the JSON representation of a document version.

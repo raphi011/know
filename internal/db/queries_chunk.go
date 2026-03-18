@@ -212,6 +212,23 @@ type ChunkEmbeddingUpdate struct {
 	Embedding []float32
 }
 
+// StripEmbeddingsByFolder sets embedding = NONE on all chunks belonging to files
+// under the given folder path. Returns the number of affected chunks.
+func (c *Client) StripEmbeddingsByFolder(ctx context.Context, vaultID, folderPath string) (int, error) {
+	defer c.logOp(ctx, "chunk.strip_embeddings_by_folder", time.Now())
+	folderPath = strings.TrimRight(folderPath, "/")
+	prefix := folderPath + "/"
+	sql := `UPDATE chunk SET embedding = NONE WHERE file.vault = type::record("vault", $vault_id) AND string::starts_with(file.path, $prefix) AND embedding IS NOT NONE RETURN BEFORE`
+	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"prefix":   prefix,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("strip embeddings by folder: %w", err)
+	}
+	return countResults(results), nil
+}
+
 // BatchUpdateChunkEmbeddings updates multiple chunk embeddings in a single transaction.
 func (c *Client) BatchUpdateChunkEmbeddings(ctx context.Context, updates []ChunkEmbeddingUpdate) error {
 	if len(updates) == 0 {

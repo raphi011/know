@@ -287,6 +287,104 @@ func TestEnsureFolders_CachesRecentCalls(t *testing.T) {
 	}
 }
 
+func TestSetFolderNoEmbed(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	folderPath := fmt.Sprintf("/ne-%d", time.Now().UnixNano())
+	_, err := testDB.CreateFolder(ctx, vaultID, folderPath)
+	if err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+
+	// Set no_embed = true
+	if err := testDB.SetFolderNoEmbed(ctx, vaultID, folderPath, true); err != nil {
+		t.Fatalf("SetFolderNoEmbed(true) failed: %v", err)
+	}
+
+	folder, err := testDB.GetFolderByPath(ctx, vaultID, folderPath)
+	if err != nil {
+		t.Fatalf("GetFolderByPath failed: %v", err)
+	}
+	if !folder.NoEmbed {
+		t.Error("Expected NoEmbed to be true after setting it")
+	}
+
+	// Set no_embed = false
+	if err := testDB.SetFolderNoEmbed(ctx, vaultID, folderPath, false); err != nil {
+		t.Fatalf("SetFolderNoEmbed(false) failed: %v", err)
+	}
+
+	folder, err = testDB.GetFolderByPath(ctx, vaultID, folderPath)
+	if err != nil {
+		t.Fatalf("GetFolderByPath failed: %v", err)
+	}
+	if folder.NoEmbed {
+		t.Error("Expected NoEmbed to be false after unsetting it")
+	}
+}
+
+func TestIsPathNoEmbed(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	prefix := fmt.Sprintf("/ipne-%d", time.Now().UnixNano())
+
+	// Create nested folders: prefix/parent/child
+	for _, fp := range []string{prefix, prefix + "/parent", prefix + "/parent/child"} {
+		if _, err := testDB.CreateFolder(ctx, vaultID, fp); err != nil {
+			t.Fatalf("CreateFolder %s failed: %v", fp, err)
+		}
+	}
+
+	// Set no_embed on parent
+	if err := testDB.SetFolderNoEmbed(ctx, vaultID, prefix+"/parent", true); err != nil {
+		t.Fatalf("SetFolderNoEmbed failed: %v", err)
+	}
+
+	// File under parent/child should inherit no_embed
+	noEmbed, err := testDB.IsPathNoEmbed(ctx, vaultID, prefix+"/parent/child/doc.md")
+	if err != nil {
+		t.Fatalf("IsPathNoEmbed failed: %v", err)
+	}
+	if !noEmbed {
+		t.Error("Expected IsPathNoEmbed to return true for file under no_embed parent")
+	}
+
+	// File directly under parent should also inherit
+	noEmbed, err = testDB.IsPathNoEmbed(ctx, vaultID, prefix+"/parent/file.md")
+	if err != nil {
+		t.Fatalf("IsPathNoEmbed failed: %v", err)
+	}
+	if !noEmbed {
+		t.Error("Expected IsPathNoEmbed to return true for file directly under no_embed folder")
+	}
+
+	// File outside the parent folder should not be affected
+	noEmbed, err = testDB.IsPathNoEmbed(ctx, vaultID, prefix+"/other.md")
+	if err != nil {
+		t.Fatalf("IsPathNoEmbed failed: %v", err)
+	}
+	if noEmbed {
+		t.Error("Expected IsPathNoEmbed to return false for file outside no_embed folder")
+	}
+
+	// Root-level file should not be affected (no ancestors)
+	noEmbed, err = testDB.IsPathNoEmbed(ctx, vaultID, "/root-doc.md")
+	if err != nil {
+		t.Fatalf("IsPathNoEmbed failed: %v", err)
+	}
+	if noEmbed {
+		t.Error("Expected IsPathNoEmbed to return false for root-level file")
+	}
+}
+
 func TestMoveFoldersByPrefix(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

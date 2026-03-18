@@ -10,6 +10,16 @@ import (
 	"github.com/raphi011/know/internal/pathutil"
 )
 
+type updateFolderRequest struct {
+	Vault   string `json:"vault"`
+	Path    string `json:"path"`
+	NoEmbed *bool  `json:"no_embed"`
+}
+
+type updateFolderResponse struct {
+	StrippedChunks int `json:"strippedChunks"`
+}
+
 func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	vaultID := r.URL.Query().Get("vault")
 	if vaultID == "" {
@@ -47,10 +57,66 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	resp := make([]FolderResponse, len(folders))
 	for i, f := range folders {
 		resp[i] = FolderResponse{
-			Path: f.Path,
-			Name: path.Base(f.Path),
+			Path:    f.Path,
+			Name:    path.Base(f.Path),
+			NoEmbed: f.NoEmbed,
 		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeBody[updateFolderRequest](w, r, 1<<16)
+	if !ok {
+		return
+	}
+
+	if req.Vault == "" || req.Path == "" {
+		writeError(w, http.StatusBadRequest, "vault and path are required")
+		return
+	}
+
+	if err := auth.RequireVaultRole(r.Context(), req.Vault, models.RoleWrite); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
+	db := s.app.DBClient()
+
+	req.Path = models.NormalizePath(req.Path)
+
+	folder, err := db.GetFolderByPath(ctx, req.Vault, req.Path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get folder")
+		logger.Error("update folder: get folder", "vault_id", req.Vault, "path", req.Path, "error", err)
+		return
+	}
+	if folder == nil {
+		writeError(w, http.StatusNotFound, "folder not found")
+		return
+	}
+
+	var stripped int
+
+	if req.NoEmbed != nil {
+		if err := db.SetFolderNoEmbed(ctx, req.Vault, req.Path, *req.NoEmbed); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update folder")
+			logger.Error("update folder: set no_embed", "vault_id", req.Vault, "path", req.Path, "error", err)
+			return
+		}
+		if *req.NoEmbed {
+			n, err := db.StripEmbeddingsByFolder(ctx, req.Vault, req.Path)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to strip embeddings")
+				logger.Error("update folder: strip embeddings", "vault_id", req.Vault, "path", req.Path, "error", err)
+				return
+			}
+			stripped = n
+		}
+	}
+
+	writeJSON(w, http.StatusOK, updateFolderResponse{StrippedChunks: stripped})
 }

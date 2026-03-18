@@ -977,3 +977,51 @@ func (c *Client) MoveFoldersByPrefix(ctx context.Context, vaultID, oldPath, newP
 
 	return countResults(r1) + countResults(r2), nil
 }
+
+// ---------------------------------------------------------------------------
+// Folder embedding control
+// ---------------------------------------------------------------------------
+
+// SetFolderNoEmbed sets the no_embed flag on a folder record.
+func (c *Client) SetFolderNoEmbed(ctx context.Context, vaultID, folderPath string, noEmbed bool) error {
+	defer c.logOp(ctx, "file.set_folder_no_embed", time.Now())
+	sql := `UPDATE file SET no_embed = $no_embed WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND path = $path`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"vault_id": bareID("vault", vaultID),
+		"path":     folderPath,
+		"no_embed": noEmbed,
+	}); err != nil {
+		return fmt.Errorf("set folder no_embed: %w", err)
+	}
+	return nil
+}
+
+// IsPathNoEmbed checks whether any ancestor folder of filePath has no_embed = true.
+// Returns false for root-level files (no ancestors to check).
+func (c *Client) IsPathNoEmbed(ctx context.Context, vaultID, filePath string) (bool, error) {
+	defer c.logOp(ctx, "file.is_path_no_embed", time.Now())
+
+	// Collect ancestor folder paths.
+	filePath = path.Clean(filePath)
+	var ancestors []string
+	for dir := path.Dir(filePath); dir != "/" && dir != "."; dir = path.Dir(dir) {
+		ancestors = append(ancestors, dir)
+	}
+	if len(ancestors) == 0 {
+		return false, nil
+	}
+
+	type countRow struct {
+		Total int `json:"total"`
+	}
+	sql := `SELECT count() AS total FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND no_embed = true AND path IN $ancestors GROUP ALL`
+	results, err := surrealdb.Query[[]countRow](ctx, c.DB(), sql, map[string]any{
+		"vault_id":  bareID("vault", vaultID),
+		"ancestors": ancestors,
+	})
+	if err != nil {
+		return false, fmt.Errorf("check path no_embed: %w", err)
+	}
+	rows := allResults(results)
+	return len(rows) > 0 && rows[0].Total > 0, nil
+}
