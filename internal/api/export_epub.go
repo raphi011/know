@@ -47,11 +47,18 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fileSvc := s.app.FileService()
+
 	if f != nil && !f.IsFolder {
 		// Single document mode.
+		content, err := fileSvc.ReadFileContent(ctx, f)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("read content: %v", err))
+			return
+		}
 		chapters = append(chapters, epub.Chapter{
 			Title:   f.Title,
-			Content: f.Content,
+			Content: content,
 			Path:    f.Path,
 		})
 	} else if f == nil && path.Ext(filePath) != "" {
@@ -81,9 +88,14 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			for _, file := range batch {
+				content, err := fileSvc.ReadFileContent(ctx, &file)
+				if err != nil {
+					logger.Warn("failed to read file content for epub", "path", file.Path, "error", err)
+					continue
+				}
 				chapters = append(chapters, epub.Chapter{
 					Title:   file.Title,
-					Content: file.Content,
+					Content: content,
 					Path:    file.Path,
 				})
 			}
@@ -200,25 +212,25 @@ func (s *Server) resolveImages(ctx context.Context, vaultID string, imagePaths m
 			continue
 		}
 
-		var data []byte
-		if f.ContentHash != nil {
-			rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
-			if err != nil {
-				logger.Warn("failed to read image blob", "path", vaultPath, "error", err)
-				failCount++
-				continue
-			}
-			data, err = io.ReadAll(io.LimitReader(rc, maxImageSize))
-			if closeErr := rc.Close(); closeErr != nil {
-				logger.Warn("failed to close image blob reader", "path", vaultPath, "error", closeErr)
-			}
-			if err != nil {
-				logger.Warn("failed to read image data", "path", vaultPath, "error", err)
-				failCount++
-				continue
-			}
-		} else {
-			data = []byte(f.Content)
+		if f.ContentHash == nil {
+			logger.Warn("image has no content hash", "path", vaultPath)
+			failCount++
+			continue
+		}
+		rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
+		if err != nil {
+			logger.Warn("failed to read image blob", "path", vaultPath, "error", err)
+			failCount++
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(rc, maxImageSize))
+		if closeErr := rc.Close(); closeErr != nil {
+			logger.Warn("failed to close image blob reader", "path", vaultPath, "error", closeErr)
+		}
+		if err != nil {
+			logger.Warn("failed to read image data", "path", vaultPath, "error", err)
+			failCount++
+			continue
 		}
 
 		filename := fmt.Sprintf("img%04d%s", len(images), path.Ext(f.Path))

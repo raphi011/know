@@ -33,6 +33,7 @@ import (
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/pipeline"
 	"github.com/raphi011/know/internal/remote"
+	"github.com/raphi011/know/internal/render"
 	"github.com/raphi011/know/internal/search"
 	"github.com/raphi011/know/internal/stt"
 	"github.com/raphi011/know/internal/tools"
@@ -84,6 +85,7 @@ type App struct {
 	metrics      *metrics.Metrics
 
 	searchService        *search.Service
+	renderService        *render.Service
 	agentService         *agent.Service
 	agentRunner          *agent.Runner
 	remoteService        *remote.Service
@@ -261,15 +263,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	jinaClient := jina.New(cfg.JinaAPIKey)
 
 	// Build multi-vault tool resolvers for the agent.
+	renderSvc := render.NewService(dbClient)
 	localExecutor := &tools.Executor{
-		DB:      dbClient,
-		Search:  searchSvc,
-		FileSvc: fileSvc,
-		Jina:    jinaClient,
+		DB:        dbClient,
+		Search:    searchSvc,
+		FileSvc:   fileSvc,
+		RenderSvc: renderSvc,
+		Jina:      jinaClient,
 	}
 	vaultSvc := vault.NewService(dbClient)
 	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
-	agentSvc := agent.NewService(dbClient, model, agentTools, cfg.TavilyAPIKey, apifyClient)
+	agentSvc := agent.NewService(dbClient, fileSvc, model, agentTools, cfg.TavilyAPIKey, apifyClient)
 	agentRunner := agent.NewRunner(agentSvc, dbClient)
 	memorySvc := memory.NewService(dbClient, fileSvc, model)
 
@@ -282,6 +286,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		fileService:        fileSvc,
 		metrics:            m,
 		searchService:      searchSvc,
+		renderService:      renderSvc,
 		agentService:       agentSvc,
 		agentRunner:        agentRunner,
 		apifyClient:        apifyClient,
@@ -398,6 +403,11 @@ func (a *App) ApifyClient() *apify.Client {
 // JinaClient returns the Jina Reader client.
 func (a *App) JinaClient() *jina.Client {
 	return a.jinaClient
+}
+
+// RenderService returns the render service.
+func (a *App) RenderService() *render.Service {
+	return a.renderService
 }
 
 // BlobStore returns the blob store.

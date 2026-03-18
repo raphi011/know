@@ -43,10 +43,16 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 		return nil, fmt.Errorf("extract vault id: %w", err)
 	}
 
+	// Load content from blob store.
+	rawContent, err := s.ReadFileContent(ctx, doc)
+	if err != nil {
+		return nil, fmt.Errorf("read content: %w", err)
+	}
+
 	// Find and toggle the checkbox line.
 	// Task LineNumber is relative to content-after-frontmatter (content body),
-	// not the raw Content which includes frontmatter.
-	parsed := parser.ParseMarkdown(doc.Content)
+	// not the raw content which includes frontmatter.
+	parsed := parser.ParseMarkdown(rawContent)
 	contentBody := parsed.Content
 	lines := strings.Split(contentBody, "\n")
 	toggled := false
@@ -90,9 +96,9 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 		return nil, fmt.Errorf("could not find checkbox for task %s in file %s", taskID, doc.Path)
 	}
 
-	// Reconstruct full content: contentBody is always a suffix of Content.
+	// Reconstruct full content: contentBody is always a suffix of rawContent.
 	newBody := strings.Join(lines, "\n")
-	prefix := doc.Content[:len(doc.Content)-len(contentBody)]
+	prefix := rawContent[:len(rawContent)-len(contentBody)]
 	newContent := prefix + newBody
 	_, err = s.Create(ctx, models.FileInput{
 		VaultID: vaultID,

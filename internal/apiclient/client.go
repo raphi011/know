@@ -702,6 +702,42 @@ func (c *Client) DownloadExport(ctx context.Context, vaultID, outputPath string)
 	return c.downloadToFile(ctx, "/api/export?vault="+url.QueryEscape(vaultID), outputPath)
 }
 
+// DownloadBackup downloads a manifest-based backup archive to the given output path.
+// Returns the number of bytes written.
+func (c *Client) DownloadBackup(ctx context.Context, vaultID, outputPath string) (int64, error) {
+	return c.downloadToFile(ctx, "/api/backup?vault="+url.QueryEscape(vaultID), outputPath)
+}
+
+// RestoreBackup uploads a backup archive to the server for restoration.
+func (c *Client) RestoreBackup(ctx context.Context, archivePath string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open archive: %w", err)
+	}
+	defer f.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/backup/restore", f)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return &HTTPError{StatusCode: resp.StatusCode, Message: string(body)}
+	}
+	return nil
+}
+
 // DownloadExportEPUB downloads an EPUB export to the given output path.
 // Returns the number of bytes written.
 func (c *Client) DownloadExportEPUB(ctx context.Context, vaultID, path, title, author, outputPath string) (int64, error) {

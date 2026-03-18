@@ -10,8 +10,8 @@ import (
 // MarkdownChunker wraps the existing parser.ChunkMarkdown for markdown files.
 type MarkdownChunker struct{}
 
-func (m *MarkdownChunker) Chunk(_ context.Context, file *models.File, config ChunkConfig) ([]ChunkResult, error) {
-	parsed := parser.ParseMarkdown(file.Content)
+func (m *MarkdownChunker) Chunk(_ context.Context, _ *models.File, content string, config ChunkConfig) ([]ChunkResult, error) {
+	parsed := parser.ParseMarkdown(content)
 	results := parser.ChunkMarkdown(parsed, config.ToParserConfig())
 
 	chunks := make([]ChunkResult, len(results))

@@ -107,7 +107,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 			return newAssetWriteFile(name, f.vaultID, f.fileSvc, meta.UpdatedAt, false, f.pending), nil
 		}
 	} else {
-		// Read mode — need full content
+		// Read mode — need metadata + content from blob
 		doc, err := f.db.GetFileByPath(ctx, f.vaultID, name)
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", name, err)
@@ -117,7 +117,11 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 				return f.openDir(ctx, name, doc.UpdatedAt)
 			}
 			if isMarkdownFile(name) {
-				return newReadFile(name, doc), nil
+				content, err := f.fileSvc.ReadFileContent(ctx, doc)
+				if err != nil {
+					return nil, fmt.Errorf("read content for %s: %w", name, err)
+				}
+				return newReadFile(name, []byte(content), doc.UpdatedAt, doc.ContentHash), nil
 			}
 			arf, err := newAssetReadFile(ctx, name, doc, f.blobStore)
 			if err != nil {

@@ -79,8 +79,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var data []byte
-		if f.ContentHash != nil && !models.IsTextFile(f.Path) {
-			// Binary file — read from blob store
+		if f.ContentHash != nil {
 			rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("read blob for %s: %v", meta.Path, err))
@@ -92,8 +91,6 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("read blob data for %s: %v", meta.Path, err))
 				return
 			}
-		} else {
-			data = []byte(f.Content)
 		}
 		if err := writeTarEntry(tw, f.Path, data, f.UpdatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write file %s: %v", meta.Path, err))

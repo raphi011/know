@@ -108,7 +108,11 @@ func (h *handler) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 		return nil, os.ErrNotExist
 	}
 
-	return bytes.NewReader([]byte(doc.Content)), nil
+	content, err := h.docService.ReadFileContent(r.Context(), doc)
+	if err != nil {
+		return nil, fmt.Errorf("read content %s: %w", r.Filepath, err)
+	}
+	return bytes.NewReader([]byte(content)), nil
 }
 
 // Filewrite returns an io.WriterAt that buffers data in memory. On Close,

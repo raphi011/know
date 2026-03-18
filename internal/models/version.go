@@ -7,13 +7,12 @@ import (
 )
 
 // FileVersion represents a historical snapshot of a file's content.
-// Versions store the OLD content that was replaced during an update.
+// Content is stored in the blob store, referenced by ContentHash.
 type FileVersion struct {
 	ID          surrealmodels.RecordID `json:"id"`
 	File        surrealmodels.RecordID `json:"file"`
 	Vault       surrealmodels.RecordID `json:"vault"`
 	Version     int                    `json:"version"`
-	Content     string                 `json:"content"`
 	ContentHash string                 `json:"content_hash"`
 	Title       string                 `json:"title"`
 	CreatedAt   time.Time              `json:"created_at"`
@@ -23,7 +22,6 @@ type FileVersion struct {
 type FileVersionInput struct {
 	FileID      string
 	VaultID     string
-	Content     string
 	ContentHash string
 	Title       string
 }

@@ -49,8 +49,9 @@ type ChunkResult struct {
 }
 
 // Chunker splits a file into chunks for embedding and search.
+// content is the text content loaded from the blob store (empty for binary files).
 type Chunker interface {
-	Chunk(ctx context.Context, file *models.File, config ChunkConfig) ([]ChunkResult, error)
+	Chunk(ctx context.Context, file *models.File, content string, config ChunkConfig) ([]ChunkResult, error)
 }
 
 // Registry maps MIME types to their processing pipeline components.

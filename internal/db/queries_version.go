@@ -18,7 +18,6 @@ func (c *Client) CreateVersion(ctx context.Context, input models.FileVersionInpu
 			file = type::record("file", $file_id),
 			vault = type::record("vault", $vault_id),
 			version = $version,
-			content = $content,
 			content_hash = $content_hash,
 			title = $title
 		RETURN AFTER
@@ -27,7 +26,6 @@ func (c *Client) CreateVersion(ctx context.Context, input models.FileVersionInpu
 		"file_id":      bareID("file", input.FileID),
 		"vault_id":     bareID("vault", input.VaultID),
 		"version":      version,
-		"content":      input.Content,
 		"content_hash": input.ContentHash,
 		"title":        input.Title,
 	})

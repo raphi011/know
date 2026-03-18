@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/tools"
@@ -27,6 +28,7 @@ type contextInjectionMiddleware struct {
 	textAtts []models.ChatAttachment
 	vaultID  string
 	db       *db.Client
+	fileSvc  *file.Service
 	emit     func(StreamEvent)
 	injected bool
 }
@@ -160,7 +162,13 @@ func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context
 				continue
 			}
 			if doc != nil {
-				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, doc.Content)
+				content, contentErr := m.fileSvc.ReadFileContent(ctx, doc)
+				if contentErr != nil {
+					logutil.FromCtx(ctx).Warn("failed to read doc content", "path", ref, "error", contentErr)
+					m.emit(StreamEvent{Type: "error", Content: fmt.Sprintf("could not read document content: %s", ref)})
+					continue
+				}
+				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, content)
 			}
 		}
 		if refContext.Len() > 0 {

@@ -186,12 +186,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if cfg.MCPEnabled {
 		mcpHandler := mcptools.NewHandler(
 			&tools.Executor{
-				DB:      app.DBClient(),
-				Search:  app.SearchService(),
-				FileSvc: app.FileService(),
-				Jina:    app.JinaClient(),
+				DB:        app.DBClient(),
+				Search:    app.SearchService(),
+				FileSvc:   app.FileService(),
+				RenderSvc: app.RenderService(),
+				Jina:      app.JinaClient(),
 			},
 			app.DBClient(),
+			app.FileService(),
 			app.VaultService(),
 			app.RemoteService(),
 			app.MemoryService(),

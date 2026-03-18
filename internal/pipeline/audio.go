@@ -13,7 +13,7 @@ import (
 // Audio chunking happens after transcription via GroupSegments, not during initial processing.
 type AudioChunker struct{}
 
-func (a *AudioChunker) Chunk(_ context.Context, _ *models.File, _ ChunkConfig) ([]ChunkResult, error) {
+func (a *AudioChunker) Chunk(_ context.Context, _ *models.File, _ string, _ ChunkConfig) ([]ChunkResult, error) {
 	return nil, nil
 }
 

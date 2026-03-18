@@ -5,21 +5,13 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
-
-	"github.com/raphi011/know/internal/models"
 )
 
 func TestReadFile(t *testing.T) {
-	doc := &models.File{
-		ID:        surrealmodels.RecordID{Table: "document", ID: "test1"},
-		Path:      "/test.md",
-		Content:   "# Hello\nWorld",
-		UpdatedAt: time.Now(),
-	}
+	content := []byte("# Hello\nWorld")
+	now := time.Now()
 
-	f := newReadFile("/test.md", doc)
+	f := newReadFile("/test.md", content, now, nil)
 
 	// Read
 	buf := make([]byte, 100)
