@@ -114,31 +114,40 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 		}
 	}
 
-	// Collect versions using cached file IDs (no N+1 re-fetch).
-	for _, fi := range manifest.Files {
-		fileID, ok := fileIDs[fi.Path]
+	// Collect all versions in a single batch query.
+	allFileIDs := make([]string, 0, len(fileIDs))
+	fileIDToPath := make(map[string]string, len(fileIDs)) // file ID → path
+	for path, id := range fileIDs {
+		allFileIDs = append(allFileIDs, id)
+		fileIDToPath[id] = path
+	}
+
+	versions, err := dbClient.ListVersionsByFileIDs(ctx, allFileIDs)
+	if err != nil {
+		return fmt.Errorf("list versions: %w", err)
+	}
+
+	for _, v := range versions {
+		vFileID, idErr := models.RecordIDString(v.File)
+		if idErr != nil {
+			logger.Warn("skipping version with bad file ID", "error", idErr)
+			continue
+		}
+		filePath, ok := fileIDToPath[vFileID]
 		if !ok {
 			continue
 		}
 
-		versions, err := dbClient.ListVersions(ctx, fileID, 1000, 0)
-		if err != nil {
-			logger.Warn("failed to list versions", "path", fi.Path, "error", err)
-			continue
-		}
+		manifest.Versions = append(manifest.Versions, VersionInfo{
+			FilePath:    filePath,
+			Version:     v.Version,
+			ContentHash: v.ContentHash,
+			Title:       v.Title,
+			CreatedAt:   v.CreatedAt,
+		})
 
-		for _, v := range versions {
-			manifest.Versions = append(manifest.Versions, VersionInfo{
-				FilePath:    fi.Path,
-				Version:     v.Version,
-				ContentHash: v.ContentHash,
-				Title:       v.Title,
-				CreatedAt:   v.CreatedAt,
-			})
-
-			if err := writeBlob(ctx, tw, blobStore, v.ContentHash, writtenBlobs); err != nil {
-				logger.Warn("skipping version blob", "path", fi.Path, "version", v.Version, "error", err)
-			}
+		if err := writeBlob(ctx, tw, blobStore, v.ContentHash, writtenBlobs); err != nil {
+			logger.Warn("skipping version blob", "path", filePath, "version", v.Version, "error", err)
 		}
 	}
 

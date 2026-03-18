@@ -330,7 +330,7 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		if err := s.blobStore.Put(ctx, contentHash, bytes.NewReader(input.Data), int64(len(input.Data))); err != nil {
 			return nil, fmt.Errorf("store blob: %w", err)
 		}
-	} else {
+	} else if input.Content != "" {
 		// Text file: compute hash from Content and store in blob.
 		contentHash = models.ContentHash(input.Content)
 		contentLength = len(input.Content)
@@ -343,11 +343,15 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 	path := models.NormalizePath(input.Path)
 
 	// Store metadata in DB (content is in blob store)
+	var hashPtr *string
+	if contentHash != "" {
+		hashPtr = &contentHash
+	}
 	dbInput := models.FileInput{
 		VaultID:       input.VaultID,
 		Path:          path,
 		Title:         title,
-		ContentHash:   &contentHash,
+		ContentHash:   hashPtr,
 		ContentLength: contentLength,
 		Labels:        labels,
 		DocType:       docType,

@@ -725,7 +725,10 @@ func (c *Client) RestoreBackup(ctx context.Context, archivePath string) error {
 	}
 	req.Header.Set("Content-Type", "application/gzip")
 
-	resp, err := (&http.Client{}).Do(req)
+	// Use a client without timeout — restore can take a long time for large
+	// vaults and the context handles cancellation.
+	noTimeoutClient := &http.Client{}
+	resp, err := noTimeoutClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}

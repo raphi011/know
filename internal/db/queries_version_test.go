@@ -290,3 +290,76 @@ func TestNextVersionNumber(t *testing.T) {
 		t.Errorf("Expected next version 2 after creating v1, got %d", next)
 	}
 }
+
+func TestListVersionsByFileIDs(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Create two files with versions.
+	docA := createTestFile(t, ctx, vaultID)
+	docAID := models.MustRecordIDString(docA.ID)
+	docB := createTestFile(t, ctx, vaultID)
+	docBID := models.MustRecordIDString(docB.ID)
+
+	for i := 1; i <= 3; i++ {
+		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+			FileID:      docAID,
+			VaultID:     vaultID,
+			ContentHash: fmt.Sprintf("hashA-%d", i),
+			Title:       fmt.Sprintf("A v%d", i),
+		}, i)
+		if err != nil {
+			t.Fatalf("CreateVersion A v%d: %v", i, err)
+		}
+	}
+	for i := 1; i <= 2; i++ {
+		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
+			FileID:      docBID,
+			VaultID:     vaultID,
+			ContentHash: fmt.Sprintf("hashB-%d", i),
+			Title:       fmt.Sprintf("B v%d", i),
+		}, i)
+		if err != nil {
+			t.Fatalf("CreateVersion B v%d: %v", i, err)
+		}
+	}
+
+	// Batch fetch all versions for both files.
+	versions, err := testDB.ListVersionsByFileIDs(ctx, []string{docAID, docBID})
+	if err != nil {
+		t.Fatalf("ListVersionsByFileIDs: %v", err)
+	}
+	if len(versions) != 5 {
+		t.Fatalf("expected 5 versions, got %d", len(versions))
+	}
+
+	// Verify versions are ordered by file then version DESC.
+	countA, countB := 0, 0
+	for _, v := range versions {
+		fid := models.MustRecordIDString(v.File)
+		switch fid {
+		case docAID:
+			countA++
+		case docBID:
+			countB++
+		}
+	}
+	if countA != 3 {
+		t.Errorf("expected 3 versions for docA, got %d", countA)
+	}
+	if countB != 2 {
+		t.Errorf("expected 2 versions for docB, got %d", countB)
+	}
+
+	// Empty input returns nil.
+	empty, err := testDB.ListVersionsByFileIDs(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListVersionsByFileIDs empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("expected 0 versions for empty input, got %d", len(empty))
+	}
+}

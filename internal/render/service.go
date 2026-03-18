@@ -94,8 +94,8 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 		}
 	}
 
-	// 2. Execute query blocks (skip full parse if no ```know blocks exist).
-	if !strings.Contains(content, "```know") {
+	// 2. Execute query blocks (skip full parse if no fenced know blocks exist).
+	if !strings.Contains(content, "```know") && !strings.Contains(content, "~~~know") {
 		if len(replacements) == 0 {
 			return content, wikiLinks, nil
 		}
@@ -288,17 +288,25 @@ func queryBlockOrderBy(qb parser.QueryBlock) db.FileOrderBy {
 	}
 }
 
-// findFencedBlockEnd finds the byte offset past the closing ``` line
+// findFencedBlockEnd finds the byte offset past the closing fence line
 // of a fenced code block starting at startOffset.
+// Supports both ``` and ~~~ fence styles.
 func findFencedBlockEnd(content string, startOffset int) int {
-	// Skip the opening ``` line.
+	// Skip the opening fence line.
 	rest := content[startOffset:]
 	firstNewline := strings.IndexByte(rest, '\n')
 	if firstNewline < 0 {
 		return -1
 	}
 
-	// Find the closing ``` line.
+	// Detect which fence style was used for the opening.
+	openingLine := rest[:firstNewline]
+	openingFence := "```"
+	if strings.Contains(openingLine, "~~~") {
+		openingFence = "~~~"
+	}
+
+	// Find the matching closing fence line.
 	remaining := rest[firstNewline+1:]
 	offset := startOffset + firstNewline + 1
 	for {
@@ -310,7 +318,8 @@ func findFencedBlockEnd(content string, startOffset int) int {
 			line = remaining[:lineEnd]
 		}
 
-		if strings.TrimSpace(line) == "```" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == openingFence {
 			if lineEnd < 0 {
 				return offset + len(line)
 			}

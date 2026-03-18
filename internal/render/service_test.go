@@ -38,6 +38,18 @@ func TestFindFencedBlockEnd(t *testing.T) {
 			offset:  0,
 			want:    28, // past "  ```  \n"
 		},
+		{
+			name:    "tilde fence",
+			content: "~~~know\nFROM /daily\n~~~\nafter",
+			offset:  0,
+			want:    24, // past "~~~\n"
+		},
+		{
+			name:    "tilde fence does not close with backticks",
+			content: "~~~know\nFROM /daily\n```\n~~~\nafter",
+			offset:  0,
+			want:    28, // past "~~~\n", skipping the ``` line
+		},
 	}
 
 	for _, tt := range tests {

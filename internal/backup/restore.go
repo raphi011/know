@@ -78,17 +78,20 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 
 	logger.Info("backup blobs restored", "count", blobCount)
 
-	// Create or get vault.
-	v, err := vaultSvc.Create(ctx, userID, models.VaultInput{
-		Name:        manifest.Vault.Name,
-		Description: manifest.Vault.Description,
-	})
+	// Create or get vault. Try lookup first to avoid masking real errors
+	// from Create (e.g. DB connection failures).
+	v, err := dbClient.GetVaultByName(ctx, manifest.Vault.Name)
 	if err != nil {
-		existing, lookupErr := dbClient.GetVaultByName(ctx, manifest.Vault.Name)
-		if lookupErr != nil || existing == nil {
+		return fmt.Errorf("lookup vault %q: %w", manifest.Vault.Name, err)
+	}
+	if v == nil {
+		v, err = vaultSvc.Create(ctx, userID, models.VaultInput{
+			Name:        manifest.Vault.Name,
+			Description: manifest.Vault.Description,
+		})
+		if err != nil {
 			return fmt.Errorf("create vault %q: %w", manifest.Vault.Name, err)
 		}
-		v = existing
 	}
 	vaultID, err := models.RecordIDString(v.ID)
 	if err != nil {
