@@ -189,12 +189,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 				DB:      app.DBClient(),
 				Search:  app.SearchService(),
 				FileSvc: app.FileService(),
+				Jina:    app.JinaClient(),
 			},
 			app.DBClient(),
 			app.VaultService(),
 			app.RemoteService(),
 			app.MemoryService(),
 			app.ApifyClient(),
+			app.JinaClient(),
 		)
 		mux.Handle("/mcp", authMw(mcpHandler))
 		slog.Info("MCP endpoint enabled", "path", "/mcp")

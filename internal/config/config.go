@@ -109,6 +109,9 @@ type Config struct {
 	// Apify
 	ApifyToken string // KNOW_APIFY_TOKEN — enables YouTube transcript tool
 
+	// Jina Reader
+	JinaAPIKey string // KNOW_JINA_API_KEY — optional, enables higher rate limits for web clipping
+
 	// TLS settings
 	TLSSkipVerify bool // skip TLS verification for Bedrock proxy (KNOW_TLS_SKIP_VERIFY)
 
@@ -259,6 +262,9 @@ func Load() Config {
 
 		// Apify
 		ApifyToken: getEnv("KNOW_APIFY_TOKEN", ""),
+
+		// Jina Reader
+		JinaAPIKey: getEnv("KNOW_JINA_API_KEY", ""),
 
 		// TLS
 		TLSSkipVerify: getEnvBool("KNOW_TLS_SKIP_VERIFY", false),

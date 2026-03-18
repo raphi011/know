@@ -12,11 +12,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/tools"
 	"github.com/raphi011/know/internal/vault"
+	"github.com/raphi011/know/internal/webclip"
 )
 
 type mcpTools struct {
@@ -26,6 +28,7 @@ type mcpTools struct {
 	remoteService *remote.Service
 	memoryService *memory.Service
 	apifyClient   *apify.Client
+	jinaClient    *jina.Client
 	cache         *cache
 }
 
@@ -146,6 +149,16 @@ func (t *mcpTools) register(server *mcp.Server) {
 			Annotations: openWorld,
 		}, t.fetchYouTubeTranscript)
 	}
+
+	openWorldWrite := &mcp.ToolAnnotations{
+		DestructiveHint: new(false),
+		OpenWorldHint:   new(true),
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "fetch_webpage",
+		Description: "Fetch a web page and convert it to markdown. Set save=true to persist the page to the vault's web clip folder with proper frontmatter (title, source URL, fetched_at, web-clip label). Without save, returns markdown content only.",
+		Annotations: openWorldWrite,
+	}, t.fetchWebpage)
 }
 
 // ---------- Read tool handlers (iterate all vaults) ----------
@@ -668,6 +681,34 @@ func (t *mcpTools) fetchYouTubeTranscript(ctx context.Context, req *mcp.CallTool
 	}
 
 	return textResult(apify.FormatTranscript(result)), nil, nil
+}
+
+// ---------- Web fetch handler ----------
+
+type fetchWebpageInput struct {
+	URL  string  `json:"url" jsonschema:"URL of the web page to fetch"`
+	Save bool    `json:"save,omitempty" jsonschema:"Save the fetched page to the vault's web clip folder (default: false)"`
+	Path *string `json:"path,omitempty" jsonschema:"Custom vault path for saving (only used when save=true)"`
+}
+
+func (t *mcpTools) fetchWebpage(ctx context.Context, req *mcp.CallToolRequest, input fetchWebpageInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.URL) == "" {
+		return errorResult("url is required"), nil, nil
+	}
+
+	if !input.Save {
+		// Read-only mode — fetch directly without going through executor.
+		result, err := webclip.Fetch(ctx, t.jinaClient, input.URL)
+		if err != nil {
+			logutil.FromCtx(ctx).Warn("fetch webpage failed", "url", input.URL, "error", err)
+			return errorResult(fmt.Sprintf("failed to fetch page: %v", err)), nil, nil
+		}
+
+		return textResult(webclip.FormatAsMarkdown(result)), nil, nil
+	}
+
+	// Save mode — delegate to the Tier 1 tool via the executor.
+	return t.executeWriteTool(ctx, "fetch_webpage", "", input)
 }
 
 // ---------- helpers ----------

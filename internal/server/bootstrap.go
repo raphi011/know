@@ -25,6 +25,7 @@ import (
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/file"
+	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
@@ -88,6 +89,7 @@ type App struct {
 	remoteService        *remote.Service
 	memoryService        *memory.Service
 	apifyClient          *apify.Client
+	jinaClient           *jina.Client
 	bus                  *event.Bus
 	pipelineWorkerCancel context.CancelFunc // guarded by mu
 	pipelineWorkerDone   chan struct{}      // guarded by mu
@@ -251,18 +253,22 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	searchSvc := search.NewService(dbClient, embedder)
 	remoteSvc := remote.NewService(dbClient)
 
+	// External API clients.
+	var apifyClient *apify.Client
+	if cfg.ApifyToken != "" {
+		apifyClient = apify.New(cfg.ApifyToken)
+	}
+	jinaClient := jina.New(cfg.JinaAPIKey)
+
 	// Build multi-vault tool resolvers for the agent.
 	localExecutor := &tools.Executor{
 		DB:      dbClient,
 		Search:  searchSvc,
 		FileSvc: fileSvc,
+		Jina:    jinaClient,
 	}
 	vaultSvc := vault.NewService(dbClient)
 	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
-	var apifyClient *apify.Client
-	if cfg.ApifyToken != "" {
-		apifyClient = apify.New(cfg.ApifyToken)
-	}
 	agentSvc := agent.NewService(dbClient, model, agentTools, cfg.TavilyAPIKey, apifyClient)
 	agentRunner := agent.NewRunner(agentSvc, dbClient)
 	memorySvc := memory.NewService(dbClient, fileSvc, model)
@@ -279,6 +285,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		agentService:       agentSvc,
 		agentRunner:        agentRunner,
 		apifyClient:        apifyClient,
+		jinaClient:         jinaClient,
 		bus:                bus,
 		pipelineWorkerDone: pipelineWorkerDone,
 		serverConfig: ServerConfig{
@@ -386,6 +393,11 @@ func (a *App) MemoryService() *memory.Service {
 // ApifyClient returns the Apify client, or nil if not configured.
 func (a *App) ApifyClient() *apify.Client {
 	return a.apifyClient
+}
+
+// JinaClient returns the Jina Reader client.
+func (a *App) JinaClient() *jina.Client {
+	return a.jinaClient
 }
 
 // BlobStore returns the blob store.

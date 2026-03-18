@@ -8,6 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
+	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/search"
@@ -25,6 +26,7 @@ type Executor struct {
 	DB      *db.Client
 	Search  *search.Service
 	FileSvc *file.Service
+	Jina    *jina.Client
 
 	once     sync.Once
 	registry map[string]tool.InvokableTool
@@ -52,6 +54,8 @@ func (e *Executor) initRegistry() {
 			e.registry["create_memory"] = &CreateMemoryTool{db: e.DB, docService: e.FileSvc}
 			e.registry["toggle_task"] = &ToggleTaskTool{docService: e.FileSvc}
 		}
+
+		e.registry["fetch_webpage"] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc}
 	})
 }
 
