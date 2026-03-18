@@ -58,7 +58,7 @@ func runRemoteList(_ *cobra.Command, _ []string) error {
 	client := remoteAPIFlags.newClient()
 
 	var remotes []remoteListResponse
-	if err := client.Get(context.Background(), "/api/remotes", &remotes); err != nil {
+	if err := client.Get(context.Background(), "/api/v1/remotes", &remotes); err != nil {
 		return fmt.Errorf("list remotes: %w", err)
 	}
 
@@ -92,7 +92,7 @@ func runRemoteAdd(_ *cobra.Command, args []string) error {
 	}
 
 	var result json.RawMessage
-	if err := client.Post(context.Background(), "/api/remotes", body, &result); err != nil {
+	if err := client.Post(context.Background(), "/api/v1/remotes", body, &result); err != nil {
 		return fmt.Errorf("add remote: %w", err)
 	}
 

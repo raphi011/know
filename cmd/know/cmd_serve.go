@@ -169,68 +169,85 @@ func runServe(_ *cobra.Command, _ []string) error {
 		authMw = auth.Middleware(app.DBClient())
 	}
 
-	// Agent endpoints
-	mux.Handle("POST /agent/chat", authMw(app.AgentRunner().HandleChat()))
-	mux.Handle("GET /agent/events/{id}", authMw(app.AgentRunner().HandleEvents()))
-	mux.Handle("POST /agent/cancel/{id}", authMw(app.AgentRunner().HandleCancel()))
-	mux.Handle("POST /agent/approval", authMw(app.AgentRunner().HandleApproval()))
-
-	// Document change events (SSE)
-	mux.Handle("GET /events", authMw(event.HandleEvents(app.EventBus())))
-
-	// REST API
+	// REST API (includes agent routes)
 	apiServer := api.NewServer(app)
-	apiServer.Register(mux, authMw)
+	apiServer.Register(mux, authMw, app.AgentRunner())
 
-	// MCP endpoint for Model Context Protocol
-	if cfg.MCPEnabled {
-		mcpHandler := mcptools.NewHandler(
-			&tools.Executor{
-				DB:        app.DBClient(),
-				Search:    app.SearchService(),
-				FileSvc:   app.FileService(),
-				RenderSvc: app.RenderService(),
-				Jina:      app.JinaClient(),
-			},
+	// Document change events (SSE) — vault-scoped
+	// Uses the apiServer's vault scope middleware for consistent vault resolution.
+	mux.Handle("GET /api/v1/vaults/{vault}/events", authMw(apiServer.VaultScopeHandler(event.HandleEvents(app.EventBus()))))
+
+	// Protocol server (WebDAV + MCP) — separate port, own auth
+	var protoSrv *http.Server
+	{
+		protoMux := http.NewServeMux()
+
+		// MCP endpoint for Model Context Protocol
+		if cfg.MCPEnabled {
+			mcpHandler := mcptools.NewHandler(
+				&tools.Executor{
+					DB:        app.DBClient(),
+					Search:    app.SearchService(),
+					FileSvc:   app.FileService(),
+					RenderSvc: app.RenderService(),
+					Jina:      app.JinaClient(),
+				},
+				app.DBClient(),
+				app.FileService(),
+				app.VaultService(),
+				app.RemoteService(),
+				app.MemoryService(),
+				app.ApifyClient(),
+				app.JinaClient(),
+			)
+			protoMux.Handle("/mcp", authMw(mcpHandler))
+			slog.Info("MCP endpoint enabled", "port", cfg.ProtocolPort, "path", "/mcp")
+		}
+
+		// WebDAV endpoint for document editing with any editor
+		var davHandler http.Handler = knowdav.NewHandler(
+			serverCtx,
+			"/dav/",
 			app.DBClient(),
 			app.FileService(),
 			app.VaultService(),
-			app.RemoteService(),
-			app.MemoryService(),
-			app.ApifyClient(),
-			app.JinaClient(),
+			app.BlobStore(),
+			cfg.NoAuth,
+			10*1024*1024, // 10 MB max PUT body
 		)
-		mux.Handle("/mcp", authMw(mcpHandler))
-		slog.Info("MCP endpoint enabled", "path", "/mcp")
-	}
 
-	// WebDAV endpoint for document editing with any editor
-	var davHandler http.Handler = knowdav.NewHandler(
-		serverCtx,
-		"/dav/",
-		app.DBClient(),
-		app.FileService(),
-		app.VaultService(),
-		app.BlobStore(),
-		cfg.NoAuth,
-		10*1024*1024, // 10 MB max PUT body
-	)
-
-	// Optional debug log: KNOW_DAV_DEBUG_LOG=/tmp/dav-debug.log
-	davDebugLog := os.Getenv("KNOW_DAV_DEBUG_LOG")
-	if davDebugLog != "" {
-		davLogger, davLogFile, logErr := knowdav.NewDebugLogger(davDebugLog)
-		if logErr != nil {
-			slog.Error("failed to open DAV debug log", "path", davDebugLog, "error", logErr)
-		} else {
-			defer davLogFile.Close()
-			davHandler = knowdav.DebugLogMiddleware(davLogger, davHandler)
-			slog.Info("WebDAV debug logging enabled", "path", davDebugLog)
+		// Optional debug log: KNOW_DAV_DEBUG_LOG=/tmp/dav-debug.log
+		davDebugLog := os.Getenv("KNOW_DAV_DEBUG_LOG")
+		if davDebugLog != "" {
+			davLogger, davLogFile, logErr := knowdav.NewDebugLogger(davDebugLog)
+			if logErr != nil {
+				slog.Error("failed to open DAV debug log", "path", davDebugLog, "error", logErr)
+			} else {
+				defer davLogFile.Close()
+				davHandler = knowdav.DebugLogMiddleware(davLogger, davHandler)
+				slog.Info("WebDAV debug logging enabled", "path", davDebugLog)
+			}
 		}
-	}
 
-	mux.Handle("/dav/", davHandler)
-	slog.Info("WebDAV endpoint enabled", "path", "/dav/{vaultName}/")
+		protoMux.Handle("/dav/", davHandler)
+		slog.Info("WebDAV endpoint enabled", "port", cfg.ProtocolPort, "path", "/dav/{vaultName}/")
+
+		protoLn, listenErr := net.Listen("tcp", listenHost+":"+cfg.ProtocolPort)
+		if listenErr != nil {
+			return fmt.Errorf("bind protocol port %s: %w", cfg.ProtocolPort, listenErr)
+		}
+		protoSrv = &http.Server{
+			Handler:           protoMux,
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		go func() {
+			if err := protoSrv.Serve(protoLn); err != nil && err != http.ErrServerClosed {
+				slog.Error("protocol server error", "error", err)
+			}
+		}()
+		slog.Info("protocol server started (WebDAV + MCP)", "port", cfg.ProtocolPort)
+	}
 
 	// SSH/SFTP server (optional)
 	var sshSrv *sshd.Server
@@ -312,7 +329,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		slog.Info("REST API available", "url", fmt.Sprintf("http://localhost:%s/api/", port))
+		slog.Info("REST API available", "url", fmt.Sprintf("http://localhost:%s/api/v1/", port))
 
 		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
@@ -334,7 +351,15 @@ func runServe(_ *cobra.Command, _ []string) error {
 	slog.Info("cancelling background goroutines")
 	serverCancel()
 
-	// 3. Metrics server shutdown
+	// 3. Protocol server shutdown (WebDAV + MCP)
+	if protoSrv != nil {
+		slog.Info("protocol: shutting down")
+		if err := protoSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("protocol: shutdown error", "error", err)
+		}
+	}
+
+	// 4. Metrics server shutdown
 	if metricsSrv != nil {
 		slog.Info("metrics: shutting down")
 		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
@@ -342,20 +367,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 4. NFS shutdown
+	// 5. NFS shutdown
 	if nfsSrv != nil {
 		slog.Info("nfs: shutting down")
 		nfsSrv.Shutdown(shutdownCtx)
 	}
 
-	// 5. SSH shutdown — stop accepting new connections and drain active sessions
+	// 6. SSH shutdown — stop accepting new connections and drain active sessions
 	if sshSrv != nil {
 		slog.Info("ssh: shutting down")
 		sshSrv.Shutdown(shutdownCtx)
 		slog.Info("ssh: stopped")
 	}
 
-	// 6. HTTP shutdown — stop accepting new connections, drain in-flight requests
+	// 7. HTTP shutdown — stop accepting new connections, drain in-flight requests
 	slog.Info("http: shutting down")
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http: shutdown error", "error", err)
@@ -363,7 +388,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("http: stopped")
 	}
 
-	// 7. App shutdown — stop workers, agents, event bus, close DB (with deadline)
+	// 8. App shutdown — stop workers, agents, event bus, close DB (with deadline)
 	slog.Info("stopping application services")
 	if err := app.Close(shutdownCtx); err != nil {
 		slog.Error("app close error", "error", err)

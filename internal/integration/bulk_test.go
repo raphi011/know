@@ -34,11 +34,12 @@ type bulkResult struct {
 }
 
 // setupBulkServer creates a vault and httptest.Server with the bulk upload endpoint.
-func setupBulkServer(t *testing.T, suffix string) (*httptest.Server, string) {
+// Returns the server, the bare vault ID, and the vault name (for URL paths).
+func setupBulkServer(t *testing.T, suffix string) (*httptest.Server, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	vaultID, vaultSvc := setupVault(t, ctx, "bulk-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, vaultName, vaultSvc := setupVault(t, ctx, "bulk-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 	blobStore := blob.NewFS(t.TempDir())
 	fileSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
@@ -46,15 +47,15 @@ func setupBulkServer(t *testing.T, suffix string) (*httptest.Server, string) {
 	apiSrv := api.NewServer(app)
 
 	mux := http.NewServeMux()
-	apiSrv.Register(mux, auth.NoAuthMiddleware)
+	apiSrv.Register(mux, auth.NoAuthMiddleware, nil)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	return srv, vaultID
+	return srv, vaultID, vaultName
 }
 
 // bulkUploadRequest builds and sends a multipart bulk upload request.
-func bulkUploadRequest(t *testing.T, srv *httptest.Server, meta map[string]any, files map[string][]byte) bulkResponse {
+func bulkUploadRequest(t *testing.T, srv *httptest.Server, vaultName string, meta map[string]any, files map[string][]byte) bulkResponse {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -84,7 +85,7 @@ func bulkUploadRequest(t *testing.T, srv *httptest.Server, meta map[string]any, 
 		t.Fatalf("close multipart writer: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/bulk", &buf)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/vaults/"+vaultName+"/documents/bulk", &buf)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
@@ -118,11 +119,10 @@ func findResult(results []bulkResult, path string) *bulkResult {
 }
 
 func TestBulkUpload_CreateDocuments(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "create")
+	srv, vaultID, vaultName := setupBulkServer(t, "create")
 
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/a.md": []byte("# Doc A\n\nContent A"),
 		"/docs/b.md": []byte("# Doc B\n\nContent B"),
@@ -152,13 +152,12 @@ func TestBulkUpload_CreateDocuments(t *testing.T) {
 }
 
 func TestBulkUpload_HashSkip(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "hash-skip")
+	srv, _, vaultName := setupBulkServer(t, "hash-skip")
 	content := []byte("# Same Content\n\nThis won't change.")
 
 	// First upload — creates the document
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/stable.md": content,
 	})
@@ -168,9 +167,8 @@ func TestBulkUpload_HashSkip(t *testing.T) {
 	}
 
 	// Second upload with same content — should skip with hash_match
-	resp = bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp = bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/stable.md": content,
 	})
@@ -182,20 +180,18 @@ func TestBulkUpload_HashSkip(t *testing.T) {
 }
 
 func TestBulkUpload_ForceUpdate(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "force-update")
+	srv, _, vaultName := setupBulkServer(t, "force-update")
 
 	// Create initial document
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/changing.md": []byte("# Version 1"),
 	})
 
 	// Upload with different content and force=true — should update
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/changing.md": []byte("# Version 2"),
 	})
@@ -207,20 +203,18 @@ func TestBulkUpload_ForceUpdate(t *testing.T) {
 }
 
 func TestBulkUpload_NoForceSkipsExisting(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "no-force")
+	srv, _, vaultName := setupBulkServer(t, "no-force")
 
 	// Create initial document
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/existing.md": []byte("# Original"),
 	})
 
 	// Upload with different content but force=false — should skip with "exists"
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   false,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": false,
 	}, map[string][]byte{
 		"/docs/existing.md": []byte("# Changed"),
 	})
@@ -231,9 +225,8 @@ func TestBulkUpload_NoForceSkipsExisting(t *testing.T) {
 	}
 
 	// But hash_match should still work with force=false
-	resp = bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   false,
+	resp = bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": false,
 	}, map[string][]byte{
 		"/docs/existing.md": []byte("# Original"),
 	})
@@ -245,13 +238,12 @@ func TestBulkUpload_NoForceSkipsExisting(t *testing.T) {
 }
 
 func TestBulkUpload_DryRun(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "dryrun")
+	srv, vaultID, vaultName := setupBulkServer(t, "dryrun")
 
 	// Dry run on new documents — should report "created" without writing
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
-		"dryRun":  true,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force":  true,
+		"dryRun": true,
 	}, map[string][]byte{
 		"/docs/new.md": []byte("# New Doc"),
 	})
@@ -271,17 +263,15 @@ func TestBulkUpload_DryRun(t *testing.T) {
 	}
 
 	// Create a real document, then dry run with different content and force=true
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/exists.md": []byte("# Existing"),
 	})
 
-	resp = bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
-		"dryRun":  true,
+	resp = bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force":  true,
+		"dryRun": true,
 	}, map[string][]byte{
 		"/docs/exists.md": []byte("# Changed"),
 	})
@@ -292,13 +282,12 @@ func TestBulkUpload_DryRun(t *testing.T) {
 }
 
 func TestBulkUpload_MixedDocumentsAndAssets(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "mixed")
+	srv, vaultID, vaultName := setupBulkServer(t, "mixed")
 
 	// Upload a markdown document and a PNG asset in the same request
 	pngData := []byte{0x89, 0x50, 0x4E, 0x47} // minimal PNG magic bytes
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/readme.md":  []byte("# Readme"),
 		"/images/logo.png": pngData,
@@ -345,19 +334,17 @@ func TestBulkUpload_MixedDocumentsAndAssets(t *testing.T) {
 }
 
 func TestBulkUpload_EmptyRequest(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "empty")
+	srv, _, vaultName := setupBulkServer(t, "empty")
 
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-	}, map[string][]byte{})
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{}, map[string][]byte{})
 
 	if len(resp.Results) != 0 {
 		t.Errorf("expected 0 results, got %d", len(resp.Results))
 	}
 }
 
-func TestBulkUpload_MissingVaultID(t *testing.T) {
-	srv, _ := setupBulkServer(t, "no-vault")
+func TestBulkUpload_NonexistentVault(t *testing.T) {
+	srv, _, _ := setupBulkServer(t, "no-vault")
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -373,7 +360,7 @@ func TestBulkUpload_MissingVaultID(t *testing.T) {
 		t.Fatalf("close writer: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/bulk", &buf)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/vaults/nonexistent/documents/bulk", &buf)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
@@ -385,19 +372,18 @@ func TestBulkUpload_MissingVaultID(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
 func TestBulkUpload_AssetHashSkip(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "asset-hash")
+	srv, _, vaultName := setupBulkServer(t, "asset-hash")
 	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 
 	// First upload — creates
-	resp := bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp := bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/images/icon.png": pngData,
 	})
@@ -407,9 +393,8 @@ func TestBulkUpload_AssetHashSkip(t *testing.T) {
 	}
 
 	// Same content — should skip with hash_match
-	resp = bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp = bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/images/icon.png": pngData,
 	})
@@ -420,9 +405,8 @@ func TestBulkUpload_AssetHashSkip(t *testing.T) {
 	}
 
 	// Different content with force — should update
-	resp = bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	resp = bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/images/icon.png": []byte{0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFF},
 	})

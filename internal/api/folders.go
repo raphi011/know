@@ -11,7 +11,6 @@ import (
 )
 
 type updateFolderRequest struct {
-	Vault   string `json:"vault"`
 	Path    string `json:"path"`
 	NoEmbed *bool  `json:"no_embed"`
 }
@@ -21,18 +20,8 @@ type updateFolderResponse struct {
 }
 
 func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-
 	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
 	logger := logutil.FromCtx(ctx)
 
 	folders, err := s.app.DBClient().ListFolders(ctx, vaultID)
@@ -72,26 +61,27 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Vault == "" || req.Path == "" {
-		writeError(w, http.StatusBadRequest, "vault and path are required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), req.Vault, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	logger := logutil.FromCtx(ctx)
 	db := s.app.DBClient()
 
 	req.Path = models.NormalizePath(req.Path)
 
-	folder, err := db.GetFolderByPath(ctx, req.Vault, req.Path)
+	folder, err := db.GetFolderByPath(ctx, vaultID, req.Path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get folder")
-		logger.Error("update folder: get folder", "vault_id", req.Vault, "path", req.Path, "error", err)
+		logger.Error("update folder: get folder", "vault_id", vaultID, "path", req.Path, "error", err)
 		return
 	}
 	if folder == nil {
@@ -102,16 +92,16 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 	var stripped int
 
 	if req.NoEmbed != nil {
-		if err := db.SetFolderNoEmbed(ctx, req.Vault, req.Path, *req.NoEmbed); err != nil {
+		if err := db.SetFolderNoEmbed(ctx, vaultID, req.Path, *req.NoEmbed); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update folder")
-			logger.Error("update folder: set no_embed", "vault_id", req.Vault, "path", req.Path, "error", err)
+			logger.Error("update folder: set no_embed", "vault_id", vaultID, "path", req.Path, "error", err)
 			return
 		}
 		if *req.NoEmbed {
-			n, err := db.StripEmbeddingsByFolder(ctx, req.Vault, req.Path)
+			n, err := db.StripEmbeddingsByFolder(ctx, vaultID, req.Path)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to strip embeddings")
-				logger.Error("update folder: strip embeddings", "vault_id", req.Vault, "path", req.Path, "error", err)
+				logger.Error("update folder: strip embeddings", "vault_id", vaultID, "path", req.Path, "error", err)
 				return
 			}
 			stripped = n

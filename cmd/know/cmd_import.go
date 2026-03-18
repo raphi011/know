@@ -282,11 +282,10 @@ func importWithManifest(ctx context.Context, mappings []fileMapping, localErrors
 		manifestFiles[i] = apiclient.ImportManifestFile{Path: m.targetPath, Hash: m.hash}
 	}
 
-	manifestResp, err := client.ImportManifest(ctx, apiclient.ImportManifestRequest{
-		VaultID: importVaultID,
-		Force:   importForce,
-		DryRun:  importDryRun,
-		Files:   manifestFiles,
+	manifestResp, err := client.ImportManifest(ctx, importVaultID, apiclient.ImportManifestRequest{
+		Force:  importForce,
+		DryRun: importDryRun,
+		Files:  manifestFiles,
 	})
 	if err != nil {
 		return fmt.Errorf("import manifest: %w", err)

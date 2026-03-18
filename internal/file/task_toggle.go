@@ -14,8 +14,10 @@ import (
 var toggleCheckboxRegex = regexp.MustCompile(`^(\s*- \[)([ xX])(\]\s+)`)
 
 // ToggleTask flips a task's checkbox in the source file and re-ingests it.
+// The vaultID parameter ensures the task belongs to the expected vault,
+// preventing cross-vault task manipulation.
 // Returns the updated task after re-ingestion.
-func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, error) {
+func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*models.Task, error) {
 	logger := logutil.FromCtx(ctx)
 
 	task, err := s.db.GetTaskByID(ctx, taskID)
@@ -38,9 +40,12 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 		return nil, fmt.Errorf("source file not found for task %s", taskID)
 	}
 
-	vaultID, err := models.RecordIDString(doc.Vault)
+	docVaultID, err := models.RecordIDString(doc.Vault)
 	if err != nil {
 		return nil, fmt.Errorf("extract vault id: %w", err)
+	}
+	if docVaultID != vaultID {
+		return nil, fmt.Errorf("task %s does not belong to vault %s", taskID, vaultID)
 	}
 
 	// Load content from blob store.
@@ -101,7 +106,7 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 	prefix := rawContent[:len(rawContent)-len(contentBody)]
 	newContent := prefix + newBody
 	_, err = s.Create(ctx, models.FileInput{
-		VaultID: vaultID,
+		VaultID: docVaultID,
 		Path:    doc.Path,
 		Content: newContent,
 	})
@@ -110,7 +115,7 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 	}
 
 	// Process immediately so the caller gets fresh data.
-	if err := s.ProcessAllPending(ctx, vaultID); err != nil {
+	if err := s.ProcessAllPending(ctx, docVaultID); err != nil {
 		return nil, fmt.Errorf("process after toggle: %w", err)
 	}
 

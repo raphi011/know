@@ -43,8 +43,8 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	client := fetchAPI.newClient()
 
 	req := apiclient.FetchWebpageRequest{
-		URL:     url,
-		VaultID: *fetchVaultID,
+		URL:       url,
+		VaultName: *fetchVaultID,
 	}
 	if fetchPath != "" {
 		req.Path = &fetchPath

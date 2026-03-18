@@ -127,7 +127,7 @@ func (m TaskModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.toggling = true
 			idx := m.list.GlobalIndex()
-			return m, toggleTaskCmd(m.client, item.ID, idx)
+			return m, toggleTaskCmd(m.client, m.vaultID, item.ID, idx)
 		}
 
 	case toggleResultMsg:
@@ -168,9 +168,9 @@ func (m TaskModel) View() tea.View {
 }
 
 // toggleTaskCmd returns a command that toggles a task via the API.
-func toggleTaskCmd(client *apiclient.Client, taskID string, index int) tea.Cmd {
+func toggleTaskCmd(client *apiclient.Client, vaultName, taskID string, index int) tea.Cmd {
 	return func() tea.Msg {
-		resp, err := client.ToggleTask(context.Background(), taskID)
+		resp, err := client.ToggleTask(context.Background(), vaultName, taskID)
 		return toggleResultMsg{index: index, resp: resp, err: err}
 	}
 }

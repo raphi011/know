@@ -41,8 +41,10 @@ func (t *ToggleTaskTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 		return "", fmt.Errorf("task_id is required")
 	}
 
+	o := getToolOptions(opts...)
+
 	start := time.Now()
-	updated, err := t.docService.ToggleTask(ctx, input.TaskID)
+	updated, err := t.docService.ToggleTask(ctx, o.VaultID, input.TaskID)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("toggle task: %w", err)

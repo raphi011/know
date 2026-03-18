@@ -5,20 +5,10 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/logutil"
-	"github.com/raphi011/know/internal/models"
 )
 
 func (s *Server) listLabels(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(r.Context())
 
 	logger := logutil.FromCtx(r.Context())
 

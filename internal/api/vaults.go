@@ -87,54 +87,26 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// resolveVault looks up a vault by the "name" path parameter, extracts its ID,
-// and checks that the caller has at least minRole. Returns the vault, its bare ID,
-// and true on success. On failure it writes the HTTP error and returns false.
-func (s *Server) resolveVault(w http.ResponseWriter, r *http.Request, minRole models.VaultRole) (*models.Vault, string, bool) {
-	name := r.PathValue("name")
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "vault name required")
-		return nil, "", false
-	}
+func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	logger := logutil.FromCtx(ctx)
 
-	logger := logutil.FromCtx(r.Context())
-
-	v, err := s.app.VaultService().GetByName(r.Context(), name)
+	v, err := s.app.DBClient().GetVault(ctx, vaultID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve vault")
-		logger.Error("get vault by name", "name", name, "error", err)
-		return nil, "", false
+		writeError(w, http.StatusInternalServerError, "failed to get vault")
+		logger.Error("get vault", "vault_id", vaultID, "error", err)
+		return
 	}
 	if v == nil {
 		writeError(w, http.StatusNotFound, "vault not found")
-		return nil, "", false
-	}
-
-	vaultID, err := models.RecordIDString(v.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid vault ID")
-		logger.Error("extract vault ID", "name", name, "error", err)
-		return nil, "", false
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, minRole); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return nil, "", false
-	}
-
-	return v, vaultID, true
-}
-
-func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
-	v, vaultID, ok := s.resolveVault(w, r, models.RoleRead)
-	if !ok {
 		return
 	}
 
-	stats, err := s.app.DBClient().GetVaultInfo(r.Context(), vaultID)
+	stats, err := s.app.DBClient().GetVaultInfo(ctx, vaultID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get vault info")
-		logutil.FromCtx(r.Context()).Error("get vault info", "vault_id", vaultID, "error", err)
+		logger.Error("get vault info", "vault_id", vaultID, "error", err)
 		return
 	}
 
@@ -165,8 +137,17 @@ func (s *Server) getVaultInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getVaultSettings(w http.ResponseWriter, r *http.Request) {
-	v, _, ok := s.resolveVault(w, r, models.RoleRead)
-	if !ok {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+
+	v, err := s.app.DBClient().GetVault(ctx, vaultID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get vault")
+		logutil.FromCtx(ctx).Error("get vault", "vault_id", vaultID, "error", err)
+		return
+	}
+	if v == nil {
+		writeError(w, http.StatusNotFound, "vault not found")
 		return
 	}
 
@@ -184,8 +165,21 @@ func (s *Server) updateVaultSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v, vaultID, ok := s.resolveVault(w, r, models.RoleAdmin)
-	if !ok {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleAdmin); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	v, err := s.app.DBClient().GetVault(ctx, vaultID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get vault")
+		logutil.FromCtx(ctx).Error("get vault", "vault_id", vaultID, "error", err)
+		return
+	}
+	if v == nil {
+		writeError(w, http.StatusNotFound, "vault not found")
 		return
 	}
 
@@ -193,10 +187,10 @@ func (s *Server) updateVaultSettings(w http.ResponseWriter, r *http.Request) {
 
 	// Validate transcript_template points to an existing file
 	if path := patch.TranscriptTemplate; path != "" && path != "-" {
-		f, err := s.app.DBClient().GetFileByPath(r.Context(), vaultID, path)
+		f, err := s.app.DBClient().GetFileByPath(ctx, vaultID, path)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to validate transcript_template")
-			logutil.FromCtx(r.Context()).Error("validate transcript_template", "path", path, "error", err)
+			logutil.FromCtx(ctx).Error("validate transcript_template", "path", path, "error", err)
 			return
 		}
 		if f == nil {
@@ -205,10 +199,10 @@ func (s *Server) updateVaultSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	updated, err := s.app.DBClient().UpdateVaultSettings(r.Context(), vaultID, merged)
+	updated, err := s.app.DBClient().UpdateVaultSettings(ctx, vaultID, merged)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update settings")
-		logutil.FromCtx(r.Context()).Error("update vault settings", "vault_id", vaultID, "error", err)
+		logutil.FromCtx(ctx).Error("update vault settings", "vault_id", vaultID, "error", err)
 		return
 	}
 

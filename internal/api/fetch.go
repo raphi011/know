@@ -6,19 +6,18 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/webclip"
 )
 
 type fetchRequest struct {
-	URL     string  `json:"url"`
-	VaultID string  `json:"vault_id"`
-	Path    *string `json:"path,omitempty"`
+	URL  string  `json:"url"`
+	Path *string `json:"path,omitempty"`
 }
 
 type fetchResponse struct {
-	Path    string `json:"path"`
-	Title   string `json:"title"`
-	VaultID string `json:"vault_id"`
+	Path  string `json:"path"`
+	Title string `json:"title"`
 }
 
 func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
@@ -34,21 +33,10 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
+	vaultID := auth.MustVaultIDFromCtx(ctx)
 
-	// Resolve vault.
-	vaultID := req.VaultID
-	if vaultID == "" {
-		ac, err := auth.FromContext(ctx)
-		if err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
-			return
-		}
-		if len(ac.Vaults) > 0 {
-			vaultID = ac.Vaults[0].VaultID
-		}
-	}
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault_id is required")
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -75,8 +63,7 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, fetchResponse{
-		Path:    result.Path,
-		Title:   result.Title,
-		VaultID: vaultID,
+		Path:  result.Path,
+		Title: result.Title,
 	})
 }

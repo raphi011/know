@@ -13,17 +13,7 @@ import (
 
 func (s *Server) exportBackup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter is required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, err.Error())
-		return
-	}
+	vaultID := auth.MustVaultIDFromCtx(ctx)
 
 	bareVault := models.BareID("vault", vaultID)
 	w.Header().Set("Content-Type", "application/gzip")

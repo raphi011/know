@@ -44,8 +44,8 @@ type ToggleTaskResponse struct {
 }
 
 // ListTasks fetches tasks matching the given filter.
-func (c *Client) ListTasks(ctx context.Context, vaultID string, filter TaskFilter) (*TaskListResponse, error) {
-	q := url.Values{"vault": {vaultID}, "limit": {"1000"}}
+func (c *Client) ListTasks(ctx context.Context, vaultName string, filter TaskFilter) (*TaskListResponse, error) {
+	q := url.Values{"limit": {"1000"}}
 
 	if filter.Status != "" && filter.Status != "all" {
 		q.Set("status", filter.Status)
@@ -68,16 +68,16 @@ func (c *Client) ListTasks(ctx context.Context, vaultID string, filter TaskFilte
 	}
 
 	var resp TaskListResponse
-	if err := c.Get(ctx, "/api/tasks?"+q.Encode(), &resp); err != nil {
+	if err := c.Get(ctx, vaultPath(vaultName, "/tasks")+"?"+q.Encode(), &resp); err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
 	return &resp, nil
 }
 
 // ToggleTask toggles a task's status (open↔done).
-func (c *Client) ToggleTask(ctx context.Context, taskID string) (*ToggleTaskResponse, error) {
+func (c *Client) ToggleTask(ctx context.Context, vaultName, taskID string) (*ToggleTaskResponse, error) {
 	var resp ToggleTaskResponse
-	if err := c.Post(ctx, "/api/tasks/"+url.PathEscape(taskID)+"/toggle", nil, &resp); err != nil {
+	if err := c.Post(ctx, vaultPath(vaultName, "/tasks/"+url.PathEscape(taskID)+"/toggle"), nil, &resp); err != nil {
 		return nil, fmt.Errorf("toggle task: %w", err)
 	}
 	return &resp, nil

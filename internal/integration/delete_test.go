@@ -17,11 +17,11 @@ type deleteResponse struct {
 	DryRun  bool     `json:"dryRun"`
 }
 
-// deleteRequest performs a DELETE /api/documents request and returns the parsed response.
-func deleteRequest(t *testing.T, srv *httptest.Server, vaultID, path string, recursive, dryRun bool) (*http.Response, deleteResponse) {
+// deleteRequest performs a DELETE /api/v1/vaults/{vault}/documents request and returns the parsed response.
+func deleteRequest(t *testing.T, srv *httptest.Server, vaultName, path string, recursive, dryRun bool) (*http.Response, deleteResponse) {
 	t.Helper()
 
-	u := srv.URL + "/api/documents?vault=" + vaultID + "&path=" + path
+	u := srv.URL + "/api/v1/vaults/" + vaultName + "/documents?path=" + path
 	if recursive {
 		u += "&recursive=true"
 	}
@@ -53,16 +53,15 @@ func deleteRequest(t *testing.T, srv *httptest.Server, vaultID, path string, rec
 }
 
 func TestDelete_SingleDocument(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "del-single")
+	srv, vaultID, vaultName := setupBulkServer(t, "del-single")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/readme.md": []byte("# Readme"),
 	})
 
-	resp, result := deleteRequest(t, srv, vaultID, "/docs/readme.md", false, false)
+	resp, result := deleteRequest(t, srv, vaultName, "/docs/readme.md", false, false)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -88,18 +87,17 @@ func TestDelete_SingleDocument(t *testing.T) {
 }
 
 func TestDelete_RecursiveFolder(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "del-recursive")
+	srv, vaultID, vaultName := setupBulkServer(t, "del-recursive")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/a.md":     []byte("# A"),
 		"/docs/sub/b.md": []byte("# B"),
 		"/other/c.md":    []byte("# C"),
 	})
 
-	resp, result := deleteRequest(t, srv, vaultID, "/docs", true, false)
+	resp, result := deleteRequest(t, srv, vaultName, "/docs", true, false)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -143,16 +141,15 @@ func TestDelete_RecursiveFolder(t *testing.T) {
 }
 
 func TestDelete_DryRunSingleDocument(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "del-dryrun-single")
+	srv, vaultID, vaultName := setupBulkServer(t, "del-dryrun-single")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/readme.md": []byte("# Readme"),
 	})
 
-	resp, result := deleteRequest(t, srv, vaultID, "/docs/readme.md", false, true)
+	resp, result := deleteRequest(t, srv, vaultName, "/docs/readme.md", false, true)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -175,17 +172,16 @@ func TestDelete_DryRunSingleDocument(t *testing.T) {
 }
 
 func TestDelete_DryRunRecursiveFolder(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "del-dryrun-recursive")
+	srv, vaultID, vaultName := setupBulkServer(t, "del-dryrun-recursive")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/a.md":     []byte("# A"),
 		"/docs/sub/b.md": []byte("# B"),
 	})
 
-	resp, result := deleteRequest(t, srv, vaultID, "/docs", true, true)
+	resp, result := deleteRequest(t, srv, vaultName, "/docs", true, true)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -210,46 +206,45 @@ func TestDelete_DryRunRecursiveFolder(t *testing.T) {
 }
 
 func TestDelete_NonRecursiveOnFolder(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "del-nonrecursive-folder")
+	srv, _, vaultName := setupBulkServer(t, "del-nonrecursive-folder")
 
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/a.md": []byte("# A"),
 	})
 
-	resp, _ := deleteRequest(t, srv, vaultID, "/docs", false, false)
+	resp, _ := deleteRequest(t, srv, vaultName, "/docs", false, false)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
 }
 
 func TestDelete_NotFound(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "del-notfound")
+	srv, _, vaultName := setupBulkServer(t, "del-notfound")
 
-	resp, _ := deleteRequest(t, srv, vaultID, "/nonexistent.md", false, false)
+	resp, _ := deleteRequest(t, srv, vaultName, "/nonexistent.md", false, false)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
 func TestDelete_MissingParams(t *testing.T) {
-	srv, _ := setupBulkServer(t, "del-missing-params")
+	srv, _, vaultName := setupBulkServer(t, "del-missing-params")
 
-	// Missing vault
-	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/documents?path=/docs/a.md", nil)
+	// Nonexistent vault
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/vaults/nonexistent/documents?path=/docs/a.md", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("send request: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("missing vault: expected 400, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("nonexistent vault: expected 404, got %d", resp.StatusCode)
 	}
 
 	// Missing path
-	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/api/documents?vault=somevault", nil)
+	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/vaults/"+vaultName+"/documents", nil)
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("send request: %v", err)

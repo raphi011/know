@@ -13,18 +13,9 @@ import (
 )
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
-	vaultID := r.URL.Query().Get("vault")
-	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-
-	logger := logutil.FromCtx(r.Context())
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	logger := logutil.FromCtx(ctx)
 
 	filter := db.TaskFilter{
 		VaultID: vaultID,
@@ -78,14 +69,14 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		filter.Offset = n
 	}
 
-	tasks, err := s.app.DBClient().ListTasks(r.Context(), filter)
+	tasks, err := s.app.DBClient().ListTasks(ctx, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		logger.Error("list tasks", "vault_id", vaultID, "error", err)
 		return
 	}
 
-	total, err := s.app.DBClient().CountTasks(r.Context(), filter)
+	total, err := s.app.DBClient().CountTasks(ctx, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to count tasks")
 		logger.Error("count tasks", "vault_id", vaultID, "error", err)
@@ -123,33 +114,16 @@ func (s *Server) toggleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger := logutil.FromCtx(r.Context())
-
-	// Fetch task to get vault ID for auth check.
-	task, err := s.app.DBClient().GetTaskByID(r.Context(), taskID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
-		logger.Error("get task for toggle", "task_id", taskID, "error", err)
-		return
-	}
-	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
-		return
-	}
-
-	vaultID, err := models.RecordIDString(task.Vault)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid vault id")
-		logger.Error("extract vault id", "error", err)
-		return
-	}
-
-	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
+	ctx := r.Context()
+	vaultID := auth.MustVaultIDFromCtx(ctx)
+	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	updated, err := s.app.FileService().ToggleTask(r.Context(), taskID)
+	logger := logutil.FromCtx(ctx)
+
+	updated, err := s.app.FileService().ToggleTask(ctx, vaultID, taskID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to toggle task")
 		logger.Error("toggle task", "task_id", taskID, "error", err)

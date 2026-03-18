@@ -24,14 +24,14 @@ Documents enter through the CLI (`know import`) or WebDAV file saves. Both paths
                          |  publish event   |                   |
                          |  enqueue job     |          +--------v-----------+
                          +------------------+          |    Job Handlers    |
-                                                       | parse | pdf       |
-                                                       | transcribe        |
-                                                       | summarize | embed |
+                                                       | parse | pdf        |
+                                                       | transcribe         |
+                                                       | summarize | embed  |
                                                        +--------------------+
                                                                 |
                                                        +--------v-----------+
                                                        |  Search Indexes    |
-                                                       |  BM25 + HNSW      |
+                                                       |  BM25 + HNSW       |
                                                        +--------------------+
 ```
 
@@ -209,7 +209,7 @@ Applies a vault template to an audio transcript using an LLM:
 
 1. **Check vault settings** — look up `transcript_template` path; skip if not configured
 2. **Fetch template** document from the vault
-3. **Apply template variables** — substitute `{{date}}`, `{{datetime}}`, `{{title}}`, `{{vault}}` placeholders
+3. **Apply template variables** — substitute `{{date}}`, `{{path}}`, `{{vault}}` placeholders
 4. **LLM FillTemplate()** — generate structured summary from template + raw transcript
 5. **Overwrite transcript** with the LLM-rendered summary
 6. **Enqueue `parse` job** — rechunk from the summary content (which then enqueues embed)
@@ -357,7 +357,7 @@ Frontmatter fields:
 
 ## Query Blocks
 
-Documents can embed queries using an inline DSL inside `know` code blocks. The parser extracts and validates these blocks, but **execution is not yet implemented** — currently only parsing and validation occur during ingestion.
+Documents can embed live queries using an inline DSL inside `know` code blocks:
 
 ````markdown
 ```know
@@ -369,7 +369,7 @@ LIMIT 10
 ```
 ````
 
-Planned output format: 1-2 `SHOW` fields render as a list, 3+ fields render as a table.
+Output format depends on the number of `SHOW` fields: 1-2 fields render as a list, 3+ fields render as a table.
 
 ## Graceful Degradation
 

@@ -19,7 +19,7 @@ import (
 func setupExecutor(t *testing.T, suffix string) (*tools.Executor, string) {
 	t.Helper()
 	ctx := context.Background()
-	vaultID, _ := setupVault(t, ctx, "exec-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
+	vaultID, _, _ := setupVault(t, ctx, "exec-"+suffix+"-"+fmt.Sprint(time.Now().UnixNano()))
 
 	searchSvc := search.NewService(testDB, nil)
 	docSvc := file.NewService(testDB, blob.NewFS(t.TempDir()), nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)

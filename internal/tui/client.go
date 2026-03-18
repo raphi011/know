@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/raphi011/know/internal/api"
@@ -33,9 +34,9 @@ func NewClient(baseURL, token string) *Client {
 }
 
 // CreateConversation creates a new conversation in a vault.
-func (c *Client) CreateConversation(ctx context.Context, vaultID string) (*api.Conversation, error) {
+func (c *Client) CreateConversation(ctx context.Context, vaultName string) (*api.Conversation, error) {
 	var conv api.Conversation
-	err := c.rest.Post(ctx, "/api/conversations", map[string]string{"vaultId": vaultID}, &conv)
+	err := c.rest.Post(ctx, "/api/v1/conversations", map[string]string{"vaultId": vaultName}, &conv)
 	return &conv, err
 }
 
@@ -81,10 +82,9 @@ type chatStartResponse struct {
 
 // StartChat sends a chat request and returns the conversation ID.
 // The agent runs in the background on the server.
-func (c *Client) StartChat(ctx context.Context, conversationID, vaultID, content string, attachments []models.ChatAttachment, autoApprove bool) (string, error) {
+func (c *Client) StartChat(ctx context.Context, conversationID, vaultName, content string, attachments []models.ChatAttachment, autoApprove bool) (string, error) {
 	body := map[string]any{
 		"conversationId": conversationID,
-		"vaultId":        vaultID,
 		"content":        content,
 		"autoApprove":    autoApprove,
 	}
@@ -97,7 +97,7 @@ func (c *Client) StartChat(ctx context.Context, conversationID, vaultID, content
 		return "", fmt.Errorf("marshal chat request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/agent/chat", strings.NewReader(string(data)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/vaults/"+url.PathEscape(vaultName)+"/agent/chat", strings.NewReader(string(data)))
 	if err != nil {
 		return "", fmt.Errorf("create chat request: %w", err)
 	}
@@ -126,7 +126,7 @@ func (c *Client) StartChat(ctx context.Context, conversationID, vaultID, content
 
 // SubscribeEvents connects to the SSE event stream for a running agent.
 func (c *Client) SubscribeEvents(ctx context.Context, conversationID string) (<-chan StreamEvent, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/agent/events/"+conversationID, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent/events/"+conversationID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create events request: %w", err)
 	}
@@ -202,7 +202,7 @@ func (c *Client) Chat(ctx context.Context, conversationID, vaultID, content stri
 
 // Approve sends a tool approval to the server using eino's interrupt/resume.
 func (c *Client) Approve(ctx context.Context, conversationID, interruptID, action string) error {
-	return c.rest.Post(ctx, "/agent/approval", map[string]string{
+	return c.rest.Post(ctx, "/api/v1/agent/approval", map[string]string{
 		"conversationId": conversationID,
 		"interruptId":    interruptID,
 		"action":         action,

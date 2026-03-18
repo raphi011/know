@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/raphi011/know/internal/agent"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/server"
 )
@@ -20,85 +21,102 @@ func NewServer(app *server.App) *Server {
 	return &Server{app: app}
 }
 
-// Register wires all /api/ routes onto the given mux.
-func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Handler) {
-	// Conversations
-	mux.Handle("GET /api/conversations", authMw(http.HandlerFunc(s.listConversations)))
-	mux.Handle("GET /api/conversations/{id}", authMw(http.HandlerFunc(s.getConversation)))
-	mux.Handle("POST /api/conversations", authMw(http.HandlerFunc(s.createConversation)))
-	mux.Handle("DELETE /api/conversations/{id}", authMw(http.HandlerFunc(s.deleteConversation)))
-	mux.Handle("PATCH /api/conversations/{id}", authMw(http.HandlerFunc(s.renameConversation)))
+// Register wires all /api/v1/ routes onto the given mux.
+// authMw validates the Bearer token and injects AuthContext.
+// agentRunner is optional — if nil, agent routes are not registered.
+func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Handler, agentRunner *agent.Runner) {
+	// v aliases for vault-scoped and global routes.
+	// vs wraps handler with auth + vault scope (resolves {vault} name → ID in context).
+	// g wraps handler with auth only (no vault scope).
+	vs := func(handler http.HandlerFunc) http.Handler {
+		return authMw(s.vaultScope(handler))
+	}
+	g := func(handler http.HandlerFunc) http.Handler {
+		return authMw(handler)
+	}
 
-	// Vaults
-	mux.Handle("GET /api/vaults", authMw(http.HandlerFunc(s.listVaults)))
-	mux.Handle("GET /api/vaults/{name}/info", authMw(http.HandlerFunc(s.getVaultInfo)))
-	mux.Handle("GET /api/vaults/{name}/settings", authMw(http.HandlerFunc(s.getVaultSettings)))
-	mux.Handle("PATCH /api/vaults/{name}/settings", authMw(http.HandlerFunc(s.updateVaultSettings)))
+	// --- Vaults (list is global, rest is vault-scoped) ---
+	mux.Handle("GET /api/v1/vaults", g(s.listVaults))
+	mux.Handle("GET /api/v1/vaults/{vault}", vs(s.getVaultInfo))
+	mux.Handle("GET /api/v1/vaults/{vault}/settings", vs(s.getVaultSettings))
+	mux.Handle("PATCH /api/v1/vaults/{vault}/settings", vs(s.updateVaultSettings))
 
-	// Documents
-	mux.Handle("GET /api/ls", authMw(http.HandlerFunc(s.ls)))
-	mux.Handle("GET /api/documents", authMw(http.HandlerFunc(s.getDocument)))
-	mux.Handle("POST /api/documents", authMw(http.HandlerFunc(s.upsertDocument)))
-	mux.Handle("DELETE /api/documents", authMw(http.HandlerFunc(s.deleteDocuments)))
+	// --- Documents ---
+	mux.Handle("GET /api/v1/vaults/{vault}/documents", vs(s.getDocument))
+	mux.Handle("POST /api/v1/vaults/{vault}/documents", vs(s.upsertDocument))
+	mux.Handle("DELETE /api/v1/vaults/{vault}/documents", vs(s.deleteDocuments))
+	mux.Handle("GET /api/v1/vaults/{vault}/documents/ls", vs(s.ls))
+	mux.Handle("POST /api/v1/vaults/{vault}/documents/move", vs(s.move))
+	mux.Handle("POST /api/v1/vaults/{vault}/documents/bulk", vs(s.bulkUpload))
+	mux.Handle("POST /api/v1/vaults/{vault}/documents/clip", vs(s.fetchWebpage))
 
-	// Move (document or folder)
-	mux.Handle("POST /api/move", authMw(http.HandlerFunc(s.move)))
+	// --- Import (two-phase) ---
+	mux.Handle("POST /api/v1/vaults/{vault}/import/manifest", vs(s.importManifest))
+	mux.Handle("POST /api/v1/vaults/{vault}/import/upload", vs(s.importUpload))
 
-	// Assets
-	mux.Handle("POST /api/assets", authMw(http.HandlerFunc(s.uploadAsset)))
-	mux.Handle("GET /api/assets", authMw(http.HandlerFunc(s.getAsset)))
-	mux.Handle("GET /api/assets/meta", authMw(http.HandlerFunc(s.getAssetMeta)))
-	mux.Handle("DELETE /api/assets", authMw(http.HandlerFunc(s.deleteAsset)))
+	// --- Export ---
+	mux.Handle("GET /api/v1/vaults/{vault}/export", vs(s.export))
+	mux.Handle("GET /api/v1/vaults/{vault}/export/epub", vs(s.exportEPUB))
 
-	// Import (two-phase: manifest + upload)
-	mux.Handle("POST /api/import/manifest", authMw(http.HandlerFunc(s.importManifest)))
-	mux.Handle("POST /api/import/upload", authMw(http.HandlerFunc(s.importUpload)))
+	// --- Backup / Restore ---
+	mux.Handle("GET /api/v1/vaults/{vault}/backup", vs(s.exportBackup))
+	mux.Handle("POST /api/v1/backup/restore", g(s.restoreBackup)) // global: creates vault from archive
 
-	// Bulk upload (used by integration tests; CLI uses import/* endpoints)
-	mux.Handle("POST /api/bulk", authMw(http.HandlerFunc(s.bulkUpload)))
+	// --- Search ---
+	mux.Handle("GET /api/v1/vaults/{vault}/search", vs(s.searchDocuments))
 
-	// Search
-	mux.Handle("GET /api/search", authMw(http.HandlerFunc(s.searchDocuments)))
+	// --- Folders ---
+	mux.Handle("GET /api/v1/vaults/{vault}/folders", vs(s.listFolders))
+	mux.Handle("PATCH /api/v1/vaults/{vault}/folders", vs(s.updateFolder))
 
-	// Folders
-	mux.Handle("GET /api/folders", authMw(http.HandlerFunc(s.listFolders)))
-	mux.Handle("PATCH /api/folders", authMw(http.HandlerFunc(s.updateFolder)))
+	// --- Versions ---
+	mux.Handle("GET /api/v1/vaults/{vault}/versions", vs(s.listVersions))
 
-	// Versions
-	mux.Handle("GET /api/versions", authMw(http.HandlerFunc(s.listVersions)))
+	// --- Labels ---
+	mux.Handle("GET /api/v1/vaults/{vault}/labels", vs(s.listLabels))
 
-	// Labels
-	mux.Handle("GET /api/labels", authMw(http.HandlerFunc(s.listLabels)))
+	// --- Tasks ---
+	mux.Handle("GET /api/v1/vaults/{vault}/tasks", vs(s.listTasks))
+	mux.Handle("POST /api/v1/vaults/{vault}/tasks/{id}/toggle", vs(s.toggleTask))
 
-	// Tasks
-	mux.Handle("GET /api/tasks", authMw(http.HandlerFunc(s.listTasks)))
-	mux.Handle("POST /api/tasks/{id}/toggle", authMw(http.HandlerFunc(s.toggleTask)))
+	// --- Assets ---
+	mux.Handle("POST /api/v1/vaults/{vault}/assets", vs(s.uploadAsset))
+	mux.Handle("GET /api/v1/vaults/{vault}/assets", vs(s.getAsset))
+	mux.Handle("GET /api/v1/vaults/{vault}/assets/meta", vs(s.getAssetMeta))
+	mux.Handle("DELETE /api/v1/vaults/{vault}/assets", vs(s.deleteAsset))
 
-	// Remotes (federation)
-	mux.Handle("GET /api/remotes", authMw(http.HandlerFunc(s.listRemotes)))
-	mux.Handle("POST /api/remotes", authMw(http.HandlerFunc(s.addRemote)))
-	mux.Handle("DELETE /api/remotes/{name}", authMw(http.HandlerFunc(s.removeRemote)))
+	// --- External Links ---
+	mux.Handle("GET /api/v1/vaults/{vault}/external-links", vs(s.listExternalLinks))
+	mux.Handle("GET /api/v1/vaults/{vault}/external-links/stats", vs(s.externalLinkStats))
 
-	// External links
-	mux.Handle("GET /api/external-links/stats", authMw(http.HandlerFunc(s.externalLinkStats)))
-	mux.Handle("GET /api/external-links", authMw(http.HandlerFunc(s.listExternalLinks)))
+	// --- SSE (document change stream, vault-scoped) ---
+	// Registered in cmd_serve.go since it depends on the event bus.
 
-	// Export
-	mux.Handle("GET /api/export", authMw(http.HandlerFunc(s.export)))
-	mux.Handle("GET /api/export/epub", authMw(http.HandlerFunc(s.exportEPUB)))
+	// --- Conversations (global, identified by ID) ---
+	mux.Handle("GET /api/v1/conversations", g(s.listConversations))
+	mux.Handle("POST /api/v1/conversations", g(s.createConversation))
+	mux.Handle("GET /api/v1/conversations/{id}", g(s.getConversation))
+	mux.Handle("PATCH /api/v1/conversations/{id}", g(s.renameConversation))
+	mux.Handle("DELETE /api/v1/conversations/{id}", g(s.deleteConversation))
 
-	// Backup / Restore
-	mux.Handle("GET /api/backup", authMw(http.HandlerFunc(s.exportBackup)))
-	mux.Handle("POST /api/backup/restore", authMw(http.HandlerFunc(s.restoreBackup)))
+	// --- Agent ---
+	if agentRunner != nil {
+		mux.Handle("POST /api/v1/vaults/{vault}/agent/chat", vs(agentRunner.HandleChat()))
+		mux.Handle("GET /api/v1/agent/events/{id}", g(agentRunner.HandleEvents()))
+		mux.Handle("POST /api/v1/agent/cancel/{id}", g(agentRunner.HandleCancel()))
+		mux.Handle("POST /api/v1/agent/approval", g(agentRunner.HandleApproval()))
+	}
 
-	// Jobs (pipeline status)
-	mux.Handle("GET /api/jobs", authMw(http.HandlerFunc(s.getJobStatus)))
+	// --- Remotes (federation, system admin only) ---
+	mux.Handle("GET /api/v1/remotes", g(s.listRemotes))
+	mux.Handle("POST /api/v1/remotes", g(s.addRemote))
+	mux.Handle("DELETE /api/v1/remotes/{name}", g(s.removeRemote))
 
-	// Web clipping
-	mux.Handle("POST /api/fetch", authMw(http.HandlerFunc(s.fetchWebpage)))
+	// --- Jobs (pipeline status) ---
+	mux.Handle("GET /api/v1/jobs", g(s.getJobStatus))
 
-	// Config
-	mux.Handle("GET /api/config", authMw(http.HandlerFunc(s.getConfig)))
+	// --- Config ---
+	mux.Handle("GET /api/v1/config", g(s.getConfig))
 }
 
 // writeJSON writes a JSON response with the given status code.

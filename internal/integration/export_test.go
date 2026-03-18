@@ -3,26 +3,24 @@ package integration
 import (
 	"archive/tar"
 	"compress/gzip"
-	"encoding/json"
 	"io"
 	"net/http"
 	"testing"
 )
 
 func TestExport_DocumentsAndAssets(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "export")
+	srv, _, vaultName := setupBulkServer(t, "export")
 
 	// Seed documents and an asset via bulk upload.
-	bulkUploadRequest(t, srv, map[string]any{
-		"vaultId": vaultID,
-		"force":   true,
+	bulkUploadRequest(t, srv, vaultName, map[string]any{
+		"force": true,
 	}, map[string][]byte{
 		"/docs/readme.md":   []byte("# Hello\n\nWorld"),
 		"/docs/nested/a.md": []byte("# Nested"),
 		"/images/logo.png":  {0x89, 0x50, 0x4E, 0x47},
 	})
 
-	resp, err := http.Get(srv.URL + "/api/export?vault=" + vaultID)
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export")
 	if err != nil {
 		t.Fatalf("GET export: %v", err)
 	}
@@ -93,9 +91,9 @@ func TestExport_DocumentsAndAssets(t *testing.T) {
 }
 
 func TestExport_EmptyVault(t *testing.T) {
-	srv, vaultID := setupBulkServer(t, "export-empty")
+	srv, _, vaultName := setupBulkServer(t, "export-empty")
 
-	resp, err := http.Get(srv.URL + "/api/export?vault=" + vaultID)
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/" + vaultName + "/export")
 	if err != nil {
 		t.Fatalf("GET export: %v", err)
 	}
@@ -129,27 +127,17 @@ func TestExport_EmptyVault(t *testing.T) {
 	}
 }
 
-func TestExport_MissingVaultParam(t *testing.T) {
-	srv, _ := setupBulkServer(t, "export-no-vault")
+func TestExport_NonexistentVault(t *testing.T) {
+	srv, _, _ := setupBulkServer(t, "export-no-vault")
 
-	resp, err := http.Get(srv.URL + "/api/export")
+	resp, err := http.Get(srv.URL + "/api/v1/vaults/nonexistent/export")
 	if err != nil {
 		t.Fatalf("GET export: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
-	}
-
-	var errResp struct {
-		Error string `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if errResp.Error == "" {
-		t.Error("expected non-empty error message")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
