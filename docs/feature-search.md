@@ -27,7 +27,7 @@ This approach is based on Anthropic's Contextual Retrieval research, which found
 
 ## Usage
 
-Search is available through the MCP `search_documents` tool and the agent chat's `kb_search` tool. Both use the same hybrid search pipeline and support `label`, `doc_type`, and `folder` filters.
+Search is available through the MCP `search_documents` tool and the agent chat's `search` tool. Both use the same hybrid search pipeline and support `label`, `doc_type`, and `folder` filters.
 
 Example agent prompts:
 

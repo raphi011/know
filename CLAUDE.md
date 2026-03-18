@@ -136,40 +136,25 @@ All env vars use the `KNOW_` prefix: `KNOW_LOG_LEVEL`, `KNOW_LOG_FILE`, etc.
 
 ## REST API
 
-The server exposes a REST API at `/api/` for CLI and TUI communication:
+The server exposes a REST API at `/api/` for CLI and TUI communication, and agent endpoints at `/agent/`. Auth via `Authorization: Bearer` header.
 
-- `GET /api/vaults` — list accessible vaults
-- `GET /api/vaults/{name}/settings` — get vault settings (with defaults)
-- `PATCH /api/vaults/{name}/settings` — update vault settings (partial)
-- `GET /api/conversations?vault={id}` — list conversations
-- `GET /api/conversations/{id}` — get conversation with messages
-- `POST /api/conversations` — create conversation
-- `DELETE /api/conversations/{id}` — delete conversation
-- `PATCH /api/conversations/{id}` — rename conversation
-- `POST /api/move` — move document or folder (`{vaultId, source, destination, dryRun}`)
-- `GET /api/ls?vault={id}&path={path}&recursive=true` — list files and folders
-- `GET /api/documents?vault={id}&path={path}` — get document by vault+path
-- `POST /api/documents` — create/update document
-- `DELETE /api/documents?vault={id}&path={path}&recursive=true&dry-run=true` — delete document or folder
-- `POST /api/import/manifest` — send file manifest (paths+hashes), get back which files need uploading
-- `POST /api/import/upload` — upload needed files (multipart, streams binaries to blob store)
-- `GET /api/export?vault={id}` — download vault export as .tar.gz archive
-- `GET /api/export/epub?vault={id}&path={path}&title=...&author=...` — export document or folder as EPUB
-- `GET /api/config` — server configuration
-- `GET /api/tasks?vault={id}&status=open&labels=work&due_before=2026-03-20&folder=/daily/` — list tasks
-- `POST /api/tasks/{id}/toggle` — toggle task status (modifies source document)
-- `GET /api/folders?vault={id}&parent={path}` — list folders (optionally filtered to children of parent)
-- `PATCH /api/folders` — update folder settings (`{vault, path, no_embed}`)
-- `GET /api/external-links/stats?vault={id}` — aggregated external link counts by hostname
-- `GET /api/external-links?vault={id}&hostname=...&limit=...&offset=...` — list external links
-- `GET /api/jobs?since=24h&limit=10` — pipeline job stats, active jobs, recent failures
-- `POST /api/fetch` — fetch web page as markdown and save to vault (`{url, vault_id, path}`)
+All routes are registered in `internal/api/server.go` (REST) and `cmd/know/cmd_serve.go` (agent). Key resource groups:
 
-Agent endpoints (background execution):
-- `POST /agent/chat` — start agent, returns 202 `{conversationId, status}`
-- `GET /agent/events/{id}` — SSE stream (replay + live events, reconnectable)
-- `POST /agent/cancel/{id}` — cancel running agent
-- `POST /agent/approval` — approve/reject tool calls
+- **Vaults**: list, info, settings (get/patch)
+- **Conversations**: CRUD + rename
+- **Documents**: get, upsert, delete, move, ls, bulk upload
+- **Import/Export**: two-phase manifest+upload, tar.gz export, EPUB export
+- **Assets**: upload, get, get meta, delete (binary blob storage)
+- **Search**: hybrid BM25+vector search with filters
+- **Tasks**: list (filterable), toggle status
+- **Folders**: list, update settings (no_embed flag)
+- **Labels/Versions**: list endpoints
+- **External Links**: stats by hostname, paginated list
+- **Jobs**: pipeline job stats, active jobs, recent failures
+- **Remotes**: CRUD for multi-server federation
+- **Web Clipping**: fetch web page as markdown and save to vault
+- **Config**: server configuration
+- **Agent**: chat (start), events (SSE stream), cancel, approval
 
 ## Documentation
 
@@ -178,18 +163,21 @@ Agent endpoints (background execution):
 ### Feature Docs (`docs/feature-*.md`)
 
 Each major feature has its own documentation file:
-- `docs/feature-mcp.md` - MCP server, tools, multi-instance setup, Claude Code/Cursor config
 - `docs/feature-agent.md` - Agent chat, TUI, tool approval, SSE streaming
-- `docs/feature-search.md` - Hybrid BM25+vector search, RRF fusion, LLM synthesis
+- `docs/feature-apple-app.md` - iOS/macOS app, quick picker, vault browsing
+- `docs/feature-audio-transcription.md` - STT pipeline, Whisper integration, template summarization
 - `docs/feature-ingestion.md` - Document pipeline, import command, frontmatter, wiki-links, versioning
+- `docs/feature-mcp.md` - MCP server, tools, multi-instance setup, Claude Code/Cursor config
 - `docs/feature-memory.md` - Memory system, decay scoring, consolidation, archiving
-- `docs/feature-vaults.md` - Vaults, folders, access control, share links
-- `docs/feature-webdav.md` - WebDAV editing, auth, editor support
-- `docs/feature-remotes.md` - Multi-server federation, namespace routing
-- `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-nfs.md` - NFS file access, mount instructions for macOS/Linux/Windows
+- `docs/feature-remotes.md` - Multi-server federation, namespace routing
+- `docs/feature-search.md` - Hybrid BM25+vector search, RRF fusion, LLM synthesis
+- `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-tasks.md` - Task extraction from checkboxes, filtering, toggling, API
+- `docs/feature-templates.md` - Vault templates for document generation and summarization
+- `docs/feature-vaults.md` - Vaults, folders, access control, share links
 - `docs/feature-web-clipping.md` - Web page fetching via Jina Reader, CLI/MCP/API, vault settings
+- `docs/feature-webdav.md` - WebDAV editing, auth, editor support
 
 ### Project-Specific Docs (`docs/`)
 
@@ -207,25 +195,41 @@ Best practices, framework gotchas, and library references have been moved to the
 ```
 cmd/know/            # Single binary: CLI (import, info, agent, job, db seed, db wipe) + server (serve)
 internal/
-├── models/             # Data structs + helpers (RecordIDString, ContentHash)
-├── db/                 # SurrealDB client, DDL, query functions, connection
-├── document/           # Document lifecycle: parse → embed → link → chunk
-├── vault/              # Vault CRUD + virtual folder derivation
-├── search/             # Hybrid BM25 + vector search with RRF fusion
-├── template/           # Template CRUD
-├── auth/               # Token auth, ValidateToken, AuthContext
-├── server/             # Application bootstrap (DB, embedder, LLM, services)
+├── agent/              # Agent orchestration (tool execution, conversation management)
 ├── api/                # REST API handlers (conversations, vaults, documents, config)
 ├── apiclient/          # Lightweight REST client for CLI/TUI
-├── tui/                # Bubbletea v2 terminal UI (chat, conversations)
-├── parser/             # Markdown parsing, wiki-link extraction, chunking
-├── llm/                # LLM/embedding provider abstraction
+├── apify/              # Apify web scraping integration
+├── auth/               # Token auth, ValidateToken, AuthContext
+├── blob/               # Blob storage for binary files (images, PDFs)
 ├── config/             # Configuration loading
-├── metrics/            # Metrics collection
+├── db/                 # SurrealDB client, DDL, query functions, connection
+├── diff/               # Document diff computation
+├── epub/               # EPUB export for documents and folders
 ├── event/              # In-process event bus (SSE change notifications)
+├── file/               # File lifecycle: parse → embed → link → chunk
+├── integration/        # Full lifecycle integration tests
+├── jina/               # Jina Reader client for web page fetching
+├── llm/                # LLM/embedding provider abstraction
+├── logutil/            # Structured logging helpers (context-carried loggers)
+├── mcptools/           # MCP tool definitions and handlers
+├── memory/             # Memory system (decay scoring, consolidation, archiving)
+├── metrics/            # Metrics collection
+├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── nfs/                # NFSv3 server for fast file access (go-nfs + billy)
+├── parser/             # Markdown parsing, wiki-link extraction, chunking
+├── pathutil/           # Path normalization and manipulation helpers
+├── pipeline/           # Pipeline job definitions and handlers (PDF, STT, embed)
+├── remote/             # Multi-server federation and namespace routing
+├── search/             # Hybrid BM25 + vector search with RRF fusion
+├── server/             # Application bootstrap (DB, embedder, LLM, services)
+├── sshd/               # SSH/SFTP server for file access
+├── stt/                # Speech-to-text transcription
+├── tools/              # Agent tool implementations
+├── tui/                # Bubbletea v2 terminal UI (chat, conversations)
+├── vault/              # Vault CRUD + virtual folder derivation
+├── webclip/            # Web clipping service (fetch + save web pages)
 ├── webdav/             # WebDAV filesystem backed by document service
-└── integration/        # Full lifecycle integration tests
+└── worker/             # Background worker (job processing, scheduling)
 ```
 
 ### Key Patterns
@@ -286,7 +290,10 @@ import (
 ### TUI Package Structure
 
 - `app.go` — Root model: inline chat with tea.Println scrollback
-- `render.go` — Markdown rendering, stream parts, message formatting
+- `attachment.go` — File attachment handling for agent messages
 - `client.go` — REST client wrapper with SSE stream reader
-- `styles.go` — Lipgloss v2 styles
+- `filelist.go` — File list browsing component
 - `keys.go` — Key binding definitions
+- `render.go` — Markdown rendering, stream parts, message formatting
+- `styles.go` — Lipgloss v2 styles
+- `tasks.go` — Task list display and interaction

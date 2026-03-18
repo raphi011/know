@@ -32,10 +32,11 @@ Mac-specific additions:
 | Layer | Files | Shared? |
 |-------|-------|---------|
 | Models | 5 | 100% |
+| ViewModels | 1 | 100% |
 | Networking | 2 | 100% |
 | Services | 3 | 100% |
-| Keychain | 1 | 100% (Security framework) |
-| Views | 6 | ~95% (5 `#if os` guards) |
+| Utilities | 2 | 100% (Security framework, fuzzy match) |
+| Views | 8 | ~95% (5 `#if os` guards) |
 | Project config | 2 | Per-platform entitlements |
 
 ### Project Setup
@@ -114,7 +115,10 @@ ios/
 │   ├── Document.swift               # Document, SearchResult, ChunkMatch
 │   ├── Vault.swift                  # Vault, FileEntry
 │   ├── CachedDocument.swift         # SwiftData models (CachedDocument, SyncState)
-│   └── ...
+│   ├── RecentDocument.swift         # Recently viewed document tracking
+│   └── Loadable.swift               # Generic loading state wrapper
+├── ViewModels/
+│   └── QuickPickerViewModel.swift   # Quick picker search and selection logic
 ├── Networking/
 │   ├── RESTClient.swift             # Actor-based HTTP client with auth
 │   └── APIError.swift               # Error types
@@ -123,11 +127,17 @@ ios/
 │   ├── KnowService.swift            # High-level API wrapper
 │   └── SyncEngine.swift             # Metadata sync, content fetch, SSE streaming
 ├── Utilities/
-│   └── Keychain.swift               # Security framework wrapper
+│   ├── Keychain.swift               # Security framework wrapper
+│   └── FuzzyMatch.swift             # Fuzzy string matching for quick picker
+├── Tests/
+│   ├── KnowTests.swift              # General tests
+│   └── FuzzyMatchTests.swift        # Fuzzy match unit tests
 └── Views/
     ├── LoginView.swift              # Server URL + token form
     ├── MainSplitView.swift          # NavigationSplitView (sidebar + detail)
     ├── DocumentView.swift           # Markdown rendering with MarkdownUI
+    ├── QuickPickerView.swift        # Quick file picker (⌘K / ⌘P style)
+    ├── QuickPickerRow.swift         # Quick picker result row
     └── Components/
         ├── DocumentRow.swift        # Document list cell
         └── SearchResultRow.swift    # Search result display

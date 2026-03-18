@@ -110,6 +110,6 @@ know vault my-vault --api-url http://localhost:4001
 
 - Vaults are defined in `internal/vault/` (CRUD, virtual folder derivation)
 - Access control is enforced in `internal/auth/` (token validation, role checks)
-- Folder operations live in `internal/document/` (create, move, delete with cascading)
+- Folder operations live in `internal/file/` (create, move, delete with cascading)
 - Share link logic is in `internal/auth/` (token generation, hash storage, scoped access)
 - CLI commands: `know vault`, `know ls`
