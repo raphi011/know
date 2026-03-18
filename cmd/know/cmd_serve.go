@@ -288,10 +288,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("NFS server enabled (localhost only)", "port", cfg.NFSPort)
 	}
 
-	// Prometheus metrics server (optional, always binds to localhost)
+	// Prometheus metrics server (optional)
 	var metricsSrv *http.Server
 	if cfg.MetricsPort != "" {
-		metricsLn, listenErr := net.Listen("tcp", "127.0.0.1:"+cfg.MetricsPort)
+		metricsLn, listenErr := net.Listen("tcp", ":"+cfg.MetricsPort)
 		if listenErr != nil {
 			return fmt.Errorf("bind metrics port %s: %w", cfg.MetricsPort, listenErr)
 		}
@@ -306,7 +306,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 				slog.Error("metrics server error", "error", err)
 			}
 		}()
-		slog.Info("Prometheus metrics enabled (localhost only)", "port", cfg.MetricsPort, "url", fmt.Sprintf("http://127.0.0.1:%s/metrics", cfg.MetricsPort))
+		slog.Info("Prometheus metrics enabled", "port", cfg.MetricsPort, "url", fmt.Sprintf("http://0.0.0.0:%s/metrics", cfg.MetricsPort))
 	}
 
 	// Health check

@@ -45,6 +45,7 @@ const (
 	reasonHashMatch    = "hash_match"
 	reasonHashDiffers  = "hash_differs"
 	reasonHashMismatch = "hash_mismatch"
+	reasonTooLarge     = "too_large"
 )
 
 // --- Manifest (Phase 1) ---
@@ -206,6 +207,7 @@ func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 		path := part.FormName()
 		if path == "" {
 			io.Copy(io.Discard, part) //nolint:errcheck // drain unconsumed body to keep multipart stream intact
+			// Validation error — safe to skip, the next file may succeed.
 			results = append(results, importFileResult{Path: "(unknown)", Status: statusError, Error: "missing path in form name"})
 			continue
 		}
@@ -213,23 +215,29 @@ func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 		expectedHash, ok := meta.Hashes[path]
 		if !ok {
 			io.Copy(io.Discard, part) //nolint:errcheck // drain unconsumed body to keep multipart stream intact
+			// Validation error — safe to skip, the next file may succeed.
 			results = append(results, importFileResult{Path: path, Status: statusError, Error: "no hash provided in meta for this file"})
 			continue
 		}
 
 		result := s.processImportPart(ctx, part, path, expectedHash, vaultID)
+		results = append(results, result)
 
-		// Hash mismatch = abort entire import. The client is faulty or malicious.
-		if result.Status == statusError && result.Reason == reasonHashMismatch {
-			results = append(results, result)
-			writeJSON(w, http.StatusBadRequest, importUploadResponse{
+		// Abort on any error — infrastructure failures (S3 auth, DB down) won't
+		// resolve by retrying the next file, and the import is idempotent so
+		// re-running picks up where it left off.
+		if result.Status == statusError {
+			resp := importUploadResponse{
 				Results: results,
-				Error:   fmt.Sprintf("hash mismatch for %s: import aborted — client sent incorrect hash", path),
-			})
+				Error:   fmt.Sprintf("import aborted after error on %s: %s", path, result.Error),
+			}
+			status := http.StatusInternalServerError
+			if result.Reason == reasonHashMismatch || result.Reason == reasonTooLarge {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, resp)
 			return
 		}
-
-		results = append(results, result)
 	}
 
 	if results == nil {
@@ -263,7 +271,7 @@ func (s *Server) processImportPart(ctx context.Context, part *multipart.Part, pa
 		// Detect oversized files: LimitReader truncates silently, causing a hash mismatch.
 		// If we read exactly maxImportFileSize+1 bytes, the file is too large.
 		if cr.n.Load() > int64(maxImportFileSize) {
-			return importFileResult{Path: path, Status: statusError, Error: "file exceeds maximum size of 100 MB"}
+			return importFileResult{Path: path, Status: statusError, Reason: reasonTooLarge, Error: "file exceeds maximum size of 100 MB"}
 		}
 		return result
 	}
@@ -274,7 +282,7 @@ func (s *Server) processImportPart(ctx context.Context, part *multipart.Part, pa
 		return importFileResult{Path: path, Status: statusError, Error: fmt.Sprintf("read file: %v", err)}
 	}
 	if len(data) > maxImportFileSize {
-		return importFileResult{Path: path, Status: statusError, Error: "file exceeds maximum size of 100 MB"}
+		return importFileResult{Path: path, Status: statusError, Reason: reasonTooLarge, Error: "file exceeds maximum size of 100 MB"}
 	}
 
 	content := string(data)
@@ -323,11 +331,11 @@ func (s *Server) processImportBinary(ctx context.Context, r io.Reader, path, exp
 		// Stream directly to blob store with hash verification.
 		// PutVerified computes SHA256 during write and only commits if hash matches.
 		if err := s.app.BlobStore().PutVerified(ctx, expectedHash, r, -1); err != nil {
-			logger.Warn("import: store blob", "path", path, "hash", expectedHash, "error", err)
-			// Check if it's a hash mismatch error
 			if blob.IsHashMismatch(err) {
+				logger.Warn("import: blob hash mismatch", "path", path, "hash", expectedHash, "error", err)
 				return importFileResult{Path: path, Status: statusError, Reason: reasonHashMismatch, Error: "content hash does not match declared hash"}
 			}
+			logger.Error("import: store blob", "path", path, "hash", expectedHash, "error", err)
 			return importFileResult{Path: path, Status: statusError, Error: fmt.Sprintf("store blob: %v", err)}
 		}
 	} else {
@@ -335,6 +343,7 @@ func (s *Server) processImportBinary(ctx context.Context, r io.Reader, path, exp
 		// Read and hash the data to verify, then discard.
 		h := sha256.New()
 		if _, err := io.Copy(h, r); err != nil {
+			logger.Error("import: read blob for verification", "path", path, "hash", expectedHash, "error", err)
 			return importFileResult{Path: path, Status: statusError, Error: fmt.Sprintf("read file for verification: %v", err)}
 		}
 		actualHash := hex.EncodeToString(h.Sum(nil))
