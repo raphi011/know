@@ -85,6 +85,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	// Export
 	mux.Handle("GET /api/export", authMw(http.HandlerFunc(s.export)))
 
+	// Jobs (pipeline status)
+	mux.Handle("GET /api/jobs", authMw(http.HandlerFunc(s.getJobStatus)))
+
 	// Config
 	mux.Handle("GET /api/config", authMw(http.HandlerFunc(s.getConfig)))
 }

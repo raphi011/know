@@ -409,7 +409,9 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS run_after    ON pipeline_job TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS error        ON pipeline_job TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS created_at   ON pipeline_job TYPE datetime DEFAULT time::now();
-    DEFINE FIELD IF NOT EXISTS updated_at   ON pipeline_job TYPE datetime VALUE time::now();
+    DEFINE FIELD IF NOT EXISTS started_at   ON pipeline_job TYPE option<datetime>;
+    DEFINE FIELD IF NOT EXISTS completed_at ON pipeline_job TYPE option<datetime>;
+    REMOVE FIELD IF EXISTS updated_at ON pipeline_job;
 
     DEFINE INDEX IF NOT EXISTS idx_job_pending ON pipeline_job
         FIELDS status, run_after, priority, created_at;

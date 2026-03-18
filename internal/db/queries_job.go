@@ -40,7 +40,7 @@ func (c *Client) ClaimJobs(ctx context.Context, limit int) ([]models.PipelineJob
 			ORDER BY priority DESC, created_at ASC
 			LIMIT $limit
 		)
-		SET status = 'running'
+		SET status = 'running', started_at = time::now()
 		RETURN BEFORE
 	`
 	results, err := surrealdb.Query[[]models.PipelineJob](ctx, c.DB(), sql, map[string]any{
@@ -55,7 +55,7 @@ func (c *Client) ClaimJobs(ctx context.Context, limit int) ([]models.PipelineJob
 // CompleteJob marks a job as done.
 func (c *Client) CompleteJob(ctx context.Context, jobID string) error {
 	defer c.logOp(ctx, "pipeline_job.complete", time.Now())
-	sql := `UPDATE type::record("pipeline_job", $id) SET status = 'done'`
+	sql := `UPDATE type::record("pipeline_job", $id) SET status = 'done', completed_at = time::now()`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id": bareID("pipeline_job", jobID),
 	}); err != nil {
@@ -67,7 +67,7 @@ func (c *Client) CompleteJob(ctx context.Context, jobID string) error {
 // FailJob marks a job as permanently failed with an error message.
 func (c *Client) FailJob(ctx context.Context, jobID, errMsg string) error {
 	defer c.logOp(ctx, "pipeline_job.fail", time.Now())
-	sql := `UPDATE type::record("pipeline_job", $id) SET status = 'failed', error = $error`
+	sql := `UPDATE type::record("pipeline_job", $id) SET status = 'failed', error = $error, completed_at = time::now()`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id":    bareID("pipeline_job", jobID),
 		"error": errMsg,
@@ -80,7 +80,7 @@ func (c *Client) FailJob(ctx context.Context, jobID, errMsg string) error {
 // RetryJob resets a job to pending with an incremented attempt count and a future run_after.
 func (c *Client) RetryJob(ctx context.Context, jobID string, runAfter time.Time) error {
 	defer c.logOp(ctx, "pipeline_job.retry", time.Now())
-	sql := `UPDATE type::record("pipeline_job", $id) SET status = 'pending', attempt = attempt + 1, run_after = $run_after`
+	sql := `UPDATE type::record("pipeline_job", $id) SET status = 'pending', attempt = attempt + 1, run_after = $run_after, started_at = NONE, completed_at = NONE`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"id":        bareID("pipeline_job", jobID),
 		"run_after": runAfter,
@@ -90,11 +90,72 @@ func (c *Client) RetryJob(ctx context.Context, jobID string, runAfter time.Time)
 	return nil
 }
 
+// GetJobStats returns aggregate job counts by status for jobs created since the given time.
+func (c *Client) GetJobStats(ctx context.Context, since time.Time) (*models.JobStats, error) {
+	defer c.logOp(ctx, "pipeline_job.stats", time.Now())
+	sql := `SELECT
+		math::sum(IF status = 'pending' THEN 1 ELSE 0 END) AS pending,
+		math::sum(IF status = 'running' THEN 1 ELSE 0 END) AS running,
+		math::sum(IF status = 'done' THEN 1 ELSE 0 END) AS done,
+		math::sum(IF status = 'failed' THEN 1 ELSE 0 END) AS failed,
+		math::sum(IF status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
+	FROM pipeline_job WHERE created_at >= $since GROUP ALL`
+	results, err := surrealdb.Query[[]models.JobStats](ctx, c.DB(), sql, map[string]any{
+		"since": since,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get job stats: %w", err)
+	}
+	rows := allResults(results)
+	if len(rows) == 0 {
+		return &models.JobStats{}, nil
+	}
+	return &rows[0], nil
+}
+
+// ListRecentJobs returns recent jobs filtered by status, with the related file path.
+func (c *Client) ListRecentJobs(ctx context.Context, limit int, statuses []string) ([]models.PipelineJobDetail, error) {
+	defer c.logOp(ctx, "pipeline_job.list_recent", time.Now())
+	sql := `SELECT *, file.path AS file_path
+		FROM pipeline_job
+		WHERE status IN $statuses
+		ORDER BY created_at DESC
+		LIMIT $limit`
+	results, err := surrealdb.Query[[]models.PipelineJobDetail](ctx, c.DB(), sql, map[string]any{
+		"statuses": statuses,
+		"limit":    limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recent jobs: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// GetJobTypeDurations returns per-type duration stats (min/max/avg) for completed jobs since the given time.
+func (c *Client) GetJobTypeDurations(ctx context.Context, since time.Time) ([]models.JobTypeDuration, error) {
+	defer c.logOp(ctx, "pipeline_job.type_durations", time.Now())
+	sql := `SELECT type,
+		count() AS count,
+		math::min(duration::millis(completed_at - started_at)) AS min_ms,
+		math::max(duration::millis(completed_at - started_at)) AS max_ms,
+		math::mean(duration::millis(completed_at - started_at)) AS avg_ms
+	FROM pipeline_job
+	WHERE status = 'done' AND completed_at >= $since AND started_at IS NOT NONE
+	GROUP BY type`
+	results, err := surrealdb.Query[[]models.JobTypeDuration](ctx, c.DB(), sql, map[string]any{
+		"since": since,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get job type durations: %w", err)
+	}
+	return allResults(results), nil
+}
+
 // CancelJobsForFile cancels all pending/running jobs for a file (e.g. when the file is re-ingested).
 // Sets status='cancelled' to distinguish superseded jobs from successfully completed ones.
 func (c *Client) CancelJobsForFile(ctx context.Context, fileID string) error {
 	defer c.logOp(ctx, "pipeline_job.cancel_for_file", time.Now())
-	sql := `UPDATE pipeline_job SET status = 'cancelled' WHERE file = type::record("file", $file_id) AND status IN ['pending', 'running']`
+	sql := `UPDATE pipeline_job SET status = 'cancelled', completed_at = time::now() WHERE file = type::record("file", $file_id) AND status IN ['pending', 'running']`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"file_id": bareID("file", fileID),
 	}); err != nil {
@@ -108,7 +169,7 @@ func (c *Client) CancelJobsForFile(ctx context.Context, fileID string) error {
 // unclean shutdown where the worker was killed mid-job.
 func (c *Client) ReconcileStaleRunningJobs(ctx context.Context) (int, error) {
 	defer c.logOp(ctx, "pipeline_job.reconcile_stale", time.Now())
-	sql := `UPDATE pipeline_job SET status = 'pending' WHERE status = 'running' RETURN AFTER`
+	sql := `UPDATE pipeline_job SET status = 'pending', started_at = NONE, completed_at = NONE WHERE status = 'running' RETURN AFTER`
 	results, err := surrealdb.Query[[]models.PipelineJob](ctx, c.DB(), sql, nil)
 	if err != nil {
 		return 0, fmt.Errorf("reconcile stale running jobs: %w", err)
