@@ -331,13 +331,11 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 			return nil, fmt.Errorf("store blob: %w", err)
 		}
 	} else {
-		// Text file: compute hash from Content and store in blob
+		// Text file: compute hash from Content and store in blob.
 		contentHash = models.ContentHash(input.Content)
 		contentLength = len(input.Content)
-		if input.Content != "" {
-			if err := s.blobStore.Put(ctx, contentHash, strings.NewReader(input.Content), int64(len(input.Content))); err != nil {
-				return nil, fmt.Errorf("store content blob: %w", err)
-			}
+		if err := s.blobStore.Put(ctx, contentHash, strings.NewReader(input.Content), int64(len(input.Content))); err != nil {
+			return nil, fmt.Errorf("store content blob: %w", err)
 		}
 	}
 
@@ -582,31 +580,28 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	return nil
 }
 
-// ProcessAllPending processes all unprocessed files synchronously.
+// ProcessAllPending processes all unprocessed files in a vault synchronously.
 // Intended for tests and CLI commands that need immediate processing.
-// Skips individual file failures (e.g. missing blobs) but returns an error
-// if any files failed.
-func (s *Service) ProcessAllPending(ctx context.Context) error {
-	var failCount int
+// If vaultID is empty, processes files across all vaults.
+func (s *Service) ProcessAllPending(ctx context.Context, vaultID ...string) error {
+	var vid string
+	if len(vaultID) > 0 {
+		vid = vaultID[0]
+	}
 	for {
-		docs, err := s.db.ListUnprocessedFiles(ctx, 100)
+		docs, err := s.db.ListUnprocessedFiles(ctx, vid, 100)
 		if err != nil {
 			return fmt.Errorf("list unprocessed: %w", err)
 		}
 		if len(docs) == 0 {
-			break
+			return nil
 		}
 		for _, doc := range docs {
 			if err := s.ProcessFile(ctx, &doc); err != nil {
-				logutil.FromCtx(ctx).Warn("skipping file during ProcessAllPending", "path", doc.Path, "error", err)
-				failCount++
+				return fmt.Errorf("process %s: %w", doc.Path, err)
 			}
 		}
 	}
-	if failCount > 0 {
-		return fmt.Errorf("%d files failed to process", failCount)
-	}
-	return nil
 }
 
 // embeddingTask pairs a chunk ID with its embedding text.

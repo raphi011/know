@@ -153,7 +153,7 @@ func TestMCP_CreateAndGetDocument(t *testing.T) {
 }
 
 func TestMCP_SearchDocuments(t *testing.T) {
-	srv, _, docSvc := setupMCPServer(t, "search")
+	srv, vaultID, docSvc := setupMCPServer(t, "search")
 	ctx := context.Background()
 	session := connectMCPClient(t, ctx, srv)
 
@@ -169,7 +169,7 @@ func TestMCP_SearchDocuments(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	if err := docSvc.ProcessAllPending(ctx); err != nil {
+	if err := docSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 

@@ -110,7 +110,7 @@ func (s *Service) ToggleTask(ctx context.Context, taskID string) (*models.Task, 
 	}
 
 	// Process immediately so the caller gets fresh data.
-	if err := s.ProcessAllPending(ctx); err != nil {
+	if err := s.ProcessAllPending(ctx, vaultID); err != nil {
 		return nil, fmt.Errorf("process after toggle: %w", err)
 	}
 

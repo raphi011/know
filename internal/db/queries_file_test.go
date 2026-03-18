@@ -1031,7 +1031,7 @@ func TestListUnprocessedFiles(t *testing.T) {
 		t.Fatalf("CreateJob failed: %v", err)
 	}
 
-	files, err := testDB.ListUnprocessedFiles(ctx, 100)
+	files, err := testDB.ListUnprocessedFiles(ctx, vaultID, 100)
 	if err != nil {
 		t.Fatalf("ListUnprocessedFiles failed: %v", err)
 	}

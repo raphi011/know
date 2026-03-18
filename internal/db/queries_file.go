@@ -355,7 +355,8 @@ func (c *Client) MoveFile(ctx context.Context, id, newPath string) (*models.File
 
 // ListUnprocessedFiles returns non-folder files that have a pending parse pipeline job.
 // Used by ProcessAllPending for synchronous processing in tests and CLI commands.
-func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.File, error) {
+// If vaultID is non-empty, only files in that vault are returned.
+func (c *Client) ListUnprocessedFiles(ctx context.Context, vaultID string, limit int) ([]models.File, error) {
 	defer c.logOp(ctx, "file.list_unprocessed", time.Now())
 	if limit <= 0 {
 		limit = 20
@@ -367,16 +368,30 @@ func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.
 	type jobWithFile struct {
 		File models.File `json:"file"`
 	}
-	sql := `
-		SELECT file.*, created_at FROM pipeline_job
-		WHERE type = 'parse' AND status IN ['pending', 'running']
-		ORDER BY created_at ASC
-		LIMIT $limit
-		FETCH file
-	`
-	results, err := surrealdb.Query[[]jobWithFile](ctx, c.DB(), sql, map[string]any{
-		"limit": limit,
-	})
+
+	var sql string
+	vars := map[string]any{"limit": limit}
+
+	if vaultID != "" {
+		sql = `
+			SELECT file.*, created_at FROM pipeline_job
+			WHERE type = 'parse' AND status IN ['pending', 'running']
+			  AND file.vault = type::record("vault", $vault_id)
+			ORDER BY created_at ASC
+			LIMIT $limit
+			FETCH file
+		`
+		vars["vault_id"] = bareID("vault", vaultID)
+	} else {
+		sql = `
+			SELECT file.*, created_at FROM pipeline_job
+			WHERE type = 'parse' AND status IN ['pending', 'running']
+			ORDER BY created_at ASC
+			LIMIT $limit
+			FETCH file
+		`
+	}
+	results, err := surrealdb.Query[[]jobWithFile](ctx, c.DB(), sql, vars)
 	if err != nil {
 		return nil, fmt.Errorf("list unprocessed: %w", err)
 	}
