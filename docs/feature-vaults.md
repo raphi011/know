@@ -17,6 +17,40 @@ Documents are organized into first-class folders backed by database records. Fol
 - **Move**: `moveFolder` relocates a folder along with all its children (subfolders and documents) to a new path.
 - **Cascading delete**: `deleteFolder` removes the folder and all nested content recursively.
 
+### Disabling embeddings per folder
+
+Folders support a `noEmbed` flag that prevents embedding generation for all documents underneath them. When enabled, existing embeddings are stripped and future files skip the embed step during ingestion.
+
+**Use cases:**
+- Large archive folders where semantic search isn't needed
+- Raw data folders (CSV dumps, logs) that would produce low-quality embeddings
+- Reducing embedding costs by excluding irrelevant content
+
+**API usage:**
+
+```bash
+# Disable embeddings for /archive and strip existing ones
+curl -X PATCH http://localhost:4000/api/folders \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"vault": "default", "path": "/archive", "noEmbed": true}'
+# Response: {"strippedChunks": 42}
+
+# Re-enable embeddings (new documents will be embedded on next import)
+curl -X PATCH http://localhost:4000/api/folders \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"vault": "default", "path": "/archive", "noEmbed": false}'
+
+# Check which folders have noEmbed set
+curl "http://localhost:4000/api/folders?vault=default" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Behavior details:**
+- Setting `noEmbed: true` immediately strips embeddings from all chunks under the folder.
+- The flag is inherited by all descendant paths — a file at `/archive/2024/report.md` is affected by `noEmbed` on `/archive`.
+- Setting `noEmbed: false` does not retroactively re-embed — re-import the documents to generate new embeddings.
+- The check fails open: if the DB is temporarily unavailable, files are embedded rather than silently skipped.
+
 ### Listing files and folders
 
 ```bash

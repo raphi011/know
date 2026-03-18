@@ -125,7 +125,7 @@ func (s *Service) SetPDFRenderDPI(dpi int) {
 func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) bool {
 	noEmbed, err := s.db.IsPathNoEmbed(ctx, vaultID, filePath)
 	if err != nil {
-		logutil.FromCtx(ctx).Warn("failed to check no_embed, proceeding with embedding", "path", filePath, "error", err)
+		logutil.FromCtx(ctx).Warn("failed to check no_embed, proceeding with embedding", "vault_id", vaultID, "path", filePath, "error", err)
 		return true
 	}
 	return !noEmbed

@@ -1002,6 +1002,7 @@ func (c *Client) IsPathNoEmbed(ctx context.Context, vaultID, filePath string) (b
 	defer c.logOp(ctx, "file.is_path_no_embed", time.Now())
 
 	// Collect ancestor folder paths.
+	filePath = path.Clean(filePath)
 	var ancestors []string
 	for dir := path.Dir(filePath); dir != "/" && dir != "."; dir = path.Dir(dir) {
 		ancestors = append(ancestors, dir)

@@ -263,11 +263,13 @@ func EmbedHandler(svc *Service) pipeline.Handler {
 		if doc == nil {
 			return nil
 		}
-		if vaultID, vErr := models.RecordIDString(doc.Vault); vErr == nil {
-			if !svc.shouldEmbed(ctx, vaultID, doc.Path) {
-				logutil.FromCtx(ctx).Debug("skipping embedding, folder has no_embed", "file_id", fileID, "path", doc.Path)
-				return nil
-			}
+		vaultID, vErr := models.RecordIDString(doc.Vault)
+		if vErr != nil {
+			logutil.FromCtx(ctx).Warn("failed to extract vault id in embed handler", "file_id", fileID, "error", vErr)
+		}
+		if vErr == nil && !svc.shouldEmbed(ctx, vaultID, doc.Path) {
+			logutil.FromCtx(ctx).Debug("skipping embedding, folder has no_embed", "file_id", fileID, "path", doc.Path)
+			return nil
 		}
 
 		n, err := svc.EmbedPendingChunksForFile(ctx, fileID)

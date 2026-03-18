@@ -17,7 +17,7 @@ type updateFolderRequest struct {
 }
 
 type updateFolderResponse struct {
-	StrippedChunks int `json:"stripped_chunks"`
+	StrippedChunks int `json:"strippedChunks"`
 }
 
 func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
@@ -86,12 +86,12 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 	logger := logutil.FromCtx(ctx)
 	db := s.app.DBClient()
 
-	req.Path = pathutil.NormalizeFolderPath(req.Path)
+	req.Path = models.NormalizePath(req.Path)
 
 	folder, err := db.GetFolderByPath(ctx, req.Vault, req.Path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get folder")
-		logger.Error("update folder: get folder", "error", err)
+		logger.Error("update folder: get folder", "vault_id", req.Vault, "path", req.Path, "error", err)
 		return
 	}
 	if folder == nil {
@@ -104,14 +104,14 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 	if req.NoEmbed != nil {
 		if err := db.SetFolderNoEmbed(ctx, req.Vault, req.Path, *req.NoEmbed); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update folder")
-			logger.Error("update folder: set no_embed", "error", err)
+			logger.Error("update folder: set no_embed", "vault_id", req.Vault, "path", req.Path, "error", err)
 			return
 		}
 		if *req.NoEmbed {
 			n, err := db.StripEmbeddingsByFolder(ctx, req.Vault, req.Path)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to strip embeddings")
-				logger.Error("update folder: strip embeddings", "error", err)
+				logger.Error("update folder: strip embeddings", "vault_id", req.Vault, "path", req.Path, "error", err)
 				return
 			}
 			stripped = n

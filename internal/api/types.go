@@ -144,7 +144,7 @@ type ChunkMatchResponse struct {
 type FolderResponse struct {
 	Path    string `json:"path"`
 	Name    string `json:"name"`
-	NoEmbed bool   `json:"no_embed"`
+	NoEmbed bool   `json:"noEmbed"`
 }
 
 // VersionResponse is the JSON representation of a document version.
