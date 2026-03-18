@@ -125,7 +125,11 @@ func (w *approvalToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON 
 			return "error: document no longer exists at " + state.Request.Path, nil
 		}
 
-		merged, mergeErr := diff.ApplyHunks(doc.Content, state.Request.Diff.Hunks, response.HunkIndexes)
+		docContent, contentErr := w.service.fileSvc.ReadFileContent(ctx, doc)
+		if contentErr != nil {
+			return fmt.Sprintf("error: read document content: %v", contentErr), nil
+		}
+		merged, mergeErr := diff.ApplyHunks(docContent, state.Request.Diff.Hunks, response.HunkIndexes)
 		if mergeErr != nil {
 			return fmt.Sprintf("error applying hunks: %v", mergeErr), nil
 		}

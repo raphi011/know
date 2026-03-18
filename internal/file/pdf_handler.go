@@ -167,10 +167,10 @@ func (s *Service) processPDF(ctx context.Context, f *models.File, fileID string)
 		return fmt.Errorf("create chunks: %w", err)
 	}
 
-	// Store concatenated extracted text on the file for full-text display.
+	// Store concatenated extracted text in blob and update DB metadata.
 	if allText.Len() > 0 {
-		if err := s.db.UpdateFileTranscript(ctx, fileID, allText.String()); err != nil {
-			return fmt.Errorf("update file transcript: %w", err)
+		if err := s.storeTranscript(ctx, fileID, allText.String()); err != nil {
+			return fmt.Errorf("store pdf transcript: %w", err)
 		}
 	}
 

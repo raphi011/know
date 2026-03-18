@@ -153,6 +153,7 @@ All routes are registered in `internal/api/server.go` (REST) and `cmd/know/cmd_s
 - **Jobs**: pipeline job stats, active jobs, recent failures
 - **Remotes**: CRUD for multi-server federation
 - **Web Clipping**: fetch web page as markdown and save to vault
+- **Backup/Restore**: manifest-based vault backup (tar.gz) and restore
 - **Config**: server configuration
 - **Agent**: chat (start), events (SSE stream), cancel, approval
 
@@ -178,6 +179,8 @@ Each major feature has its own documentation file:
 - `docs/feature-vaults.md` - Vaults, folders, access control, share links
 - `docs/feature-web-clipping.md` - Web page fetching via Jina Reader, CLI/MCP/API, vault settings
 - `docs/feature-webdav.md` - WebDAV editing, auth, editor support
+- `docs/feature-backup.md` - Manifest-based backup/restore, archive format, CLI/API
+- `docs/feature-render.md` - Render pipeline, wiki-link resolution, query blocks
 
 ### Project-Specific Docs (`docs/`)
 

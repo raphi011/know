@@ -72,7 +72,7 @@ func TestGeminiMultimodalEmbedder_Integration(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	embedder, err := NewGeminiMultimodalEmbedder(ctx, apiKey, "gemini-embedding-exp-03-07", 768)
+	embedder, err := NewGeminiMultimodalEmbedder(ctx, apiKey, "gemini-embedding-001", 768)
 	if err != nil {
 		t.Fatalf("NewGeminiMultimodalEmbedder: %v", err)
 	}

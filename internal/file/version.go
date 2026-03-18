@@ -66,12 +66,14 @@ func (s *Service) maybeCreateVersion(ctx context.Context, fileID, vaultID string
 		return
 	}
 
-	// Create version snapshot of the OLD content
-	hash := models.ContentHash(oldFile.Content)
+	// Create version snapshot — content blob already exists from when the file was created.
+	var hash string
+	if oldFile.ContentHash != nil {
+		hash = *oldFile.ContentHash
+	}
 	if _, err := s.db.CreateVersion(ctx, models.FileVersionInput{
 		FileID:      fileID,
 		VaultID:     vaultID,
-		Content:     oldFile.Content,
 		ContentHash: hash,
 		Title:       oldFile.Title,
 	}, nextVersion); err != nil {
@@ -126,11 +128,17 @@ func (s *Service) Rollback(ctx context.Context, vaultID, fileID, versionID strin
 		return nil, fmt.Errorf("file not found: %s", fileID)
 	}
 
+	// Load version content from blob store
+	content, err := s.ReadContent(ctx, version.ContentHash)
+	if err != nil {
+		return nil, fmt.Errorf("read version content: %w", err)
+	}
+
 	// Go through normal save pipeline
 	updated, err := s.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    doc.Path,
-		Content: version.Content,
+		Content: content,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("apply rollback: %w", err)
@@ -140,7 +148,7 @@ func (s *Service) Rollback(ctx context.Context, vaultID, fileID, versionID strin
 }
 
 // VersionContent resolves the content for a version ID, or the current file
-// content if versionID is nil.
+// content if versionID is nil. Content is loaded from the blob store.
 func (s *Service) VersionContent(ctx context.Context, fileID string, versionID *string) (string, error) {
 	if versionID != nil {
 		v, err := s.db.GetVersion(ctx, *versionID)
@@ -150,7 +158,7 @@ func (s *Service) VersionContent(ctx context.Context, fileID string, versionID *
 		if v == nil {
 			return "", fmt.Errorf("version not found: %s", *versionID)
 		}
-		return v.Content, nil
+		return s.ReadContent(ctx, v.ContentHash)
 	}
 
 	doc, err := s.db.GetFileByID(ctx, fileID)
@@ -160,5 +168,8 @@ func (s *Service) VersionContent(ctx context.Context, fileID string, versionID *
 	if doc == nil {
 		return "", fmt.Errorf("file not found: %s", fileID)
 	}
-	return doc.Content, nil
+	if doc.ContentHash == nil {
+		return "", nil
+	}
+	return s.ReadContent(ctx, *doc.ContentHash)
 }

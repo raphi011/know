@@ -134,6 +134,46 @@ func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) boo
 // BlobStore returns the blob store used by this service.
 func (s *Service) BlobStore() blob.Store { return s.blobStore }
 
+// storeTranscript stores text content in the blob store and updates the
+// file's content_hash and content_length in the DB.
+func (s *Service) storeTranscript(ctx context.Context, fileID, text string) error {
+	hash := models.ContentHash(text)
+	if err := s.blobStore.Put(ctx, hash, strings.NewReader(text), int64(len(text))); err != nil {
+		return fmt.Errorf("store blob: %w", err)
+	}
+	if err := s.db.UpdateFileTranscript(ctx, fileID, hash, len(text)); err != nil {
+		return fmt.Errorf("update transcript: %w", err)
+	}
+	return nil
+}
+
+// ReadContent loads file content from the blob store by content hash.
+// Returns "" for empty hashes (folders, files with no content).
+func (s *Service) ReadContent(ctx context.Context, contentHash string) (string, error) {
+	if contentHash == "" {
+		return "", nil
+	}
+	rc, err := s.blobStore.Get(ctx, contentHash)
+	if err != nil {
+		return "", fmt.Errorf("read content blob %s: %w", contentHash, err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return "", fmt.Errorf("read content blob %s: %w", contentHash, err)
+	}
+	return string(data), nil
+}
+
+// ReadFileContent loads content for a file from the blob store.
+// Convenience wrapper that handles nil ContentHash.
+func (s *Service) ReadFileContent(ctx context.Context, f *models.File) (string, error) {
+	if f.ContentHash == nil {
+		return "", nil
+	}
+	return s.ReadContent(ctx, *f.ContentHash)
+}
+
 // NewService creates a new file service.
 // embedMaxInputChars is the hard character limit for embedding API input (0 = no limit).
 func NewService(db *db.Client, blobStore blob.Store, embedder *llm.Embedder, chunkConfig parser.ChunkConfig, versionConfig VersionConfig, bus *event.Bus, embedMaxInputChars int) *Service {
@@ -278,35 +318,47 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		metadata = input.Metadata
 	}
 
-	// Compute content_hash
-	contentHash := models.ContentHash(input.Content)
+	// Compute content_hash and store content in blob
+	var contentHash string
+	var contentLength int
 
-	// For binary files, compute content_hash from Data (not Content) and store in blob
 	if len(input.Data) > 0 {
+		// Binary file: compute hash from Data and store in blob
 		h := sha256.Sum256(input.Data)
-		binaryHash := hex.EncodeToString(h[:])
-		contentHash = binaryHash // override text hash with binary hash
-		if err := s.blobStore.Put(ctx, binaryHash, bytes.NewReader(input.Data), int64(len(input.Data))); err != nil {
+		contentHash = hex.EncodeToString(h[:])
+		contentLength = len(input.Data)
+		if err := s.blobStore.Put(ctx, contentHash, bytes.NewReader(input.Data), int64(len(input.Data))); err != nil {
 			return nil, fmt.Errorf("store blob: %w", err)
+		}
+	} else if input.Content != "" {
+		// Text file: compute hash from Content and store in blob.
+		contentHash = models.ContentHash(input.Content)
+		contentLength = len(input.Content)
+		if err := s.blobStore.Put(ctx, contentHash, strings.NewReader(input.Content), int64(len(input.Content))); err != nil {
+			return nil, fmt.Errorf("store content blob: %w", err)
 		}
 	}
 
 	// Normalize path
 	path := models.NormalizePath(input.Path)
 
-	// Store file
+	// Store metadata in DB (content is in blob store)
+	var hashPtr *string
+	if contentHash != "" {
+		hashPtr = &contentHash
+	}
 	dbInput := models.FileInput{
-		VaultID:     input.VaultID,
-		Path:        path,
-		Title:       title,
-		Content:     input.Content,
-		ContentHash: &contentHash,
-		Labels:      labels,
-		DocType:     docType,
-		Metadata:    metadata,
-		MimeType:    input.MimeType,
-		IsFolder:    input.IsFolder,
-		Data:        input.Data, // carried for fileSize() — not stored in DB
+		VaultID:       input.VaultID,
+		Path:          path,
+		Title:         title,
+		ContentHash:   hashPtr,
+		ContentLength: contentLength,
+		Labels:        labels,
+		DocType:       docType,
+		Metadata:      metadata,
+		MimeType:      input.MimeType,
+		IsFolder:      input.IsFolder,
+		Data:          input.Data, // carried for fileSize() — not stored in DB
 	}
 
 	return s.postUpsert(ctx, input.VaultID, dbInput, contentHash)
@@ -462,7 +514,11 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	isBinary := !models.IsTextFile(doc.Path) && doc.Size > 0
 
 	if !isBinary {
-		parsed := parser.ParseMarkdown(doc.Content)
+		content, err := s.ReadFileContent(ctx, doc)
+		if err != nil {
+			return fmt.Errorf("read content for %s: %w", doc.Path, err)
+		}
+		parsed := parser.ParseMarkdown(content)
 
 		// 1. Sync chunks (with smart diffing — only re-embed changed chunks)
 		if err := s.syncChunks(ctx, fileID, parsed, doc.Labels); err != nil {
@@ -528,11 +584,16 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	return nil
 }
 
-// ProcessAllPending processes all unprocessed files synchronously.
+// ProcessAllPending processes all unprocessed files in a vault synchronously.
 // Intended for tests and CLI commands that need immediate processing.
-func (s *Service) ProcessAllPending(ctx context.Context) error {
+// If vaultID is empty, processes files across all vaults.
+func (s *Service) ProcessAllPending(ctx context.Context, vaultID ...string) error {
+	var vid string
+	if len(vaultID) > 0 {
+		vid = vaultID[0]
+	}
 	for {
-		docs, err := s.db.ListUnprocessedFiles(ctx, 100)
+		docs, err := s.db.ListUnprocessedFiles(ctx, vid, 100)
 		if err != nil {
 			return fmt.Errorf("list unprocessed: %w", err)
 		}
@@ -1495,9 +1556,9 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 		}
 	}
 
-	// Update file content with full transcript
-	if err := s.db.UpdateFileTranscript(ctx, fileID, result.Text); err != nil {
-		return fmt.Errorf("update transcript: %w", err)
+	// Store transcript in blob and update DB metadata.
+	if err := s.storeTranscript(ctx, fileID, result.Text); err != nil {
+		return fmt.Errorf("store transcript: %w", err)
 	}
 
 	return nil

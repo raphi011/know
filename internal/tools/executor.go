@@ -11,6 +11,7 @@ import (
 	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/render"
 	"github.com/raphi011/know/internal/search"
 )
 
@@ -23,10 +24,11 @@ type ToolExecutor interface {
 // Executor runs named tools against a single vault. It is the shared
 // implementation used by both the agent chat and the embedded MCP server.
 type Executor struct {
-	DB      *db.Client
-	Search  *search.Service
-	FileSvc *file.Service
-	Jina    *jina.Client
+	DB        *db.Client
+	Search    *search.Service
+	FileSvc   *file.Service
+	RenderSvc *render.Service
+	Jina      *jina.Client
 
 	once     sync.Once
 	registry map[string]tool.InvokableTool
@@ -39,7 +41,7 @@ func (e *Executor) initRegistry() {
 	e.once.Do(func() {
 		e.registry = map[string]tool.InvokableTool{
 			"search":                &SearchTool{search: e.Search},
-			"read_document":         &ReadDocumentTool{db: e.DB},
+			"read_document":         &ReadDocumentTool{db: e.DB, fileSvc: e.FileSvc, renderSvc: e.RenderSvc},
 			"list_labels":           &ListLabelsTool{db: e.DB},
 			"list_folders":          &ListFoldersTool{db: e.DB},
 			"list_folder_contents":  &ListFolderContentsTool{db: e.DB},

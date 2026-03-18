@@ -17,6 +17,7 @@ import (
 	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/diff"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
@@ -47,6 +48,7 @@ const defaultAgentTimeout = 10 * time.Minute
 // Service orchestrates the agent loop: native tool calling → streaming answer.
 type Service struct {
 	db              *db.Client
+	fileSvc         *file.Service
 	model           atomic.Pointer[llm.Model]
 	tools           []tool.BaseTool
 	tavily          *tavilyClient
@@ -66,9 +68,10 @@ func (s *Service) getModel() *llm.Model {
 
 // NewService creates a new agent service. The tools slice should contain
 // multi-vault tool wrappers built by the bootstrap layer.
-func NewService(db *db.Client, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string, apifyClient *apify.Client) *Service {
+func NewService(db *db.Client, fileSvc *file.Service, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string, apifyClient *apify.Client) *Service {
 	s := &Service{
 		db:              db,
+		fileSvc:         fileSvc,
 		tools:           agentTools,
 		apifyClient:     apifyClient,
 		checkpointStore: NewCheckPointStore(db),
@@ -291,6 +294,7 @@ func (s *Service) buildAgent(ctx context.Context, model *llm.Model, req *ChatReq
 		textAtts:                     textAtts,
 		vaultID:                      req.VaultID,
 		db:                           s.db,
+		fileSvc:                      s.fileSvc,
 		emit:                         emit,
 	}
 	tokenMW := &tokenTrackingMiddleware{
@@ -590,6 +594,17 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 	if args.Content != nil {
 		newContent = *args.Content
 	}
+
+	// Load existing content once (used for both section edit reconstruction and diff).
+	var docContent string
+	if doc != nil {
+		var contentErr error
+		docContent, contentErr = s.fileSvc.ReadFileContent(ctx, doc)
+		if contentErr != nil {
+			return nil, fmt.Errorf("read content: %w", contentErr)
+		}
+	}
+
 	if call.Function.Name == "edit_document_section" && doc != nil {
 		edit := parser.BuildSectionEdit(parser.SectionEditArgs{
 			Operation:  args.Operation,
@@ -599,7 +614,7 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 			NewHeading: args.NewHeading,
 			NewLevel:   args.NewLevel,
 		})
-		reconstructed, editErr := parser.ApplySectionEdit(doc.Content, edit)
+		reconstructed, editErr := parser.ApplySectionEdit(docContent, edit)
 		if editErr != nil {
 			return nil, fmt.Errorf("reconstruct section edit: %w", editErr)
 		}
@@ -612,7 +627,7 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 		return req, nil
 	}
 
-	hunks, err := diff.ComputeHunks(doc.Content, newContent, 3)
+	hunks, err := diff.ComputeHunks(docContent, newContent, 3)
 	if err != nil {
 		return nil, fmt.Errorf("compute diff: %w", err)
 	}

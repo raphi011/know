@@ -161,7 +161,7 @@ See also [[Beta Notes]] and [[missing-page]].
 	}
 
 	// Process pending files (deferred pipeline: chunks, wiki-links, etc.)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -211,7 +211,7 @@ Some notes about the beta project.
 		t.Fatalf("doc2 ID: %v", err)
 	}
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending after doc2: %v", err)
 	}
 
@@ -755,7 +755,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 		t.Fatalf("create target doc: %v", err)
 	}
 	docBID := models.MustRecordIDString(docB.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -767,7 +767,7 @@ func TestDeleteUnresolvesIncomingWikiLinks(t *testing.T) {
 		t.Fatalf("create source doc: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -840,7 +840,7 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -852,7 +852,7 @@ func TestMoveUpdatesWikiLinkRawTargets(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	docAID := models.MustRecordIDString(docA.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -906,7 +906,7 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create a: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -918,7 +918,7 @@ func TestMoveByPrefixUpdatesWikiLinkRawTargets(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	srcID := models.MustRecordIDString(src.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -982,7 +982,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target-b: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -994,7 +994,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	srcID := models.MustRecordIDString(src.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1013,7 +1013,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update source: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending after update: %v", err)
 	}
 
@@ -1032,7 +1032,7 @@ func TestProcessRelatesToDeleteThenRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update source no rels: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending after remove: %v", err)
 	}
 
@@ -1087,7 +1087,7 @@ func TestLabelGraph(t *testing.T) {
 	}
 	doc2ID := models.MustRecordIDString(doc2.ID)
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1130,7 +1130,7 @@ func TestLabelGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update doc1: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending after update: %v", err)
 	}
 
@@ -1196,7 +1196,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1220,7 +1220,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatalf("upsert same content: %v", err)
 	}
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending step 2: %v", err)
 	}
 
@@ -1249,7 +1249,7 @@ func TestSyncChunks_PreservesUnchangedChunks(t *testing.T) {
 		t.Fatalf("upsert new content: %v", err)
 	}
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending step 3: %v", err)
 	}
 
@@ -1374,7 +1374,7 @@ func TestWikiLinkStemResolution(t *testing.T) {
 		t.Fatalf("create target: %v", err)
 	}
 	targetID := models.MustRecordIDString(target.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending target: %v", err)
 	}
 
@@ -1388,7 +1388,7 @@ func TestWikiLinkStemResolution(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	sourceID := models.MustRecordIDString(source.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending source: %v", err)
 	}
 
@@ -1421,7 +1421,7 @@ func TestWikiLinkStemResolution(t *testing.T) {
 		t.Fatalf("create source2: %v", err)
 	}
 	source2ID := models.MustRecordIDString(source2.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending source2: %v", err)
 	}
 
@@ -1470,7 +1470,7 @@ func TestWikiLinkAmbiguity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create /a/notes.md: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1484,7 +1484,7 @@ func TestWikiLinkAmbiguity(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	sourceID := models.MustRecordIDString(source.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending source: %v", err)
 	}
 
@@ -1508,7 +1508,7 @@ func TestWikiLinkAmbiguity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create /b/notes.md: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending after ambiguity: %v", err)
 	}
 
@@ -1573,7 +1573,7 @@ func TestWikiLinkMoveRecomputeTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1587,7 +1587,7 @@ func TestWikiLinkMoveRecomputeTarget(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	sourceID := models.MustRecordIDString(source.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending source: %v", err)
 	}
 
@@ -1662,7 +1662,7 @@ func TestWikiLinkPathSuffixDisambiguation(t *testing.T) {
 		t.Fatalf("create /a/notes.md: %v", err)
 	}
 	targetAID := models.MustRecordIDString(targetA.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1674,7 +1674,7 @@ func TestWikiLinkPathSuffixDisambiguation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create /b/notes.md: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1688,7 +1688,7 @@ func TestWikiLinkPathSuffixDisambiguation(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	sourceID := models.MustRecordIDString(source.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending source: %v", err)
 	}
 
@@ -1745,7 +1745,7 @@ func TestWikiLinkSQLNormalization(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 	sourceID := models.MustRecordIDString(source.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending source: %v", err)
 	}
 
@@ -1773,7 +1773,7 @@ func TestWikiLinkSQLNormalization(t *testing.T) {
 		t.Fatalf("create target: %v", err)
 	}
 	targetID := models.MustRecordIDString(target.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending target: %v", err)
 	}
 
@@ -1835,7 +1835,7 @@ func TestWikiLinkStemOnlyVsPathQualifiedDuringAmbiguity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create /a/notes.md: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -1859,7 +1859,7 @@ func TestWikiLinkStemOnlyVsPathQualifiedDuringAmbiguity(t *testing.T) {
 		t.Fatalf("create qualified-source: %v", err)
 	}
 	qualifiedSourceID := models.MustRecordIDString(qualifiedSource.ID)
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending sources: %v", err)
 	}
 
@@ -1889,7 +1889,7 @@ func TestWikiLinkStemOnlyVsPathQualifiedDuringAmbiguity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create /b/notes.md: %v", err)
 	}
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending after ambiguity: %v", err)
 	}
 

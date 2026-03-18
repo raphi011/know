@@ -12,7 +12,7 @@ import (
 // on the File struct. Full implementation will read from blob store when needed.
 type PDFChunker struct{}
 
-func (p *PDFChunker) Chunk(_ context.Context, file *models.File, _ ChunkConfig) ([]ChunkResult, error) {
+func (p *PDFChunker) Chunk(_ context.Context, file *models.File, _ string, _ ChunkConfig) ([]ChunkResult, error) {
 	if file != nil && file.Size > 0 {
 		slog.Debug("pdf chunking skipped: blob store integration pending", "path", file.Path)
 	}

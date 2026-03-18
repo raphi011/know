@@ -69,11 +69,9 @@ func TestTextExtractorFor_NoExtractors(t *testing.T) {
 
 func TestMarkdownChunker_Chunk(t *testing.T) {
 	chunker := &MarkdownChunker{}
-	file := &models.File{
-		Content: "# Hello\n\nSome content here.",
-	}
+	content := "# Hello\n\nSome content here."
 
-	chunks, err := chunker.Chunk(context.Background(), file, DefaultChunkConfig())
+	chunks, err := chunker.Chunk(context.Background(), nil, content, DefaultChunkConfig())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +89,7 @@ func TestImageChunker_NoOp(t *testing.T) {
 		MimeType: "image/png",
 	}
 
-	chunks, err := chunker.Chunk(context.Background(), file, DefaultChunkConfig())
+	chunks, err := chunker.Chunk(context.Background(), file, "", DefaultChunkConfig())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

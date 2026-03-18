@@ -12,7 +12,7 @@ import (
 // on the File struct. Full implementation will read from blob store when needed.
 type ImageChunker struct{}
 
-func (i *ImageChunker) Chunk(_ context.Context, file *models.File, _ ChunkConfig) ([]ChunkResult, error) {
+func (i *ImageChunker) Chunk(_ context.Context, file *models.File, _ string, _ ChunkConfig) ([]ChunkResult, error) {
 	if file != nil && file.Size > 0 {
 		slog.Debug("image chunking skipped: blob store integration pending", "path", file.Path)
 	}

@@ -634,7 +634,7 @@ func TestToolsExecutor_Search(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	if err := exec.FileSvc.ProcessAllPending(ctx); err != nil {
+	if err := exec.FileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 

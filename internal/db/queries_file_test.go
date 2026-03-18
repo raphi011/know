@@ -670,15 +670,16 @@ func TestUpdateFileTranscript(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID, Path: "/transcript-" + suffix + ".md", Title: "Transcript Test",
-		Content: "original", Labels: []string{},
+		ContentLength: 8, Labels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("CreateFile failed: %v", err)
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	newContent := "transcribed content"
-	if err := testDB.UpdateFileTranscript(ctx, docID, newContent); err != nil {
+	newHash := "abc123hash"
+	newLen := 20
+	if err := testDB.UpdateFileTranscript(ctx, docID, newHash, newLen); err != nil {
 		t.Fatalf("UpdateFileTranscript failed: %v", err)
 	}
 
@@ -689,8 +690,11 @@ func TestUpdateFileTranscript(t *testing.T) {
 	if fetched == nil {
 		t.Fatal("GetFileByID returned nil")
 	}
-	if fetched.Content != newContent {
-		t.Errorf("Expected content %q, got %q", newContent, fetched.Content)
+	if fetched.ContentHash == nil || *fetched.ContentHash != newHash {
+		t.Errorf("Expected content_hash %q, got %v", newHash, fetched.ContentHash)
+	}
+	if fetched.ContentLength != newLen {
+		t.Errorf("Expected content_length %d, got %d", newLen, fetched.ContentLength)
 	}
 }
 
@@ -1027,7 +1031,7 @@ func TestListUnprocessedFiles(t *testing.T) {
 		t.Fatalf("CreateJob failed: %v", err)
 	}
 
-	files, err := testDB.ListUnprocessedFiles(ctx, 100)
+	files, err := testDB.ListUnprocessedFiles(ctx, vaultID, 100)
 	if err != nil {
 		t.Fatalf("ListUnprocessedFiles failed: %v", err)
 	}

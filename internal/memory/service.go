@@ -241,9 +241,20 @@ func (s *Service) consolidate(ctx context.Context, vaultID string, memories []Sc
 		m1 := memories[pair.i].Document
 		m2 := memories[pair.j].Document
 
+		m1Content, err := s.docService.ReadFileContent(ctx, &m1)
+		if err != nil {
+			logger.Warn("consolidation read m1 content failed", "path", m1.Path, "error", err)
+			continue
+		}
+		m2Content, err := s.docService.ReadFileContent(ctx, &m2)
+		if err != nil {
+			logger.Warn("consolidation read m2 content failed", "path", m2.Path, "error", err)
+			continue
+		}
+
 		mergedContent, err := s.model.GenerateWithSystem(ctx,
 			"You are a memory consolidation agent. Merge these two overlapping memories into a single, concise memory that preserves all unique information. Output only the merged memory content in markdown, no frontmatter.",
-			fmt.Sprintf("Memory 1 (title: %s):\n%s\n\nMemory 2 (title: %s):\n%s", m1.Title, m1.Content, m2.Title, m2.Content),
+			fmt.Sprintf("Memory 1 (title: %s):\n%s\n\nMemory 2 (title: %s):\n%s", m1.Title, m1Content, m2.Title, m2Content),
 		)
 		if err != nil {
 			logger.Warn("consolidation LLM merge failed", "error", err)

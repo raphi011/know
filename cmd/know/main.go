@@ -87,6 +87,8 @@ func main() {
 	rootCmd.AddCommand(browseCmd)
 	rootCmd.AddCommand(jobCmd)
 	rootCmd.AddCommand(fetchCmd)
+	rootCmd.AddCommand(backupCmd)
+	rootCmd.AddCommand(restoreCmd)
 	rootCmd.AddCommand(completionCmd)
 
 	if err := rootCmd.Execute(); err != nil {

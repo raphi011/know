@@ -18,16 +18,20 @@ import (
 
 // readFile provides read-only access to a document's content.
 type readFile struct {
-	name   string
-	doc    *models.File
-	reader *bytes.Reader
+	name        string
+	size        int64
+	modTime     time.Time
+	contentHash *string
+	reader      *bytes.Reader
 }
 
-func newReadFile(name string, doc *models.File) *readFile {
+func newReadFile(name string, content []byte, modTime time.Time, contentHash *string) *readFile {
 	return &readFile{
-		name:   name,
-		doc:    doc,
-		reader: bytes.NewReader([]byte(doc.Content)),
+		name:        name,
+		size:        int64(len(content)),
+		modTime:     modTime,
+		contentHash: contentHash,
+		reader:      bytes.NewReader(content),
 	}
 }
 
@@ -35,9 +39,9 @@ func newReadFile(name string, doc *models.File) *readFile {
 // that have been claimed but not yet written — allows PROPFIND and GET to succeed.
 func newEmptyReadFile(name string) *readFile {
 	return &readFile{
-		name:   name,
-		doc:    &models.File{Content: "", UpdatedAt: time.Now()},
-		reader: bytes.NewReader(nil),
+		name:    name,
+		modTime: time.Now(),
+		reader:  bytes.NewReader(nil),
 	}
 }
 
@@ -53,12 +57,12 @@ func (f *readFile) Readdir(count int) ([]fs.FileInfo, error) {
 func (f *readFile) Stat() (fs.FileInfo, error) {
 	fi := &fileInfo{
 		name:        path.Base(f.name),
-		size:        int64(len(f.doc.Content)),
-		modTime:     f.doc.UpdatedAt,
+		size:        f.size,
+		modTime:     f.modTime,
 		contentType: markdownContentType,
 	}
-	if f.doc.ContentHash != nil {
-		fi.etag = `"` + *f.doc.ContentHash + `"`
+	if f.contentHash != nil {
+		fi.etag = `"` + *f.contentHash + `"`
 	}
 	return fi, nil
 }

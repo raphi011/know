@@ -113,8 +113,14 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 		NewLevel:   args.NewLevel,
 	})
 
+	// Load existing content from blob store
+	existingContent, err := t.docService.ReadFileContent(ctx, existing)
+	if err != nil {
+		return "", fmt.Errorf("read content: %w", err)
+	}
+
 	// Apply the section edit to the existing content
-	newContent, err := parser.ApplySectionEdit(existing.Content, edit)
+	newContent, err := parser.ApplySectionEdit(existingContent, edit)
 	if err != nil {
 		return "", &ToolError{Message: fmt.Sprintf("apply section edit: %s", err)}
 	}

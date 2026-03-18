@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/raphi011/know/internal/apify"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
@@ -24,6 +25,7 @@ import (
 type mcpTools struct {
 	executor      tools.ToolExecutor
 	db            *db.Client
+	fileSvc       *file.Service
 	vaultService  *vault.Service
 	remoteService *remote.Service
 	memoryService *memory.Service
@@ -504,8 +506,13 @@ func (t *mcpTools) retrieveMemories(ctx context.Context, req *mcp.CallToolReques
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Found %d memories:\n\n", len(memories))
 	for _, m := range memories {
+		content, contentErr := t.fileSvc.ReadFileContent(ctx, &m.Document)
+		if contentErr != nil {
+			logutil.FromCtx(ctx).Warn("failed to read memory content", "path", m.Document.Path, "error", contentErr)
+			continue
+		}
 		fmt.Fprintf(&sb, "--- %s (score: %.2f) ---\n", m.Document.Path, m.Score)
-		fmt.Fprintf(&sb, "%s\n\n", m.Document.Content)
+		fmt.Fprintf(&sb, "%s\n\n", content)
 	}
 	return textResult(sb.String()), nil, nil
 }

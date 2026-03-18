@@ -9,12 +9,17 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/file"
+	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
+	"github.com/raphi011/know/internal/render"
 )
 
 // ReadDocumentTool implements tool.InvokableTool for reading a document by path.
 type ReadDocumentTool struct {
-	db *db.Client
+	db        *db.Client
+	fileSvc   *file.Service
+	renderSvc *render.Service
 }
 
 func (t *ReadDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -64,8 +69,23 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		fmt.Fprintf(&sb, "Content-Hash: %s\n\n", *doc.ContentHash)
 	}
 
+	content, err := t.fileSvc.ReadFileContent(ctx, doc)
+	if err != nil {
+		return "", fmt.Errorf("read content: %w", err)
+	}
+
+	// Enhance content: resolve wiki-links and execute query blocks.
+	if t.renderSvc != nil {
+		fileID, idErr := models.RecordIDString(doc.ID)
+		if idErr == nil {
+			if enhanced, _, enhErr := t.renderSvc.Enhance(ctx, o.VaultID, fileID, content); enhErr == nil {
+				content = enhanced
+			}
+		}
+	}
+
 	if input.Sections {
-		parsed := parser.ParseMarkdown(doc.Content)
+		parsed := parser.ParseMarkdown(content)
 		if len(parsed.Sections) > 0 {
 			outline := parser.SectionOutline(parsed)
 			sb.WriteString("## Sections\n")
@@ -82,9 +102,9 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		}
 	}
 
-	sb.WriteString(doc.Content)
+	sb.WriteString(content)
 
-	contentLen := len(doc.Content)
+	contentLen := len(content)
 	SetResultMeta(ctx, &ToolResultMeta{
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,

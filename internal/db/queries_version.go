@@ -7,6 +7,7 @@ import (
 
 	"github.com/raphi011/know/internal/models"
 	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // CreateVersion stores a new version snapshot of a file's content.
@@ -18,7 +19,6 @@ func (c *Client) CreateVersion(ctx context.Context, input models.FileVersionInpu
 			file = type::record("file", $file_id),
 			vault = type::record("vault", $vault_id),
 			version = $version,
-			content = $content,
 			content_hash = $content_hash,
 			title = $title
 		RETURN AFTER
@@ -27,7 +27,6 @@ func (c *Client) CreateVersion(ctx context.Context, input models.FileVersionInpu
 		"file_id":      bareID("file", input.FileID),
 		"vault_id":     bareID("vault", input.VaultID),
 		"version":      version,
-		"content":      input.Content,
 		"content_hash": input.ContentHash,
 		"title":        input.Title,
 	})
@@ -88,6 +87,30 @@ func (c *Client) ListVersions(ctx context.Context, fileID string, limit, offset 
 		return []models.FileVersion{}, nil
 	}
 	return (*results)[0].Result, nil
+}
+
+// ListVersionsByFileIDs returns all versions for the given file IDs, ordered by
+// file then version descending. Used by backup export to avoid N+1 queries.
+func (c *Client) ListVersionsByFileIDs(ctx context.Context, fileIDs []string) ([]models.FileVersion, error) {
+	defer c.logOp(ctx, "version.list_by_file_ids", time.Now())
+
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+
+	records := make([]surrealmodels.RecordID, len(fileIDs))
+	for i, id := range fileIDs {
+		records[i] = newRecordID("file", bareID("file", id))
+	}
+
+	sql := `SELECT * FROM file_version WHERE file IN $file_ids ORDER BY file ASC, version DESC`
+	results, err := surrealdb.Query[[]models.FileVersion](ctx, c.DB(), sql, map[string]any{
+		"file_ids": records,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list versions by file ids: %w", err)
+	}
+	return allResults(results), nil
 }
 
 // GetLatestVersion returns the most recent version for a file.

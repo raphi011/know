@@ -50,7 +50,11 @@ func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return nil
 		}
 
-		parsed := parser.ParseMarkdown(doc.Content)
+		content, err := svc.ReadFileContent(ctx, doc)
+		if err != nil {
+			return fmt.Errorf("read content for %s: %w", doc.Path, err)
+		}
+		parsed := parser.ParseMarkdown(content)
 
 		if err := svc.syncChunks(ctx, fileID, parsed, doc.Labels); err != nil {
 			return fmt.Errorf("sync chunks for %s: %w", doc.Path, err)
@@ -210,25 +214,34 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return nil
 		}
 
-		if doc.Content == "" {
+		docContent, err := svc.ReadFileContent(ctx, doc)
+		if err != nil {
+			return fmt.Errorf("read file content: %w", err)
+		}
+		if docContent == "" {
 			logger.Warn("file has no transcript content, skipping summarization", "file_id", fileID)
 			return nil
 		}
 
+		tplContent, err := svc.ReadFileContent(ctx, tpl)
+		if err != nil {
+			return fmt.Errorf("read template content: %w", err)
+		}
+
 		// Apply template variables before LLM fill
-		templateContent := ApplyTemplateVars(tpl.Content, DefaultTemplateVars(time.Now(), doc.Path, vault.Name))
+		templateContent := ApplyTemplateVars(tplContent, DefaultTemplateVars(time.Now(), doc.Path, vault.Name))
 
 		logger.Info("summarizing transcript with template",
-			"file_id", fileID, "template", templatePath, "transcript_len", len(doc.Content))
+			"file_id", fileID, "template", templatePath, "transcript_len", len(docContent))
 
-		summary, err := model.FillTemplate(ctx, templateContent, doc.Content)
+		summary, err := model.FillTemplate(ctx, templateContent, docContent)
 		if err != nil {
 			return fmt.Errorf("fill template: %w", err)
 		}
 
-		// Overwrite the raw transcript with the LLM-rendered summary.
-		if err := svc.db.UpdateFileTranscript(ctx, fileID, summary); err != nil {
-			return fmt.Errorf("update summary: %w", err)
+		// Store summary in blob store and update DB metadata.
+		if err := svc.storeTranscript(ctx, fileID, summary); err != nil {
+			return fmt.Errorf("store summary: %w", err)
 		}
 
 		// Re-parse so chunks are regenerated from the summary content.
@@ -239,7 +252,6 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			bus.Publish(event.ChangeEvent{Type: "job.created"})
 		}
 
-		doc.Content = summary
 		svc.publishFileEvent("file.processed", vaultID, doc)
 		return nil
 	}

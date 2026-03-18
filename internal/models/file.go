@@ -35,7 +35,6 @@ type File struct {
 	IsFolder       bool                   `json:"is_folder"`
 	NoEmbed        bool                   `json:"no_embed"`
 	MimeType       string                 `json:"mime_type"`
-	Content        string                 `json:"content"`
 	ContentLength  int                    `json:"content_length"`
 	ContentHash    *string                `json:"content_hash,omitempty"`
 	Labels         []string               `json:"labels"`
@@ -50,18 +49,19 @@ type File struct {
 
 // FileInput holds the data needed to create or update a file.
 type FileInput struct {
-	VaultID     string         `json:"vault_id"`
-	Path        string         `json:"path"`
-	Title       string         `json:"title"`
-	Content     string         `json:"content"`
-	ContentHash *string        `json:"content_hash,omitempty"`
-	Labels      []string       `json:"labels,omitempty"`
-	DocType     *string        `json:"doc_type,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	MimeType    string         `json:"mime_type"`
-	Data        []byte         `json:"data,omitempty"`
-	Size        int            `json:"size,omitempty"` // explicit size override (e.g. streaming imports where Data is not buffered)
-	IsFolder    bool           `json:"is_folder"`
+	VaultID       string         `json:"vault_id"`
+	Path          string         `json:"path"`
+	Title         string         `json:"title"`
+	Content       string         `json:"content"` // text content (stored in blob store, not DB)
+	ContentHash   *string        `json:"content_hash,omitempty"`
+	ContentLength int            `json:"content_length,omitempty"` // pre-computed content length for DB
+	Labels        []string       `json:"labels,omitempty"`
+	DocType       *string        `json:"doc_type,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	MimeType      string         `json:"mime_type"`
+	Data          []byte         `json:"data,omitempty"`
+	Size          int            `json:"size,omitempty"` // explicit size override (e.g. streaming imports where Data is not buffered)
+	IsFolder      bool           `json:"is_folder"`
 }
 
 // Validate checks that the FileInput has consistent fields for its kind.

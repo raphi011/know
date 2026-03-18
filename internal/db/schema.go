@@ -49,7 +49,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS title          ON file TYPE string DEFAULT "";
     DEFINE FIELD IF NOT EXISTS is_folder      ON file TYPE bool DEFAULT false;
     DEFINE FIELD IF NOT EXISTS mime_type      ON file TYPE string DEFAULT "application/octet-stream";
-    DEFINE FIELD IF NOT EXISTS content        ON file TYPE string DEFAULT "";
     DEFINE FIELD IF NOT EXISTS content_length ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS labels         ON file TYPE array<string> DEFAULT [];
     DEFINE FIELD IF NOT EXISTS doc_type       ON file TYPE option<string>;
@@ -126,7 +125,6 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS file         ON file_version TYPE record<file>;
     DEFINE FIELD IF NOT EXISTS vault        ON file_version TYPE record<vault>;
     DEFINE FIELD IF NOT EXISTS version      ON file_version TYPE int;
-    DEFINE FIELD IF NOT EXISTS content      ON file_version TYPE string;
     DEFINE FIELD IF NOT EXISTS content_hash ON file_version TYPE string;
     DEFINE FIELD IF NOT EXISTS title        ON file_version TYPE string;
     DEFINE FIELD IF NOT EXISTS created_at   ON file_version TYPE datetime DEFAULT time::now();

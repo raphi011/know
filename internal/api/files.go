@@ -39,29 +39,44 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	content, err := s.app.FileService().ReadFileContent(ctx, doc)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read document content")
+		logger.Error("read document content", "error", err)
+		return
+	}
+
 	fileID, err := models.RecordIDString(doc.ID)
 	if err != nil {
 		logger.Warn("failed to extract file ID for wiki links", "error", err)
-		writeJSON(w, http.StatusOK, documentFromModel(doc))
+		writeJSON(w, http.StatusOK, documentFromModel(doc, content))
 		return
 	}
-	wikiLinks, err := s.app.DBClient().GetWikiLinksWithTargetInfo(ctx, fileID)
-	if err != nil {
-		logger.Warn("failed to get wiki links", "error", err)
-	}
 
-	resp := documentFromModel(doc)
-	if len(wikiLinks) > 0 {
-		resp.WikiLinks = make([]WikiLinkInfo, len(wikiLinks))
-		for i, wl := range wikiLinks {
-			resp.WikiLinks[i] = WikiLinkInfo{
-				RawTarget: wl.RawTarget,
-				Path:      wl.Path,
-				Title:     wl.Title,
+	// Enhance content and get resolved wiki-links in one pass.
+	if renderSvc := s.app.RenderService(); renderSvc != nil {
+		enhanced, wikiLinks, enhErr := renderSvc.Enhance(ctx, vaultID, fileID, content)
+		if enhErr != nil {
+			logger.Warn("render enhance failed, serving raw content", "error", enhErr)
+		} else {
+			content = enhanced
+			resp := documentFromModel(doc, content)
+			if len(wikiLinks) > 0 {
+				resp.WikiLinks = make([]WikiLinkInfo, len(wikiLinks))
+				for i, wl := range wikiLinks {
+					resp.WikiLinks[i] = WikiLinkInfo{
+						RawTarget: wl.RawTarget,
+						Path:      wl.Path,
+						Title:     wl.Title,
+					}
+				}
 			}
+			writeJSON(w, http.StatusOK, resp)
+			return
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+
+	writeJSON(w, http.StatusOK, documentFromModel(doc, content))
 }
 
 type upsertDocumentRequest struct {
@@ -98,7 +113,7 @@ func (s *Server) upsertDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, documentFromModel(doc))
+	writeJSON(w, http.StatusOK, documentFromModel(doc, body.Content))
 }
 
 type deleteDocumentsResponse struct {
@@ -323,7 +338,7 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func documentFromModel(d *models.File) Document {
+func documentFromModel(d *models.File, content string) Document {
 	id, err := models.RecordIDString(d.ID)
 	if err != nil {
 		slog.Warn("unexpected file ID format", "path", d.Path, "error", err)
@@ -339,7 +354,7 @@ func documentFromModel(d *models.File) Document {
 		VaultID:     vaultID,
 		Path:        d.Path,
 		Title:       d.Title,
-		Content:     d.Content,
+		Content:     content,
 		Labels:      nonNilLabels(d.Labels),
 		DocType:     d.DocType,
 		ContentHash: d.ContentHash,

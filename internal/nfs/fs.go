@@ -145,7 +145,11 @@ func (f *FS) OpenFile(filename string, flag int, _ os.FileMode) (billy.File, err
 		return nil, fmt.Errorf("open %s: %w", filename, err)
 	}
 	if doc != nil {
-		return newReadFile(path.Base(docPath), []byte(doc.Content), doc.UpdatedAt), nil
+		content, err := f.docService.ReadFileContent(ctx, doc)
+		if err != nil {
+			return nil, fmt.Errorf("read content %s: %w", filename, err)
+		}
+		return newReadFile(path.Base(docPath), []byte(content), doc.UpdatedAt), nil
 	}
 
 	// Try as folder

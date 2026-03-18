@@ -73,7 +73,7 @@ func TestCreate_DefersChunksAndWikiLinks(t *testing.T) {
 		t.Errorf("expected 0 wiki-links before ProcessAllPending, got %d", len(links))
 	}
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
@@ -97,9 +97,9 @@ func TestCreate_DefersChunksAndWikiLinks(t *testing.T) {
 
 func TestProcessAllPending_EmptyIsNoOp(t *testing.T) {
 	ctx := context.Background()
-	_, fileSvc := setupProcessingTest(t, ctx)
+	vaultID, fileSvc := setupProcessingTest(t, ctx)
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("ProcessAllPending on empty vault: %v", err)
 	}
 }
@@ -119,7 +119,7 @@ func TestProcessAllPending_ProcessesMultipleFiles(t *testing.T) {
 		}
 	}
 
-	unprocessed, err := testDB.ListUnprocessedFiles(ctx, 100)
+	unprocessed, err := testDB.ListUnprocessedFiles(ctx, vaultID, 100)
 	if err != nil {
 		t.Fatalf("list unprocessed: %v", err)
 	}
@@ -127,11 +127,11 @@ func TestProcessAllPending_ProcessesMultipleFiles(t *testing.T) {
 		t.Fatalf("expected at least 5 unprocessed, got %d", len(unprocessed))
 	}
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("process pending: %v", err)
 	}
 
-	unprocessed, err = testDB.ListUnprocessedFiles(ctx, 100)
+	unprocessed, err = testDB.ListUnprocessedFiles(ctx, vaultID, 100)
 	if err != nil {
 		t.Fatalf("list unprocessed after: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestProcessDocument_Idempotent(t *testing.T) {
 	}
 	docID := models.MustRecordIDString(doc.ID)
 
-	if err := fileSvc.ProcessAllPending(ctx); err != nil {
+	if err := fileSvc.ProcessAllPending(ctx, vaultID); err != nil {
 		t.Fatalf("first process: %v", err)
 	}
 

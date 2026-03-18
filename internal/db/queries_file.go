@@ -133,7 +133,6 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 			path = $path,
 			title = $title,
 			stem = $stem,
-			content = $content,
 			content_length = $content_length,
 			labels = $labels,
 			doc_type = $doc_type,
@@ -149,8 +148,7 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 		"path":           input.Path,
 		"title":          input.Title,
 		"stem":           stem,
-		"content":        input.Content,
-		"content_length": len(input.Content),
+		"content_length": input.ContentLength,
 		"labels":         labels,
 		"doc_type":       optionalString(input.DocType),
 		"content_hash":   optionalString(input.ContentHash),
@@ -224,7 +222,6 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 
 	sql := `
 		UPDATE type::record("file", $id) SET
-			content = $content,
 			content_length = $content_length,
 			title = $title,
 			stem = $stem,
@@ -237,8 +234,7 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
 		"id":             id,
-		"content":        input.Content,
-		"content_length": len(input.Content),
+		"content_length": input.ContentLength,
 		"title":          input.Title,
 		"stem":           stem,
 		"labels":         labels,
@@ -359,7 +355,8 @@ func (c *Client) MoveFile(ctx context.Context, id, newPath string) (*models.File
 
 // ListUnprocessedFiles returns non-folder files that have a pending parse pipeline job.
 // Used by ProcessAllPending for synchronous processing in tests and CLI commands.
-func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.File, error) {
+// If vaultID is non-empty, only files in that vault are returned.
+func (c *Client) ListUnprocessedFiles(ctx context.Context, vaultID string, limit int) ([]models.File, error) {
 	defer c.logOp(ctx, "file.list_unprocessed", time.Now())
 	if limit <= 0 {
 		limit = 20
@@ -371,16 +368,30 @@ func (c *Client) ListUnprocessedFiles(ctx context.Context, limit int) ([]models.
 	type jobWithFile struct {
 		File models.File `json:"file"`
 	}
-	sql := `
-		SELECT file.*, created_at FROM pipeline_job
-		WHERE type = 'parse' AND status IN ['pending', 'running']
-		ORDER BY created_at ASC
-		LIMIT $limit
-		FETCH file
-	`
-	results, err := surrealdb.Query[[]jobWithFile](ctx, c.DB(), sql, map[string]any{
-		"limit": limit,
-	})
+
+	var sql string
+	vars := map[string]any{"limit": limit}
+
+	if vaultID != "" {
+		sql = `
+			SELECT file.*, created_at FROM pipeline_job
+			WHERE type = 'parse' AND status IN ['pending', 'running']
+			  AND file.vault = type::record("vault", $vault_id)
+			ORDER BY created_at ASC
+			LIMIT $limit
+			FETCH file
+		`
+		vars["vault_id"] = bareID("vault", vaultID)
+	} else {
+		sql = `
+			SELECT file.*, created_at FROM pipeline_job
+			WHERE type = 'parse' AND status IN ['pending', 'running']
+			ORDER BY created_at ASC
+			LIMIT $limit
+			FETCH file
+		`
+	}
+	results, err := surrealdb.Query[[]jobWithFile](ctx, c.DB(), sql, vars)
 	if err != nil {
 		return nil, fmt.Errorf("list unprocessed: %w", err)
 	}
@@ -450,13 +461,15 @@ func (c *Client) ListFilesByPrefix(ctx context.Context, vaultID, prefix string) 
 	return allResults(results), nil
 }
 
-// UpdateFileTranscript sets the transcript as the file content.
-func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, content string) error {
+// UpdateFileTranscript updates the file's content_hash and content_length after
+// a transcript has been stored in the blob store.
+func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, contentHash string, contentLength int) error {
 	defer c.logOp(ctx, "file.update_transcript", time.Now())
-	sql := `UPDATE type::record("file", $id) SET content = $content, content_length = string::len($content)`
+	sql := `UPDATE type::record("file", $id) SET content_hash = $content_hash, content_length = $content_length`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id":      bareID("file", fileID),
-		"content": content,
+		"id":             bareID("file", fileID),
+		"content_hash":   contentHash,
+		"content_length": contentLength,
 	}); err != nil {
 		return fmt.Errorf("update transcript: %w", err)
 	}
@@ -703,7 +716,6 @@ func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (
 			title: $title,
 			is_folder: true,
 			mime_type: "inode/directory",
-			content: "",
 			content_length: 0,
 			labels: [],
 			size: 0,
@@ -776,7 +788,6 @@ func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath strin
 			"title":          path.Base(fp),
 			"is_folder":      true,
 			"mime_type":      "inode/directory",
-			"content":        "",
 			"content_length": 0,
 			"labels":         []string{},
 			"size":           0,
