@@ -8,15 +8,20 @@ The agent provides a conversational interface to your knowledge base. It has acc
 
 Available tools:
 
-- **kb_search** — hybrid search across vault documents
+- **search** — hybrid search across vault documents
 - **read_document** — read a document by path
 - **list_labels** — list all labels in the vault
-- **list_folders** — list top-level folder structure
+- **list_folders** — list folder structure across all vaults
 - **list_folder_contents** — list contents of a specific folder
+- **get_document_versions** — get version history for a document
+- **list_tasks** — list tasks extracted from documents
 - **create_document** — create a new document
 - **edit_document** — edit an existing document
 - **edit_document_section** — edit a specific section of a document
-- **web_search** — search the web via Tavily API (only after explicit user permission)
+- **create_memory** — create a memory note
+- **toggle_task** — toggle a task's open/done status
+- **web_search** — search the web via Tavily API (requires `KNOW_TAVILY_API_KEY`)
+- **fetch_youtube_transcript** — fetch YouTube video transcripts (requires `KNOW_APIFY_TOKEN`)
 
 ## How It Works
 
@@ -90,10 +95,12 @@ Example prompts:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/agent/chat` | Send a message and receive an SSE event stream |
+| `POST` | `/agent/chat` | Start agent, returns 202 `{conversationId, status}` |
+| `GET` | `/agent/events/{id}` | SSE stream (replay + live events, reconnectable) |
+| `POST` | `/agent/cancel/{id}` | Cancel a running agent |
 | `POST` | `/agent/approval` | Approve or reject a pending tool call |
 
 ### Related Docs
 
-- [Search](feature-search.md) — how `kb_search` works under the hood
+- [Search](feature-search.md) — how `search` works under the hood
 - [MCP Server](feature-mcp.md) — using the agent tools via MCP
