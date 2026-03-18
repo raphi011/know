@@ -118,6 +118,18 @@ logger := logutil.FromCtx(ctx).With("user_id", userID)
 ctx = logutil.WithLogger(ctx, logger)
 ```
 
+### Prometheus metrics (`internal/metrics`)
+
+All metrics are defined in `internal/metrics/collector.go` with the `know_` prefix. When adding new features, keep metrics up to date:
+
+- **New DB operations**: Automatically covered by `logOp` → `RecordTiming` (no extra work).
+- **New HTTP endpoints**: Automatically covered by the metrics middleware → `RecordHTTPRequest`.
+- **New LLM/embedding calls**: Call `metrics.RecordLLMUsage` or `metrics.RecordEmbedding` at the call site.
+- **New pipeline job types**: Automatically covered — `PipelineWorker` calls `RecordPipelineJob` on completion/failure.
+- **New subsystems** (e.g. a new external service, a new background worker): Add a new `*prometheus.HistogramVec` or `*prometheus.CounterVec` to the `Metrics` struct with a `Record*` method. All `Record*` methods must be nil-safe (`if m == nil { return }`).
+
+When removing or renaming a metric, check for Grafana dashboard references or alerting rules before deleting.
+
 ### Environment variables
 
 All env vars use the `KNOW_` prefix: `KNOW_LOG_LEVEL`, `KNOW_LOG_FILE`, etc.
@@ -147,6 +159,7 @@ The server exposes a REST API at `/api/` for CLI and TUI communication:
 - `POST /api/tasks/{id}/toggle` — toggle task status (modifies source document)
 - `GET /api/external-links/stats?vault={id}` — aggregated external link counts by hostname
 - `GET /api/external-links?vault={id}&hostname=...&limit=...&offset=...` — list external links
+- `GET /api/jobs?since=24h&limit=10` — pipeline job stats, active jobs, recent failures
 
 Agent endpoints (background execution):
 - `POST /agent/chat` — start agent, returns 202 `{conversationId, status}`
@@ -187,7 +200,7 @@ Best practices, framework gotchas, and library references have been moved to the
 ### Project Structure
 
 ```
-cmd/know/            # Single binary: CLI (import, info, agent, db seed, db wipe) + server (serve)
+cmd/know/            # Single binary: CLI (import, info, agent, job, db seed, db wipe) + server (serve)
 internal/
 ├── models/             # Data structs + helpers (RecordIDString, ContentHash)
 ├── db/                 # SurrealDB client, DDL, query functions, connection

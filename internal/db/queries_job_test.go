@@ -221,6 +221,26 @@ func TestCompleteJob(t *testing.T) {
 			t.Error("completed job should not be claimable again")
 		}
 	}
+
+	// Verify started_at and completed_at are set via ListRecentJobs
+	doneJobs, err := testDB.ListRecentJobs(ctx, 10, []string{"done"})
+	if err != nil {
+		t.Fatalf("ListRecentJobs failed: %v", err)
+	}
+	for _, j := range doneJobs {
+		if models.MustRecordIDString(j.ID) == jobID {
+			if j.StartedAt == nil {
+				t.Error("expected started_at to be set on completed job")
+			}
+			if j.CompletedAt == nil {
+				t.Error("expected completed_at to be set on completed job")
+			}
+			if j.StartedAt != nil && j.CompletedAt != nil && j.CompletedAt.Before(*j.StartedAt) {
+				t.Error("expected completed_at >= started_at")
+			}
+			break
+		}
+	}
 }
 
 func TestFailJob(t *testing.T) {
@@ -266,6 +286,20 @@ func TestFailJob(t *testing.T) {
 	for _, j := range jobs {
 		if models.MustRecordIDString(j.ID) == jobID {
 			t.Error("failed job should not be claimable")
+		}
+	}
+
+	// Verify completed_at is set on failed job
+	failedJobs, err := testDB.ListRecentJobs(ctx, 10, []string{"failed"})
+	if err != nil {
+		t.Fatalf("ListRecentJobs failed: %v", err)
+	}
+	for _, j := range failedJobs {
+		if models.MustRecordIDString(j.ID) == jobID {
+			if j.CompletedAt == nil {
+				t.Error("expected completed_at to be set on failed job")
+			}
+			break
 		}
 	}
 }
@@ -381,6 +415,223 @@ func TestCancelJobsForFile(t *testing.T) {
 		if models.MustRecordIDString(j.File) == fileID {
 			t.Errorf("cancelled job for file should not be claimable (job status: %s)", j.Status)
 		}
+	}
+}
+
+func TestGetJobStats(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/job-stats-" + suffix + ".md", Title: "Job Stats",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	// Create 2 pending jobs
+	if err := testDB.CreateJob(ctx, fileID, "parse", 1); err != nil {
+		t.Fatalf("CreateJob 1 failed: %v", err)
+	}
+	if err := testDB.CreateJob(ctx, fileID, "embed", 1); err != nil {
+		t.Fatalf("CreateJob 2 failed: %v", err)
+	}
+
+	// Claim and complete one
+	claimed, err := testDB.ClaimJobs(ctx, 1)
+	if err != nil {
+		t.Fatalf("ClaimJobs failed: %v", err)
+	}
+	if len(claimed) == 0 {
+		t.Fatal("expected at least 1 claimed job")
+	}
+	jobID := models.MustRecordIDString(claimed[0].ID)
+	if err := testDB.CompleteJob(ctx, jobID); err != nil {
+		t.Fatalf("CompleteJob failed: %v", err)
+	}
+
+	since := time.Now().Add(-1 * time.Hour)
+	stats, err := testDB.GetJobStats(ctx, since)
+	if err != nil {
+		t.Fatalf("GetJobStats failed: %v", err)
+	}
+
+	// At least 1 done and 1 pending (other tests may have left jobs behind)
+	if stats.Done < 1 {
+		t.Errorf("expected at least 1 done job, got %d", stats.Done)
+	}
+	if stats.Pending < 1 {
+		t.Errorf("expected at least 1 pending job, got %d", stats.Pending)
+	}
+}
+
+func TestGetJobStats_IncludesFailedCount(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/job-stats-fail-" + suffix + ".md", Title: "Job Stats Fail",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	if err := testDB.CreateJob(ctx, fileID, "embed", 1); err != nil {
+		t.Fatalf("CreateJob failed: %v", err)
+	}
+
+	claimed, err := testDB.ClaimJobs(ctx, 1)
+	if err != nil {
+		t.Fatalf("ClaimJobs failed: %v", err)
+	}
+	if len(claimed) == 0 {
+		t.Fatal("expected at least 1 claimed job")
+	}
+	jobID := models.MustRecordIDString(claimed[0].ID)
+	if err := testDB.FailJob(ctx, jobID, "test error"); err != nil {
+		t.Fatalf("FailJob failed: %v", err)
+	}
+
+	since := time.Now().Add(-1 * time.Hour)
+	stats, err := testDB.GetJobStats(ctx, since)
+	if err != nil {
+		t.Fatalf("GetJobStats failed: %v", err)
+	}
+	if stats.Failed < 1 {
+		t.Errorf("expected at least 1 failed job, got %d", stats.Failed)
+	}
+}
+
+func TestListRecentJobs(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/job-recent-" + suffix + ".md", Title: "Job Recent",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	if err := testDB.CreateJob(ctx, fileID, "parse", 1); err != nil {
+		t.Fatalf("CreateJob failed: %v", err)
+	}
+
+	jobs, err := testDB.ListRecentJobs(ctx, 10, []string{"pending"})
+	if err != nil {
+		t.Fatalf("ListRecentJobs failed: %v", err)
+	}
+	if len(jobs) == 0 {
+		t.Fatal("expected at least 1 recent pending job")
+	}
+
+	// Verify file_path is populated
+	var found bool
+	for _, j := range jobs {
+		if j.FilePath != nil && *j.FilePath == "/job-recent-"+suffix+".md" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find job with matching file_path")
+	}
+}
+
+func TestGetJobTypeDurations(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/job-durations-" + suffix + ".md", Title: "Job Durations",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	if err := testDB.CreateJob(ctx, fileID, "embed", 1); err != nil {
+		t.Fatalf("CreateJob failed: %v", err)
+	}
+
+	// Claim and complete
+	claimed, err := testDB.ClaimJobs(ctx, 1)
+	if err != nil {
+		t.Fatalf("ClaimJobs failed: %v", err)
+	}
+	if len(claimed) == 0 {
+		t.Fatal("expected at least 1 claimed job")
+	}
+	jobID := models.MustRecordIDString(claimed[0].ID)
+	if err := testDB.CompleteJob(ctx, jobID); err != nil {
+		t.Fatalf("CompleteJob failed: %v", err)
+	}
+
+	since := time.Now().Add(-1 * time.Hour)
+	durations, err := testDB.GetJobTypeDurations(ctx, since)
+	if err != nil {
+		t.Fatalf("GetJobTypeDurations failed: %v", err)
+	}
+
+	// At least the "embed" type should have duration stats
+	var found bool
+	for _, d := range durations {
+		if d.Type == "embed" {
+			found = true
+			if d.Count < 1 {
+				t.Errorf("expected count >= 1 for embed, got %d", d.Count)
+			}
+			if d.MinMs < 0 {
+				t.Errorf("expected min_ms >= 0, got %d", d.MinMs)
+			}
+			if d.MaxMs < d.MinMs {
+				t.Errorf("expected max_ms >= min_ms, got max=%d min=%d", d.MaxMs, d.MinMs)
+			}
+			if d.AvgMs < float64(d.MinMs) || d.AvgMs > float64(d.MaxMs) {
+				t.Errorf("expected min_ms <= avg_ms <= max_ms, got min=%d avg=%.1f max=%d", d.MinMs, d.AvgMs, d.MaxMs)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find duration stats for 'embed' type")
+	}
+}
+
+func TestGetJobTypeDurations_Empty(t *testing.T) {
+	ctx := context.Background()
+
+	// Query with a future "since" time so no jobs match
+	future := time.Now().Add(1 * time.Hour)
+	durations, err := testDB.GetJobTypeDurations(ctx, future)
+	if err != nil {
+		t.Fatalf("GetJobTypeDurations failed: %v", err)
+	}
+	if len(durations) != 0 {
+		t.Errorf("expected 0 durations for future since, got %d", len(durations))
 	}
 }
 

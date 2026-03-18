@@ -591,6 +591,31 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultID string) ([]mo
 	return counts, nil
 }
 
+// JobStatusResponse is the response from GET /api/jobs.
+type JobStatusResponse struct {
+	Stats        models.JobStats           `json:"stats"`
+	Durations    []models.JobTypeDuration  `json:"durations"`
+	Active       []models.PipelineJobDetail `json:"active"`
+	RecentFailed []models.PipelineJobDetail `json:"recent_failed"`
+}
+
+// GetJobStatus fetches pipeline job stats from the server.
+func (c *Client) GetJobStatus(ctx context.Context, since string) (*JobStatusResponse, error) {
+	q := url.Values{}
+	if since != "" {
+		q.Set("since", since)
+	}
+	path := "/api/jobs"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var resp JobStatusResponse
+	if err := c.Get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("get job status: %w", err)
+	}
+	return &resp, nil
+}
+
 // VaultInfo holds comprehensive stats about a vault.
 type VaultInfo struct {
 	Name        string    `json:"name"`
