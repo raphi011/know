@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/surrealdb/surrealdb.go"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -247,6 +248,52 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 		return nil, fmt.Errorf("update file: %w", err)
 	}
 	return firstResult(results, "update file")
+}
+
+// updateFileByPath updates a file identified by vault+path instead of record ID.
+// Used as a fallback when the unique index reports a conflict but GetFileByPath
+// cannot find the record (e.g. SurrealDB index/data inconsistency).
+func (c *Client) updateFileByPath(ctx context.Context, input models.FileInput) (*models.File, error) {
+	defer c.logOp(ctx, "file.update_by_path", time.Now())
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	stem := ""
+	if !input.IsFolder {
+		stem = models.FilenameStem(input.Path)
+	}
+
+	sql := `
+		UPDATE file SET
+			content_length = $content_length,
+			title = $title,
+			stem = $stem,
+			labels = $labels,
+			content_hash = $content_hash,
+			metadata = $metadata,
+			mime_type = $mime_type,
+			size = $size
+		WHERE vault = type::record("vault", $vault_id) AND path = $path
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"vault_id":       bareID("vault", input.VaultID),
+		"path":           input.Path,
+		"content_length": input.ContentLength,
+		"title":          input.Title,
+		"stem":           stem,
+		"labels":         labels,
+		"content_hash":   optionalString(input.ContentHash),
+		"metadata":       optionalObject(input.Metadata),
+		"mime_type":      input.MimeType,
+		"size":           fileSize(input),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("update file by path: %w", err)
+	}
+	return firstResult(results, "update file by path")
 }
 
 func (c *Client) DeleteFile(ctx context.Context, id string) error {
@@ -497,43 +544,43 @@ func (c *Client) UpsertFile(ctx context.Context, input models.FileInput) (file *
 		input.ContentHash = &hash
 	}
 
-	const maxRetries = 3
-
-	for attempt := range maxRetries {
-		existing, err := c.GetFileByPath(ctx, input.VaultID, input.Path)
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("check existing file: %w", err)
-		}
-
-		if existing == nil {
-			file, err := c.CreateFile(ctx, input)
-			if err != nil {
-				// Unique constraint violation — another concurrent request created
-				// the same vault+path between our check and insert.
-				// Re-check so the next iteration finds the existing file.
-				if isUniqueViolation(err) && attempt < maxRetries-1 {
-					continue
-				}
-				return nil, false, nil, err
-			}
-			return file, true, nil, nil
-		}
-
-		// Found existing file — update it
-		idStr, err := models.RecordIDString(existing.ID)
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("extract file id: %w", err)
-		}
-
-		file, err = c.UpdateFile(ctx, idStr, input)
-		if err != nil {
-			return nil, false, nil, err
-		}
-		return file, false, existing, nil
+	existing, err := c.GetFileByPath(ctx, input.VaultID, input.Path)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("check existing file: %w", err)
 	}
 
-	// Should not be reached — the loop always returns or continues
-	return nil, false, nil, fmt.Errorf("upsert exhausted %d retries due to concurrent writes", maxRetries)
+	if existing == nil {
+		file, err := c.CreateFile(ctx, input)
+		if err != nil {
+			if isUniqueViolation(err) {
+				// Index says vault+path exists but GetFileByPath couldn't find it
+				// (possible SurrealDB index/data inconsistency). Fall back to
+				// UPDATE by vault+path. Return created=true so the caller
+				// enqueues a pipeline job (we can't know if content changed).
+				logutil.FromCtx(ctx).Warn("unique violation but file not found by path, falling back to update-by-path",
+					"vault_id", input.VaultID, "path", input.Path, "error", err)
+				file, err = c.updateFileByPath(ctx, input)
+				if err != nil {
+					return nil, false, nil, fmt.Errorf("upsert fallback update: %w", err)
+				}
+				return file, true, nil, nil
+			}
+			return nil, false, nil, fmt.Errorf("upsert create: %w", err)
+		}
+		return file, true, nil, nil
+	}
+
+	// Found existing file — update it
+	idStr, err := models.RecordIDString(existing.ID)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("extract file id: %w", err)
+	}
+
+	file, err = c.UpdateFile(ctx, idStr, input)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	return file, false, existing, nil
 }
 
 // ---------------------------------------------------------------------------
