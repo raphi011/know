@@ -2,7 +2,6 @@ package backup
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -26,13 +25,13 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
-		return fmt.Errorf("open gzip: %w", err)
+		return fmt.Errorf("decompress archive: %w", err)
 	}
 	defer gzr.Close()
 
 	tr := tar.NewReader(gzr)
 
-	// First pass: extract manifest and store all blobs directly into blob store.
+	// Stream archive: store blobs directly, buffer only the manifest.
 	var manifestData []byte
 	blobCount := 0
 
@@ -53,7 +52,6 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 			}
 
 		case strings.HasPrefix(header.Name, "blobs/"):
-			// Extract hash from archive path: blobs/ab/cd/abcdef... → abcdef...
 			hash := extractHashFromBlobPath(header.Name)
 			if hash == "" {
 				logger.Warn("skipping blob with unparseable path", "path", header.Name)
@@ -117,29 +115,20 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 		}
 	}
 
-	// Create file records directly (blobs are already in store).
+	// Create file records (blobs already in store, folders already created).
+	fileIDs := make(map[string]string, len(manifest.Files)) // path → file ID
 	filesRestored := 0
 	for _, fi := range manifest.Files {
-		// Determine content length from blob if available.
-		contentLength := 0
-		if fi.ContentHash != "" {
-			contentLength = blobSize(ctx, blobStore, fi.ContentHash)
-		}
-
 		input := models.FileInput{
 			VaultID:       vaultID,
 			Path:          fi.Path,
 			Title:         fi.Title,
 			ContentHash:   strPtr(fi.ContentHash),
-			ContentLength: contentLength,
+			ContentLength: fi.Size,
 			Labels:        fi.Labels,
 			DocType:       fi.DocType,
 			Metadata:      fi.Metadata,
 			MimeType:      fi.MimeType,
-		}
-
-		if err := dbClient.EnsureFolders(ctx, vaultID, fi.Path); err != nil {
-			logger.Warn("failed to ensure folders", "path", fi.Path, "error", err)
 		}
 
 		file, err := dbClient.CreateFile(ctx, input)
@@ -148,29 +137,29 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 			continue
 		}
 
+		fileID, idErr := models.RecordIDString(file.ID)
+		if idErr != nil {
+			logger.Warn("failed to extract file id", "path", fi.Path, "error", idErr)
+			continue
+		}
+		fileIDs[fi.Path] = fileID
+
 		// Enqueue pipeline job for text files so chunks/embeddings are generated.
 		if models.IsTextFile(fi.Path) {
-			fileID, idErr := models.RecordIDString(file.ID)
-			if idErr == nil {
-				if err := dbClient.CreateJob(ctx, fileID, "parse", 0); err != nil {
-					logger.Warn("failed to enqueue parse job", "path", fi.Path, "error", err)
-				}
+			if err := dbClient.CreateJob(ctx, fileID, "parse", 0); err != nil {
+				logger.Warn("failed to enqueue parse job", "path", fi.Path, "error", err)
 			}
 		}
 
 		filesRestored++
 	}
 
-	// Restore version records (blobs already in store).
+	// Restore version records using cached file IDs (no N+1).
 	versionsRestored := 0
 	for _, vi := range manifest.Versions {
-		fileRecord, err := dbClient.GetFileByPath(ctx, vaultID, vi.FilePath)
-		if err != nil || fileRecord == nil {
-			logger.Warn("file not found for version", "path", vi.FilePath, "error", err)
-			continue
-		}
-		fileID, err := models.RecordIDString(fileRecord.ID)
-		if err != nil {
+		fileID, ok := fileIDs[vi.FilePath]
+		if !ok {
+			logger.Warn("file not found for version", "path", vi.FilePath)
 			continue
 		}
 
@@ -198,25 +187,12 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 // extractHashFromBlobPath extracts the hash from a sharded blob path.
 // "blobs/ab/cd/abcdef1234..." → "abcdef1234..."
 func extractHashFromBlobPath(archivePath string) string {
-	// Strip "blobs/" prefix.
 	rest := strings.TrimPrefix(archivePath, "blobs/")
-	// The full hash is the last path component: ab/cd/abcdef... → abcdef...
 	parts := strings.Split(rest, "/")
 	if len(parts) < 3 {
 		return ""
 	}
 	return parts[len(parts)-1]
-}
-
-// blobSize returns the size of a blob by reading it. Returns 0 on error.
-func blobSize(ctx context.Context, store blob.Store, hash string) int {
-	rc, err := store.Get(ctx, hash)
-	if err != nil {
-		return 0
-	}
-	defer rc.Close()
-	n, _ := io.Copy(io.Discard, rc)
-	return int(n)
 }
 
 func strPtr(s string) *string {
@@ -225,6 +201,3 @@ func strPtr(s string) *string {
 	}
 	return &s
 }
-
-// bytesReader is a helper to satisfy io.Reader from []byte without importing bytes.
-var _ io.Reader = (*bytes.Reader)(nil)

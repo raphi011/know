@@ -30,22 +30,23 @@ func NewService(dbClient *db.Client) *Service {
 // wikiLinkPattern matches [[target]] or [[target|alias]] in markdown.
 var wikiLinkPattern = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
 
+type replacement struct {
+	start int
+	end   int
+	text  string
+}
+
 // Enhance transforms raw markdown content into enhanced markdown.
 // fileID is needed to look up this file's resolved wiki-links.
-// Returns the original content unchanged if no transformations apply.
-func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) (string, error) {
+// Returns enhanced content and the resolved wiki-links (so callers don't
+// need to fetch them again for the API response).
+func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) (string, []db.WikiLinkWithTarget, error) {
 	if content == "" {
-		return content, nil
+		return content, nil, nil
 	}
 
 	logger := logutil.FromCtx(ctx)
 
-	// Collect all replacements (offset-based) to apply in one pass.
-	type replacement struct {
-		start int
-		end   int
-		text  string
-	}
 	var replacements []replacement
 
 	// 1. Resolve wiki-links.
@@ -93,7 +94,13 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 		}
 	}
 
-	// 2. Execute query blocks.
+	// 2. Execute query blocks (skip full parse if no ```know blocks exist).
+	if !strings.Contains(content, "```know") {
+		if len(replacements) == 0 {
+			return content, wikiLinks, nil
+		}
+		return applyReplacements(content, replacements), wikiLinks, nil
+	}
 	queryBlocks := parser.ExtractQueryBlocks(content)
 	for _, qb := range queryBlocks {
 		if qb.Error != "" {
@@ -120,11 +127,14 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 	}
 
 	if len(replacements) == 0 {
-		return content, nil
+		return content, wikiLinks, nil
 	}
 
-	// Sort replacements by start offset descending (apply back-to-front
-	// to preserve earlier offsets).
+	return applyReplacements(content, replacements), wikiLinks, nil
+}
+
+// applyReplacements applies offset-based text replacements back-to-front.
+func applyReplacements(content string, replacements []replacement) string {
 	sort.Slice(replacements, func(i, j int) bool {
 		return replacements[i].start > replacements[j].start
 	})
@@ -136,8 +146,7 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 		}
 		result = result[:r.start] + r.text + result[r.end:]
 	}
-
-	return result, nil
+	return result
 }
 
 // executeQueryBlock runs a parsed query block against the DB and renders
@@ -190,12 +199,22 @@ func (s *Service) executeQueryBlock(ctx context.Context, vaultID string, qb pars
 }
 
 // renderList renders files as a markdown bullet list.
+// Uses the first two SHOW fields as link text and URL (defaulting to title+path).
 func renderList(files []models.File, showFields []string) string {
+	textField := "title"
+	linkField := "path"
+	if len(showFields) >= 1 {
+		textField = showFields[0]
+	}
+	if len(showFields) >= 2 {
+		linkField = showFields[1]
+	}
+
 	var sb strings.Builder
 	for _, f := range files {
-		title := fileFieldValue(&f, "title")
-		path := fileFieldValue(&f, "path")
-		sb.WriteString(fmt.Sprintf("- [%s](%s)\n", title, path))
+		text := fileFieldValue(&f, textField)
+		link := fileFieldValue(&f, linkField)
+		sb.WriteString(fmt.Sprintf("- [%s](%s)\n", text, link))
 	}
 	return sb.String()
 }

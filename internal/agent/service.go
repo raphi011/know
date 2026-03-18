@@ -594,11 +594,18 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 	if args.Content != nil {
 		newContent = *args.Content
 	}
-	if call.Function.Name == "edit_document_section" && doc != nil {
-		docContent, contentErr := s.fileSvc.ReadFileContent(ctx, doc)
+
+	// Load existing content once (used for both section edit reconstruction and diff).
+	var docContent string
+	if doc != nil {
+		var contentErr error
+		docContent, contentErr = s.fileSvc.ReadFileContent(ctx, doc)
 		if contentErr != nil {
-			return nil, fmt.Errorf("read content for section edit: %w", contentErr)
+			return nil, fmt.Errorf("read content: %w", contentErr)
 		}
+	}
+
+	if call.Function.Name == "edit_document_section" && doc != nil {
 		edit := parser.BuildSectionEdit(parser.SectionEditArgs{
 			Operation:  args.Operation,
 			Heading:    args.Heading,
@@ -620,10 +627,6 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 		return req, nil
 	}
 
-	docContent, contentErr := s.fileSvc.ReadFileContent(ctx, doc)
-	if contentErr != nil {
-		return nil, fmt.Errorf("read content for diff: %w", contentErr)
-	}
 	hunks, err := diff.ComputeHunks(docContent, newContent, 3)
 	if err != nil {
 		return nil, fmt.Errorf("compute diff: %w", err)

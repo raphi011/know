@@ -53,33 +53,30 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enhance content: resolve wiki-links and execute query blocks.
+	// Enhance content and get resolved wiki-links in one pass.
 	if renderSvc := s.app.RenderService(); renderSvc != nil {
-		enhanced, err := renderSvc.Enhance(ctx, vaultID, fileID, content)
-		if err != nil {
-			logger.Warn("render enhance failed, serving raw content", "error", err)
+		enhanced, wikiLinks, enhErr := renderSvc.Enhance(ctx, vaultID, fileID, content)
+		if enhErr != nil {
+			logger.Warn("render enhance failed, serving raw content", "error", enhErr)
 		} else {
 			content = enhanced
-		}
-	}
-
-	wikiLinks, err := s.app.DBClient().GetWikiLinksWithTargetInfo(ctx, fileID)
-	if err != nil {
-		logger.Warn("failed to get wiki links", "error", err)
-	}
-
-	resp := documentFromModel(doc, content)
-	if len(wikiLinks) > 0 {
-		resp.WikiLinks = make([]WikiLinkInfo, len(wikiLinks))
-		for i, wl := range wikiLinks {
-			resp.WikiLinks[i] = WikiLinkInfo{
-				RawTarget: wl.RawTarget,
-				Path:      wl.Path,
-				Title:     wl.Title,
+			resp := documentFromModel(doc, content)
+			if len(wikiLinks) > 0 {
+				resp.WikiLinks = make([]WikiLinkInfo, len(wikiLinks))
+				for i, wl := range wikiLinks {
+					resp.WikiLinks[i] = WikiLinkInfo{
+						RawTarget: wl.RawTarget,
+						Path:      wl.Path,
+						Title:     wl.Title,
+					}
+				}
 			}
+			writeJSON(w, http.StatusOK, resp)
+			return
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+
+	writeJSON(w, http.StatusOK, documentFromModel(doc, content))
 }
 
 type upsertDocumentRequest struct {

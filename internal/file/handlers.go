@@ -3,7 +3,6 @@ package file
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/raphi011/know/internal/event"
@@ -241,12 +240,8 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 		}
 
 		// Store summary in blob store and update DB metadata.
-		summaryHash := models.ContentHash(summary)
-		if err := svc.blobStore.Put(ctx, summaryHash, strings.NewReader(summary), int64(len(summary))); err != nil {
-			return fmt.Errorf("store summary blob: %w", err)
-		}
-		if err := svc.db.UpdateFileTranscript(ctx, fileID, summaryHash, len(summary)); err != nil {
-			return fmt.Errorf("update summary: %w", err)
+		if err := svc.storeTranscript(ctx, fileID, summary); err != nil {
+			return fmt.Errorf("store summary: %w", err)
 		}
 
 		// Re-parse so chunks are regenerated from the summary content.

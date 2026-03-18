@@ -61,9 +61,11 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 	}
 
 	// Collect files and write blobs to archive.
+	// Track file IDs for the version collection pass (avoids N+1 re-fetch).
 	const pageSize = 1000
 	isNotFolder := false
-	writtenBlobs := make(map[string]bool) // dedup: hash → already in archive
+	writtenBlobs := make(map[string]bool)
+	fileIDs := make(map[string]string) // path → file ID
 
 	for offset := 0; ; offset += pageSize {
 		files, err := dbClient.ListFiles(ctx, db.ListFilesFilter{
@@ -81,6 +83,7 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 			fi := FileInfo{
 				Path:      f.Path,
 				Title:     f.Title,
+				Size:      f.ContentLength,
 				Labels:    f.Labels,
 				DocType:   f.DocType,
 				Metadata:  f.Metadata,
@@ -98,6 +101,11 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 				}
 			}
 
+			// Capture file ID for version lookup.
+			if fileID, idErr := models.RecordIDString(f.ID); idErr == nil {
+				fileIDs[f.Path] = fileID
+			}
+
 			manifest.Files = append(manifest.Files, fi)
 		}
 
@@ -106,14 +114,10 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 		}
 	}
 
-	// Collect versions and write their blobs.
+	// Collect versions using cached file IDs (no N+1 re-fetch).
 	for _, fi := range manifest.Files {
-		fileRecord, err := dbClient.GetFileByPath(ctx, vaultID, fi.Path)
-		if err != nil || fileRecord == nil {
-			continue
-		}
-		fileID, err := models.RecordIDString(fileRecord.ID)
-		if err != nil {
+		fileID, ok := fileIDs[fi.Path]
+		if !ok {
 			continue
 		}
 

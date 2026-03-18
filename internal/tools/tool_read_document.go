@@ -78,7 +78,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	if t.renderSvc != nil {
 		fileID, idErr := models.RecordIDString(doc.ID)
 		if idErr == nil {
-			if enhanced, enhErr := t.renderSvc.Enhance(ctx, o.VaultID, fileID, content); enhErr == nil {
+			if enhanced, _, enhErr := t.renderSvc.Enhance(ctx, o.VaultID, fileID, content); enhErr == nil {
 				content = enhanced
 			}
 		}

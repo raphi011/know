@@ -31,11 +31,12 @@ type VaultInfo struct {
 	Settings    *models.VaultSettings `json:"settings,omitempty"`
 }
 
-// FileInfo captures file metadata (content is stored as a file in the archive).
+// FileInfo captures file metadata (content is stored as a blob in the archive).
 type FileInfo struct {
 	Path        string         `json:"path"`
 	Title       string         `json:"title"`
 	ContentHash string         `json:"content_hash"`
+	Size        int            `json:"size"`
 	Labels      []string       `json:"labels,omitempty"`
 	DocType     *string        `json:"doc_type,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`

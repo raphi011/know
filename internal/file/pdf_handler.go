@@ -169,13 +169,8 @@ func (s *Service) processPDF(ctx context.Context, f *models.File, fileID string)
 
 	// Store concatenated extracted text in blob and update DB metadata.
 	if allText.Len() > 0 {
-		text := allText.String()
-		textHash := models.ContentHash(text)
-		if err := s.blobStore.Put(ctx, textHash, strings.NewReader(text), int64(len(text))); err != nil {
-			return fmt.Errorf("store pdf text blob: %w", err)
-		}
-		if err := s.db.UpdateFileTranscript(ctx, fileID, textHash, len(text)); err != nil {
-			return fmt.Errorf("update file transcript: %w", err)
+		if err := s.storeTranscript(ctx, fileID, allText.String()); err != nil {
+			return fmt.Errorf("store pdf transcript: %w", err)
 		}
 	}
 

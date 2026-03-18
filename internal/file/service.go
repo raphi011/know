@@ -134,6 +134,19 @@ func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) boo
 // BlobStore returns the blob store used by this service.
 func (s *Service) BlobStore() blob.Store { return s.blobStore }
 
+// storeTranscript stores text content in the blob store and updates the
+// file's content_hash and content_length in the DB.
+func (s *Service) storeTranscript(ctx context.Context, fileID, text string) error {
+	hash := models.ContentHash(text)
+	if err := s.blobStore.Put(ctx, hash, strings.NewReader(text), int64(len(text))); err != nil {
+		return fmt.Errorf("store blob: %w", err)
+	}
+	if err := s.db.UpdateFileTranscript(ctx, fileID, hash, len(text)); err != nil {
+		return fmt.Errorf("update transcript: %w", err)
+	}
+	return nil
+}
+
 // ReadContent loads file content from the blob store by content hash.
 // Returns "" for empty hashes (folders, files with no content).
 func (s *Service) ReadContent(ctx context.Context, contentHash string) (string, error) {
@@ -571,21 +584,29 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 
 // ProcessAllPending processes all unprocessed files synchronously.
 // Intended for tests and CLI commands that need immediate processing.
+// Skips individual file failures (e.g. missing blobs) but returns an error
+// if any files failed.
 func (s *Service) ProcessAllPending(ctx context.Context) error {
+	var failCount int
 	for {
 		docs, err := s.db.ListUnprocessedFiles(ctx, 100)
 		if err != nil {
 			return fmt.Errorf("list unprocessed: %w", err)
 		}
 		if len(docs) == 0 {
-			return nil
+			break
 		}
 		for _, doc := range docs {
 			if err := s.ProcessFile(ctx, &doc); err != nil {
 				logutil.FromCtx(ctx).Warn("skipping file during ProcessAllPending", "path", doc.Path, "error", err)
+				failCount++
 			}
 		}
 	}
+	if failCount > 0 {
+		return fmt.Errorf("%d files failed to process", failCount)
+	}
+	return nil
 }
 
 // embeddingTask pairs a chunk ID with its embedding text.
@@ -1536,13 +1557,9 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 		}
 	}
 
-	// Store transcript in blob and update DB metadata
-	transcriptHash := models.ContentHash(result.Text)
-	if err := s.blobStore.Put(ctx, transcriptHash, strings.NewReader(result.Text), int64(len(result.Text))); err != nil {
-		return fmt.Errorf("store transcript blob: %w", err)
-	}
-	if err := s.db.UpdateFileTranscript(ctx, fileID, transcriptHash, len(result.Text)); err != nil {
-		return fmt.Errorf("update transcript: %w", err)
+	// Store transcript in blob and update DB metadata.
+	if err := s.storeTranscript(ctx, fileID, result.Text); err != nil {
+		return fmt.Errorf("store transcript: %w", err)
 	}
 
 	return nil
