@@ -161,7 +161,7 @@ Add test cases in the existing handler test file covering:
 2. `just test` — all tests pass (including new move validation tests)
 3. `know completion fish | source` — fish completions load without error
 4. `know ls <TAB>` — completes folder paths from vault
-5. `know cat <TAB>` — completes file paths from vault
+5. `know browse <TAB>` — completes file paths from vault
 6. `know rm <TAB>` — completes all paths from vault
 7. `know mv <TAB>` — completes all paths for both args
 8. `know --vault <TAB>` — completes vault names (on any command with the flag)
