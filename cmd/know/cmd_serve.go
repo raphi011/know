@@ -16,6 +16,7 @@ import (
 	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/mcptools"
+	knowftp "github.com/raphi011/know/internal/ftp"
 	knownfs "github.com/raphi011/know/internal/nfs"
 	"github.com/raphi011/know/internal/server"
 	"github.com/raphi011/know/internal/sshd"
@@ -31,6 +32,8 @@ var (
 	serveSSHPort  int
 	serveNFS      bool
 	serveNFSPort  int
+	serveFTP      bool
+	serveFTPPort  int
 	serveLogLevel string
 )
 
@@ -57,6 +60,8 @@ func init() {
 	serveCmd.Flags().IntVar(&serveSSHPort, "ssh-port", envOrDefaultInt("KNOW_SSH_PORT", 2222), "SSH server port")
 	serveCmd.Flags().BoolVar(&serveNFS, "nfs", envOrDefaultBool("KNOW_NFS_ENABLED", false), "enable NFS server (localhost only)")
 	serveCmd.Flags().IntVar(&serveNFSPort, "nfs-port", envOrDefaultInt("KNOW_NFS_PORT", 2049), "NFS server port")
+	serveCmd.Flags().BoolVar(&serveFTP, "ftp", envOrDefaultBool("KNOW_FTP_ENABLED", false), "enable FTP server")
+	serveCmd.Flags().IntVar(&serveFTPPort, "ftp-port", envOrDefaultInt("KNOW_FTP_PORT", 2121), "FTP server port")
 	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("KNOW_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
 }
 
@@ -105,6 +110,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 	cfg.SSHPort = fmt.Sprintf("%d", serveSSHPort)
 	cfg.NFSEnabled = serveNFS
 	cfg.NFSPort = fmt.Sprintf("%d", serveNFSPort)
+	cfg.FTPEnabled = serveFTP
+	cfg.FTPPort = fmt.Sprintf("%d", serveFTPPort)
 	cfg.Version = version
 	cfg.Commit = commit
 
@@ -261,6 +268,26 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("NFS server enabled (localhost only)", "port", cfg.NFSPort)
 	}
 
+	// FTP server (optional)
+	var ftpSrv *knowftp.Server
+	if cfg.FTPEnabled {
+		ftpLn, listenErr := net.Listen("tcp", listenHost+":"+cfg.FTPPort)
+		if listenErr != nil {
+			return fmt.Errorf("bind FTP port %s: %w", cfg.FTPPort, listenErr)
+		}
+		ftpSrv = knowftp.NewServer(
+			ftpLn,
+			app.DBClient(),
+			app.FileService(),
+			app.VaultService(),
+			cfg.NoAuth,
+			cfg.FTPPasvMin,
+			cfg.FTPPasvMax,
+		)
+		go ftpSrv.Serve()
+		slog.Info("FTP server enabled", "port", cfg.FTPPort)
+	}
+
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -307,6 +334,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if nfsSrv != nil {
 		slog.Info("nfs: shutting down")
 		nfsSrv.Shutdown(shutdownCtx)
+	}
+
+	// 3b. FTP shutdown
+	if ftpSrv != nil {
+		slog.Info("ftp: shutting down")
+		ftpSrv.Shutdown(shutdownCtx)
 	}
 
 	// 4. SSH shutdown — stop accepting new connections and drain active sessions

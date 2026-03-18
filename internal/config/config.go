@@ -89,6 +89,12 @@ type Config struct {
 	NFSEnabled bool   // KNOW_NFS_ENABLED (default: false)
 	NFSPort    string // KNOW_NFS_PORT (default: "2049")
 
+	// FTP server
+	FTPEnabled bool   // KNOW_FTP_ENABLED (default: false)
+	FTPPort    string // KNOW_FTP_PORT (default: "2121")
+	FTPPasvMin int    // KNOW_FTP_PASV_MIN (default: 0 = OS picks)
+	FTPPasvMax int    // KNOW_FTP_PASV_MAX (default: 0 = OS picks)
+
 	// Pipeline worker settings
 	PipelineWorkerInterval int // seconds between worker ticks (KNOW_PIPELINE_WORKER_INTERVAL, default: 5)
 	PipelineWorkerBatch    int // max jobs per tick (KNOW_PIPELINE_WORKER_BATCH, default: 10)
@@ -238,6 +244,10 @@ func Load() Config {
 		SSHHostKeyPath:    getEnv("KNOW_SSH_HOST_KEY", ""),
 		NFSEnabled:        getEnvBool("KNOW_NFS_ENABLED", false),
 		NFSPort:           getEnv("KNOW_NFS_PORT", "2049"),
+		FTPEnabled:        getEnvBool("KNOW_FTP_ENABLED", false),
+		FTPPort:           getEnv("KNOW_FTP_PORT", "2121"),
+		FTPPasvMin:        getEnvInt("KNOW_FTP_PASV_MIN", 0),
+		FTPPasvMax:        getEnvInt("KNOW_FTP_PASV_MAX", 0),
 
 		// Pipeline worker
 		PipelineWorkerInterval: getEnvInt("KNOW_PIPELINE_WORKER_INTERVAL", 5),

@@ -1,6 +1,6 @@
 # Know
 
-An MCP (Model Context Protocol) server in Go that provides a persistent knowledge layer for AI agents, backed by SurrealDB. Includes a bubbletea v2 TUI for agent chat, a WebDAV server for document editing, and an NFS server for fast file access.
+An MCP (Model Context Protocol) server in Go that provides a persistent knowledge layer for AI agents, backed by SurrealDB. Includes a bubbletea v2 TUI for agent chat, a WebDAV server for document editing, an NFS server for fast file access, and an FTP server for universal file transfer.
 
 ## Project Status
 
@@ -171,6 +171,7 @@ Each major feature has its own documentation file:
 - `docs/feature-remotes.md` - Multi-server federation, namespace routing
 - `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-nfs.md` - NFS file access, mount instructions for macOS/Linux/Windows
+- `docs/feature-ftp.md` - FTP file access, client setup, passive mode configuration
 - `docs/feature-tasks.md` - Task extraction from checkboxes, filtering, toggling, API
 
 ### Project-Specific Docs (`docs/`)
@@ -205,6 +206,7 @@ internal/
 ├── config/             # Configuration loading
 ├── metrics/            # Metrics collection
 ├── event/              # In-process event bus (SSE change notifications)
+├── ftp/                # FTP server for universal file transfer (pure Go)
 ├── nfs/                # NFSv3 server for fast file access (go-nfs + billy)
 ├── webdav/             # WebDAV filesystem backed by document service
 └── integration/        # Full lifecycle integration tests
