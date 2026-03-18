@@ -23,6 +23,27 @@ spec:
     - Ingress
     - Egress
   ingress:
+    {{- if or .Values.protocol.enabled .Values.ssh.enabled .Values.nfs.enabled .Values.metrics.port }}
+    - from:
+        - podSelector: {}
+      ports:
+        {{- if .Values.protocol.enabled }}
+        - protocol: TCP
+          port: {{ .Values.protocol.port | default "4002" }}
+        {{- end }}
+        {{- if .Values.ssh.enabled }}
+        - protocol: TCP
+          port: {{ .Values.ssh.port | default "2222" }}
+        {{- end }}
+        {{- if .Values.nfs.enabled }}
+        - protocol: TCP
+          port: {{ .Values.nfs.port | default "2049" }}
+        {{- end }}
+        {{- if .Values.metrics.port }}
+        - protocol: TCP
+          port: {{ .Values.metrics.port }}
+        {{- end }}
+    {{- end }}
     {{- with .Values.networkPolicy.additionalIngress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

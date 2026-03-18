@@ -26,16 +26,23 @@ surrealdb:
   # existingSecretUserKey: "user"
   # existingSecretPasswordKey: "password"
 
+# Logging configuration
+logging:
+  level: ""          # DEBUG | INFO | WARN | ERROR (default: INFO)
+  file: ""           # optional JSON log file path (default: stderr only)
+
 # LLM provider configuration
 llm:
   provider: ""       # none | ollama | openai | anthropic | bedrock | googleai
   model: ""          # e.g. claude-sonnet-4-20250514, gemini-2.5-flash
+  contextWindow: ""  # override context window size in tokens (default: use registry)
 
 # Embedding provider configuration
 embedding:
   provider: ""       # none | ollama | openai | anthropic | bedrock | googleai
   model: ""          # e.g. gemini-embedding-001, voyage-3-large, text-embedding-3-small
   dimension: ""      # e.g. 768, 1024
+  maxInputChars: ""  # max chars per embedding API call (default: no limit)
 
 # Speech-to-text (transcription) configuration
 stt:
@@ -53,6 +60,55 @@ multimodalEmbedding:
 ollama:
   host: ""           # e.g. http://ollama:11434
 
+# PDF processing
+pdf:
+  textExtractorModel: ""  # model for PDF text extraction (default: gemini-2.0-flash)
+  renderDpi: ""           # DPI for PDF rendering (default: 300)
+
+# MCP (Model Context Protocol) endpoint
+mcp:
+  enabled: true  # set to false to disable MCP endpoint at /mcp
+
+# Protocol port — separate port for WebDAV + MCP
+protocol:
+  enabled: true
+  port: "4002"
+
+# SSH/SFTP server
+ssh:
+  enabled: false
+  port: "2222"
+  hostKey: ""  # path to SSH host key; auto-generated if not set
+
+# NFS server
+nfs:
+  enabled: false
+  port: "2049"
+
+# Prometheus metrics
+metrics:
+  port: ""  # port for /metrics endpoint (default: disabled)
+
+# Pipeline worker
+pipeline:
+  workerInterval: ""  # seconds between worker ticks (default: 5)
+  workerBatch: ""     # max jobs per tick (default: 10)
+
+# Chunking
+chunking:
+  threshold: ""   # only chunk if content exceeds this length (default: 6000)
+  targetSize: ""  # ideal chunk size in chars (default: 3000)
+  maxSize: ""     # maximum chunk size in chars (default: 4000)
+
+# Versioning
+versioning:
+  coalesceMinutes: ""  # minutes between version snapshots (default: 10)
+  retention: ""        # max versions per document (default: 50)
+
+# TLS
+tls:
+  skipVerify: false  # skip TLS verification for Bedrock proxy
+
 # API keys (set via existingSecret or directly)
 # Prefer using existingSecret for production
 apiKeys:
@@ -62,6 +118,8 @@ apiKeys:
   anthropicApiKey: ""
   googleAiApiKey: ""
   tavilyApiKey: ""
+  apifyToken: ""    # Apify API token (enables YouTube transcript tool)
+  jinaApiKey: ""    # Jina Reader API key for web clipping
 
 # AWS Bedrock settings
 bedrock:
@@ -87,8 +145,6 @@ blob:
 
 # Extra environment variables (for any config not covered above)
 extraEnv: []
-  # - name: KNOW_LOG_LEVEL
-  #   value: "DEBUG"
   # - name: KNOW_INGEST_CONCURRENCY
   #   value: "4"
 
