@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/config"
@@ -25,13 +26,14 @@ import (
 )
 
 var (
-	servePort     int
-	serveNoAuth   bool
-	serveSSH      bool
-	serveSSHPort  int
-	serveNFS      bool
-	serveNFSPort  int
-	serveLogLevel string
+	servePort        int
+	serveNoAuth      bool
+	serveSSH         bool
+	serveSSHPort     int
+	serveNFS         bool
+	serveNFSPort     int
+	serveMetricsPort string
+	serveLogLevel    string
 )
 
 var serveCmd = &cobra.Command{
@@ -57,6 +59,7 @@ func init() {
 	serveCmd.Flags().IntVar(&serveSSHPort, "ssh-port", envOrDefaultInt("KNOW_SSH_PORT", 2222), "SSH server port")
 	serveCmd.Flags().BoolVar(&serveNFS, "nfs", envOrDefaultBool("KNOW_NFS_ENABLED", false), "enable NFS server (localhost only)")
 	serveCmd.Flags().IntVar(&serveNFSPort, "nfs-port", envOrDefaultInt("KNOW_NFS_PORT", 2049), "NFS server port")
+	serveCmd.Flags().StringVar(&serveMetricsPort, "metrics-port", envOrDefault("KNOW_METRICS_PORT", ""), "Prometheus metrics port (default: disabled)")
 	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("KNOW_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
 }
 
@@ -105,6 +108,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	cfg.SSHPort = fmt.Sprintf("%d", serveSSHPort)
 	cfg.NFSEnabled = serveNFS
 	cfg.NFSPort = fmt.Sprintf("%d", serveNFSPort)
+	if serveMetricsPort != "" {
+		cfg.MetricsPort = serveMetricsPort
+	}
 	cfg.Version = version
 	cfg.Commit = commit
 
@@ -261,6 +267,27 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("NFS server enabled (localhost only)", "port", cfg.NFSPort)
 	}
 
+	// Prometheus metrics server (optional, always binds to localhost)
+	var metricsSrv *http.Server
+	if cfg.MetricsPort != "" {
+		metricsLn, listenErr := net.Listen("tcp", "127.0.0.1:"+cfg.MetricsPort)
+		if listenErr != nil {
+			return fmt.Errorf("bind metrics port %s: %w", cfg.MetricsPort, listenErr)
+		}
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", promhttp.Handler())
+		metricsSrv = &http.Server{
+			Handler:           metricsMux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
+				slog.Error("metrics server error", "error", err)
+			}
+		}()
+		slog.Info("Prometheus metrics enabled (localhost only)", "port", cfg.MetricsPort, "url", fmt.Sprintf("http://127.0.0.1:%s/metrics", cfg.MetricsPort))
+	}
+
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -269,7 +296,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	httpServer := &http.Server{
 		Addr:              listenHost + ":" + port,
-		Handler:           api.RequestLogMiddleware(mux),
+		Handler:           api.RequestLogMiddleware(app.Metrics(), mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		// WriteTimeout intentionally omitted: SSE endpoints are long-lived.
@@ -303,20 +330,28 @@ func runServe(_ *cobra.Command, _ []string) error {
 	slog.Info("cancelling background goroutines")
 	serverCancel()
 
-	// 3. NFS shutdown
+	// 3. Metrics server shutdown
+	if metricsSrv != nil {
+		slog.Info("metrics: shutting down")
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("metrics: shutdown error", "error", err)
+		}
+	}
+
+	// 4. NFS shutdown
 	if nfsSrv != nil {
 		slog.Info("nfs: shutting down")
 		nfsSrv.Shutdown(shutdownCtx)
 	}
 
-	// 4. SSH shutdown — stop accepting new connections and drain active sessions
+	// 5. SSH shutdown — stop accepting new connections and drain active sessions
 	if sshSrv != nil {
 		slog.Info("ssh: shutting down")
 		sshSrv.Shutdown(shutdownCtx)
 		slog.Info("ssh: stopped")
 	}
 
-	// 5. HTTP shutdown — stop accepting new connections, drain in-flight requests
+	// 6. HTTP shutdown — stop accepting new connections, drain in-flight requests
 	slog.Info("http: shutting down")
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http: shutdown error", "error", err)
@@ -324,7 +359,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("http: stopped")
 	}
 
-	// 6. App shutdown — stop workers, agents, event bus, close DB (with deadline)
+	// 7. App shutdown — stop workers, agents, event bus, close DB (with deadline)
 	slog.Info("stopping application services")
 	if err := app.Close(shutdownCtx); err != nil {
 		slog.Error("app close error", "error", err)

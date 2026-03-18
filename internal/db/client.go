@@ -45,7 +45,7 @@ type Client struct {
 	db          *surrealdb.DB
 	cfg         Config
 	logger      logger.Logger
-	metrics     *metrics.Collector
+	metrics     *metrics.Metrics
 	folderCache sync.Map      // key: "vaultID:folderPath", value: time.Time (expiry)
 	lastActive  atomic.Int64  // Unix timestamp of last DB operation (for idle detection)
 	done        chan struct{} // closed on Close() to stop monitorConnection goroutine
@@ -53,7 +53,7 @@ type Client struct {
 
 // NewClient creates a new SurrealDB client with auto-reconnecting WebSocket.
 // If mc is nil, metrics recording is disabled.
-func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Collector) (*Client, error) {
+func NewClient(ctx context.Context, cfg Config, log *slog.Logger, mc *metrics.Metrics) (*Client, error) {
 	// Create logger adapter for SurrealDB SDK
 	var sdkLogger logger.Logger
 	if log != nil {

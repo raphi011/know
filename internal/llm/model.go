@@ -187,12 +187,12 @@ type Model struct {
 	chatModel     model.BaseChatModel
 	modelName     string
 	contextWindow int
-	metrics       *metrics.Collector
+	metrics       *metrics.Metrics
 }
 
 // NewModel creates an LLM model based on configuration.
 // If mc is nil, metrics recording is disabled.
-func NewModel(ctx context.Context, cfg config.Config, mc *metrics.Collector) (*Model, error) {
+func NewModel(ctx context.Context, cfg config.Config, mc *metrics.Metrics) (*Model, error) {
 	var chatModel model.BaseChatModel
 	var err error
 
@@ -322,7 +322,7 @@ func (m *Model) GenerateWithSystem(ctx context.Context, systemPrompt, userPrompt
 
 	if m.metrics != nil {
 		inputTokens, outputTokens := extractTokenCounts(resp.ResponseMeta, totalLen, responseLen)
-		m.metrics.RecordLLMUsage(metrics.OpLLMGenerate, duration, inputTokens, outputTokens)
+		m.metrics.RecordLLMUsage("generate", m.modelName, duration, inputTokens, outputTokens)
 	}
 
 	return resp.Content, nil
@@ -435,7 +435,7 @@ func (m *Model) GenerateWithSystemStream(
 
 	if m.metrics != nil {
 		inputTokens, outputTokens := extractTokenCounts(lastMeta, totalLen, outputLen)
-		m.metrics.RecordLLMUsage(metrics.OpLLMStream, duration, inputTokens, outputTokens)
+		m.metrics.RecordLLMUsage("stream", m.modelName, duration, inputTokens, outputTokens)
 	}
 
 	return nil
@@ -537,7 +537,7 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 
 	if m.metrics != nil {
 		inputTokens, outputTokens := extractTokenCounts(lastMeta, totalLen, outputLen)
-		m.metrics.RecordLLMUsage(metrics.OpLLMStream, duration, inputTokens, outputTokens)
+		m.metrics.RecordLLMUsage("stream", m.modelName, duration, inputTokens, outputTokens)
 	}
 
 	return nil
