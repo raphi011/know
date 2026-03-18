@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -12,7 +13,9 @@ import (
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/blob"
 	"github.com/raphi011/know/internal/file"
+	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/mcptools"
+	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/search"
 	"github.com/raphi011/know/internal/tools"
@@ -36,7 +39,7 @@ func setupMCPServer(t *testing.T, suffix string) (*httptest.Server, string, *fil
 	}
 
 	handler := mcptools.NewHandler(executor, testDB, docSvc, vaultSvc, nil, nil, nil, nil)
-	wrappedHandler := auth.NoAuthMiddleware(handler)
+	wrappedHandler := vaultScopedAuthMiddleware(vaultID, handler)
 
 	srv := httptest.NewServer(wrappedHandler)
 	t.Cleanup(srv.Close)
@@ -292,6 +295,23 @@ func TestMCP_ErrorHandling(t *testing.T) {
 	if !result.IsError {
 		t.Error("expected IsError=true for editing nonexistent doc")
 	}
+}
+
+// vaultScopedAuthMiddleware injects an AuthContext scoped to a single vault.
+// Unlike NoAuthMiddleware (which uses wildcard access and causes MCP to pick
+// the first vault in the DB), this ensures all operations target the test's vault.
+func vaultScopedAuthMiddleware(vaultID string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ac := auth.AuthContext{
+			UserID:        "admin",
+			IsSystemAdmin: true,
+			Vaults:        []models.VaultPermission{{VaultID: vaultID, Role: models.RoleAdmin}},
+		}
+		ctx := auth.WithAuth(r.Context(), ac)
+		logger := logutil.FromCtx(ctx).With("user_id", ac.UserID)
+		ctx = logutil.WithLogger(ctx, logger)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // contentText extracts the text from a CallToolResult.
