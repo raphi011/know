@@ -26,12 +26,14 @@ var (
 )
 
 // isUniqueViolation checks if an error is a SurrealDB unique index constraint violation.
-// Query-based operations return QueryError with a message like "Database record `X` already exists".
-// We use errors.As to extract the QueryError, then check the message for the violation pattern.
+// SurrealDB produces two distinct error formats:
+//   - Record ID collision: "Database record `X` already exists"
+//   - Unique index violation: "Database index `idx` already contains [...], with record `X`"
 func isUniqueViolation(err error) bool {
 	var qe *surrealdb.QueryError
 	if errors.As(err, &qe) {
-		return strings.Contains(qe.Message, "already exists")
+		return strings.Contains(qe.Message, "already exists") ||
+			strings.Contains(qe.Message, "already contains")
 	}
 	return false
 }
