@@ -18,6 +18,7 @@ import (
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/mcptools"
 	knownfs "github.com/raphi011/know/internal/nfs"
+	"github.com/raphi011/know/internal/oidc"
 	"github.com/raphi011/know/internal/server"
 	"github.com/raphi011/know/internal/sshd"
 	"github.com/raphi011/know/internal/tools"
@@ -170,6 +171,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Setup routes
 	mux := http.NewServeMux()
+
+	// OIDC auth routes (unauthenticated — must be registered before auth middleware)
+	if cfg.OIDCEnabled {
+		oidcProvider, oidcErr := oidc.New(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.OIDCRedirectURL, nil)
+		if oidcErr != nil {
+			return fmt.Errorf("init oidc provider: %w", oidcErr)
+		}
+		oidcHandler, oidcErr := api.NewOIDCHandler(oidcProvider, app.DBClient(), cfg.SelfSignupEnabled, cfg.OIDCRedirectURL, cfg.TokenMaxLifetimeDays)
+		if oidcErr != nil {
+			return fmt.Errorf("init oidc handler: %w", oidcErr)
+		}
+		oidcHandler.RegisterRoutes(mux)
+		slog.Info("OIDC authentication enabled", "issuer", cfg.OIDCIssuerURL)
+	}
 
 	// Auth middleware
 	var authMw func(http.Handler) http.Handler
