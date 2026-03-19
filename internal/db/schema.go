@@ -253,31 +253,10 @@ func SchemaSQL(dimension int) string {
         DELETE FROM vault_member WHERE vault = $before.id
     };
 
-    -- ==========================================================================
-    -- SHARE_LINK TABLE (read-only share links for files/folders)
-    -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS share_link SCHEMAFULL;
-
-    DEFINE FIELD IF NOT EXISTS vault      ON share_link TYPE record<vault>;
-    DEFINE FIELD IF NOT EXISTS token_hash ON share_link TYPE string;
-    DEFINE FIELD IF NOT EXISTS path       ON share_link TYPE string;
-    DEFINE FIELD IF NOT EXISTS is_folder  ON share_link TYPE bool DEFAULT false;
-    DEFINE FIELD IF NOT EXISTS created_by ON share_link TYPE record<user>;
-    DEFINE FIELD IF NOT EXISTS expires_at ON share_link TYPE option<datetime>;
-    DEFINE FIELD IF NOT EXISTS created_at ON share_link TYPE datetime DEFAULT time::now();
-
-    DEFINE INDEX IF NOT EXISTS idx_share_link_hash ON share_link FIELDS token_hash UNIQUE;
-
     -- Cascade: delete labels when vault deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_vault_labels ON vault
     WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
         DELETE FROM label WHERE vault = $before.id
-    };
-
-    -- Cascade: delete share_links when vault deleted
-    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_share_links ON vault
-    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
-        DELETE FROM share_link WHERE vault = $before.id
     };
 
     -- ==========================================================================

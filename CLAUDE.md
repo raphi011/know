@@ -178,7 +178,7 @@ Each major feature has its own documentation file:
 - `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-tasks.md` - Task extraction from checkboxes, filtering, toggling, API
 - `docs/feature-templates.md` - Vault templates for document generation and summarization
-- `docs/feature-vaults.md` - Vaults, folders, access control, share links
+- `docs/feature-vaults.md` - Vaults, folders, access control
 - `docs/feature-web-clipping.md` - Web page fetching via Jina Reader, CLI/MCP/API, vault settings
 - `docs/feature-webdav.md` - WebDAV editing, auth, editor support
 - `docs/feature-backup.md` - Manifest-based backup/restore, archive format, CLI/API

@@ -19,6 +19,7 @@ type Metrics struct {
 	llmTokens         *prometheus.CounterVec
 	pipelineDuration  *prometheus.HistogramVec
 	pipelineTotal     *prometheus.CounterVec
+	authEventsTotal   *prometheus.CounterVec
 }
 
 // NewMetrics creates and registers all Prometheus metrics.
@@ -68,6 +69,11 @@ func NewMetrics() *Metrics {
 			Name: "know_pipeline_jobs_total",
 			Help: "Total number of pipeline jobs by type and status.",
 		}, []string{"type", "status"}),
+
+		authEventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "know_auth_events_total",
+			Help: "Total number of authentication events by event type and result.",
+		}, []string{"event", "result"}),
 	}
 
 	prometheus.MustRegister(
@@ -79,6 +85,7 @@ func NewMetrics() *Metrics {
 		m.llmTokens,
 		m.pipelineDuration,
 		m.pipelineTotal,
+		m.authEventsTotal,
 	)
 
 	return m
@@ -119,6 +126,14 @@ func (m *Metrics) RecordHTTPRequest(method, path string, status int, duration ti
 	s := strconv.Itoa(status)
 	m.httpDuration.WithLabelValues(method, path, s).Observe(duration.Seconds())
 	m.httpRequestsTotal.WithLabelValues(method, path, s).Inc()
+}
+
+// RecordAuthEvent records an authentication event (success, failure, expired).
+func (m *Metrics) RecordAuthEvent(event, result string) {
+	if m == nil {
+		return
+	}
+	m.authEventsTotal.WithLabelValues(event, result).Inc()
 }
 
 // RecordPipelineJob records a pipeline job completion.

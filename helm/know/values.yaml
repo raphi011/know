@@ -12,6 +12,14 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Environment mode ("development" or "production")
+# Production mode blocks KNOW_NO_AUTH and warns about NFS
+environment: "production"
+
+# Auth settings
+# Maximum token lifetime in days (0 = no limit)
+tokenMaxLifetimeDays: 90
+
 # SurrealDB connection settings
 surrealdb:
   url: "ws://surrealdb:8000/rpc"

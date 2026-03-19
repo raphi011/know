@@ -75,7 +75,11 @@ type Config struct {
 	LogFile  string
 	LogLevel slog.Level
 
+	// Auth settings
+	TokenMaxLifetimeDays int // KNOW_TOKEN_MAX_LIFETIME_DAYS (default: 90, 0 = no limit)
+
 	// Server settings
+	Environment       string // KNOW_ENVIRONMENT ("development" or "production", default: "development")
 	IngestConcurrency int
 	NoAuth            bool   // bypass token auth (for local/Docker use)
 	MCPEnabled        bool   // serve MCP endpoint at /mcp (default: true)
@@ -127,6 +131,11 @@ type Config struct {
 	// Build info (set by ldflags, passed in by caller)
 	Version string
 	Commit  string
+}
+
+// IsProduction returns true if the server is running in production mode.
+func (c Config) IsProduction() bool {
+	return c.Environment == "production"
 }
 
 // ChunkConfig returns the raw chunking configuration as a parser.ChunkConfig.
@@ -234,7 +243,11 @@ func Load() Config {
 		LogFile:  getEnv("KNOW_LOG_FILE", ""),
 		LogLevel: parseLogLevel(getEnv("KNOW_LOG_LEVEL", "INFO")),
 
+		// Auth settings
+		TokenMaxLifetimeDays: getEnvInt("KNOW_TOKEN_MAX_LIFETIME_DAYS", 90),
+
 		// Server settings
+		Environment:       getEnv("KNOW_ENVIRONMENT", "development"),
 		IngestConcurrency: getEnvInt("KNOW_INGEST_CONCURRENCY", 4),
 		NoAuth:            getEnvBool("KNOW_NO_AUTH", false),
 		MCPEnabled:        getEnvBool("KNOW_MCP_ENABLED", true),

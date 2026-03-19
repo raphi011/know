@@ -75,21 +75,10 @@ Know uses role-based access control at the vault level. Each vault member is ass
 |---------|-------|-------------------------------------------------|
 | `read`  | 1     | Browse and read documents                       |
 | `write` | 2     | Create, edit, delete documents                  |
-| `admin` | 3     | Manage members, share links, vault settings     |
+| `admin` | 3     | Manage members, vault settings                  |
 
 - Admins can add, update, and remove vault members.
 - System admins bypass all role checks entirely.
-
-## Share Links
-
-Share links provide public, read-only access to documents or folders without requiring a user account.
-
-**How it works:**
-
-1. An admin creates a share link for a specific path, with an optional `expiresAt` timestamp.
-2. A random token is generated. The raw token is returned only at creation time; the database stores a SHA256 hash.
-3. The share token is used as a `Bearer` auth token, granting read-only access scoped to the vault and path.
-4. If `isFolder=true`, access extends to all documents under that path prefix.
 
 ## Usage
 
@@ -111,5 +100,4 @@ know vault my-vault --api-url http://localhost:4001
 - Vaults are defined in `internal/vault/` (CRUD, virtual folder derivation)
 - Access control is enforced in `internal/auth/` (token validation, role checks)
 - Folder operations live in `internal/file/` (create, move, delete with cascading)
-- Share link logic is in `internal/auth/` (token generation, hash storage, scoped access)
 - CLI commands: `know vault`, `know ls`

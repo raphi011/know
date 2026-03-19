@@ -21,6 +21,7 @@ import (
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -62,6 +63,7 @@ func NewHandler(
 	blobStore blob.Store,
 	noAuth bool,
 	maxPutBytes int64,
+	m *metrics.Metrics,
 ) http.Handler {
 	// Per-vault lock systems to isolate WebDAV locks across vaults.
 	lockSystems := newVaultMap(func() webdav.LockSystem { return webdav.NewMemLS() })
@@ -147,8 +149,24 @@ func NewHandler(
 		ac, err := auth.Authenticate(r.Context(), dbClient, rawToken, noAuth)
 		if err != nil {
 			logutil.FromCtx(r.Context()).Warn("webdav: auth failed", "error", err)
+			event := auth.AuditFailure
+			auth.AuditLog(r.Context(), event,
+				slog.String("protocol", "webdav"),
+				slog.String("ip", r.RemoteAddr),
+			)
+			m.RecordAuthEvent(string(event), string(event.Result()))
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
+		}
+
+		{
+			event := auth.AuditSuccess
+			auth.AuditLog(r.Context(), event,
+				slog.String("protocol", "webdav"),
+				slog.String("user_id", ac.UserID),
+				slog.String("ip", r.RemoteAddr),
+			)
+			m.RecordAuthEvent(string(event), string(event.Result()))
 		}
 
 		// Resolve vault + check access

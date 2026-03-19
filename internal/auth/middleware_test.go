@@ -46,7 +46,8 @@ func TestAuthContextRoundtrip(t *testing.T) {
 
 	// With auth context
 	ac := AuthContext{
-		UserID: "user123",
+		UserID:   "user123",
+		Provider: ProviderToken,
 		Vaults: []models.VaultPermission{
 			{VaultID: "vault1", Role: models.RoleRead},
 			{VaultID: "vault2", Role: models.RoleWrite},
@@ -60,6 +61,9 @@ func TestAuthContextRoundtrip(t *testing.T) {
 	}
 	if got.UserID != "user123" {
 		t.Errorf("UserID = %q, want %q", got.UserID, "user123")
+	}
+	if got.Provider != ProviderToken {
+		t.Errorf("Provider = %q, want %q", got.Provider, ProviderToken)
 	}
 	if len(got.Vaults) != 2 {
 		t.Errorf("Vaults len = %d, want 2", len(got.Vaults))
@@ -213,7 +217,7 @@ func TestCheckVaultRole(t *testing.T) {
 }
 
 func TestMiddlewareMissingHeader(t *testing.T) {
-	handler := Middleware(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Middleware(nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called without auth")
 	}))
 
@@ -224,125 +228,6 @@ func TestMiddlewareMissingHeader(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401, got %d", rec.Code)
 	}
-}
-
-func TestCheckSharePath(t *testing.T) {
-	tests := []struct {
-		name    string
-		share   ShareContext
-		docPath string
-		wantErr bool
-	}{
-		{
-			name:    "exact doc match",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/readme.md", IsFolder: false},
-			docPath: "/docs/readme.md",
-			wantErr: false,
-		},
-		{
-			name:    "doc mismatch",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/readme.md", IsFolder: false},
-			docPath: "/docs/other.md",
-			wantErr: true,
-		},
-		{
-			name:    "folder prefix match",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/private", IsFolder: true},
-			docPath: "/docs/private/secret.md",
-			wantErr: false,
-		},
-		{
-			name:    "folder exact match (access folder itself)",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/private", IsFolder: true},
-			docPath: "/docs/private",
-			wantErr: false,
-		},
-		{
-			name:    "folder prefix collision (private vs private-notes)",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/private", IsFolder: true},
-			docPath: "/docs/private-notes/file.md",
-			wantErr: true,
-		},
-		{
-			name:    "folder outside scope",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/private", IsFolder: true},
-			docPath: "/docs/public/file.md",
-			wantErr: true,
-		},
-		{
-			name:    "path traversal attempt",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/private", IsFolder: true},
-			docPath: "/docs/private/../other/file.md",
-			wantErr: true,
-		},
-		{
-			name:    "folder with trailing slash in share",
-			share:   ShareContext{VaultID: "v1", Path: "/docs/private/", IsFolder: true},
-			docPath: "/docs/private/nested/file.md",
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := checkSharePath(&tt.share, tt.docPath)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("checkSharePath() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestRequireDocAccess(t *testing.T) {
-	t.Run("regular user with vault access", func(t *testing.T) {
-		ctx := WithAuth(t.Context(), AuthContext{
-			UserID: "user1",
-			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
-		})
-		if err := RequireDocAccess(ctx, "v1", "/any/path.md"); err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("regular user without vault access", func(t *testing.T) {
-		ctx := WithAuth(t.Context(), AuthContext{
-			UserID: "user1",
-			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
-		})
-		if err := RequireDocAccess(ctx, "v2", "/any/path.md"); err == nil {
-			t.Error("expected error for wrong vault")
-		}
-	})
-
-	t.Run("share link with matching path", func(t *testing.T) {
-		ctx := WithAuth(t.Context(), AuthContext{
-			Share:  &ShareContext{VaultID: "v1", Path: "/docs/shared.md", IsFolder: false},
-			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
-		})
-		if err := RequireDocAccess(ctx, "v1", "/docs/shared.md"); err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("share link with wrong vault", func(t *testing.T) {
-		ctx := WithAuth(t.Context(), AuthContext{
-			Share:  &ShareContext{VaultID: "v1", Path: "/docs/shared.md", IsFolder: false},
-			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
-		})
-		if err := RequireDocAccess(ctx, "v2", "/docs/shared.md"); err == nil {
-			t.Error("expected error for wrong vault")
-		}
-	})
-
-	t.Run("share link with out-of-scope path", func(t *testing.T) {
-		ctx := WithAuth(t.Context(), AuthContext{
-			Share:  &ShareContext{VaultID: "v1", Path: "/docs/folder", IsFolder: true},
-			Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
-		})
-		if err := RequireDocAccess(ctx, "v1", "/docs/other/file.md"); err == nil {
-			t.Error("expected error for out-of-scope path")
-		}
-	})
 }
 
 func TestRequireSystemAdmin(t *testing.T) {
@@ -413,16 +298,67 @@ func TestVaultRoleMethod(t *testing.T) {
 	}
 }
 
-func TestShareLinkReadOnly(t *testing.T) {
-	ac := AuthContext{
-		Share:  &ShareContext{VaultID: "v1", Path: "/docs/file.md", IsFolder: false},
-		Vaults: []models.VaultPermission{{VaultID: "v1", Role: models.RoleRead}},
+func TestClientIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		xff        string
+		remoteAddr string
+		want       string
+	}{
+		{
+			name:       "no XFF header",
+			remoteAddr: "192.168.1.1:1234",
+			want:       "192.168.1.1:1234",
+		},
+		{
+			name:       "single IP in XFF",
+			xff:        "10.0.0.1",
+			remoteAddr: "192.168.1.1:1234",
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "multiple IPs in XFF takes first",
+			xff:        "10.0.0.1, 172.16.0.1, 192.168.1.1",
+			remoteAddr: "127.0.0.1:1234",
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "empty XFF falls back to RemoteAddr",
+			xff:        "",
+			remoteAddr: "192.168.1.1:1234",
+			want:       "192.168.1.1:1234",
+		},
 	}
 
-	if err := CheckVaultRole(ac, "v1", models.RoleRead); err != nil {
-		t.Errorf("share link should allow read: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				r.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			if got := clientIP(r); got != tt.want {
+				t.Errorf("clientIP() = %q, want %q", got, tt.want)
+			}
+		})
 	}
-	if err := CheckVaultRole(ac, "v1", models.RoleWrite); err == nil {
-		t.Error("share link should NOT allow write")
+}
+
+func TestAuditEventResult(t *testing.T) {
+	tests := []struct {
+		event AuditEvent
+		want  AuditResult
+	}{
+		{AuditSuccess, AuditResultOK},
+		{AuditFailure, AuditResultDenied},
+		{AuditExpired, AuditResultExpired},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.event), func(t *testing.T) {
+			if got := tt.event.Result(); got != tt.want {
+				t.Errorf("AuditEvent(%q).Result() = %q, want %q", tt.event, got, tt.want)
+			}
+		})
 	}
 }

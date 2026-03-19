@@ -11,7 +11,7 @@ Store any type of knowledge (people, services, concepts, documents) with flexibl
 - **[MCP Server](docs/feature-mcp.md)** — Expose your knowledge base to AI agents via Model Context Protocol
 - **[Agent Chat](docs/feature-agent.md)** — Terminal and web chat UI with tool calling, approval flow, and SSE streaming
 - **[Memory System](docs/feature-memory.md)** — Project-scoped memories with decay scoring, auto-archiving, and consolidation
-- **[Vaults & Access Control](docs/feature-vaults.md)** — Folders, roles, share links, multi-user collaboration
+- **[Vaults & Access Control](docs/feature-vaults.md)** — Folders, roles, multi-user collaboration
 - **[WebDAV](docs/feature-webdav.md)** — Edit documents with any WebDAV-compatible editor
 - **[Remotes](docs/feature-remotes.md)** — Multi-server federation with namespace routing
 - **Multi-Provider** — Supports Google AI, Anthropic/Voyage, OpenAI, Bedrock, Ollama for embeddings and LLM
