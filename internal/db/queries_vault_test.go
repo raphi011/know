@@ -129,6 +129,73 @@ func TestCreateVaultWithID(t *testing.T) {
 	}
 }
 
+func TestCreateVaultWithOwner(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	vault, err := testDB.CreateVaultWithOwner(ctx, userID, models.VaultInput{
+		Name: fmt.Sprintf("owned-vault-%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("CreateVaultWithOwner failed: %v", err)
+	}
+	if vault.Owner == nil {
+		t.Fatal("Expected vault to have an owner")
+	}
+	ownerID := models.MustRecordIDString(*vault.Owner)
+	if ownerID != userID {
+		t.Errorf("Expected owner %q, got %q", userID, ownerID)
+	}
+
+	// Shared vault (no owner) should have nil owner
+	shared, err := testDB.CreateVault(ctx, userID, models.VaultInput{
+		Name: fmt.Sprintf("shared-vault-%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("CreateVault failed: %v", err)
+	}
+	if shared.Owner != nil {
+		t.Error("Shared vault should not have an owner")
+	}
+}
+
+func TestGetVaultByOwner(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	// No vault yet
+	notFound, err := testDB.GetVaultByOwner(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetVaultByOwner should not error for missing: %v", err)
+	}
+	if notFound != nil {
+		t.Error("Expected nil for user with no owned vault")
+	}
+
+	// Create owned vault
+	created, err := testDB.CreateVaultWithOwner(ctx, userID, models.VaultInput{
+		Name: fmt.Sprintf("findable-vault-%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("CreateVaultWithOwner failed: %v", err)
+	}
+
+	found, err := testDB.GetVaultByOwner(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetVaultByOwner failed: %v", err)
+	}
+	if found == nil {
+		t.Fatal("GetVaultByOwner returned nil for user with owned vault")
+	}
+	createdID := models.MustRecordIDString(created.ID)
+	foundID := models.MustRecordIDString(found.ID)
+	if foundID != createdID {
+		t.Errorf("Expected vault ID %q, got %q", createdID, foundID)
+	}
+}
+
 func TestGetVaultByName(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

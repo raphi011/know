@@ -256,6 +256,33 @@ When disabled (default), only pre-existing users can log in via OIDC. An admin m
 | `KNOW_TOKEN_MAX_LIFETIME_DAYS`| `90`    | Max token lifetime in days (0 = no limit)       |
 | `KNOW_TOKEN`                  | —       | API token for CLI commands                      |
 
+## Admin User Management
+
+System admins can create and list users via the CLI. Created users get a private vault automatically.
+
+### CLI Commands
+
+```bash
+# Create a user (they can log in via OIDC using their email)
+know admin create-user --name alice --email alice@example.com
+
+# List all users
+know admin list-users
+```
+
+### Private vs Shared Vaults
+
+- **Private vault**: Has an `owner` field set to a user. Created automatically when a user is provisioned (via admin CLI or OIDC self-signup).
+- **Shared vault**: Has no `owner`. Created via `db seed` or manually. Any user can be granted membership.
+
+### User Onboarding Flow
+
+1. Admin creates user: `know admin create-user --name alice --email alice@example.com`
+2. User logs in via OIDC: `know auth login` → email-match links their OIDC identity
+3. User has access to their private vault immediately
+
+When self-signup is enabled (`KNOW_SELF_SIGNUP_ENABLED=true`), new OIDC users are automatically provisioned with a private vault on first login.
+
 ## Example Prompts
 
 - "List my API tokens"
@@ -264,12 +291,16 @@ When disabled (default), only pre-existing users can log in via OIDC. An admin m
 - "Set up OIDC with GitHub for my Know server"
 - "How do I log in from the CLI?"
 - "Enable self-signup so new users can register via GitHub"
+- "Create a new user alice with email alice@company.com"
+- "List all users on the server"
 
 ## Reference
 
 - OIDC provider: `internal/oidc/` (provider, device flow, PKCE, user resolution)
 - Auth endpoints: `internal/api/auth.go` (device start/poll, login/callback, token exchange)
+- Admin endpoints: `internal/api/admin.go` (list users, create user)
 - Token management: `internal/api/tokens.go` (list, create, delete, rotate)
 - CLI auth: `cmd/know/cmd_auth.go` (login, status, logout)
+- CLI admin: `cmd/know/cmd_admin.go` (create-user, list-users)
 - Token validation: `internal/auth/` (token format, hashing, context)
 - Config: `internal/config/config.go` (OIDC and token settings)

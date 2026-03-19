@@ -51,9 +51,9 @@ func FindOrCreateUser(ctx context.Context, dbClient *db.Client, info *UserInfo, 
 		return nil, fmt.Errorf("registration disabled: no matching user for %s", info.Email)
 	}
 
-	user, err = dbClient.CreateUserFromOIDC(ctx, info.Provider, info.Subject, info.Name, info.Email)
+	user, _, err = dbClient.ProvisionUserFromOIDC(ctx, info.Provider, info.Subject, info.Name, info.Email)
 	if err != nil {
-		return nil, fmt.Errorf("create oidc user: %w", err)
+		return nil, fmt.Errorf("provision oidc user: %w", err)
 	}
 
 	return user, nil

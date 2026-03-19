@@ -108,6 +108,7 @@ func main() {
 	rootCmd.AddCommand(restoreCmd)
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(authCmd)
+	rootCmd.AddCommand(adminCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
