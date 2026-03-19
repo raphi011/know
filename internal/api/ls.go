@@ -23,6 +23,13 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 
 	recursive := r.URL.Query().Get("recursive") == "true"
 
+	// Parse optional labels filter.
+	labelsParam := r.URL.Query().Get("labels")
+	var labels []string
+	if labelsParam != "" {
+		labels = strings.Split(labelsParam, ",")
+	}
+
 	// Build prefix with trailing slash for filtering (root "/" stays as "/").
 	prefix := folder
 	if !strings.HasSuffix(prefix, "/") {
@@ -30,6 +37,39 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger := logutil.FromCtx(r.Context())
+
+	// When labels are specified, use ListFiles (returns full models.File) so we
+	// can populate Labels and Source on the response entries.
+	if len(labels) > 0 {
+		isNotFolder := false
+		files, err := s.app.DBClient().ListFiles(r.Context(), db.ListFilesFilter{
+			VaultID:  vaultID,
+			Folder:   &prefix,
+			IsFolder: &isNotFolder,
+			Labels:   labels,
+			Limit:    10000,
+		})
+		if err != nil {
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list documents")
+			logger.Error("ls documents by labels", "vault_id", vaultID, "labels", labels, "error", err)
+			return
+		}
+
+		var entries []models.FileEntry
+		for _, f := range files {
+			source, _ := f.Metadata["source"].(string) // zero-value "" is fine when absent or non-string
+			entries = append(entries, models.FileEntry{
+				Name:   path.Base(f.Path),
+				Path:   f.Path,
+				Title:  f.Title,
+				Size:   f.Size,
+				Labels: f.Labels,
+				Source: source,
+			})
+		}
+		writeJSON(w, http.StatusOK, httputil.NewListResponse(entries, len(entries)))
+		return
+	}
 
 	// Pass prefix (with trailing slash) to the DB so that "/docs" doesn't match "/docs-other".
 	// For root ("/"), starts_with(path, "/") correctly matches all documents.

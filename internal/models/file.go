@@ -106,9 +106,11 @@ type FileTombstone struct {
 
 // FileEntry is a lightweight entry for directory listings (ls endpoint).
 type FileEntry struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	Title string `json:"title,omitempty"`
-	IsDir bool   `json:"isDir"`
-	Size  int    `json:"size,omitempty"`
+	Name   string   `json:"name"`
+	Path   string   `json:"path"`
+	Title  string   `json:"title,omitempty"`
+	IsDir  bool     `json:"isDir"`
+	Size   int      `json:"size,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+	Source string   `json:"source,omitempty"`
 }

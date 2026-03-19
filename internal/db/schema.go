@@ -65,7 +65,9 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS updated_at     ON file TYPE datetime VALUE time::now();
     DEFINE FIELD IF NOT EXISTS stem           ON file TYPE string DEFAULT "";
-    DEFINE FIELD IF NOT EXISTS no_embed       ON file TYPE bool DEFAULT false;
+    DEFINE FIELD no_embed ON file TYPE bool DEFAULT false;
+    -- Backfill: existing records may have NONE from an older schema.
+    UPDATE file SET no_embed = false WHERE no_embed = NONE;
 
     DEFINE INDEX IF NOT EXISTS idx_file_vault_path    ON file FIELDS vault, path UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_file_labels        ON file FIELDS labels;

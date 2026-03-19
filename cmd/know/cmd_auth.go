@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/raphi011/know/internal/apiclient"
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/browser"
 	"github.com/spf13/cobra"
 )
 
@@ -121,7 +120,9 @@ func loginWithBrowser(apiURL string) error {
 	fmt.Print("Press Enter to open the browser...")
 	fmt.Scanln()
 
-	openBrowser(resp.VerificationURI)
+	if err := browser.Open(resp.VerificationURI); err != nil {
+		fmt.Fprintf(os.Stderr, "Could not open browser: %v\nPlease open this URL manually: %s\n", err, resp.VerificationURI)
+	}
 
 	fmt.Println("\nWaiting for authentication...")
 
@@ -180,23 +181,6 @@ func loginWithToken(apiURL string) error {
 	}
 	fmt.Println("Token saved successfully!")
 	return nil
-}
-
-func openBrowser(urlStr string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", urlStr)
-	case "linux":
-		cmd = exec.Command("xdg-open", urlStr)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", urlStr)
-	}
-	if cmd != nil {
-		if err := cmd.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not open browser: %v\nPlease open this URL manually: %s\n", err, urlStr)
-		}
-	}
 }
 
 var authStatusCmd = &cobra.Command{

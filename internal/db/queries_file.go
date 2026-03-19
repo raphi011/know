@@ -263,6 +263,23 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 	return firstResult(results, "update file")
 }
 
+// UpdateFileLabels sets the labels on a file identified by record ID.
+func (c *Client) UpdateFileLabels(ctx context.Context, id string, labels []string) error {
+	defer c.logOp(ctx, "file.update_labels", time.Now())
+	if labels == nil {
+		labels = []string{}
+	}
+	sql := `UPDATE type::record("file", $id) SET labels = $labels`
+	_, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":     bareID("file", id),
+		"labels": labels,
+	})
+	if err != nil {
+		return fmt.Errorf("update file labels: %w", err)
+	}
+	return nil
+}
+
 // updateFileByPath updates a file identified by vault+path instead of record ID.
 // Used as a fallback when the unique index reports a conflict but GetFileByPath
 // cannot find the record (e.g. SurrealDB index/data inconsistency).

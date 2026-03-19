@@ -24,6 +24,7 @@ var (
 	browseVaultID *string
 	browseEdit    bool
 	browseViewer  string
+	browseLinks   bool
 )
 
 var browseCmd = &cobra.Command{
@@ -55,7 +56,8 @@ Examples:
   know browse | wc -l                      # fuzzy pick → count lines
   know browse --viewer bat /docs/readme.md # view with bat
   know browse -e /docs/readme.md           # edit in $EDITOR
-  know browse -e                           # fuzzy pick → edit`,
+  know browse -e                           # fuzzy pick → edit
+  know browse --links                      # browse saved web clips`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runBrowse,
 }
@@ -65,6 +67,7 @@ func init() {
 	browseVaultID = addVaultFlag(browseCmd, browseAPI)
 	browseCmd.Flags().BoolVarP(&browseEdit, "edit", "e", false, "open in $EDITOR and save changes")
 	browseCmd.Flags().StringVar(&browseViewer, "viewer", os.Getenv("KNOW_VIEWER"), "viewer command (env: KNOW_VIEWER)")
+	browseCmd.Flags().BoolVarP(&browseLinks, "links", "l", false, "start on the Links tab (saved web clips)")
 	browseCmd.ValidArgsFunction = completeVaultPaths(browseAPI, browseVaultID, pathFilterFiles)
 }
 
@@ -166,7 +169,11 @@ func browseWithPicker(ctx context.Context, client *apiclient.Client) error {
 
 	// Standard browse TUI.
 	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	model := browse.NewModel(client, *browseVaultID, docs, isDark)
+	var startTab []browse.Tab
+	if browseLinks {
+		startTab = append(startTab, browse.TabLinks)
+	}
+	model := browse.NewModel(client, *browseVaultID, docs, isDark, startTab...)
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("browse: %w", err)
