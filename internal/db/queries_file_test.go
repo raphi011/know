@@ -1497,3 +1497,82 @@ func TestListFiles_IsFolderFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestListFiles_UpdatedSinceFilter(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+
+	// Create two files with a sleep between them so they get different updated_at values.
+	oldDoc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/since-" + suffix + "/old.md", Title: "Old",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile old failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	newDoc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/since-" + suffix + "/new.md", Title: "New",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile new failed: %v", err)
+	}
+
+	// Sanity check: new.UpdatedAt must be strictly after old.UpdatedAt
+	if !newDoc.UpdatedAt.After(oldDoc.UpdatedAt) {
+		t.Fatalf("new.UpdatedAt (%v) should be after old.UpdatedAt (%v)", newDoc.UpdatedAt, oldDoc.UpdatedAt)
+	}
+
+	// Verify the filter works with a far-future cutoff first.
+	folder := "/since-" + suffix + "/"
+	farFuture := time.Now().Add(24 * time.Hour)
+	farDocs, err := testDB.ListFiles(ctx, ListFilesFilter{
+		VaultID: vaultID, Folder: &folder, UpdatedSince: &farFuture,
+	})
+	if err != nil {
+		t.Fatalf("ListFiles with far-future cutoff failed: %v", err)
+	}
+	if len(farDocs) != 0 {
+		t.Fatalf("expected 0 docs with far-future cutoff, got %d", len(farDocs))
+	}
+
+	// Use a cutoff between the two timestamps.
+	mid := oldDoc.UpdatedAt.Add(newDoc.UpdatedAt.Sub(oldDoc.UpdatedAt) / 2)
+	cutoff := mid
+	docs, err := testDB.ListFiles(ctx, ListFilesFilter{
+		VaultID:      vaultID,
+		Folder:       &folder,
+		UpdatedSince: &cutoff,
+	})
+	if err != nil {
+		t.Fatalf("ListFiles with UpdatedSince failed: %v", err)
+	}
+	if len(docs) != 1 {
+		for _, d := range docs {
+			t.Logf("  doc: %s updated_at=%v", d.Path, d.UpdatedAt)
+		}
+		t.Logf("  cutoff=%v", cutoff)
+		t.Fatalf("expected 1 doc with UpdatedSince, got %d", len(docs))
+	}
+	if !strings.HasSuffix(docs[0].Path, "/new.md") {
+		t.Errorf("expected new.md, got %s", docs[0].Path)
+	}
+
+	// Query without UpdatedSince — should return both
+	allDocs, err := testDB.ListFiles(ctx, ListFilesFilter{
+		VaultID: vaultID,
+		Folder:  &folder,
+	})
+	if err != nil {
+		t.Fatalf("ListFiles without UpdatedSince failed: %v", err)
+	}
+	if len(allDocs) != 2 {
+		t.Errorf("expected 2 docs total, got %d", len(allDocs))
+	}
+}

@@ -155,6 +155,22 @@ type VersionResponse struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+// ChangesResponse is the JSON representation of incremental changes since a timestamp.
+type ChangesResponse struct {
+	Updated   []FileChange `json:"updated"`
+	Deleted   []FileChange `json:"deleted"`
+	SyncToken string       `json:"syncToken"`  // RFC3339Nano — use as next "since" value
+	Truncated bool         `json:"truncated"`   // true if results were capped at the server limit
+}
+
+// FileChange represents a single file change in the changes response.
+type FileChange struct {
+	FileID      string    `json:"fileId"`
+	Path        string    `json:"path"`
+	ContentHash *string   `json:"contentHash,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 // ServerConfig holds the server's effective configuration.
 type ServerConfig struct {
 	Version                string `json:"version"`

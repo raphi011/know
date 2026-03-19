@@ -86,6 +86,93 @@ final class SyncEngine {
 		}
 	}
 
+	// MARK: - Incremental Sync
+
+	/// Fetches only changes since the last sync via GET /changes and applies them.
+	/// Returns true on success, false if the caller should fall back to full metadata sync.
+	func performIncrementalSync(vaultId: String, modelContext: ModelContext) async -> Bool {
+		guard let service else {
+			logger.warning("SyncEngine: no service configured")
+			return false
+		}
+
+		status = .syncing("Catching up...")
+		defer { if case .syncing = status { status = .idle } }
+
+		do {
+			let syncState = try fetchOrCreateSyncState(vaultId: vaultId, modelContext: modelContext)
+			guard let lastSynced = syncState.lastSyncedAt else {
+				logger.info("Incremental sync: no lastSyncedAt, falling back to full sync")
+				return false
+			}
+
+			let changes = try await service.fetchChanges(vaultId: vaultId, since: lastSynced)
+
+			// If results were truncated, fall back to full sync for completeness.
+			if changes.truncated {
+				logger.info("Incremental sync: results truncated, falling back to full sync")
+				return false
+			}
+
+			// Fetch all cached documents for this vault to avoid N+1 fetches.
+			let vid = vaultId
+			let allDescriptor = FetchDescriptor<CachedDocument>(
+				predicate: #Predicate { $0.vaultId == vid }
+			)
+			let cached = try modelContext.fetch(allDescriptor)
+			let cachedByCompositeId = Dictionary(uniqueKeysWithValues: cached.map { ($0.id, $0) })
+
+			// Apply updated files
+			for change in changes.updated {
+				let compositeId = CachedDocument.compositeId(vaultId: vaultId, path: change.path)
+				if let existing = cachedByCompositeId[compositeId] {
+					existing.contentHash = change.contentHash
+					existing.lastSyncedAt = .now
+					existing.invalidateContent()
+				} else {
+					let doc = CachedDocument(
+						id: compositeId,
+						vaultId: vaultId,
+						path: change.path,
+						title: CachedDocument.titleFromPath(change.path),
+						contentHash: change.contentHash,
+						serverUpdatedAt: change.updatedAt,
+						lastSyncedAt: .now
+					)
+					modelContext.insert(doc)
+				}
+			}
+
+			// Apply deleted files
+			for change in changes.deleted {
+				let compositeId = CachedDocument.compositeId(vaultId: vaultId, path: change.path)
+				if let existing = cachedByCompositeId[compositeId] {
+					modelContext.delete(existing)
+				}
+			}
+
+			// Parse syncToken and update state
+			let formatter = ISO8601DateFormatter()
+			formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+			guard let tokenDate = formatter.date(from: changes.syncToken) else {
+				logger.error("Incremental sync: failed to parse syncToken '\(changes.syncToken)', falling back to full sync")
+				return false
+			}
+			syncState.lastSyncedAt = tokenDate
+
+			try modelContext.save()
+			logger.info("Incremental sync complete: \(changes.updated.count) updated, \(changes.deleted.count) deleted")
+			return true
+		} catch APIError.unauthorized {
+			logger.error("Incremental sync: unauthorized")
+			status = .error("Unauthorized")
+			return false
+		} catch {
+			logger.warning("Incremental sync failed: \(error), falling back to full sync")
+			return false
+		}
+	}
+
 	// MARK: - On-Demand Content
 
 	func fetchContentIfNeeded(documentId: String, modelContext: ModelContext) async throws -> CachedDocument? {
@@ -175,6 +262,13 @@ final class SyncEngine {
 
 					retryDelay = 1 // reset on success
 
+					// Catch up on any events missed during the disconnect gap.
+					// Try incremental sync first, fall back to full metadata sync.
+					let synced = await performIncrementalSync(vaultId: vaultId, modelContext: modelContext)
+					if !synced {
+						await performMetadataSync(vaultId: vaultId, modelContext: modelContext)
+					}
+
 					var dataBuffer = ""
 
 					for try await line in bytes.lines {
@@ -241,7 +335,7 @@ final class SyncEngine {
 
 		do {
 			switch event.type {
-			case "document.created", "document.updated":
+			case "file.created", "file.updated", "file.processed":
 				guard let path = event.payload.path else {
 					logger.warning("SSE: \(event.type) event missing path, skipping")
 					return
@@ -268,17 +362,17 @@ final class SyncEngine {
 					modelContext.insert(doc)
 				}
 
-			case "document.deleted":
+			case "file.deleted":
 				guard let path = event.payload.path else {
-					logger.warning("SSE: document.deleted event missing path, skipping")
+					logger.warning("SSE: file.deleted event missing path, skipping")
 					return
 				}
 				let compositeId = CachedDocument.compositeId(vaultId: vaultId, path: path)
 				try deleteCachedDocument(compositeId: compositeId, modelContext: modelContext)
 
-			case "document.moved":
+			case "file.moved":
 				guard let path = event.payload.path, let oldPath = event.payload.oldPath else {
-					logger.warning("SSE: document.moved event missing path or oldPath, skipping")
+					logger.warning("SSE: file.moved event missing path or oldPath, skipping")
 					return
 				}
 				let oldCompositeId = CachedDocument.compositeId(vaultId: vaultId, path: oldPath)
@@ -290,7 +384,7 @@ final class SyncEngine {
 					modelContext.delete(existing)
 					modelContext.insert(moved)
 				} else {
-					logger.info("SSE: document.moved but \(oldPath) not in local cache, skipping")
+					logger.info("SSE: file.moved but \(oldPath) not in local cache, skipping")
 				}
 
 			default:

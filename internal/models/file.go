@@ -95,6 +95,15 @@ type LabelCount struct {
 	Count int    `json:"count"`
 }
 
+// FileTombstone records a deleted file for sync purposes.
+type FileTombstone struct {
+	ID        surrealmodels.RecordID `json:"id"`
+	Vault     surrealmodels.RecordID `json:"vault"`
+	FileID    string                 `json:"file_id"`
+	Path      string                 `json:"path"`
+	DeletedAt time.Time              `json:"deleted_at"`
+}
+
 // FileEntry is a lightweight entry for directory listings (ls endpoint).
 type FileEntry struct {
 	Name  string `json:"name"`

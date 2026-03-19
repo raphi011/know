@@ -58,15 +58,16 @@ var validOrderBy = map[FileOrderBy]bool{
 
 // ListFilesFilter controls filtering, ordering, and pagination for file list queries.
 type ListFilesFilter struct {
-	VaultID  string
-	Folder   *string
-	Labels   []string
-	DocType  *string
-	MimeType *string
-	IsFolder *bool
-	OrderBy  FileOrderBy // defaults to OrderByPathAsc
-	Limit    int
-	Offset   int
+	VaultID      string
+	Folder       *string
+	Labels       []string
+	DocType      *string
+	MimeType     *string
+	IsFolder     *bool
+	UpdatedSince *time.Time  // only return files updated at or after this timestamp
+	OrderBy      FileOrderBy // defaults to OrderByPathAsc
+	Limit        int
+	Offset       int
 }
 
 // buildFileFilter constructs the WHERE clause, variables, and pagination
@@ -98,6 +99,12 @@ func buildFileFilter(filter ListFilesFilter) (whereClause string, vars map[strin
 	if filter.IsFolder != nil {
 		conditions = append(conditions, `is_folder = $is_folder`)
 		vars["is_folder"] = *filter.IsFolder
+	}
+	if filter.UpdatedSince != nil {
+		// Format as RFC3339Nano string — passing time.Time directly loses sub-second
+		// precision in the SurrealDB Go SDK's CBOR encoding.
+		conditions = append(conditions, `updated_at >= <datetime>$updated_since`)
+		vars["updated_since"] = filter.UpdatedSince.Format(time.RFC3339Nano)
 	}
 
 	limit := 100
