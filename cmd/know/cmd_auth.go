@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -75,11 +76,16 @@ var authLoginCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiURL, _ := cmd.Flags().GetString("api-url")
 
-		// Try device flow — succeeds when OIDC is enabled, 404 when not.
+		// Try device flow to discover if OIDC is available.
+		// 200 = OIDC enabled, 404 = not enabled, other errors = warn and fall back.
 		client := apiclient.New(apiURL, "")
 		resp, err := client.DeviceFlowStart(context.Background())
 		if err != nil {
-			// OIDC not available — go straight to token login.
+			var httpErr *apiclient.HTTPError
+			if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
+				fmt.Fprintf(os.Stderr, "Warning: could not start device flow: %v\n", err)
+				fmt.Fprintln(os.Stderr, "Falling back to token-based login.")
+			}
 			return loginWithToken(apiURL)
 		}
 

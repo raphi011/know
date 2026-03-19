@@ -2985,7 +2985,8 @@ paths:
         Returns a user code and verification URI for browser-based login.
         **Unauthenticated endpoint.** Only available when OIDC is enabled
         (returns 404 otherwise). The CLI uses this as auth method discovery:
-        a successful response means OIDC is available.
+        a successful response means OIDC is available; any error triggers
+        token-based login fallback.
       security: []
       servers:
         - url: /
