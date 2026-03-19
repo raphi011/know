@@ -32,7 +32,7 @@ func (v viewerModel) Update(msg tea.Msg) (viewerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "escape":
+		case "esc":
 			return v, func() tea.Msg { return backToFinderMsg{} }
 		case "q":
 			return v, tea.Quit

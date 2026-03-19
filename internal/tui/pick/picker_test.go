@@ -250,6 +250,76 @@ func TestRefilter_NoFiles(t *testing.T) {
 	}
 }
 
+func TestNewModel_InputFocused(t *testing.T) {
+	m := NewModel(testFiles)
+	if !m.Input.Focused() {
+		t.Error("expected input to be focused after NewModel")
+	}
+}
+
+func TestSetSize_PropagatesWidthToInput(t *testing.T) {
+	m := NewModel(testFiles)
+	m.SetSize(120, 40)
+
+	if m.Width != 120 || m.Height != 40 {
+		t.Errorf("size = %dx%d, want 120x40", m.Width, m.Height)
+	}
+
+	wantInputWidth := 120 - len(m.Input.Prompt)
+	if got := m.Input.Width(); got != wantInputWidth {
+		t.Errorf("Input.Width() = %d, want %d", got, wantInputWidth)
+	}
+}
+
+func TestUpdate_PageDown_MovesFullPage(t *testing.T) {
+	m := NewModel(testFiles) // 4 files
+	m.Height = 6             // visibleRows = max(6-4, 1) = 2
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m = result.(Model)
+
+	if m.Cursor != 2 {
+		t.Errorf("after pgdown: cursor = %d, want 2", m.Cursor)
+	}
+}
+
+func TestUpdate_PageDown_ClampsAtEnd(t *testing.T) {
+	m := NewModel(testFiles) // 4 files
+	m.Cursor = 3
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m = result.(Model)
+
+	if m.Cursor != 3 {
+		t.Errorf("pgdown at end: cursor = %d, want 3", m.Cursor)
+	}
+}
+
+func TestUpdate_PageUp_MovesFullPage(t *testing.T) {
+	m := NewModel(testFiles) // 4 files
+	m.Height = 6             // visibleRows = 2
+	m.Cursor = 3
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	m = result.(Model)
+
+	if m.Cursor != 1 {
+		t.Errorf("after pgup: cursor = %d, want 1", m.Cursor)
+	}
+}
+
+func TestUpdate_PageUp_ClampsAtStart(t *testing.T) {
+	m := NewModel(testFiles)
+	m.Cursor = 0
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	m = result.(Model)
+
+	if m.Cursor != 0 {
+		t.Errorf("pgup at start: cursor = %d, want 0", m.Cursor)
+	}
+}
+
 func TestUpdate_Enter_WithCursorAtSecondItem(t *testing.T) {
 	m := NewModel(testFiles)
 	m.Cursor = 1

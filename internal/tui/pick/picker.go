@@ -40,29 +40,31 @@ func NewModel(files []models.FileEntry) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Search files..."
 	ti.CharLimit = 256
-	ti.Prompt = PromptStyle.Render("/ ")
+	ti.Prompt = "/ "
 
 	styles := ti.Styles()
 	styles.Cursor.Blink = false
+	styles.Focused.Prompt = PromptStyle
 	ti.SetStyles(styles)
 
 	m := Model{
 		Input:    ti,
 		AllFiles: files,
 	}
+	m.Input.Focus()
 	m.Refilter()
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
+	// Input is already focused from NewModel; re-call to get the focus cmd.
 	return m.Input.Focus()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.Width = msg.Width
-		m.Height = msg.Height
+		m.SetSize(msg.Width, msg.Height)
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -73,7 +75,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Selected = m.AllFiles[idx].Path
 			}
 			return m, tea.Quit
-		case "esc", "escape", "ctrl+c":
+		case "esc", "ctrl+c":
 			return m, tea.Quit
 		case "up":
 			if m.Cursor > 0 {
@@ -86,6 +88,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Cursor++
 				m.EnsureCursorVisible()
 			}
+			return m, nil
+		case "pgup":
+			m.Cursor = max(m.Cursor-m.VisibleRows(), 0)
+			m.EnsureCursorVisible()
+			return m, nil
+		case "pgdown":
+			m.Cursor = min(m.Cursor+m.VisibleRows(), max(len(m.Matches)-1, 0))
+			m.EnsureCursorVisible()
 			return m, nil
 		}
 	}
@@ -144,6 +154,13 @@ func (m Model) View() tea.View {
 	return v
 }
 
+// SetSize updates the picker dimensions and propagates width to the text input.
+func (m *Model) SetSize(width, height int) {
+	m.Width = width
+	m.Height = height
+	m.Input.SetWidth(width - len(m.Input.Prompt))
+}
+
 func (m Model) VisibleRows() int {
 	return max(m.Height-4, 1)
 }
@@ -200,9 +217,9 @@ func RenderHighlighted(s string, matchedIndexes []int, baseStyle lipgloss.Style)
 
 // Run launches the fuzzy picker TUI and returns the selected file path.
 // Returns an empty string if the user cancelled (Escape/Ctrl+C).
-func Run(files []models.FileEntry) (string, error) {
+func Run(files []models.FileEntry, opts ...tea.ProgramOption) (string, error) {
 	m := NewModel(files)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, opts...)
 	final, err := p.Run()
 	if err != nil {
 		return "", fmt.Errorf("pick: %w", err)
