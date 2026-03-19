@@ -41,7 +41,10 @@ func addAPIFlags(cmd *cobra.Command) *apiFlags {
 
 	// Fall back to ~/.config/know/auth.json when no env var is set.
 	if defaultToken == "" {
-		if cfg, err := loadAuthConfig(); err == nil && cfg != nil {
+		cfg, err := loadAuthConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not read auth config: %v\n", err)
+		} else if cfg != nil {
 			defaultToken = cfg.Token
 			if defaultURL == "http://localhost:4001" && cfg.APIURL != "" {
 				defaultURL = cfg.APIURL

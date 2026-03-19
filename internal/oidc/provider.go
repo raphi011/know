@@ -15,6 +15,7 @@ type Provider struct {
 	oidcProvider *gooidc.Provider
 	oauth2Config oauth2.Config
 	issuerURL    string
+	providerName string // explicit name for DB key; falls back to URL-derived
 }
 
 // UserInfo holds the claims extracted from an OIDC token.
@@ -26,7 +27,8 @@ type UserInfo struct {
 }
 
 // New creates a new OIDC provider by discovering the issuer's configuration.
-func New(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL string, scopes []string) (*Provider, error) {
+// providerName is used as the DB key for user identity. If empty, it is derived from the issuer URL.
+func New(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL string, scopes []string, providerName string) (*Provider, error) {
 	oidcProvider, err := gooidc.NewProvider(ctx, issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("discover oidc provider: %w", err)
@@ -45,13 +47,19 @@ func New(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL str
 			RedirectURL:  redirectURL,
 			Scopes:       scopes,
 		},
-		issuerURL: issuerURL,
+		issuerURL:    issuerURL,
+		providerName: providerName,
 	}, nil
 }
 
-// ProviderName extracts a short provider name from the issuer URL.
+// ProviderName returns the provider name used as a DB key for OIDC identity.
+// If an explicit name was set via New(), it is returned directly.
+// Otherwise, a short name is derived from the issuer URL:
 // e.g. "https://github.com" -> "github", "https://accounts.google.com" -> "google"
 func (p *Provider) ProviderName() string {
+	if p.providerName != "" {
+		return p.providerName
+	}
 	u, err := url.Parse(p.issuerURL)
 	if err != nil {
 		return p.issuerURL
@@ -91,6 +99,10 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string, opts ...oauth2
 		return nil, fmt.Errorf("parse claims: %w", err)
 	}
 
+	if idToken.Subject == "" {
+		return nil, fmt.Errorf("id token has empty subject")
+	}
+
 	name := claims.Name
 	if name == "" {
 		name = claims.Login // fallback for GitHub
@@ -107,9 +119,4 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string, opts ...oauth2
 // AuthCodeURL returns the URL to redirect the user to for authorization.
 func (p *Provider) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
 	return p.oauth2Config.AuthCodeURL(state, opts...)
-}
-
-// OAuth2Config returns the underlying OAuth2 config (for device flow).
-func (p *Provider) OAuth2Config() *oauth2.Config {
-	return &p.oauth2Config
 }

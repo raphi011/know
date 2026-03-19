@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -36,6 +37,8 @@ func FindOrCreateUser(ctx context.Context, dbClient *db.Client, info *UserInfo, 
 			if err != nil {
 				return nil, fmt.Errorf("extract user id: %w", err)
 			}
+			logutil.FromCtx(ctx).Info("linking OIDC identity to existing user via email match",
+				"user_id", uid, "email", info.Email, "provider", info.Provider, "subject", info.Subject)
 			if err := dbClient.LinkOIDCIdentity(ctx, uid, info.Provider, info.Subject); err != nil {
 				return nil, fmt.Errorf("link oidc identity: %w", err)
 			}

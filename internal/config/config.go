@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -84,6 +85,7 @@ type Config struct {
 	OIDCClientID      string // KNOW_OIDC_CLIENT_ID
 	OIDCClientSecret  string // KNOW_OIDC_CLIENT_SECRET
 	OIDCRedirectURL   string // KNOW_OIDC_REDIRECT_URL
+	OIDCProviderName  string // KNOW_OIDC_PROVIDER_NAME (default: derived from issuer URL)
 	SelfSignupEnabled bool   // KNOW_SELF_SIGNUP_ENABLED (default: false)
 
 	// Server settings
@@ -139,6 +141,25 @@ type Config struct {
 	// Build info (set by ldflags, passed in by caller)
 	Version string
 	Commit  string
+}
+
+// ValidateOIDC checks that OIDC configuration is consistent.
+// Returns an error if OIDC is enabled but required fields are missing.
+func (c Config) ValidateOIDC() error {
+	if !c.OIDCEnabled {
+		return nil
+	}
+	if c.OIDCIssuerURL == "" {
+		return fmt.Errorf("oidc config: KNOW_OIDC_ISSUER_URL is required when OIDC is enabled")
+	}
+	if c.OIDCClientID == "" {
+		return fmt.Errorf("oidc config: KNOW_OIDC_CLIENT_ID is required when OIDC is enabled")
+	}
+	if c.OIDCRedirectURL == "" {
+		return fmt.Errorf("oidc config: KNOW_OIDC_REDIRECT_URL is required when OIDC is enabled")
+	}
+	// OIDCClientSecret is not validated — public OIDC clients using PKCE may not have one.
+	return nil
 }
 
 // IsProduction returns true if the server is running in production mode.
@@ -260,6 +281,7 @@ func Load() Config {
 		OIDCClientID:      getEnv("KNOW_OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:  getEnv("KNOW_OIDC_CLIENT_SECRET", ""),
 		OIDCRedirectURL:   getEnv("KNOW_OIDC_REDIRECT_URL", ""),
+		OIDCProviderName:  getEnv("KNOW_OIDC_PROVIDER_NAME", ""),
 		SelfSignupEnabled: getEnvBool("KNOW_SELF_SIGNUP_ENABLED", false),
 
 		// Server settings

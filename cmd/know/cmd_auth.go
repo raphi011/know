@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,13 +22,20 @@ type AuthConfig struct {
 	Token  string `json:"token"`
 }
 
-func authConfigPath() string {
-	configDir, _ := os.UserConfigDir()
-	return filepath.Join(configDir, "know", "auth.json")
+func authConfigPath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("user config dir: %w", err)
+	}
+	return filepath.Join(configDir, "know", "auth.json"), nil
 }
 
 func loadAuthConfig() (*AuthConfig, error) {
-	data, err := os.ReadFile(authConfigPath())
+	path, err := authConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -42,7 +50,11 @@ func loadAuthConfig() (*AuthConfig, error) {
 }
 
 func saveAuthConfig(cfg *AuthConfig) error {
-	dir := filepath.Dir(authConfigPath())
+	path, err := authConfigPath()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -50,7 +62,7 @@ func saveAuthConfig(cfg *AuthConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(authConfigPath(), data, 0600)
+	return os.WriteFile(path, data, 0600)
 }
 
 var authCmd = &cobra.Command{
@@ -109,8 +121,18 @@ func loginWithBrowser(apiURL string) error {
 		case <-ticker.C:
 			token, err := client.DeviceFlowPoll(ctx, resp.DeviceCode)
 			if err != nil {
-				// authorization_pending or other transient error — keep polling
-				continue
+				var httpErr *apiclient.HTTPError
+				if errors.As(err, &httpErr) {
+					switch httpErr.StatusCode {
+					case 428: // authorization_pending — keep polling
+						continue
+					case 410: // expired
+						return fmt.Errorf("device code expired — please try again")
+					case 404: // not found
+						return fmt.Errorf("device code not found — please try again")
+					}
+				}
+				return fmt.Errorf("poll device flow: %w", err)
 			}
 			if token != "" {
 				if err := saveAuthConfig(&AuthConfig{APIURL: apiURL, Token: token}); err != nil {
@@ -147,18 +169,20 @@ func loginWithToken(apiURL string) error {
 	return nil
 }
 
-func openBrowser(url string) {
+func openBrowser(urlStr string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", urlStr)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", urlStr)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", urlStr)
 	}
 	if cmd != nil {
-		_ = cmd.Start() // best-effort; user can open URL manually
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Could not open browser: %v\nPlease open this URL manually: %s\n", err, urlStr)
+		}
 	}
 }
 
@@ -194,7 +218,10 @@ var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored authentication token",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path := authConfigPath()
+		path, err := authConfigPath()
+		if err != nil {
+			return fmt.Errorf("auth config path: %w", err)
+		}
 		if err := os.Remove(path); err != nil {
 			if os.IsNotExist(err) {
 				fmt.Println("Not logged in.")

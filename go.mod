@@ -36,6 +36,7 @@ require (
 	github.com/yuin/goldmark v1.7.16
 	github.com/yuin/goldmark-meta v1.1.0
 	go.abhg.dev/goldmark/wikilink v0.6.0
+	go.yaml.in/yaml/v2 v2.4.4
 	golang.org/x/crypto v0.49.0
 	golang.org/x/net v0.52.0
 	golang.org/x/sync v0.20.0
@@ -59,7 +60,6 @@ require (
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886 // indirect
-	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

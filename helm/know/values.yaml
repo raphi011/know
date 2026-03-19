@@ -125,6 +125,7 @@ oidc:
   # clientSecret is stored in the secret
   clientSecret: ""
   redirectURL: ""
+  providerName: ""  # explicit provider name for DB key (default: derived from issuer URL)
   selfSignupEnabled: false
 
 # API keys (set via existingSecret or directly)

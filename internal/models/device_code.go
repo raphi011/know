@@ -14,9 +14,9 @@ type DeviceCode struct {
 	ExpiresAt  time.Time               `json:"expires_at"`
 	User       *surrealmodels.RecordID `json:"user,omitempty"`
 	Approved   bool                    `json:"approved"`
-	// TokenHash stores the raw API token temporarily (despite the field name).
+	// RawToken stores the raw API token temporarily so the polling CLI can retrieve it.
 	// The device code record is short-lived (15 min max) and deleted after
 	// the CLI polls successfully. The raw token is also stored hashed in api_token.
-	TokenHash *string   `json:"token_hash,omitempty"`
+	RawToken  *string   `json:"raw_token,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }

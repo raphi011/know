@@ -135,6 +135,76 @@ func TestIsProduction(t *testing.T) {
 	}
 }
 
+func TestValidateOIDC(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{
+			name:    "disabled returns nil",
+			cfg:     Config{OIDCEnabled: false},
+			wantErr: false,
+		},
+		{
+			name: "all fields set returns nil",
+			cfg: Config{
+				OIDCEnabled:     true,
+				OIDCIssuerURL:   "https://auth.example.com",
+				OIDCClientID:    "my-client",
+				OIDCRedirectURL: "https://know.example.com/auth/callback",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing issuer URL",
+			cfg: Config{
+				OIDCEnabled:     true,
+				OIDCClientID:    "my-client",
+				OIDCRedirectURL: "https://know.example.com/auth/callback",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing client ID",
+			cfg: Config{
+				OIDCEnabled:     true,
+				OIDCIssuerURL:   "https://auth.example.com",
+				OIDCRedirectURL: "https://know.example.com/auth/callback",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing redirect URL",
+			cfg: Config{
+				OIDCEnabled:   true,
+				OIDCIssuerURL: "https://auth.example.com",
+				OIDCClientID:  "my-client",
+			},
+			wantErr: true,
+		},
+		{
+			name: "client secret not required (public client)",
+			cfg: Config{
+				OIDCEnabled:     true,
+				OIDCIssuerURL:   "https://auth.example.com",
+				OIDCClientID:    "my-client",
+				OIDCRedirectURL: "https://know.example.com/auth/callback",
+				// OIDCClientSecret deliberately empty
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.ValidateOIDC()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateOIDC() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestEffectiveChunkConfig_PassesValidate(t *testing.T) {
 	// EffectiveChunkConfig output must always pass Validate for reasonable inputs.
 	limits := []int{0, 300, 500, 1000, 2048, 5000, 10000}

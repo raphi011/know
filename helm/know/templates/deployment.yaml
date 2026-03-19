@@ -74,6 +74,10 @@ spec:
                   key: client-secret
             - name: KNOW_OIDC_REDIRECT_URL
               value: {{ .Values.oidc.redirectURL | quote }}
+            {{- if .Values.oidc.providerName }}
+            - name: KNOW_OIDC_PROVIDER_NAME
+              value: {{ .Values.oidc.providerName | quote }}
+            {{- end }}
             - name: KNOW_SELF_SIGNUP_ENABLED
               value: {{ .Values.oidc.selfSignupEnabled | quote }}
             {{- end }}

@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -27,6 +29,12 @@ import (
 	"github.com/raphi011/know/internal/pipeline"
 	"github.com/raphi011/know/internal/stt"
 )
+
+// vaultEmbedEntry caches vault embedding enabled status for a short duration.
+type vaultEmbedEntry struct {
+	enabled   bool
+	expiresAt time.Time
+}
 
 // VersionConfig holds versioning settings.
 type VersionConfig struct {
@@ -50,6 +58,10 @@ type Service struct {
 	embedMaxInputChars  int        // hard limit for embedding API input (0 = no limit)
 	audioSegmentSeconds int        // max audio segment duration for chunking (default 60)
 	pdfRenderDPI        int        // DPI for PDF page rendering (default 300)
+
+	// vaultEmbedCache caches vault embedding toggle to avoid N+1 DB lookups on bulk operations.
+	vaultEmbedMu    sync.Mutex
+	vaultEmbedCache map[string]vaultEmbedEntry
 }
 
 // SetEmbedder atomically replaces the embedder (used by SIGHUP reload).
@@ -120,16 +132,44 @@ func (s *Service) SetPDFRenderDPI(dpi int) {
 	s.pdfRenderDPI = dpi
 }
 
-// shouldEmbed returns true if the file at filePath should have embeddings generated.
-// It checks vault-level embedding toggle first, then whether any ancestor folder has
-// no_embed = true. Fails open (returns true) on error.
-func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) bool {
+// vaultEmbeddingEnabled checks the vault-level embedding toggle with a short cache
+// to avoid N+1 DB lookups during bulk operations. Fails open on error.
+func (s *Service) vaultEmbeddingEnabled(ctx context.Context, vaultID string) bool {
+	const cacheTTL = 1 * time.Minute
+
+	s.vaultEmbedMu.Lock()
+	if s.vaultEmbedCache == nil {
+		s.vaultEmbedCache = make(map[string]vaultEmbedEntry)
+	}
+	if entry, ok := s.vaultEmbedCache[vaultID]; ok && time.Now().Before(entry.expiresAt) {
+		s.vaultEmbedMu.Unlock()
+		return entry.enabled
+	}
+	s.vaultEmbedMu.Unlock()
+
 	vault, err := s.db.GetVault(ctx, vaultID)
 	if err != nil {
-		logutil.FromCtx(ctx).Warn("failed to load vault for embed check", "vault_id", vaultID, "error", err)
-		return true // fail open
+		logutil.FromCtx(ctx).Warn("failed to load vault for embed check, defaulting to enabled", "vault_id", vaultID, "error", err)
+		return true // fail open but don't cache — next call retries the DB lookup
 	}
-	if vault != nil && !vault.Defaults().IsEmbeddingEnabled() {
+
+	enabled := true
+	if vault != nil {
+		enabled = vault.Defaults().IsEmbeddingEnabled()
+	}
+
+	s.vaultEmbedMu.Lock()
+	s.vaultEmbedCache[vaultID] = vaultEmbedEntry{enabled: enabled, expiresAt: time.Now().Add(cacheTTL)}
+	s.vaultEmbedMu.Unlock()
+
+	return enabled
+}
+
+// shouldEmbed returns true if the file at filePath should have embeddings generated.
+// It checks vault-level embedding toggle first (cached), then whether any ancestor
+// folder has no_embed = true. Fails open (returns true) on error.
+func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) bool {
+	if !s.vaultEmbeddingEnabled(ctx, vaultID) {
 		return false
 	}
 

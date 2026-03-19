@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -54,14 +55,14 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	tokens, err := s.app.DBClient().ListTokens(ctx, ac.UserID)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("list tokens", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list tokens")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list tokens")
 		return
 	}
 
@@ -80,7 +81,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -90,12 +91,12 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
-		writeError(w, http.StatusBadRequest, "expires_in_days must be positive")
+		httputil.WriteProblem(w, http.StatusBadRequest, "expires_in_days must be positive")
 		return
 	}
 
@@ -108,7 +109,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 
 	// Enforce max lifetime if configured (0 = no limit)
 	if maxDays > 0 && expiryDays > maxDays {
-		writeError(w, http.StatusBadRequest, "expires_in_days exceeds maximum allowed lifetime")
+		httputil.WriteProblem(w, http.StatusBadRequest, "expires_in_days exceeds maximum allowed lifetime")
 		return
 	}
 
@@ -123,14 +124,14 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	raw, hash, err := auth.GenerateToken()
 	if err != nil {
 		logutil.FromCtx(ctx).Error("generate token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
 	token, err := s.app.DBClient().CreateToken(ctx, ac.UserID, hash, req.Name, expiresAt)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("create token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create token")
 		return
 	}
 
@@ -146,13 +147,13 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	tokenID := r.PathValue("id")
 	if tokenID == "" {
-		writeError(w, http.StatusBadRequest, "token id is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "token id is required")
 		return
 	}
 
@@ -160,29 +161,29 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
 	token, err := s.app.DBClient().GetTokenByID(ctx, tokenID)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("get token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get token")
 		return
 	}
 	if token == nil {
-		writeError(w, http.StatusNotFound, "token not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "token not found")
 		return
 	}
 
 	ownerID, err := models.RecordIDString(token.User)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("delete token: extract owner", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to verify token ownership")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to verify token ownership")
 		return
 	}
 
 	if ownerID != ac.UserID && !ac.IsSystemAdmin {
-		writeError(w, http.StatusForbidden, "cannot delete another user's token")
+		httputil.WriteProblem(w, http.StatusForbidden, "cannot delete another user's token")
 		return
 	}
 
 	if err := s.app.DBClient().DeleteToken(ctx, tokenID); err != nil {
 		logutil.FromCtx(ctx).Error("delete token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to delete token")
 		return
 	}
 
@@ -195,13 +196,13 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	tokenID := r.PathValue("id")
 	if tokenID == "" {
-		writeError(w, http.StatusBadRequest, "token id is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "token id is required")
 		return
 	}
 
@@ -209,23 +210,23 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 	oldToken, err := s.app.DBClient().GetTokenByID(ctx, tokenID)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("get token for rotation", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get token")
 		return
 	}
 	if oldToken == nil {
-		writeError(w, http.StatusNotFound, "token not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "token not found")
 		return
 	}
 
 	ownerID, err := models.RecordIDString(oldToken.User)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("rotate token: extract owner", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to verify token ownership")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to verify token ownership")
 		return
 	}
 
 	if ownerID != ac.UserID && !ac.IsSystemAdmin {
-		writeError(w, http.StatusForbidden, "cannot rotate another user's token")
+		httputil.WriteProblem(w, http.StatusForbidden, "cannot rotate another user's token")
 		return
 	}
 
@@ -256,7 +257,7 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 	raw, hash, err := auth.GenerateToken()
 	if err != nil {
 		logutil.FromCtx(ctx).Error("generate token for rotation", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
@@ -264,7 +265,7 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 	newToken, err := s.app.DBClient().CreateToken(ctx, ac.UserID, hash, oldToken.Name, expiresAt)
 	if err != nil {
 		logutil.FromCtx(ctx).Error("create rotated token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create new token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create new token")
 		return
 	}
 

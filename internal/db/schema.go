@@ -410,7 +410,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS expires_at   ON device_code TYPE datetime;
     DEFINE FIELD IF NOT EXISTS user         ON device_code TYPE option<record<user>>;
     DEFINE FIELD IF NOT EXISTS approved     ON device_code TYPE bool DEFAULT false;
-    DEFINE FIELD IF NOT EXISTS token_hash   ON device_code TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS raw_token    ON device_code TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS created_at   ON device_code TYPE datetime DEFAULT time::now();
 
     DEFINE INDEX IF NOT EXISTS idx_device_code_code ON device_code FIELDS device_code UNIQUE;
@@ -421,5 +421,6 @@ func SchemaSQL(dimension int) string {
     -- ==========================================================================
     REMOVE INDEX IF EXISTS idx_chunk_file ON chunk;
     REMOVE INDEX IF EXISTS idx_message_conversation ON message;
+    REMOVE FIELD IF EXISTS token_hash ON device_code;
 `, dimension)
 }

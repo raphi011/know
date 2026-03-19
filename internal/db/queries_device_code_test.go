@@ -90,11 +90,22 @@ func TestApproveDeviceCode(t *testing.T) {
 	if !dc.Approved {
 		t.Error("expected approved=true after ApproveDeviceCode")
 	}
-	if dc.TokenHash == nil || *dc.TokenHash != rawToken {
-		t.Errorf("expected token_hash %q, got %v", rawToken, dc.TokenHash)
+	if dc.RawToken == nil || *dc.RawToken != rawToken {
+		t.Errorf("expected raw_token %q, got %v", rawToken, dc.RawToken)
 	}
 	if dc.User == nil {
 		t.Error("expected user to be set after approve")
+	}
+}
+
+func TestApproveDeviceCodeNotFound(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	err := testDB.ApproveDeviceCode(ctx, "NONEXIST", userID, "kh_faketoken")
+	if err == nil {
+		t.Fatal("ApproveDeviceCode should return error for nonexistent user code")
 	}
 }
 

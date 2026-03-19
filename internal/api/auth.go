@@ -11,6 +11,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/oidc"
@@ -26,14 +27,19 @@ type OIDCHandler struct {
 	provider             *oidc.Provider
 	db                   *db.Client
 	selfSignup           bool
-	stateSecret          []byte // HMAC key for signing state parameters
-	redirectURL          string // configured OIDC redirect URL, used to derive base URL
+	stateSecret          []byte // HMAC key for signing state parameters; regenerated each startup, invalidating in-flight device flows
+	baseURL              string // scheme+host derived from redirect URL (e.g. "https://know.example.com")
 	tokenMaxLifetimeDays int
 }
 
 // NewOIDCHandler creates a new OIDC handler.
 // Generates a random 32-byte state secret on creation.
+// Returns an error if the redirectURL is malformed.
 func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup bool, redirectURL string, tokenMaxLifetimeDays int) (*OIDCHandler, error) {
+	u, err := url.Parse(redirectURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("invalid redirect URL %q: must be an absolute URL with scheme and host", redirectURL)
+	}
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("generate state secret: %w", err)
@@ -43,7 +49,7 @@ func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup boo
 		db:                   dbClient,
 		selfSignup:           selfSignup,
 		stateSecret:          secret,
-		redirectURL:          redirectURL,
+		baseURL:              u.Scheme + "://" + u.Host,
 		tokenMaxLifetimeDays: tokenMaxLifetimeDays,
 	}, nil
 }
@@ -57,16 +63,6 @@ func (h *OIDCHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/callback", h.handleOIDCCallback)
 }
 
-// baseURL derives the scheme+host from the configured redirect URL.
-// e.g. "https://know.example.com/auth/callback" -> "https://know.example.com"
-func (h *OIDCHandler) baseURL() string {
-	u, err := url.Parse(h.redirectURL)
-	if err != nil {
-		return ""
-	}
-	return u.Scheme + "://" + u.Host
-}
-
 // handleDeviceStart initiates the device authorization flow.
 // POST /auth/device/start
 // Response: {user_code, verification_uri, device_code, expires_in, interval}
@@ -77,18 +73,18 @@ func (h *OIDCHandler) handleDeviceStart(w http.ResponseWriter, r *http.Request) 
 	userCode, deviceCode, err := oidc.GenerateDeviceCode()
 	if err != nil {
 		logger.Error("generate device code", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to generate device code")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to generate device code")
 		return
 	}
 
 	expiresAt := time.Now().Add(deviceCodeExpiry)
 	if err := h.db.CreateDeviceCode(ctx, deviceCode, userCode, expiresAt); err != nil {
 		logger.Error("store device code", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to store device code")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to store device code")
 		return
 	}
 
-	verificationURI := h.baseURL() + "/auth/login?user_code=" + userCode
+	verificationURI := h.baseURL + "/auth/login?user_code=" + userCode
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_code":        oidc.FormatUserCode(userCode),
@@ -102,10 +98,10 @@ func (h *OIDCHandler) handleDeviceStart(w http.ResponseWriter, r *http.Request) 
 // handleDevicePoll checks whether a device code has been approved.
 // POST /auth/device/poll
 // Request body: {device_code}
-// Responses:
+// Responses use RFC 9457 Problem Details (application/problem+json):
 //   - 200 {token} — approved, token returned
-//   - 428 {error: "authorization_pending"} — not yet approved
-//   - 410 {error: "expired"} — device code expired
+//   - 428 {detail: "authorization_pending"} — not yet approved
+//   - 410 {detail: "expired"} — device code expired
 //   - 404 — device code not found
 func (h *OIDCHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -119,18 +115,18 @@ func (h *OIDCHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.DeviceCode == "" {
-		writeError(w, http.StatusBadRequest, "device_code is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "device_code is required")
 		return
 	}
 
 	dc, err := h.db.GetDeviceCodeByCode(ctx, body.DeviceCode)
 	if err != nil {
 		logger.Error("get device code", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to look up device code")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to look up device code")
 		return
 	}
 	if dc == nil {
-		writeError(w, http.StatusNotFound, "device code not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "device code not found")
 		return
 	}
 
@@ -139,23 +135,28 @@ func (h *OIDCHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 		if err := h.db.DeleteDeviceCode(ctx, body.DeviceCode); err != nil {
 			logger.Warn("delete expired device code", "error", err)
 		}
-		writeError(w, http.StatusGone, "expired")
+		httputil.WriteProblem(w, http.StatusGone, "expired")
 		return
 	}
 
 	if !dc.Approved {
-		writeError(w, http.StatusPreconditionRequired, "authorization_pending")
+		httputil.WriteProblem(w, http.StatusPreconditionRequired, "authorization_pending")
 		return
 	}
 
 	// Approved — return the token and delete the device code record
 	token := ""
-	if dc.TokenHash != nil {
-		token = *dc.TokenHash
+	if dc.RawToken != nil {
+		token = *dc.RawToken
+	}
+	if token == "" {
+		logger.Error("approved device code has no token", "device_code", body.DeviceCode)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "device code approved but token missing")
+		return
 	}
 
 	if err := h.db.DeleteDeviceCode(ctx, body.DeviceCode); err != nil {
-		logger.Warn("delete approved device code", "error", err)
+		logger.Error("delete approved device code — raw token may linger until expiry cleanup", "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -171,7 +172,7 @@ func (h *OIDCHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 
 	userCode := r.URL.Query().Get("user_code")
 	if userCode == "" {
-		writeError(w, http.StatusBadRequest, "user_code query parameter is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "user_code query parameter is required")
 		return
 	}
 
@@ -179,15 +180,15 @@ func (h *OIDCHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	dc, err := h.db.GetDeviceCodeByUserCode(ctx, userCode)
 	if err != nil {
 		logger.Error("get device code by user code", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to look up device code")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to look up device code")
 		return
 	}
 	if dc == nil {
-		writeError(w, http.StatusNotFound, "invalid or expired user code")
+		httputil.WriteProblem(w, http.StatusNotFound, "invalid or expired user code")
 		return
 	}
 	if time.Now().After(dc.ExpiresAt) {
-		writeError(w, http.StatusGone, "user code has expired")
+		httputil.WriteProblem(w, http.StatusGone, "user code has expired")
 		return
 	}
 
@@ -206,13 +207,13 @@ func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 	code := r.URL.Query().Get("code")
 
 	if state == "" || code == "" {
-		writeError(w, http.StatusBadRequest, "missing state or code parameter")
+		httputil.WriteProblem(w, http.StatusBadRequest, "missing state or code parameter")
 		return
 	}
 
 	userCode, ok := oidc.VerifyState(h.stateSecret, state)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid state parameter")
+		httputil.WriteProblem(w, http.StatusBadRequest, "invalid state parameter")
 		return
 	}
 
@@ -220,22 +221,22 @@ func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 	userInfo, err := h.provider.ExchangeCode(ctx, code)
 	if err != nil {
 		logger.Error("exchange oidc code", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to exchange authorization code")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to exchange authorization code")
 		return
 	}
 
 	// Resolve or create the user
 	user, err := oidc.FindOrCreateUser(ctx, h.db, userInfo, h.selfSignup)
 	if err != nil {
-		logger.Error("find or create user", "error", err)
-		writeError(w, http.StatusForbidden, "login failed: "+err.Error())
+		logger.Warn("find or create user failed", "error", err)
+		httputil.WriteProblem(w, http.StatusForbidden, "login failed: user not found or registration disabled")
 		return
 	}
 
 	userID, err := models.RecordIDString(user.ID)
 	if err != nil {
 		logger.Error("extract user id", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to extract user ID")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to extract user ID")
 		return
 	}
 
@@ -243,21 +244,30 @@ func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 	rawToken, tokenHash, err := auth.GenerateToken()
 	if err != nil {
 		logger.Error("generate token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
 	tokenExpiry := time.Now().Add(time.Duration(h.tokenMaxLifetimeDays) * 24 * time.Hour)
-	if _, err := h.db.CreateToken(ctx, userID, tokenHash, "oidc-device-login", tokenExpiry); err != nil {
+	token, err := h.db.CreateToken(ctx, userID, tokenHash, "oidc-device-login", tokenExpiry)
+	if err != nil {
 		logger.Error("create token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create token")
 		return
 	}
 
-	// Approve the device code with the raw token so the CLI can retrieve it
+	// Approve the device code with the raw token so the CLI can retrieve it.
+	// Raw token stored temporarily — record is deleted within 15 min after poll.
 	if err := h.db.ApproveDeviceCode(ctx, userCode, userID, rawToken); err != nil {
 		logger.Error("approve device code", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to approve device code")
+		// Clean up the orphaned token to avoid leaving a valid but undelivered credential
+		tokenID, idErr := models.RecordIDString(token.ID)
+		if idErr != nil {
+			logger.Error("extract token id for cleanup", "error", idErr)
+		} else if delErr := h.db.DeleteToken(ctx, tokenID); delErr != nil {
+			logger.Error("delete orphaned token after device code approval failure", "error", delErr)
+		}
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to approve device code")
 		return
 	}
 
@@ -296,7 +306,7 @@ func (h *OIDCHandler) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	}
 
 	if body.Code == "" || body.CodeVerifier == "" {
-		writeError(w, http.StatusBadRequest, "code and code_verifier are required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "code and code_verifier are required")
 		return
 	}
 
@@ -306,22 +316,22 @@ func (h *OIDCHandler) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	)
 	if err != nil {
 		logger.Error("exchange code with pkce", "error", err)
-		writeError(w, http.StatusBadRequest, "failed to exchange authorization code")
+		httputil.WriteProblem(w, http.StatusBadRequest, "failed to exchange authorization code")
 		return
 	}
 
 	// Resolve or create user
 	user, err := oidc.FindOrCreateUser(ctx, h.db, userInfo, h.selfSignup)
 	if err != nil {
-		logger.Error("find or create user", "error", err)
-		writeError(w, http.StatusForbidden, "login failed: "+err.Error())
+		logger.Warn("find or create user failed", "error", err)
+		httputil.WriteProblem(w, http.StatusForbidden, "login failed: user not found or registration disabled")
 		return
 	}
 
 	userID, err := models.RecordIDString(user.ID)
 	if err != nil {
 		logger.Error("token exchange: extract user id", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to extract user ID")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to extract user ID")
 		return
 	}
 
@@ -329,14 +339,14 @@ func (h *OIDCHandler) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	rawToken, tokenHash, err := auth.GenerateToken()
 	if err != nil {
 		logger.Error("generate token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
 	tokenExpiry := time.Now().Add(time.Duration(h.tokenMaxLifetimeDays) * 24 * time.Hour)
 	if _, err := h.db.CreateToken(ctx, userID, tokenHash, "oidc-pkce-login", tokenExpiry); err != nil {
 		logger.Error("create token", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create token")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create token")
 		return
 	}
 

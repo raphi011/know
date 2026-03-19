@@ -61,8 +61,7 @@ func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string
 	// Filter by MCPEnabled toggle (batch load to avoid N+1)
 	vaults, err := vaultService.GetByIDs(ctx, ids)
 	if err != nil {
-		logutil.FromCtx(ctx).Warn("failed to load vaults for MCP check, including all", "error", err)
-		return ids, nil // fail open
+		return nil, fmt.Errorf("load vaults for MCP check: %w", err)
 	}
 	// Build set of MCP-disabled vault IDs to filter from the existing ids slice.
 	disabled := make(map[string]bool, len(vaults))
@@ -70,6 +69,7 @@ func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string
 		if !v.Defaults().IsMCPEnabled() {
 			id, err := models.RecordIDString(v.ID)
 			if err != nil {
+				logutil.FromCtx(ctx).Warn("failed to extract vault ID for MCP filter, skipping", "vault_name", v.Name, "error", err)
 				continue
 			}
 			disabled[id] = true

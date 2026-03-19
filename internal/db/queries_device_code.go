@@ -50,17 +50,22 @@ func (c *Client) GetDeviceCodeByCode(ctx context.Context, deviceCode string) (*m
 }
 
 // ApproveDeviceCode marks a device code as approved and links the user + token.
-// The rawToken is stored temporarily in the token_hash field so the polling CLI
+// The rawToken is stored temporarily in the raw_token field so the polling CLI
 // can retrieve it. The device code record is deleted after successful poll.
+// Returns an error if the user code does not match any record.
 func (c *Client) ApproveDeviceCode(ctx context.Context, userCode string, userID string, rawToken string) error {
 	defer c.logOp(ctx, "device_code.approve", time.Now())
-	sql := `UPDATE device_code SET approved = true, user = type::record("user", $user_id), token_hash = $raw_token WHERE user_code = $user_code`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+	sql := `UPDATE device_code SET approved = true, user = type::record("user", $user_id), raw_token = $raw_token WHERE user_code = $user_code`
+	results, err := surrealdb.Query[[]models.DeviceCode](ctx, c.DB(), sql, map[string]any{
 		"user_code": userCode,
 		"user_id":   bareID("user", userID),
 		"raw_token": rawToken,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("approve device code: %w", err)
+	}
+	if firstResultOpt(results) == nil {
+		return fmt.Errorf("approve device code: no matching device code for user_code %q", userCode)
 	}
 	return nil
 }

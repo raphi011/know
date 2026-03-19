@@ -126,12 +126,13 @@ func TestCreateToken_missingName(t *testing.T) {
 		t.Errorf("expected 400, got %d", rec.Code)
 	}
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.Contains(resp["error"], "name") {
-		t.Errorf("expected error about name, got %q", resp["error"])
+	detail, _ := resp["detail"].(string)
+	if !strings.Contains(detail, "name") {
+		t.Errorf("expected error detail about name, got %q", detail)
 	}
 }
 

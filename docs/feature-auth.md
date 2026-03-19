@@ -251,6 +251,7 @@ When disabled (default), only pre-existing users can log in via OIDC. An admin m
 | `KNOW_OIDC_CLIENT_ID`         | —       | OAuth2 client ID                                |
 | `KNOW_OIDC_CLIENT_SECRET`     | —       | OAuth2 client secret                            |
 | `KNOW_OIDC_REDIRECT_URL`      | —       | Callback URL (e.g. `https://host/auth/callback`)|
+| `KNOW_OIDC_PROVIDER_NAME`    | —       | Explicit provider name for DB key (default: derived from issuer URL) |
 | `KNOW_SELF_SIGNUP_ENABLED`    | `false` | Auto-create users on first OIDC login           |
 | `KNOW_TOKEN_MAX_LIFETIME_DAYS`| `90`    | Max token lifetime in days (0 = no limit)       |
 | `KNOW_TOKEN`                  | —       | API token for CLI commands                      |
