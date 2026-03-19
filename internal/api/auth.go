@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"time"
 
+	"golang.org/x/oauth2"
+
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/logutil"
@@ -50,6 +52,7 @@ func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup boo
 func (h *OIDCHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/device/start", h.handleDeviceStart)
 	mux.HandleFunc("POST /auth/device/poll", h.handleDevicePoll)
+	mux.HandleFunc("POST /auth/token", h.handleTokenExchange)
 	mux.HandleFunc("GET /auth/login", h.handleOIDCLogin)
 	mux.HandleFunc("GET /auth/callback", h.handleOIDCCallback)
 }
@@ -273,4 +276,76 @@ func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 </div>
 </body>
 </html>`)
+}
+
+// handleTokenExchange handles POST /auth/token
+// This is for native apps using PKCE flow.
+// Request body: {code, code_verifier, redirect_uri}
+// Response: {token: "kh_...", user: {id, name, email}}
+func (h *OIDCHandler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
+
+	body, ok := decodeBody[struct {
+		Code         string `json:"code"`
+		CodeVerifier string `json:"code_verifier"`
+		RedirectURI  string `json:"redirect_uri"`
+	}](w, r, 4096)
+	if !ok {
+		return
+	}
+
+	if body.Code == "" || body.CodeVerifier == "" {
+		writeError(w, http.StatusBadRequest, "code and code_verifier are required")
+		return
+	}
+
+	// Exchange with PKCE verifier
+	userInfo, err := h.provider.ExchangeCode(ctx, body.Code,
+		oauth2.SetAuthURLParam("code_verifier", body.CodeVerifier),
+	)
+	if err != nil {
+		logger.Error("exchange code with pkce", "error", err)
+		writeError(w, http.StatusBadRequest, "failed to exchange authorization code")
+		return
+	}
+
+	// Resolve or create user
+	user, err := oidc.FindOrCreateUser(ctx, h.db, userInfo, h.selfSignup)
+	if err != nil {
+		logger.Error("find or create user", "error", err)
+		writeError(w, http.StatusForbidden, "login failed: "+err.Error())
+		return
+	}
+
+	userID, err := models.RecordIDString(user.ID)
+	if err != nil {
+		logger.Error("token exchange: extract user id", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to extract user ID")
+		return
+	}
+
+	// Generate API token
+	rawToken, tokenHash, err := auth.GenerateToken()
+	if err != nil {
+		logger.Error("generate token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	tokenExpiry := time.Now().Add(time.Duration(h.tokenMaxLifetimeDays) * 24 * time.Hour)
+	if _, err := h.db.CreateToken(ctx, userID, tokenHash, "oidc-pkce-login", tokenExpiry); err != nil {
+		logger.Error("create token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token": rawToken,
+		"user": map[string]any{
+			"id":    userID,
+			"name":  user.Name,
+			"email": user.Email,
+		},
+	})
 }
