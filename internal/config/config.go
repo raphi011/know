@@ -85,13 +85,15 @@ type Config struct {
 	RateLimitGlobalBurst int     // KNOW_RATE_LIMIT_GLOBAL_BURST (default: 200)
 
 	// OIDC authentication
-	OIDCEnabled       bool   // KNOW_OIDC_ENABLED (default: false)
-	OIDCIssuerURL     string // KNOW_OIDC_ISSUER_URL
-	OIDCClientID      string // KNOW_OIDC_CLIENT_ID
-	OIDCClientSecret  string // KNOW_OIDC_CLIENT_SECRET
-	OIDCRedirectURL   string // KNOW_OIDC_REDIRECT_URL
-	OIDCProviderName  string // KNOW_OIDC_PROVIDER_NAME (default: derived from issuer URL)
-	SelfSignupEnabled bool   // KNOW_SELF_SIGNUP_ENABLED (default: false)
+	OIDCEnabled      bool   // KNOW_OIDC_ENABLED (default: false)
+	OIDCProviderType string // KNOW_OIDC_PROVIDER_TYPE ("oidc" or "github", default: "oidc")
+	OIDCIssuerURL    string // KNOW_OIDC_ISSUER_URL
+	OIDCClientID     string // KNOW_OIDC_CLIENT_ID
+	OIDCClientSecret string // KNOW_OIDC_CLIENT_SECRET
+	OIDCRedirectURL  string // KNOW_OIDC_REDIRECT_URL
+	OIDCProviderName string // KNOW_OIDC_PROVIDER_NAME (default: derived from issuer URL)
+
+	SelfSignupEnabled bool // KNOW_SELF_SIGNUP_ENABLED (default: false)
 
 	// Server settings
 	Environment       string // KNOW_ENVIRONMENT ("development" or "production", default: "development")
@@ -154,8 +156,15 @@ func (c Config) ValidateOIDC() error {
 	if !c.OIDCEnabled {
 		return nil
 	}
-	if c.OIDCIssuerURL == "" {
-		return fmt.Errorf("oidc config: KNOW_OIDC_ISSUER_URL is required when OIDC is enabled")
+	switch c.OIDCProviderType {
+	case "oidc", "":
+		if c.OIDCIssuerURL == "" {
+			return fmt.Errorf("oidc config: KNOW_OIDC_ISSUER_URL is required when provider type is \"oidc\"")
+		}
+	case "github":
+		// GitHub does not use OIDC discovery; issuer URL is not needed.
+	default:
+		return fmt.Errorf("oidc config: KNOW_OIDC_PROVIDER_TYPE must be \"oidc\" or \"github\", got %q", c.OIDCProviderType)
 	}
 	if c.OIDCClientID == "" {
 		return fmt.Errorf("oidc config: KNOW_OIDC_CLIENT_ID is required when OIDC is enabled")
@@ -287,6 +296,7 @@ func Load() Config {
 
 		// OIDC authentication
 		OIDCEnabled:       getEnvBool("KNOW_OIDC_ENABLED", false),
+		OIDCProviderType:  getEnv("KNOW_OIDC_PROVIDER_TYPE", "oidc"),
 		OIDCIssuerURL:     getEnv("KNOW_OIDC_ISSUER_URL", ""),
 		OIDCClientID:      getEnv("KNOW_OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:  getEnv("KNOW_OIDC_CLIENT_SECRET", ""),

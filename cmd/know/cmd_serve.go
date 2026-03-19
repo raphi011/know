@@ -187,11 +187,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// OIDC auth routes (unauthenticated — must be registered before auth middleware)
 	if cfg.OIDCEnabled {
-		oidcProvider, oidcErr := oidc.New(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.OIDCRedirectURL, nil, cfg.OIDCProviderName)
-		if oidcErr != nil {
-			return fmt.Errorf("init oidc provider: %w", oidcErr)
+		var oidcProvider oidc.Provider
+		switch cfg.OIDCProviderType {
+		case "github":
+			oidcProvider = oidc.NewGitHub(cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.OIDCRedirectURL, cfg.OIDCProviderName)
+		default:
+			oidcCtx, oidcCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer oidcCancel()
+			p, oidcErr := oidc.NewOIDC(oidcCtx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.OIDCRedirectURL, nil, cfg.OIDCProviderName)
+			if oidcErr != nil {
+				return fmt.Errorf("init oidc provider: %w", oidcErr)
+			}
+			oidcProvider = p
 		}
-		oidcHandler, oidcErr := api.NewOIDCHandler(oidcProvider, app.DBClient(), cfg.SelfSignupEnabled, cfg.OIDCRedirectURL, cfg.TokenMaxLifetimeDays)
+		oidcHandler, oidcErr := api.NewAuthHandler(oidcProvider, app.DBClient(), cfg.SelfSignupEnabled, cfg.OIDCRedirectURL, cfg.TokenMaxLifetimeDays)
 		if oidcErr != nil {
 			return fmt.Errorf("init oidc handler: %w", oidcErr)
 		}
@@ -200,7 +209,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		} else {
 			oidcHandler.RegisterRoutes(mux)
 		}
-		slog.Info("OIDC authentication enabled", "issuer", cfg.OIDCIssuerURL, "provider_name", oidcProvider.ProviderName())
+		slog.Info("OIDC authentication enabled", "provider_type", cfg.OIDCProviderType, "provider_name", oidcProvider.ProviderName())
 	}
 
 	// Periodic cleanup: expired tokens (always) and device codes (when OIDC enabled)

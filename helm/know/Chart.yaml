@@ -2,7 +2,7 @@ apiVersion: v2
 name: know
 description: Know - Personal Knowledge RAG Database with REST API and WebDAV
 type: application
-version: 0.10.1
+version: 0.10.2
 appVersion: "0.12.0"
 keywords:
   - know

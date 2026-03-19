@@ -22,9 +22,9 @@ const (
 	pollInterval     = 5 // seconds
 )
 
-// OIDCHandler holds dependencies for OIDC auth routes.
-type OIDCHandler struct {
-	provider             *oidc.Provider
+// AuthHandler holds dependencies for OAuth/OIDC auth routes.
+type AuthHandler struct {
+	provider             oidc.Provider
 	db                   *db.Client
 	selfSignup           bool
 	stateSecret          []byte // HMAC key for signing state parameters; regenerated each startup, invalidating in-flight device flows
@@ -32,10 +32,10 @@ type OIDCHandler struct {
 	tokenMaxLifetimeDays int
 }
 
-// NewOIDCHandler creates a new OIDC handler.
+// NewAuthHandler creates a new auth handler.
 // Generates a random 32-byte state secret on creation.
 // Returns an error if the redirectURL is malformed.
-func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup bool, redirectURL string, tokenMaxLifetimeDays int) (*OIDCHandler, error) {
+func NewAuthHandler(provider oidc.Provider, dbClient *db.Client, selfSignup bool, redirectURL string, tokenMaxLifetimeDays int) (*AuthHandler, error) {
 	u, err := url.Parse(redirectURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("invalid redirect URL %q: must be an absolute URL with scheme and host", redirectURL)
@@ -44,7 +44,7 @@ func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup boo
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("generate state secret: %w", err)
 	}
-	return &OIDCHandler{
+	return &AuthHandler{
 		provider:             provider,
 		db:                   dbClient,
 		selfSignup:           selfSignup,
@@ -56,7 +56,7 @@ func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup boo
 
 // RegisterRoutes registers unauthenticated OIDC auth routes.
 // If mw is non-nil, each route is wrapped with the middleware (e.g. rate limiting).
-func (h *OIDCHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handler) http.Handler) {
+func (h *AuthHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handler) http.Handler) {
 	wrap := func(handler http.HandlerFunc) http.Handler {
 		var h http.Handler = handler
 		for _, m := range mw {
@@ -74,7 +74,7 @@ func (h *OIDCHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handler
 // handleDeviceStart initiates the device authorization flow.
 // POST /auth/device/start
 // Response: {user_code, verification_uri, device_code, expires_in, interval}
-func (h *OIDCHandler) handleDeviceStart(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) handleDeviceStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
@@ -111,7 +111,7 @@ func (h *OIDCHandler) handleDeviceStart(w http.ResponseWriter, r *http.Request) 
 //   - 428 {detail: "authorization_pending"} — not yet approved
 //   - 410 {detail: "expired"} — device code expired
 //   - 404 — device code not found
-func (h *OIDCHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
@@ -181,7 +181,7 @@ func (h *OIDCHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 
 // handleOIDCLogin redirects the user to the OIDC provider for authentication.
 // GET /auth/login?user_code=ABCDEFGH
-func (h *OIDCHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
@@ -214,7 +214,7 @@ func (h *OIDCHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleOIDCCallback handles the OIDC provider's redirect after authentication.
 // GET /auth/callback?state=...&code=...
-func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
@@ -326,7 +326,7 @@ func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 // This is for native apps using PKCE flow.
 // Request body: {code, code_verifier, redirect_uri}
 // Response: {token: "kh_...", user: {id, name, email}}
-func (h *OIDCHandler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
