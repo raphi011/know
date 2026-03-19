@@ -2983,7 +2983,9 @@ paths:
       description: |
         Initiates the OAuth 2.0 Device Authorization Grant flow.
         Returns a user code and verification URI for browser-based login.
-        **Unauthenticated endpoint.** Only available when OIDC is enabled.
+        **Unauthenticated endpoint.** Only available when OIDC is enabled
+        (returns 404 otherwise). The CLI uses this as auth method discovery:
+        a successful response means OIDC is available.
       security: []
       servers:
         - url: /

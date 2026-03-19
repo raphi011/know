@@ -75,19 +75,15 @@ var authLoginCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiURL, _ := cmd.Flags().GetString("api-url")
 
-		// Check if server has OIDC enabled
+		// Try device flow — succeeds when OIDC is enabled, 404 when not.
 		client := apiclient.New(apiURL, "")
-		cfg, err := client.GetConfig(context.Background())
+		resp, err := client.DeviceFlowStart(context.Background())
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not check server configuration: %v\n", err)
-			fmt.Println("Falling back to token-based login.")
-			return loginWithToken(apiURL)
-		}
-		if cfg == nil || !cfg.OIDCEnabled {
-			fmt.Println("OIDC is not enabled on this server.")
+			// OIDC not available — go straight to token login.
 			return loginWithToken(apiURL)
 		}
 
+		// OIDC available — let the user choose.
 		fmt.Println("How would you like to authenticate?")
 		fmt.Println("  1. Login with a web browser (OIDC)")
 		fmt.Println("  2. Paste an API token")
@@ -98,7 +94,7 @@ var authLoginCmd = &cobra.Command{
 
 		switch choice {
 		case "1", "":
-			return loginWithBrowser(apiURL)
+			return loginWithDeviceFlow(apiURL, resp)
 		case "2":
 			return loginWithToken(apiURL)
 		default:
@@ -107,14 +103,9 @@ var authLoginCmd = &cobra.Command{
 	},
 }
 
-func loginWithBrowser(apiURL string) error {
+func loginWithDeviceFlow(apiURL string, resp *apiclient.DeviceFlowStartResponse) error {
 	ctx := context.Background()
 	client := apiclient.New(apiURL, "")
-
-	resp, err := client.DeviceFlowStart(ctx)
-	if err != nil {
-		return fmt.Errorf("start device flow: %w", err)
-	}
 
 	fmt.Printf("\nFirst copy your one-time code: %s\n", resp.UserCode)
 	fmt.Print("Press Enter to open the browser...")
