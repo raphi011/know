@@ -8,14 +8,18 @@ import (
 )
 
 type Vault struct {
-	ID          surrealmodels.RecordID `json:"id"`
-	Name        string                 `json:"name"`
-	Description *string                `json:"description,omitempty"`
-	Settings    *VaultSettings         `json:"settings,omitempty"`
-	CreatedBy   surrealmodels.RecordID `json:"created_by"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	ID          surrealmodels.RecordID  `json:"id"`
+	Name        string                  `json:"name"`
+	Description *string                 `json:"description,omitempty"`
+	Owner       *surrealmodels.RecordID `json:"owner,omitempty"`
+	Settings    *VaultSettings          `json:"settings,omitempty"`
+	CreatedBy   surrealmodels.RecordID  `json:"created_by"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
 }
+
+// IsPrivate returns true if the vault is owned by a specific user.
+func (v *Vault) IsPrivate() bool { return v.Owner != nil }
 
 // VaultSettings holds per-vault configuration.
 type VaultSettings struct {

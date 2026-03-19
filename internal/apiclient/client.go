@@ -380,6 +380,47 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// AdminUser is the JSON representation of a user from the admin API.
+type AdminUser struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Email         *string `json:"email,omitempty"`
+	IsSystemAdmin bool    `json:"is_system_admin"`
+	OIDCProvider  *string `json:"oidc_provider,omitempty"`
+}
+
+// AdminCreateUserResponse is the response from POST /api/v1/admin/users.
+type AdminCreateUserResponse struct {
+	User struct {
+		ID    string  `json:"id"`
+		Name  string  `json:"name"`
+		Email *string `json:"email,omitempty"`
+	} `json:"user"`
+	Vault struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"vault"`
+}
+
+// AdminListUsers returns all users (system admin only).
+func (c *Client) AdminListUsers(ctx context.Context) ([]AdminUser, error) {
+	var resp httputil.ListResponse[AdminUser]
+	if err := c.Get(ctx, "/api/v1/admin/users", &resp); err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	return resp.Items, nil
+}
+
+// AdminCreateUser creates a new user with a private vault (system admin only).
+func (c *Client) AdminCreateUser(ctx context.Context, name, email string) (*AdminCreateUserResponse, error) {
+	body := map[string]string{"name": name, "email": email}
+	var resp AdminCreateUserResponse
+	if err := c.Post(ctx, "/api/v1/admin/users", body, &resp); err != nil {
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+	return &resp, nil
+}
+
 // DeviceFlowStartResponse is the response from POST /auth/device/start.
 type DeviceFlowStartResponse struct {
 	UserCode        string `json:"user_code"`

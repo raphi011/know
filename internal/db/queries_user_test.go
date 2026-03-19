@@ -239,6 +239,151 @@ func TestLinkOIDCIdentity(t *testing.T) {
 	}
 }
 
+func TestListUsers(t *testing.T) {
+	ctx := context.Background()
+
+	name1 := fmt.Sprintf("list-user-a-%d", time.Now().UnixNano())
+	name2 := fmt.Sprintf("list-user-b-%d", time.Now().UnixNano())
+
+	if _, err := testDB.CreateUser(ctx, models.UserInput{Name: name1}); err != nil {
+		t.Fatalf("CreateUser 1 failed: %v", err)
+	}
+	if _, err := testDB.CreateUser(ctx, models.UserInput{Name: name2}); err != nil {
+		t.Fatalf("CreateUser 2 failed: %v", err)
+	}
+
+	users, err := testDB.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("ListUsers failed: %v", err)
+	}
+	if len(users) < 2 {
+		t.Fatalf("Expected at least 2 users, got %d", len(users))
+	}
+
+	// Verify created users appear in results
+	found := map[string]bool{}
+	for _, u := range users {
+		found[u.Name] = true
+	}
+	if !found[name1] {
+		t.Errorf("Expected user %q in list", name1)
+	}
+	if !found[name2] {
+		t.Errorf("Expected user %q in list", name2)
+	}
+
+	// Verify ordering (ASC by name)
+	for i := 1; i < len(users); i++ {
+		if users[i].Name < users[i-1].Name {
+			t.Errorf("Users not ordered by name: %q < %q", users[i].Name, users[i-1].Name)
+		}
+	}
+}
+
+func TestProvisionUser(t *testing.T) {
+	ctx := context.Background()
+
+	name := fmt.Sprintf("provision-%d", time.Now().UnixNano())
+	email := fmt.Sprintf("provision-%d@example.com", time.Now().UnixNano())
+
+	user, vault, err := testDB.ProvisionUser(ctx, models.UserInput{
+		Name:  name,
+		Email: &email,
+	})
+	if err != nil {
+		t.Fatalf("ProvisionUser failed: %v", err)
+	}
+
+	if user.Name != name {
+		t.Errorf("Expected user name %q, got %q", name, user.Name)
+	}
+	if user.Email == nil || *user.Email != email {
+		t.Errorf("Expected email %q, got %v", email, user.Email)
+	}
+
+	// Vault should be named after the user and owned by them
+	if vault.Name != name {
+		t.Errorf("Expected vault name %q, got %q", name, vault.Name)
+	}
+	if vault.Owner == nil {
+		t.Fatal("Expected vault to have an owner")
+	}
+
+	userID := models.MustRecordIDString(user.ID)
+	ownerID := models.MustRecordIDString(*vault.Owner)
+	if ownerID != userID {
+		t.Errorf("Expected vault owner %q, got %q", userID, ownerID)
+	}
+
+	// Verify vault membership
+	vaultID := models.MustRecordIDString(vault.ID)
+	members, err := testDB.GetVaultMembers(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("GetVaultMembers failed: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("Expected 1 vault member, got %d", len(members))
+	}
+	if members[0].Role != string(models.RoleAdmin) {
+		t.Errorf("Expected admin role, got %q", members[0].Role)
+	}
+}
+
+func TestProvisionUserFromOIDC(t *testing.T) {
+	ctx := context.Background()
+
+	provider := "https://accounts.google.com"
+	subject := fmt.Sprintf("provision-oidc-sub-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("provision-oidc-%d", time.Now().UnixNano())
+	email := fmt.Sprintf("provision-oidc-%d@example.com", time.Now().UnixNano())
+
+	user, vault, err := testDB.ProvisionUserFromOIDC(ctx, provider, subject, name, email)
+	if err != nil {
+		t.Fatalf("ProvisionUserFromOIDC failed: %v", err)
+	}
+
+	// Verify user fields
+	if user.Name != name {
+		t.Errorf("Expected user name %q, got %q", name, user.Name)
+	}
+	if user.Email == nil || *user.Email != email {
+		t.Errorf("Expected email %q, got %v", email, user.Email)
+	}
+	if user.OIDCProvider == nil || *user.OIDCProvider != provider {
+		t.Errorf("Expected oidc_provider %q, got %v", provider, user.OIDCProvider)
+	}
+	if user.OIDCSubject == nil || *user.OIDCSubject != subject {
+		t.Errorf("Expected oidc_subject %q, got %v", subject, user.OIDCSubject)
+	}
+
+	// Vault should be named after the user and owned by them
+	if vault.Name != name {
+		t.Errorf("Expected vault name %q, got %q", name, vault.Name)
+	}
+	if vault.Owner == nil {
+		t.Fatal("Expected vault to have an owner")
+	}
+
+	userID := models.MustRecordIDString(user.ID)
+	ownerID := models.MustRecordIDString(*vault.Owner)
+	if ownerID != userID {
+		t.Errorf("Expected vault owner %q, got %q", userID, ownerID)
+	}
+
+	// Verify vault membership
+	vaultID := models.MustRecordIDString(vault.ID)
+	members, err := testDB.GetVaultMembers(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("GetVaultMembers failed: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("Expected 1 vault member, got %d", len(members))
+	}
+	if members[0].Role != string(models.RoleAdmin) {
+		t.Errorf("Expected admin role, got %q", members[0].Role)
+	}
+}
+
 func TestGetUserByName(t *testing.T) {
 	ctx := context.Background()
 

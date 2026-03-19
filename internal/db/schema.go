@@ -36,6 +36,7 @@ func SchemaSQL(dimension int) string {
 
     DEFINE FIELD IF NOT EXISTS name        ON vault TYPE string;
     DEFINE FIELD IF NOT EXISTS description ON vault TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS owner       ON vault TYPE option<record<user>>;
     DEFINE FIELD IF NOT EXISTS settings    ON vault TYPE option<object> FLEXIBLE;
     DEFINE FIELD IF NOT EXISTS created_by  ON vault TYPE record<user>;
     DEFINE FIELD IF NOT EXISTS created_at  ON vault TYPE datetime DEFAULT time::now();

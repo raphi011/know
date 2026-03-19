@@ -52,6 +52,41 @@ func (c *Client) CreateVaultWithID(ctx context.Context, vaultID string, userID s
 	return firstResult(results, "create vault with id")
 }
 
+// CreateVaultWithOwner creates a vault owned by a specific user (private vault).
+func (c *Client) CreateVaultWithOwner(ctx context.Context, userID string, input models.VaultInput) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.create_with_owner", time.Now())
+	sql := `
+		CREATE vault SET
+			name = $name,
+			description = $description,
+			owner = type::record("user", $user_id),
+			created_by = type::record("user", $user_id)
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
+		"name":        input.Name,
+		"description": optionalString(input.Description),
+		"user_id":     bareID("user", userID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create vault with owner: %w", err)
+	}
+	return firstResult(results, "create vault with owner")
+}
+
+// GetVaultByOwner returns the private vault owned by the given user.
+func (c *Client) GetVaultByOwner(ctx context.Context, userID string) (*models.Vault, error) {
+	defer c.logOp(ctx, "vault.get_by_owner", time.Now())
+	sql := `SELECT * FROM vault WHERE owner = type::record("user", $user_id) LIMIT 1`
+	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
+		"user_id": bareID("user", userID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get vault by owner: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
 func (c *Client) GetVault(ctx context.Context, id string) (*models.Vault, error) {
 	defer c.logOp(ctx, "vault.get", time.Now())
 	sql := `SELECT * FROM type::record("vault", $id)`

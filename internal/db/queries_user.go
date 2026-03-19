@@ -134,6 +134,78 @@ func (c *Client) LinkOIDCIdentity(ctx context.Context, userID, provider, subject
 	return nil
 }
 
+// ListUsers returns all users ordered by name.
+func (c *Client) ListUsers(ctx context.Context) ([]models.User, error) {
+	defer c.logOp(ctx, "user.list", time.Now())
+	sql := `SELECT * FROM user ORDER BY name ASC`
+	results, err := surrealdb.Query[[]models.User](ctx, c.DB(), sql, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	return allResults(results), nil
+}
+
+// ProvisionUser creates a user with a private vault and admin membership.
+// Returns the created user and their private vault.
+func (c *Client) ProvisionUser(ctx context.Context, input models.UserInput) (*models.User, *models.Vault, error) {
+	defer c.logOp(ctx, "user.provision", time.Now())
+
+	user, err := c.CreateUser(ctx, input)
+	if err != nil {
+		return nil, nil, fmt.Errorf("provision user: %w", err)
+	}
+
+	vault, err := c.provisionVaultForUser(ctx, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("provision user: %w", err)
+	}
+
+	return user, vault, nil
+}
+
+// ProvisionUserFromOIDC creates a user from OIDC claims with a private vault and admin membership.
+func (c *Client) ProvisionUserFromOIDC(ctx context.Context, provider, subject, name, email string) (*models.User, *models.Vault, error) {
+	defer c.logOp(ctx, "user.provision_from_oidc", time.Now())
+
+	user, err := c.CreateUserFromOIDC(ctx, provider, subject, name, email)
+	if err != nil {
+		return nil, nil, fmt.Errorf("provision oidc user: %w", err)
+	}
+
+	vault, err := c.provisionVaultForUser(ctx, user)
+	if err != nil {
+		return nil, nil, fmt.Errorf("provision oidc user: %w", err)
+	}
+
+	return user, vault, nil
+}
+
+// provisionVaultForUser creates a private vault owned by the user and adds admin membership.
+func (c *Client) provisionVaultForUser(ctx context.Context, user *models.User) (*models.Vault, error) {
+	userID, err := models.RecordIDString(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("extract user id: %w", err)
+	}
+
+	vault, err := c.CreateVaultWithOwner(ctx, userID, models.VaultInput{
+		Name: user.Name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create vault: %w", err)
+	}
+
+	vaultID, err := models.RecordIDString(vault.ID)
+	if err != nil {
+		return nil, fmt.Errorf("extract vault id: %w", err)
+	}
+
+	if _, err := c.CreateVaultMember(ctx, userID, vaultID, models.RoleAdmin); err != nil {
+		return nil, fmt.Errorf("create membership: %w", err)
+	}
+
+	return vault, nil
+}
+
 // UpdateUserSystemAdmin sets the is_system_admin flag on a user.
 func (c *Client) UpdateUserSystemAdmin(ctx context.Context, userID string, isAdmin bool) error {
 	defer c.logOp(ctx, "user.update_system_admin", time.Now())

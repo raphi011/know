@@ -117,6 +117,10 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 		mux.Handle("POST /api/v1/agent/approval", g(agentRunner.HandleApproval()))
 	}
 
+	// --- Admin (system admin only) ---
+	mux.Handle("GET /api/v1/admin/users", g(s.listUsers))
+	mux.Handle("POST /api/v1/admin/users", g(s.createUser))
+
 	// --- Remotes (federation, system admin only) ---
 	mux.Handle("GET /api/v1/remotes", g(s.listRemotes))
 	mux.Handle("POST /api/v1/remotes", g(s.addRemote))

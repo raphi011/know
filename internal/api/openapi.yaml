@@ -47,6 +47,8 @@ tags:
     description: Agent conversation CRUD
   - name: Agent
     description: Agent chat, SSE events, cancellation, tool approval
+  - name: Admin
+    description: System administration (user management, system admin only)
   - name: Remotes
     description: Multi-server federation (system admin)
   - name: Jobs
@@ -77,6 +79,20 @@ components:
         type: string
 
   schemas:
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        is_system_admin:
+          type: boolean
+        oidc_provider:
+          type: string
+
     ProblemDetail:
       type: object
       description: "RFC 9457 Problem Details for HTTP APIs"
@@ -2069,6 +2085,96 @@ paths:
                   status:
                     type: string
                     enum: [running]
+
+  # ── Admin ───────────────────────────────────────────────
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users
+      description: Returns all users. Requires system admin.
+      operationId: listUsers
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminUser"
+                  total:
+                    type: integer
+        "403":
+          description: Forbidden (not a system admin)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+    post:
+      tags: [Admin]
+      summary: Create a new user with a private vault
+      description: |
+        Creates a user with the given name and email, a private vault named after the user,
+        and admin membership on that vault. Requires system admin.
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        "201":
+          description: User and vault created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                  vault:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+        "400":
+          description: Invalid request (missing name or email)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Forbidden (not a system admin)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Conflict (user with this email already exists)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
 
   # ── Remotes ─────────────────────────────────────────────
   /remotes:
