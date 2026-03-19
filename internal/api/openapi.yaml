@@ -41,6 +41,8 @@ tags:
     description: Binary asset upload, download, and metadata
   - name: External Links
     description: Outgoing link stats and listing
+  - name: Changes
+    description: Incremental sync (changes since timestamp)
   - name: Conversations
     description: Agent conversation CRUD
   - name: Agent
@@ -503,6 +505,48 @@ components:
           type: string
         count:
           type: integer
+
+    ChangesResponse:
+      type: object
+      required: [updated, deleted, syncToken, truncated]
+      properties:
+        updated:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileChange"
+          description: Files created or modified since the given timestamp
+        deleted:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileChange"
+          description: Files deleted since the given timestamp (from tombstones)
+        syncToken:
+          type: string
+          format: date-time
+          description: "RFC3339Nano timestamp — pass as the next `since` value"
+          example: "2026-03-19T14:30:00.123456789Z"
+        truncated:
+          type: boolean
+          description: "True if results were capped at the server limit (client should fall back to full sync)"
+
+    FileChange:
+      type: object
+      required: [fileId, path, updatedAt]
+      properties:
+        fileId:
+          type: string
+          description: File record ID
+        path:
+          type: string
+          description: Vault-relative file path
+          example: "/notes/hello.md"
+        contentHash:
+          type: [string, "null"]
+          description: "Content hash (present for updated files, absent for deleted)"
+        updatedAt:
+          type: string
+          format: date-time
+          description: "When the change occurred (updated_at for updates, deleted_at for deletions)"
 
     ExternalLinkListResponse:
       type: object
@@ -1736,6 +1780,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExternalLinkStatsResponse"
+
+  # ── Changes (incremental sync) ──────────────────────────
+  /vaults/{vault}/changes:
+    get:
+      tags: [Changes]
+      summary: Incremental changes since timestamp
+      description: |
+        Returns files updated and deleted since a given timestamp, for efficient
+        incremental sync. The response includes a `syncToken` to use as the next
+        `since` value. If `truncated` is true, results were capped and the client
+        should fall back to a full metadata sync.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: "RFC3339 timestamp — return changes at or after this time"
+          example: "2026-03-19T14:00:00Z"
+      responses:
+        "200":
+          description: Incremental changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangesResponse"
+        "400":
+          description: Missing or invalid `since` parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
 
   # ── SSE Events ──────────────────────────────────────────
   /vaults/{vault}/events:

@@ -93,8 +93,9 @@ The app communicates with the Know server via REST API (`RESTClient.swift`). No 
 
 1. **Initial sync**: `GET /api/ls?vault=&recursive=true` fetches all file paths, populates SwiftData cache
 2. **On-demand content**: document body fetched via `GET /api/documents` when user opens it
-3. **Real-time updates**: SSE stream at `GET /events?vaultId=` for document create/update/delete/move events
-4. **Offline support**: SwiftData caches document metadata and content for offline browsing
+3. **Real-time updates**: SSE stream at `GET /events?vaultId=` for `file.created`, `file.updated`, `file.deleted`, `file.moved`, and `file.processed` events
+4. **Reconnect recovery**: On SSE reconnect, calls `GET /api/vaults/{vault}/changes?since=<lastSyncedAt>` for incremental catch-up. Falls back to full metadata sync if incremental sync fails.
+5. **Offline support**: SwiftData caches document metadata and content for offline browsing
 
 ### Auth Flow
 

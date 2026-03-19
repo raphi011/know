@@ -90,6 +90,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("GET /api/v1/vaults/{vault}/external-links", vs(s.listExternalLinks))
 	mux.Handle("GET /api/v1/vaults/{vault}/external-links/stats", vs(s.externalLinkStats))
 
+	// --- Changes (incremental sync) ---
+	mux.Handle("GET /api/v1/vaults/{vault}/changes", vs(s.getChanges))
+
 	// --- SSE (document change stream, vault-scoped) ---
 	// Registered in cmd_serve.go since it depends on the event bus.
 

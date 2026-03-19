@@ -47,6 +47,16 @@ final class KnowService: Sendable {
 		)
 	}
 
+	func fetchChanges(vaultId: String, since: Date) async throws -> ChangesResponse {
+		let formatter = ISO8601DateFormatter()
+		formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+		let sinceStr = formatter.string(from: since)
+		return try await client.get(
+			path: "api/vaults/\(vaultId)/changes",
+			query: ["since": sinceStr]
+		)
+	}
+
 	func search(vaultId: String, query: String, labels: [String]? = nil, limit: Int? = nil) async throws -> [SearchResult] {
 		var params = ["vault": vaultId, "query": query]
 		if let labels, !labels.isEmpty {

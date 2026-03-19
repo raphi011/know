@@ -75,3 +75,29 @@ struct ChunkMatch: Codable, Identifiable {
 
     var id: Int { position }
 }
+
+// MARK: - Incremental Sync
+
+struct ChangesResponse: Codable {
+    let updated: [FileChange]
+    let deleted: [FileChange]
+    let syncToken: String
+    let truncated: Bool
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        updated = try container.decodeIfPresent([FileChange].self, forKey: .updated) ?? []
+        deleted = try container.decodeIfPresent([FileChange].self, forKey: .deleted) ?? []
+        syncToken = try container.decode(String.self, forKey: .syncToken)
+        truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    }
+}
+
+struct FileChange: Codable, Identifiable {
+    let fileId: String
+    let path: String
+    let contentHash: String?
+    let updatedAt: Date
+
+    var id: String { fileId }
+}
