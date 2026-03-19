@@ -380,6 +380,36 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// DeviceFlowStartResponse is the response from POST /auth/device/start.
+type DeviceFlowStartResponse struct {
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	DeviceCode      string `json:"device_code"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
+}
+
+// DeviceFlowStart initiates the device authorization flow.
+// This is an unauthenticated endpoint.
+func (c *Client) DeviceFlowStart(ctx context.Context) (*DeviceFlowStartResponse, error) {
+	var resp DeviceFlowStartResponse
+	if err := c.Post(ctx, "/auth/device/start", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DeviceFlowPoll polls for device flow completion.
+// Returns the token string when approved, or an error if still pending/expired.
+func (c *Client) DeviceFlowPoll(ctx context.Context, deviceCode string) (string, error) {
+	body := map[string]string{"device_code": deviceCode}
+	var resp map[string]string
+	if err := c.Post(ctx, "/auth/device/poll", body, &resp); err != nil {
+		return "", err
+	}
+	return resp["token"], nil
+}
+
 // MoveResult is the response from the move endpoint.
 type MoveResult struct {
 	Type   string   `json:"type"`

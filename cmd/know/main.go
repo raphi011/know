@@ -35,8 +35,22 @@ type apiFlags struct {
 
 func addAPIFlags(cmd *cobra.Command) *apiFlags {
 	f := &apiFlags{}
-	cmd.Flags().StringVar(&f.URL, "api-url", envOrDefault("KNOW_SERVER_URL", "http://localhost:4001"), "REST API base URL")
-	cmd.Flags().StringVar(&f.Token, "token", os.Getenv("KNOW_TOKEN"), "API bearer token")
+
+	defaultURL := envOrDefault("KNOW_SERVER_URL", "http://localhost:4001")
+	defaultToken := os.Getenv("KNOW_TOKEN")
+
+	// Fall back to ~/.config/know/auth.json when no env var is set.
+	if defaultToken == "" {
+		if cfg, err := loadAuthConfig(); err == nil && cfg != nil {
+			defaultToken = cfg.Token
+			if defaultURL == "http://localhost:4001" && cfg.APIURL != "" {
+				defaultURL = cfg.APIURL
+			}
+		}
+	}
+
+	cmd.Flags().StringVar(&f.URL, "api-url", defaultURL, "REST API base URL")
+	cmd.Flags().StringVar(&f.Token, "token", defaultToken, "API bearer token")
 	if err := cmd.RegisterFlagCompletionFunc("api-url", noFileCompletions); err != nil {
 		panic(fmt.Sprintf("register api-url completion: %v", err))
 	}
@@ -90,6 +104,7 @@ func main() {
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(restoreCmd)
 	rootCmd.AddCommand(completionCmd)
+	rootCmd.AddCommand(authCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
