@@ -984,27 +984,14 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 		contentHash = *doc.ContentHash
 	}
 
-	// Synchronous cleanup — async cascade events are a safety net, not primary.
-	if err := s.db.DeleteWikiLinks(ctx, fileID); err != nil {
-		return fmt.Errorf("delete wiki links: %w", err)
-	}
-	if _, err := s.db.UnresolveWikiLinksToFile(ctx, fileID); err != nil {
-		return fmt.Errorf("unresolve incoming wiki links: %w", err)
-	}
-
-	if err := s.db.SyncFileLabels(ctx, fileID, vaultID, nil); err != nil {
-		return fmt.Errorf("delete label edges: %w", err)
-	}
-	if err := s.db.DeleteChunks(ctx, fileID); err != nil {
-		return fmt.Errorf("delete chunks: %w", err)
-	}
-
-	if err := s.db.DeleteFile(ctx, fileID); err != nil {
-		return fmt.Errorf("delete file: %w", err)
+	// Atomic cleanup: wiki links, label edges, chunks, and file record in one transaction.
+	// Async cascade events remain as a safety net.
+	if err := s.db.DeleteFileAtomic(ctx, fileID); err != nil {
+		return fmt.Errorf("delete file atomic: %w", err)
 	}
 
 	// After deletion, check if this file's stem is now unique (collision removed).
-	// This must happen after DeleteFile so CountFilesByStem returns the correct count.
+	// This must happen after DeleteFileAtomic so CountFilesByStem returns the correct count.
 	stem := models.FilenameStem(doc.Path)
 	if err := s.resolveAfterStemCollisionRemoval(ctx, vaultID, stem); err != nil {
 		logutil.FromCtx(ctx).Warn("resolve after stem collision removal", "stem", stem, "error", err)
@@ -1072,18 +1059,13 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 	if oldNorm == newNorm {
 		return 0, nil
 	}
-	count, err := s.db.MoveFilesByPrefix(ctx, vaultID, oldNorm, newNorm)
+	// Atomic: move files, recompute stems, move folders, ensure ancestors in one transaction
+	count, err := s.db.MoveByPrefixAtomic(ctx, vaultID, oldNorm, newNorm)
 	if err != nil {
 		return 0, fmt.Errorf("move by prefix: %w", err)
 	}
 
-	// Recompute stems for all moved files
-	if err := s.db.RecomputeStems(ctx, vaultID, newNorm); err != nil {
-		return count, fmt.Errorf("recompute stems after prefix move: %w", err)
-	}
-
-	// Best-effort: raw_target recomputation is cosmetic (affects display only);
-	// stem recomputation above is required for resolution correctness.
+	// Post-commit best-effort: raw_target recomputation is cosmetic (affects display only)
 	movedFiles, err := s.db.ListFilesByPrefix(ctx, vaultID, newNorm)
 	if err != nil {
 		logutil.FromCtx(ctx).Warn("list moved files for raw target recompute", "error", err)
@@ -1098,15 +1080,6 @@ func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefi
 				logutil.FromCtx(ctx).Warn("recompute incoming raw targets after prefix move", "path", f.Path, "error", err)
 			}
 		}
-	}
-
-	// Move folder records to match
-	if _, err := s.db.MoveFoldersByPrefix(ctx, vaultID, oldNorm, newNorm); err != nil {
-		return count, fmt.Errorf("move folder records: %w", err)
-	}
-	// Ensure destination ancestor folders exist
-	if err := s.db.EnsureFolderPath(ctx, vaultID, strings.TrimSuffix(newNorm, "/")); err != nil {
-		return count, fmt.Errorf("ensure destination folders: %w", err)
 	}
 
 	return count, nil
@@ -1132,12 +1105,13 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 	normalizedNew := models.NormalizePath(newPath)
 	newStem := models.FilenameStem(normalizedNew)
 
-	doc, err = s.db.MoveFile(ctx, fileID, normalizedNew)
+	// Atomic: update file path + ensure destination folders in one transaction
+	doc, err = s.db.MoveFileAtomic(ctx, vaultID, fileID, normalizedNew)
 	if err != nil {
 		return nil, fmt.Errorf("move file: %w", err)
 	}
 
-	// Best-effort: raw_target recomputation is cosmetic (affects display only)
+	// Post-commit best-effort: raw_target recomputation is cosmetic (affects display only)
 	if err := s.recomputeIncomingRawTargets(ctx, vaultID, fileID, normalizedNew); err != nil {
 		logutil.FromCtx(ctx).Warn("recompute incoming raw targets", "error", err)
 	}
@@ -1152,11 +1126,6 @@ func (s *Service) Move(ctx context.Context, vaultID, oldPath, newPath string) (*
 		if err := s.resolveAfterStemCollisionRemoval(ctx, vaultID, oldStem); err != nil {
 			logutil.FromCtx(ctx).Warn("resolve after stem collision removal", "stem", oldStem, "error", err)
 		}
-	}
-
-	// Ensure destination folders exist
-	if err := s.db.EnsureFolders(ctx, vaultID, normalizedNew); err != nil {
-		return nil, fmt.Errorf("ensure destination folders: %w", err)
 	}
 
 	s.publishFileMoveEvent(vaultID, doc, oldPath)
