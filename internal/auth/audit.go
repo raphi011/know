@@ -3,8 +3,6 @@ package auth
 import (
 	"context"
 	"log/slog"
-	"net/http"
-	"strings"
 
 	"github.com/raphi011/know/internal/logutil"
 )
@@ -53,16 +51,3 @@ func AuditLog(ctx context.Context, event AuditEvent, attrs ...slog.Attr) {
 	logutil.FromCtx(ctx).Info("audit", args...)
 }
 
-// clientIP extracts the client IP from an HTTP request,
-// preferring the first entry in X-Forwarded-For (for reverse proxy setups)
-// over RemoteAddr.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// XFF is "client, proxy1, proxy2" — take the first (client) IP.
-		if before, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(before)
-		}
-		return xff
-	}
-	return r.RemoteAddr
-}

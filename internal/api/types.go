@@ -205,4 +205,7 @@ type ServerConfig struct {
 	MultimodalEmbedEnabled  bool   `json:"multimodalEmbedEnabled"`
 	TextExtractorModel      string `json:"textExtractorModel"`
 	TextExtractorEnabled    bool   `json:"textExtractorEnabled"`
+
+	// Auth
+	OIDCEnabled bool `json:"oidcEnabled"`
 }

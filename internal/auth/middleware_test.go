@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -217,7 +218,7 @@ func TestCheckVaultRole(t *testing.T) {
 }
 
 func TestMiddlewareMissingHeader(t *testing.T) {
-	handler := Middleware(nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Middleware(nil, nil, MiddlewareConfig{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called without auth")
 	}))
 
@@ -303,29 +304,41 @@ func TestClientIP(t *testing.T) {
 		name       string
 		xff        string
 		remoteAddr string
+		trustXFF   bool
 		want       string
 	}{
 		{
 			name:       "no XFF header",
 			remoteAddr: "192.168.1.1:1234",
+			trustXFF:   true,
 			want:       "192.168.1.1:1234",
 		},
 		{
 			name:       "single IP in XFF",
 			xff:        "10.0.0.1",
 			remoteAddr: "192.168.1.1:1234",
+			trustXFF:   true,
 			want:       "10.0.0.1",
 		},
 		{
 			name:       "multiple IPs in XFF takes first",
 			xff:        "10.0.0.1, 172.16.0.1, 192.168.1.1",
 			remoteAddr: "127.0.0.1:1234",
+			trustXFF:   true,
 			want:       "10.0.0.1",
 		},
 		{
 			name:       "empty XFF falls back to RemoteAddr",
 			xff:        "",
 			remoteAddr: "192.168.1.1:1234",
+			trustXFF:   true,
+			want:       "192.168.1.1:1234",
+		},
+		{
+			name:       "XFF ignored when trust disabled",
+			xff:        "10.0.0.1",
+			remoteAddr: "192.168.1.1:1234",
+			trustXFF:   false,
 			want:       "192.168.1.1:1234",
 		},
 	}
@@ -337,8 +350,8 @@ func TestClientIP(t *testing.T) {
 			if tt.xff != "" {
 				r.Header.Set("X-Forwarded-For", tt.xff)
 			}
-			if got := clientIP(r); got != tt.want {
-				t.Errorf("clientIP() = %q, want %q", got, tt.want)
+			if got := httputil.ClientIP(r, tt.trustXFF); got != tt.want {
+				t.Errorf("ClientIP() = %q, want %q", got, tt.want)
 			}
 		})
 	}

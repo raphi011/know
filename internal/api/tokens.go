@@ -11,6 +11,9 @@ import (
 	"github.com/raphi011/know/internal/models"
 )
 
+// maxTokensPerUser is the maximum number of API tokens a single user can have.
+const maxTokensPerUser = 50
+
 // TokenResponse is the public representation of an API token.
 // It never exposes the token hash.
 type TokenResponse struct {
@@ -100,6 +103,18 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce max token count per user
+	count, err := s.app.DBClient().CountTokens(ctx, ac.UserID)
+	if err != nil {
+		logutil.FromCtx(ctx).Error("count tokens", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to count tokens")
+		return
+	}
+	if count >= maxTokensPerUser {
+		httputil.WriteProblem(w, http.StatusConflict, "maximum number of tokens reached (limit: 50)")
+		return
+	}
+
 	// Determine expiry
 	maxDays := s.app.Config().TokenMaxLifetimeDays
 	expiryDays := maxDays
@@ -181,6 +196,12 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prevent deleting the token currently in use
+	if tokenID == ac.TokenID {
+		httputil.WriteProblem(w, http.StatusConflict, "cannot delete the token currently in use")
+		return
+	}
+
 	if err := s.app.DBClient().DeleteToken(ctx, tokenID); err != nil {
 		logutil.FromCtx(ctx).Error("delete token", "error", err)
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to delete token")
@@ -233,25 +254,17 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 	// Determine expiry for new token: preserve remaining TTL from old token
 	// (intentional — rotation doesn't extend the original grant's lifetime).
 	// If old token had no expiry or was already expired, use max lifetime.
+	maxDays := s.app.Config().TokenMaxLifetimeDays
+	if maxDays <= 0 {
+		maxDays = 90
+	}
+	defaultExpiry := time.Now().Add(time.Duration(maxDays) * 24 * time.Hour)
+
 	var expiresAt time.Time
-	if oldToken.ExpiresAt != nil {
-		remaining := time.Until(*oldToken.ExpiresAt)
-		if remaining <= 0 {
-			// Old token was expired — use max lifetime for new one
-			maxDays := s.app.Config().TokenMaxLifetimeDays
-			if maxDays <= 0 {
-				maxDays = 90
-			}
-			expiresAt = time.Now().Add(time.Duration(maxDays) * 24 * time.Hour)
-		} else {
-			expiresAt = time.Now().Add(remaining)
-		}
+	if oldToken.ExpiresAt != nil && time.Until(*oldToken.ExpiresAt) > 0 {
+		expiresAt = time.Now().Add(time.Until(*oldToken.ExpiresAt))
 	} else {
-		maxDays := s.app.Config().TokenMaxLifetimeDays
-		if maxDays <= 0 {
-			maxDays = 90
-		}
-		expiresAt = time.Now().Add(time.Duration(maxDays) * 24 * time.Hour)
+		expiresAt = defaultExpiry
 	}
 
 	raw, hash, err := auth.GenerateToken()
@@ -261,18 +274,12 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create new token
-	newToken, err := s.app.DBClient().CreateToken(ctx, ac.UserID, hash, oldToken.Name, expiresAt)
+	// Atomic create + delete in a single transaction
+	newToken, err := s.app.DBClient().RotateToken(ctx, tokenID, ac.UserID, hash, oldToken.Name, expiresAt)
 	if err != nil {
-		logutil.FromCtx(ctx).Error("create rotated token", "error", err)
-		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create new token")
+		logutil.FromCtx(ctx).Error("rotate token", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to rotate token")
 		return
-	}
-
-	// Delete old token (not atomic — acceptable per design doc)
-	if err := s.app.DBClient().DeleteToken(ctx, tokenID); err != nil {
-		logutil.FromCtx(ctx).Warn("failed to delete old token during rotation", "old_token_id", tokenID, "error", err)
-		// Continue — new token was created successfully
 	}
 
 	writeJSON(w, http.StatusOK, CreateTokenResponse{

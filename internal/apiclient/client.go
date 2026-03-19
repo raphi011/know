@@ -380,6 +380,20 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 	return c.handleResponse(req, target)
 }
 
+// ServerConfig is the response from GET /api/v1/config.
+type ServerConfig struct {
+	OIDCEnabled bool `json:"oidcEnabled"`
+}
+
+// GetConfig fetches the server configuration (unauthenticated fields only).
+func (c *Client) GetConfig(ctx context.Context) (*ServerConfig, error) {
+	var cfg ServerConfig
+	if err := c.Get(ctx, "/api/v1/config", &cfg); err != nil {
+		return nil, fmt.Errorf("get config: %w", err)
+	}
+	return &cfg, nil
+}
+
 // AdminUser is the JSON representation of a user from the admin API.
 type AdminUser struct {
 	ID            string  `json:"id"`

@@ -55,12 +55,20 @@ func NewOIDCHandler(provider *oidc.Provider, dbClient *db.Client, selfSignup boo
 }
 
 // RegisterRoutes registers unauthenticated OIDC auth routes.
-func (h *OIDCHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /auth/device/start", h.handleDeviceStart)
-	mux.HandleFunc("POST /auth/device/poll", h.handleDevicePoll)
-	mux.HandleFunc("POST /auth/token", h.handleTokenExchange)
-	mux.HandleFunc("GET /auth/login", h.handleOIDCLogin)
-	mux.HandleFunc("GET /auth/callback", h.handleOIDCCallback)
+// If mw is non-nil, each route is wrapped with the middleware (e.g. rate limiting).
+func (h *OIDCHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handler) http.Handler) {
+	wrap := func(handler http.HandlerFunc) http.Handler {
+		var h http.Handler = handler
+		for _, m := range mw {
+			h = m(h)
+		}
+		return h
+	}
+	mux.Handle("POST /auth/device/start", wrap(h.handleDeviceStart))
+	mux.Handle("POST /auth/device/poll", wrap(h.handleDevicePoll))
+	mux.Handle("POST /auth/token", wrap(h.handleTokenExchange))
+	mux.Handle("GET /auth/login", wrap(h.handleOIDCLogin))
+	mux.Handle("GET /auth/callback", wrap(h.handleOIDCCallback))
 }
 
 // handleDeviceStart initiates the device authorization flow.
@@ -144,19 +152,26 @@ func (h *OIDCHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Approved — return the token and delete the device code record
-	token := ""
+	// Approved — decrypt and return the token, then delete the device code record
+	encryptedToken := ""
 	if dc.RawToken != nil {
-		token = *dc.RawToken
+		encryptedToken = *dc.RawToken
 	}
-	if token == "" {
+	if encryptedToken == "" {
 		logger.Error("approved device code has no token", "device_code", body.DeviceCode)
 		httputil.WriteProblem(w, http.StatusInternalServerError, "device code approved but token missing")
 		return
 	}
 
+	token, err := oidc.DecryptWithDeviceCode(encryptedToken, body.DeviceCode)
+	if err != nil {
+		logger.Error("decrypt device code token", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to decrypt token")
+		return
+	}
+
 	if err := h.db.DeleteDeviceCode(ctx, body.DeviceCode); err != nil {
-		logger.Error("delete approved device code — raw token may linger until expiry cleanup", "error", err)
+		logger.Error("delete approved device code", "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -256,9 +271,28 @@ func (h *OIDCHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Approve the device code with the raw token so the CLI can retrieve it.
-	// Raw token stored temporarily — record is deleted within 15 min after poll.
-	if err := h.db.ApproveDeviceCode(ctx, userCode, userID, rawToken); err != nil {
+	// Encrypt the raw token with the device code before storing — only the
+	// CLI that holds the device_code can decrypt it.
+	dc, err := h.db.GetDeviceCodeByUserCode(ctx, userCode)
+	if err != nil {
+		logger.Error("get device code for encryption", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to look up device code")
+		return
+	}
+	if dc == nil {
+		logger.Warn("device code not found during callback", "user_code", userCode)
+		httputil.WriteProblem(w, http.StatusNotFound, "device code not found or expired")
+		return
+	}
+	encryptedToken, err := oidc.EncryptWithDeviceCode(rawToken, dc.DeviceCode)
+	if err != nil {
+		logger.Error("encrypt token for device code", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to encrypt token")
+		return
+	}
+
+	// Store the encrypted token so only the CLI can retrieve it.
+	if err := h.db.ApproveDeviceCode(ctx, userCode, userID, encryptedToken); err != nil {
 		logger.Error("approve device code", "error", err)
 		// Clean up the orphaned token to avoid leaving a valid but undelivered credential
 		tokenID, idErr := models.RecordIDString(token.ID)

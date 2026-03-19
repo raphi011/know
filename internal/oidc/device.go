@@ -1,11 +1,15 @@
 package oidc
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -50,6 +54,57 @@ func SignState(secret []byte, userCode string) string {
 	mac.Write([]byte(userCode))
 	sig := hex.EncodeToString(mac.Sum(nil))
 	return userCode + "." + sig
+}
+
+// gcmFromDeviceCode derives an AES-256-GCM cipher from the SHA256 of the device code.
+func gcmFromDeviceCode(deviceCode string) (cipher.AEAD, error) {
+	key := sha256.Sum256([]byte(deviceCode))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, fmt.Errorf("create cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("create gcm: %w", err)
+	}
+	return gcm, nil
+}
+
+// EncryptWithDeviceCode encrypts plaintext using AES-GCM with the SHA256 of the device code as key.
+// Only the holder of the device code can decrypt. Returns base64-encoded ciphertext.
+func EncryptWithDeviceCode(plaintext, deviceCode string) (string, error) {
+	gcm, err := gcmFromDeviceCode(deviceCode)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// DecryptWithDeviceCode decrypts base64-encoded ciphertext using AES-GCM with the SHA256 of the device code as key.
+func DecryptWithDeviceCode(encrypted, deviceCode string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", fmt.Errorf("decode base64: %w", err)
+	}
+	gcm, err := gcmFromDeviceCode(deviceCode)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", fmt.Errorf("decrypt: %w", err)
+	}
+	return string(plaintext), nil
 }
 
 // VerifyState verifies an HMAC-signed state parameter and returns the user_code.

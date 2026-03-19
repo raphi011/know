@@ -11,15 +11,17 @@ import (
 // Metrics holds all Prometheus metrics for the application.
 // All methods are safe to call on a nil receiver (no-op).
 type Metrics struct {
-	dbDuration        *prometheus.HistogramVec
-	httpDuration      *prometheus.HistogramVec
-	httpRequestsTotal *prometheus.CounterVec
-	embedDuration     *prometheus.HistogramVec
-	llmDuration       *prometheus.HistogramVec
-	llmTokens         *prometheus.CounterVec
-	pipelineDuration  *prometheus.HistogramVec
-	pipelineTotal     *prometheus.CounterVec
-	authEventsTotal   *prometheus.CounterVec
+	dbDuration           *prometheus.HistogramVec
+	httpDuration         *prometheus.HistogramVec
+	httpRequestsTotal    *prometheus.CounterVec
+	embedDuration        *prometheus.HistogramVec
+	llmDuration          *prometheus.HistogramVec
+	llmTokens            *prometheus.CounterVec
+	pipelineDuration     *prometheus.HistogramVec
+	pipelineTotal        *prometheus.CounterVec
+	authEventsTotal      *prometheus.CounterVec
+	rateLimitRejectTotal *prometheus.CounterVec
+	cleanupFailuresTotal *prometheus.CounterVec
 }
 
 // NewMetrics creates and registers all Prometheus metrics.
@@ -74,6 +76,16 @@ func NewMetrics() *Metrics {
 			Name: "know_auth_events_total",
 			Help: "Total number of authentication events by event type and result.",
 		}, []string{"event", "result"}),
+
+		rateLimitRejectTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "know_rate_limit_rejected_total",
+			Help: "Total number of requests rejected by rate limiting.",
+		}, []string{"tier"}),
+
+		cleanupFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "know_cleanup_failures_total",
+			Help: "Total number of background cleanup task failures.",
+		}, []string{"task"}),
 	}
 
 	prometheus.MustRegister(
@@ -86,6 +98,8 @@ func NewMetrics() *Metrics {
 		m.pipelineDuration,
 		m.pipelineTotal,
 		m.authEventsTotal,
+		m.rateLimitRejectTotal,
+		m.cleanupFailuresTotal,
 	)
 
 	return m
@@ -134,6 +148,22 @@ func (m *Metrics) RecordAuthEvent(event, result string) {
 		return
 	}
 	m.authEventsTotal.WithLabelValues(event, result).Inc()
+}
+
+// RecordRateLimitRejection records a rate-limited request rejection.
+func (m *Metrics) RecordRateLimitRejection(tier string) {
+	if m == nil {
+		return
+	}
+	m.rateLimitRejectTotal.WithLabelValues(tier).Inc()
+}
+
+// RecordCleanupFailure records a background cleanup task failure.
+func (m *Metrics) RecordCleanupFailure(task string) {
+	if m == nil {
+		return
+	}
+	m.cleanupFailuresTotal.WithLabelValues(task).Inc()
 }
 
 // RecordPipelineJob records a pipeline job completion.

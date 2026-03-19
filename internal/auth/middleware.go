@@ -12,6 +12,11 @@ import (
 	"github.com/raphi011/know/internal/metrics"
 )
 
+// MiddlewareConfig holds configuration for the auth middleware.
+type MiddlewareConfig struct {
+	TrustXForwardedFor bool
+}
+
 // NoAuthMiddleware injects an admin AuthContext with access to all vaults,
 // bypassing token validation entirely. Use only for local/Docker setups.
 func NoAuthMiddleware(next http.Handler) http.Handler {
@@ -30,15 +35,16 @@ func NoAuthMiddleware(next http.Handler) http.Handler {
 }
 
 // Middleware validates Bearer tokens and injects AuthContext.
-func Middleware(dbClient *db.Client, m *metrics.Metrics) func(http.Handler) http.Handler {
+func Middleware(dbClient *db.Client, m *metrics.Metrics, mwCfg MiddlewareConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")
+			ip := httputil.ClientIP(r, mwCfg.TrustXForwardedFor)
 			if !strings.HasPrefix(header, "Bearer ") {
 				event := AuditFailure
 				AuditLog(r.Context(), event,
 					slog.String("reason", "missing_header"),
-					slog.String("ip", clientIP(r)),
+					slog.String("ip", ip),
 				)
 				m.RecordAuthEvent(string(event), string(event.Result()))
 				httputil.WriteProblem(w, http.StatusUnauthorized, "missing authorization header")
@@ -56,7 +62,7 @@ func Middleware(dbClient *db.Client, m *metrics.Metrics) func(http.Handler) http
 				}
 				AuditLog(r.Context(), event,
 					slog.String("reason", reason),
-					slog.String("ip", clientIP(r)),
+					slog.String("ip", ip),
 				)
 				m.RecordAuthEvent(string(event), string(event.Result()))
 				httputil.WriteProblem(w, http.StatusUnauthorized, "invalid token")
@@ -66,13 +72,14 @@ func Middleware(dbClient *db.Client, m *metrics.Metrics) func(http.Handler) http
 			event := AuditSuccess
 			AuditLog(r.Context(), event,
 				slog.String("user_id", ac.UserID),
-				slog.String("ip", clientIP(r)),
+				slog.String("ip", ip),
 				slog.String("provider", string(ac.Provider)),
+				slog.String("token_name", ac.TokenName),
 			)
 			m.RecordAuthEvent(string(event), string(event.Result()))
 
 			ctx := WithAuth(r.Context(), ac)
-			logger := logutil.FromCtx(ctx).With("user_id", ac.UserID)
+			logger := logutil.FromCtx(ctx).With("user_id", ac.UserID, "token_name", ac.TokenName)
 			ctx = logutil.WithLogger(ctx, logger)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

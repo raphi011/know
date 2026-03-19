@@ -77,7 +77,12 @@ type Config struct {
 	LogLevel slog.Level
 
 	// Auth settings
-	TokenMaxLifetimeDays int // KNOW_TOKEN_MAX_LIFETIME_DAYS (default: 90, 0 = no limit)
+	TokenMaxLifetimeDays int     // KNOW_TOKEN_MAX_LIFETIME_DAYS (default: 90, 0 = no limit)
+	TrustXForwardedFor   bool    // KNOW_TRUST_X_FORWARDED_FOR (default: false)
+	RateLimitAuthRPS     float64 // KNOW_RATE_LIMIT_AUTH_RPS (default: 5, 0 = disabled)
+	RateLimitAuthBurst   int     // KNOW_RATE_LIMIT_AUTH_BURST (default: 10)
+	RateLimitGlobalRPS   float64 // KNOW_RATE_LIMIT_GLOBAL_RPS (default: 100, 0 = disabled)
+	RateLimitGlobalBurst int     // KNOW_RATE_LIMIT_GLOBAL_BURST (default: 200)
 
 	// OIDC authentication
 	OIDCEnabled       bool   // KNOW_OIDC_ENABLED (default: false)
@@ -274,6 +279,11 @@ func Load() Config {
 
 		// Auth settings
 		TokenMaxLifetimeDays: getEnvInt("KNOW_TOKEN_MAX_LIFETIME_DAYS", 90),
+		TrustXForwardedFor:   getEnvBool("KNOW_TRUST_X_FORWARDED_FOR", false),
+		RateLimitAuthRPS:     getEnvFloat64("KNOW_RATE_LIMIT_AUTH_RPS", 5),
+		RateLimitAuthBurst:   getEnvInt("KNOW_RATE_LIMIT_AUTH_BURST", 10),
+		RateLimitGlobalRPS:   getEnvFloat64("KNOW_RATE_LIMIT_GLOBAL_RPS", 100),
+		RateLimitGlobalBurst: getEnvInt("KNOW_RATE_LIMIT_GLOBAL_BURST", 200),
 
 		// OIDC authentication
 		OIDCEnabled:       getEnvBool("KNOW_OIDC_ENABLED", false),
@@ -347,6 +357,18 @@ func getEnvInt(key string, defaultVal int) int {
 			return defaultVal
 		}
 		return i
+	}
+	return defaultVal
+}
+
+func getEnvFloat64(key string, defaultVal float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			slog.Warn("invalid float env var, using default", "key", key, "value", val, "default", defaultVal, "error", err)
+			return defaultVal
+		}
+		return f
 	}
 	return defaultVal
 }

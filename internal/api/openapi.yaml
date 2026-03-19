@@ -820,6 +820,10 @@ components:
           type: string
         textExtractorEnabled:
           type: boolean
+        tokenMaxLifetimeDays:
+          type: integer
+        oidcEnabled:
+          type: boolean
 
     ImportManifestFile:
       type: object
@@ -1016,6 +1020,23 @@ components:
             $ref: "#/components/schemas/ProblemDetail"
     NotFound:
       description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Conflict:
+      description: Conflict (e.g. resource limit reached, self-referential operation)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds until the client should retry
+          schema:
+            type: integer
       content:
         application/problem+json:
           schema:
@@ -2326,12 +2347,20 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Maximum number of tokens reached
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /tokens/{id}:
     delete:
       tags: [Tokens]
       summary: Delete token
-      description: Deletes an API token. Users can only delete their own tokens.
+      description: Deletes an API token. Users can only delete their own tokens. Cannot delete the token currently in use.
       parameters:
         - name: id
           in: path
@@ -2347,6 +2376,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Cannot delete the token currently in use
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
 
   /tokens/{id}/rotate:
     post:

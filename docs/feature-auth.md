@@ -255,6 +255,32 @@ When disabled (default), only pre-existing users can log in via OIDC. An admin m
 | `KNOW_SELF_SIGNUP_ENABLED`    | `false` | Auto-create users on first OIDC login           |
 | `KNOW_TOKEN_MAX_LIFETIME_DAYS`| `90`    | Max token lifetime in days (0 = no limit)       |
 | `KNOW_TOKEN`                  | —       | API token for CLI commands                      |
+| `KNOW_TRUST_X_FORWARDED_FOR` | `true`  | Trust X-Forwarded-For header for client IP      |
+| `KNOW_RATE_LIMIT_AUTH_RPS`   | `5`     | Requests/sec for `/auth/*` endpoints (0 = off)  |
+| `KNOW_RATE_LIMIT_AUTH_BURST` | `10`    | Burst size for auth rate limiter                |
+| `KNOW_RATE_LIMIT_GLOBAL_RPS` | `100`   | Requests/sec global per-IP (0 = off)            |
+| `KNOW_RATE_LIMIT_GLOBAL_BURST`| `200`  | Burst size for global rate limiter              |
+
+## Rate Limiting
+
+Two tiers of per-IP rate limiting protect the server from abuse:
+
+- **Auth tier** (`/auth/*` endpoints): Stricter limits on unauthenticated login/device-flow/token-exchange endpoints. Default: 5 req/s with burst of 10.
+- **Global tier** (all endpoints): A generous global limit applied to every request. Default: 100 req/s with burst of 200.
+
+Set any RPS value to `0` to disable that tier. When a request is rate-limited, the server returns `429 Too Many Requests` with a `Retry-After` header and an RFC 9457 problem detail body.
+
+Rate-limited requests are tracked via the `know_rate_limit_rejected_total` Prometheus counter (label: `tier`).
+
+## Token Limits
+
+- **Max tokens per user**: 50. Attempting to create more returns `409 Conflict`.
+- **Self-deletion guard**: You cannot delete the token you are currently authenticating with (returns `409 Conflict`). Token rotation is allowed on the current token.
+- **Expired token cleanup**: Expired tokens are automatically removed every 5 minutes.
+
+## Proxy Trust
+
+When deployed behind a reverse proxy (nginx, Traefik, etc.), set `KNOW_TRUST_X_FORWARDED_FOR=true` (default) to use the client IP from the `X-Forwarded-For` header. Set to `false` when the server is directly exposed to use `RemoteAddr` instead, preventing IP spoofing.
 
 ## Admin User Management
 

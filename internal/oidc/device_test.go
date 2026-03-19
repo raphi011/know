@@ -56,6 +56,43 @@ func TestFormatUserCode(t *testing.T) {
 	}
 }
 
+func TestEncryptDecryptWithDeviceCode(t *testing.T) {
+	_, deviceCode, err := GenerateDeviceCode()
+	if err != nil {
+		t.Fatalf("GenerateDeviceCode failed: %v", err)
+	}
+
+	plaintext := "kh_abc123def456"
+	encrypted, err := EncryptWithDeviceCode(plaintext, deviceCode)
+	if err != nil {
+		t.Fatalf("EncryptWithDeviceCode failed: %v", err)
+	}
+
+	if encrypted == plaintext {
+		t.Error("encrypted should differ from plaintext")
+	}
+
+	decrypted, err := DecryptWithDeviceCode(encrypted, deviceCode)
+	if err != nil {
+		t.Fatalf("DecryptWithDeviceCode failed: %v", err)
+	}
+	if decrypted != plaintext {
+		t.Errorf("decrypted = %q, want %q", decrypted, plaintext)
+	}
+
+	// Wrong device code should fail
+	_, err = DecryptWithDeviceCode(encrypted, "wrong-device-code")
+	if err == nil {
+		t.Error("DecryptWithDeviceCode should fail with wrong device code")
+	}
+
+	// Tampered ciphertext should fail
+	_, err = DecryptWithDeviceCode(encrypted+"x", deviceCode)
+	if err == nil {
+		t.Error("DecryptWithDeviceCode should fail with tampered ciphertext")
+	}
+}
+
 func TestSignAndVerifyState(t *testing.T) {
 	secret := []byte("test-secret-key-32bytes!12345678")
 	userCode := "ABCDEFGH"
