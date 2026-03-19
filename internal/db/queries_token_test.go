@@ -99,6 +99,52 @@ func TestListTokens(t *testing.T) {
 	}
 }
 
+func TestGetTokenByID(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	hash := fmt.Sprintf("get-by-id-hash-%d", time.Now().UnixNano())
+	token, err := testDB.CreateToken(ctx, userID, hash, "get-by-id-token", testTokenExpiry)
+	if err != nil {
+		t.Fatalf("CreateToken failed: %v", err)
+	}
+	tokenID := models.MustRecordIDString(token.ID)
+
+	// Lookup by ID
+	found, err := testDB.GetTokenByID(ctx, tokenID)
+	if err != nil {
+		t.Fatalf("GetTokenByID failed: %v", err)
+	}
+	if found == nil {
+		t.Fatal("GetTokenByID returned nil")
+	}
+	if found.Name != "get-by-id-token" {
+		t.Errorf("expected name 'get-by-id-token', got %q", found.Name)
+	}
+	if found.TokenHash != hash {
+		t.Errorf("expected hash %q, got %q", hash, found.TokenHash)
+	}
+
+	// Lookup with prefixed ID should also work
+	foundPrefixed, err := testDB.GetTokenByID(ctx, "api_token:"+tokenID)
+	if err != nil {
+		t.Fatalf("GetTokenByID with prefix failed: %v", err)
+	}
+	if foundPrefixed == nil {
+		t.Fatal("GetTokenByID with prefix returned nil")
+	}
+
+	// Nonexistent ID
+	notFound, err := testDB.GetTokenByID(ctx, "nonexistent-token-id")
+	if err != nil {
+		t.Fatalf("GetTokenByID nonexistent error: %v", err)
+	}
+	if notFound != nil {
+		t.Error("expected nil for nonexistent ID")
+	}
+}
+
 func TestDeleteToken(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

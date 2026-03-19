@@ -33,6 +33,19 @@ func (c *Client) CreateToken(ctx context.Context, userID, tokenHash, name string
 	return firstResult(results, "create token")
 }
 
+// GetTokenByID retrieves a token by its record ID.
+func (c *Client) GetTokenByID(ctx context.Context, id string) (*models.APIToken, error) {
+	defer c.logOp(ctx, "token.get_by_id", time.Now())
+	sql := `SELECT * FROM type::record("api_token", $id)`
+	results, err := surrealdb.Query[[]models.APIToken](ctx, c.DB(), sql, map[string]any{
+		"id": bareID("api_token", id),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get token by id: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
 func (c *Client) GetTokenByHash(ctx context.Context, hash string) (*models.APIToken, error) {
 	defer c.logOp(ctx, "token.get_by_hash", time.Now())
 	sql := `SELECT * FROM api_token WHERE token_hash = $hash LIMIT 1`

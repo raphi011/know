@@ -93,6 +93,12 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	// --- SSE (document change stream, vault-scoped) ---
 	// Registered in cmd_serve.go since it depends on the event bus.
 
+	// --- Tokens ---
+	mux.Handle("GET /api/v1/tokens", g(s.listTokens))
+	mux.Handle("POST /api/v1/tokens", g(s.createToken))
+	mux.Handle("DELETE /api/v1/tokens/{id}", g(s.deleteToken))
+	mux.Handle("POST /api/v1/tokens/{id}/rotate", g(s.rotateToken))
+
 	// --- Conversations (global, identified by ID) ---
 	mux.Handle("GET /api/v1/conversations", g(s.listConversations))
 	mux.Handle("POST /api/v1/conversations", g(s.createConversation))
