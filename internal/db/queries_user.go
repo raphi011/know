@@ -70,6 +70,70 @@ func (c *Client) GetUserByName(ctx context.Context, name string) (*models.User, 
 	return firstResultOpt(results), nil
 }
 
+// GetUserByOIDCSubject finds a user by OIDC provider and subject.
+func (c *Client) GetUserByOIDCSubject(ctx context.Context, provider, subject string) (*models.User, error) {
+	defer c.logOp(ctx, "user.get_by_oidc_subject", time.Now())
+	sql := `SELECT * FROM user WHERE oidc_provider = $provider AND oidc_subject = $subject LIMIT 1`
+	results, err := surrealdb.Query[[]models.User](ctx, c.DB(), sql, map[string]any{
+		"provider": provider,
+		"subject":  subject,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get user by oidc subject: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
+// GetUserByEmail finds a user by email address.
+func (c *Client) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	defer c.logOp(ctx, "user.get_by_email", time.Now())
+	sql := `SELECT * FROM user WHERE email = $email LIMIT 1`
+	results, err := surrealdb.Query[[]models.User](ctx, c.DB(), sql, map[string]any{
+		"email": email,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
+// CreateUserFromOIDC creates a user from OIDC claims.
+func (c *Client) CreateUserFromOIDC(ctx context.Context, provider, subject, name, email string) (*models.User, error) {
+	defer c.logOp(ctx, "user.create_from_oidc", time.Now())
+	sql := `
+		CREATE user SET
+			name = $name,
+			email = $email,
+			oidc_provider = $provider,
+			oidc_subject = $subject
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.User](ctx, c.DB(), sql, map[string]any{
+		"name":     name,
+		"email":    email,
+		"provider": provider,
+		"subject":  subject,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create user from oidc: %w", err)
+	}
+	return firstResult(results, "create user from oidc")
+}
+
+// LinkOIDCIdentity links an OIDC identity to an existing user.
+func (c *Client) LinkOIDCIdentity(ctx context.Context, userID, provider, subject string) error {
+	defer c.logOp(ctx, "user.link_oidc", time.Now())
+	sql := `UPDATE type::record("user", $id) SET oidc_provider = $provider, oidc_subject = $subject`
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
+		"id":       bareID("user", userID),
+		"provider": provider,
+		"subject":  subject,
+	}); err != nil {
+		return fmt.Errorf("link oidc identity: %w", err)
+	}
+	return nil
+}
+
 // UpdateUserSystemAdmin sets the is_system_admin flag on a user.
 func (c *Client) UpdateUserSystemAdmin(ctx context.Context, userID string, isAdmin bool) error {
 	defer c.logOp(ctx, "user.update_system_admin", time.Now())

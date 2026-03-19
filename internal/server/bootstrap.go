@@ -72,6 +72,9 @@ type ServerConfig struct {
 	MultimodalEmbedEnabled  bool   `json:"multimodalEmbedEnabled"`
 	TextExtractorModel      string `json:"textExtractorModel"`
 	TextExtractorEnabled    bool   `json:"textExtractorEnabled"`
+
+	// Auth
+	TokenMaxLifetimeDays int `json:"tokenMaxLifetimeDays"`
 }
 
 // App holds all application services and dependencies.
@@ -322,6 +325,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			MultimodalEmbedEnabled:  cfg.MultimodalEmbedProvider.Enabled(),
 			TextExtractorModel:      cfg.TextExtractorModel,
 			TextExtractorEnabled:    textExtractorOK,
+			TokenMaxLifetimeDays:    cfg.TokenMaxLifetimeDays,
 		},
 	}
 

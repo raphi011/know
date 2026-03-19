@@ -12,6 +12,8 @@ type User struct {
 	Email         *string                `json:"email,omitempty"`
 	IsSystemAdmin bool                   `json:"is_system_admin"`
 	CreatedAt     time.Time              `json:"created_at"`
+	OIDCProvider  *string                `json:"oidc_provider,omitempty"`
+	OIDCSubject   *string                `json:"oidc_subject,omitempty"`
 }
 
 type UserInput struct {

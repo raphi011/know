@@ -271,4 +271,103 @@ func TestVaultSettingsMerge(t *testing.T) {
 			t.Errorf("VersionRetentionCount = %d, want 50", got.VersionRetentionCount)
 		}
 	})
+
+	t.Run("merge overwrites nil toggle with explicit bool", func(t *testing.T) {
+		got := base.Merge(VaultSettings{AgentEnabled: new(false)})
+		if got.AgentEnabled == nil || *got.AgentEnabled != false {
+			t.Errorf("AgentEnabled = %v, want false", got.AgentEnabled)
+		}
+		got = base.Merge(VaultSettings{EmbeddingEnabled: new(true)})
+		if got.EmbeddingEnabled == nil || *got.EmbeddingEnabled != true {
+			t.Errorf("EmbeddingEnabled = %v, want true", got.EmbeddingEnabled)
+		}
+		got = base.Merge(VaultSettings{MCPEnabled: new(false)})
+		if got.MCPEnabled == nil || *got.MCPEnabled != false {
+			t.Errorf("MCPEnabled = %v, want false", got.MCPEnabled)
+		}
+	})
+
+	t.Run("merge preserves existing toggle when patch is nil", func(t *testing.T) {
+		withToggles := base
+		withToggles.AgentEnabled = new(false)
+		withToggles.EmbeddingEnabled = new(true)
+		withToggles.MCPEnabled = new(false)
+
+		got := withToggles.Merge(VaultSettings{})
+		if got.AgentEnabled == nil || *got.AgentEnabled != false {
+			t.Errorf("AgentEnabled should be preserved as false, got %v", got.AgentEnabled)
+		}
+		if got.EmbeddingEnabled == nil || *got.EmbeddingEnabled != true {
+			t.Errorf("EmbeddingEnabled should be preserved as true, got %v", got.EmbeddingEnabled)
+		}
+		if got.MCPEnabled == nil || *got.MCPEnabled != false {
+			t.Errorf("MCPEnabled should be preserved as false, got %v", got.MCPEnabled)
+		}
+	})
+}
+
+func TestFeatureToggleHelpers(t *testing.T) {
+	t.Run("nil defaults to true (enabled)", func(t *testing.T) {
+		s := VaultSettings{}
+		if !s.IsAgentEnabled() {
+			t.Error("IsAgentEnabled() should be true when nil")
+		}
+		if !s.IsEmbeddingEnabled() {
+			t.Error("IsEmbeddingEnabled() should be true when nil")
+		}
+		if !s.IsMCPEnabled() {
+			t.Error("IsMCPEnabled() should be true when nil")
+		}
+	})
+
+	t.Run("explicit true returns true", func(t *testing.T) {
+		s := VaultSettings{
+			AgentEnabled:     new(true),
+			EmbeddingEnabled: new(true),
+			MCPEnabled:       new(true),
+		}
+		if !s.IsAgentEnabled() {
+			t.Error("IsAgentEnabled() should be true")
+		}
+		if !s.IsEmbeddingEnabled() {
+			t.Error("IsEmbeddingEnabled() should be true")
+		}
+		if !s.IsMCPEnabled() {
+			t.Error("IsMCPEnabled() should be true")
+		}
+	})
+
+	t.Run("explicit false returns false", func(t *testing.T) {
+		s := VaultSettings{
+			AgentEnabled:     new(false),
+			EmbeddingEnabled: new(false),
+			MCPEnabled:       new(false),
+		}
+		if s.IsAgentEnabled() {
+			t.Error("IsAgentEnabled() should be false")
+		}
+		if s.IsEmbeddingEnabled() {
+			t.Error("IsEmbeddingEnabled() should be false")
+		}
+		if s.IsMCPEnabled() {
+			t.Error("IsMCPEnabled() should be false")
+		}
+	})
+
+	t.Run("Vault.Defaults preserves toggles through merge", func(t *testing.T) {
+		v := &Vault{Settings: &VaultSettings{
+			AgentEnabled: new(false),
+		}}
+		d := v.Defaults()
+		if d.IsAgentEnabled() {
+			t.Error("IsAgentEnabled() should be false after Defaults()")
+		}
+		// Other toggles should default to true (nil)
+		if !d.IsEmbeddingEnabled() {
+			t.Error("IsEmbeddingEnabled() should be true (nil default) after Defaults()")
+		}
+		if !d.IsMCPEnabled() {
+			t.Error("IsMCPEnabled() should be true (nil default) after Defaults()")
+		}
+	})
 }

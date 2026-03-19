@@ -9,7 +9,9 @@ info:
 
 servers:
   - url: /api/v1
-    description: Local server
+    description: "REST API (most endpoints)"
+  - url: /
+    description: "Root server (auth endpoints only)"
 
 security:
   - BearerAuth: []
@@ -49,6 +51,10 @@ tags:
     description: Pipeline job status and stats
   - name: Config
     description: Server configuration
+  - name: Tokens
+    description: API token management (list, create, delete, rotate)
+  - name: Auth
+    description: "OIDC authentication (device flow, PKCE). Note: these endpoints are served at `/auth/*`, not under `/api/v1/`."
   - name: Events
     description: SSE document change stream
 
@@ -824,6 +830,110 @@ components:
             $ref: "#/components/schemas/ImportFileResult"
         error:
           type: string
+
+    TokenResponse:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        last_used:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Human-readable token name
+        expires_in_days:
+          type: integer
+          description: Days until expiry (0 = server default)
+
+    CreateTokenResponse:
+      type: object
+      required: [raw_token, token]
+      properties:
+        raw_token:
+          type: string
+          description: "The raw token value (only returned once). Format: `kh_...`"
+        token:
+          $ref: "#/components/schemas/TokenResponse"
+
+    DeviceFlowStartResponse:
+      type: object
+      required: [user_code, verification_uri, device_code, expires_in, interval]
+      properties:
+        user_code:
+          type: string
+          example: "ABCD-EFGH"
+        verification_uri:
+          type: string
+          format: uri
+        device_code:
+          type: string
+        expires_in:
+          type: integer
+          description: Seconds until the device code expires
+        interval:
+          type: integer
+          description: Polling interval in seconds
+
+    DeviceFlowPollRequest:
+      type: object
+      required: [device_code]
+      properties:
+        device_code:
+          type: string
+
+    DeviceFlowPollResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: "API token (format: `kh_...`)"
+
+    TokenExchangeRequest:
+      type: object
+      required: [code, code_verifier]
+      properties:
+        code:
+          type: string
+          description: Authorization code from OIDC provider
+        code_verifier:
+          type: string
+          description: PKCE code verifier
+        redirect_uri:
+          type: string
+          description: Redirect URI used in the authorization request
+
+    TokenExchangeResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: "API token (format: `kh_...`)"
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            email:
+              type: string
 
   responses:
     BadRequest:
@@ -1986,3 +2096,245 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ServerConfig"
+
+  # ── Tokens ─────────────────────────────────────────────
+  /tokens:
+    get:
+      tags: [Tokens]
+      summary: List tokens
+      description: Returns the authenticated user's API tokens. Token hashes are never exposed.
+      responses:
+        "200":
+          description: Token list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TokenResponse"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Tokens]
+      summary: Create token
+      description: |
+        Creates a new API token for the authenticated user.
+        The raw token value is returned only once in the response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTokenRequest"
+      responses:
+        "201":
+          description: Token created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTokenResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /tokens/{id}:
+    delete:
+      tags: [Tokens]
+      summary: Delete token
+      description: Deletes an API token. Users can only delete their own tokens.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Token deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /tokens/{id}/rotate:
+    post:
+      tags: [Tokens]
+      summary: Rotate token
+      description: |
+        Replaces an existing token with a new one. The old token is deleted and
+        a new token is created with the same name and remaining TTL.
+        The new raw token value is returned only once.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Auth (OIDC) ────────────────────────────────────────
+  # These endpoints are served at /auth/*, not under /api/v1/.
+  # Use the root server URL (/) when calling these.
+  /auth/device/start:
+    post:
+      tags: [Auth]
+      summary: Start device flow
+      description: |
+        Initiates the OAuth 2.0 Device Authorization Grant flow.
+        Returns a user code and verification URI for browser-based login.
+        **Unauthenticated endpoint.** Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+      responses:
+        "200":
+          description: Device flow started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceFlowStartResponse"
+
+  /auth/device/poll:
+    post:
+      tags: [Auth]
+      summary: Poll device flow
+      description: |
+        Polls for device flow completion. Returns the API token when the user
+        has completed browser-based authentication.
+        **Unauthenticated endpoint.** Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceFlowPollRequest"
+      responses:
+        "200":
+          description: Approved — token returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceFlowPollResponse"
+        "404":
+          description: Device code not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "410":
+          description: Device code expired
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "428":
+          description: Authorization pending — keep polling
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+
+  /auth/login:
+    get:
+      tags: [Auth]
+      summary: OIDC login redirect
+      description: |
+        Redirects the user to the OIDC provider for authentication.
+        Called from the browser with the user code from the device flow.
+        **Unauthenticated endpoint.** Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+      parameters:
+        - name: user_code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User code from device flow start
+      responses:
+        "302":
+          description: Redirect to OIDC provider
+
+  /auth/callback:
+    get:
+      tags: [Auth]
+      summary: OIDC callback
+      description: |
+        Handles the OIDC provider redirect after authentication.
+        Exchanges the authorization code, resolves/creates the user,
+        generates an API token, and approves the device code.
+        **Unauthenticated endpoint.** Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Login successful (HTML page)
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /auth/token:
+    post:
+      tags: [Auth]
+      summary: PKCE token exchange
+      description: |
+        Exchanges an authorization code with PKCE verifier for an API token.
+        Used by native apps that can handle browser redirects.
+        **Unauthenticated endpoint.** Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenExchangeRequest"
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenExchangeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"

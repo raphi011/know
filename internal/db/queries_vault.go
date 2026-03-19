@@ -8,6 +8,7 @@ import (
 
 	"github.com/raphi011/know/internal/models"
 	"github.com/surrealdb/surrealdb.go"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 func (c *Client) CreateVault(ctx context.Context, userID string, input models.VaultInput) (*models.Vault, error) {
@@ -127,6 +128,26 @@ func (c *Client) UpdateVaultSettings(ctx context.Context, vaultID string, settin
 		return nil, fmt.Errorf("update vault settings: %w", err)
 	}
 	return firstResult(results, "update vault settings")
+}
+
+// GetVaultsByIDs fetches multiple vaults by their IDs in a single query.
+func (c *Client) GetVaultsByIDs(ctx context.Context, ids []string) ([]models.Vault, error) {
+	defer c.logOp(ctx, "vault.get_by_ids", time.Now())
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	records := make([]surrealmodels.RecordID, len(ids))
+	for i, id := range ids {
+		records[i] = newRecordID("vault", bareID("vault", id))
+	}
+	sql := `SELECT * FROM vault WHERE id IN $ids`
+	results, err := surrealdb.Query[[]models.Vault](ctx, c.DB(), sql, map[string]any{
+		"ids": records,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get vaults by ids: %w", err)
+	}
+	return allResults(results), nil
 }
 
 // ListDocumentPaths returns all non-folder file paths in a vault (for folder derivation).

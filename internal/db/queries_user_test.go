@@ -106,6 +106,139 @@ func TestUpdateUserSystemAdmin(t *testing.T) {
 	}
 }
 
+func TestGetUserByOIDCSubject(t *testing.T) {
+	ctx := context.Background()
+
+	provider := "https://accounts.google.com"
+	subject := fmt.Sprintf("oidc-sub-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("oidc-user-%d", time.Now().UnixNano())
+	email := fmt.Sprintf("oidc-%d@example.com", time.Now().UnixNano())
+
+	// Create user with OIDC fields
+	created, err := testDB.CreateUserFromOIDC(ctx, provider, subject, name, email)
+	if err != nil {
+		t.Fatalf("CreateUserFromOIDC failed: %v", err)
+	}
+
+	// Find by provider+subject
+	found, err := testDB.GetUserByOIDCSubject(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("GetUserByOIDCSubject failed: %v", err)
+	}
+	if found == nil {
+		t.Fatal("GetUserByOIDCSubject returned nil for existing user")
+	}
+	if found.Name != created.Name {
+		t.Errorf("Expected name %q, got %q", created.Name, found.Name)
+	}
+
+	// Not found
+	notFound, err := testDB.GetUserByOIDCSubject(ctx, provider, "nonexistent-subject")
+	if err != nil {
+		t.Errorf("GetUserByOIDCSubject non-existent should not error: %v", err)
+	}
+	if notFound != nil {
+		t.Error("GetUserByOIDCSubject non-existent should return nil")
+	}
+}
+
+func TestGetUserByEmail(t *testing.T) {
+	ctx := context.Background()
+
+	email := fmt.Sprintf("test-%d@example.com", time.Now().UnixNano())
+	name := fmt.Sprintf("email-user-%d", time.Now().UnixNano())
+
+	_, err := testDB.CreateUser(ctx, models.UserInput{Name: name, Email: &email})
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+
+	// Find by email
+	found, err := testDB.GetUserByEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("GetUserByEmail failed: %v", err)
+	}
+	if found == nil {
+		t.Fatal("GetUserByEmail returned nil for existing user")
+	}
+	if found.Name != name {
+		t.Errorf("Expected name %q, got %q", name, found.Name)
+	}
+
+	// Not found
+	notFound, err := testDB.GetUserByEmail(ctx, "nonexistent@example.com")
+	if err != nil {
+		t.Errorf("GetUserByEmail non-existent should not error: %v", err)
+	}
+	if notFound != nil {
+		t.Error("GetUserByEmail non-existent should return nil")
+	}
+}
+
+func TestCreateUserFromOIDC(t *testing.T) {
+	ctx := context.Background()
+
+	provider := "https://accounts.google.com"
+	subject := fmt.Sprintf("oidc-create-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("oidc-create-user-%d", time.Now().UnixNano())
+	email := fmt.Sprintf("oidc-create-%d@example.com", time.Now().UnixNano())
+
+	user, err := testDB.CreateUserFromOIDC(ctx, provider, subject, name, email)
+	if err != nil {
+		t.Fatalf("CreateUserFromOIDC failed: %v", err)
+	}
+	if user.Name != name {
+		t.Errorf("Expected name %q, got %q", name, user.Name)
+	}
+	if user.Email == nil || *user.Email != email {
+		t.Errorf("Expected email %q, got %v", email, user.Email)
+	}
+	if user.OIDCProvider == nil || *user.OIDCProvider != provider {
+		t.Errorf("Expected oidc_provider %q, got %v", provider, user.OIDCProvider)
+	}
+	if user.OIDCSubject == nil || *user.OIDCSubject != subject {
+		t.Errorf("Expected oidc_subject %q, got %v", subject, user.OIDCSubject)
+	}
+}
+
+func TestLinkOIDCIdentity(t *testing.T) {
+	ctx := context.Background()
+
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	provider := "https://accounts.google.com"
+	subject := fmt.Sprintf("link-sub-%d", time.Now().UnixNano())
+
+	if err := testDB.LinkOIDCIdentity(ctx, userID, provider, subject); err != nil {
+		t.Fatalf("LinkOIDCIdentity failed: %v", err)
+	}
+
+	// Verify fields updated
+	got, err := testDB.GetUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUser failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetUser returned nil")
+	}
+	if got.OIDCProvider == nil || *got.OIDCProvider != provider {
+		t.Errorf("Expected oidc_provider %q, got %v", provider, got.OIDCProvider)
+	}
+	if got.OIDCSubject == nil || *got.OIDCSubject != subject {
+		t.Errorf("Expected oidc_subject %q, got %v", subject, got.OIDCSubject)
+	}
+
+	// Verify findable by OIDC subject
+	found, err := testDB.GetUserByOIDCSubject(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("GetUserByOIDCSubject failed: %v", err)
+	}
+	if found == nil {
+		t.Fatal("GetUserByOIDCSubject returned nil after linking")
+	}
+}
+
 func TestGetUserByName(t *testing.T) {
 	ctx := context.Background()
 

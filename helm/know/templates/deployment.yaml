@@ -60,6 +60,27 @@ spec:
           env:
             - name: KNOW_ENVIRONMENT
               value: {{ .Values.environment | default "production" | quote }}
+            {{- if .Values.oidc.enabled }}
+            - name: KNOW_OIDC_ENABLED
+              value: "true"
+            - name: KNOW_OIDC_ISSUER_URL
+              value: {{ .Values.oidc.issuerURL | quote }}
+            - name: KNOW_OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientID | quote }}
+            - name: KNOW_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "know.fullname" . }}-oidc
+                  key: client-secret
+            - name: KNOW_OIDC_REDIRECT_URL
+              value: {{ .Values.oidc.redirectURL | quote }}
+            {{- if .Values.oidc.providerName }}
+            - name: KNOW_OIDC_PROVIDER_NAME
+              value: {{ .Values.oidc.providerName | quote }}
+            {{- end }}
+            - name: KNOW_SELF_SIGNUP_ENABLED
+              value: {{ .Values.oidc.selfSignupEnabled | quote }}
+            {{- end }}
             - name: KNOW_TOKEN_MAX_LIFETIME_DAYS
               value: {{ .Values.tokenMaxLifetimeDays | default 90 | quote }}
             - name: KNOW_SERVER_PORT

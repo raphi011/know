@@ -57,6 +57,17 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 
 		vaultID := auth.MustVaultIDFromCtx(r.Context())
 
+		vault, err := rn.db.GetVault(r.Context(), vaultID)
+		if err != nil {
+			logutil.FromCtx(r.Context()).Warn("vault lookup failed", "vault_id", vaultID, "error", err)
+			http.Error(w, "vault lookup failed", http.StatusInternalServerError)
+			return
+		}
+		if vault != nil && !vault.Defaults().IsAgentEnabled() {
+			http.Error(w, "agent chat is disabled for this vault", http.StatusForbidden)
+			return
+		}
+
 		if body.Content == "" {
 			httputil.WriteProblem(w, http.StatusBadRequest, "content is required")
 			return

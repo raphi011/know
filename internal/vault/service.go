@@ -48,6 +48,11 @@ func (s *Service) ResolveByName(ctx context.Context, name string) (*auth.VaultIn
 	return &auth.VaultInfo{ID: id, Name: v.Name}, nil
 }
 
+// GetByIDs returns vaults matching the given IDs in a single batch query.
+func (s *Service) GetByIDs(ctx context.Context, ids []string) ([]models.Vault, error) {
+	return s.db.GetVaultsByIDs(ctx, ids)
+}
+
 func (s *Service) List(ctx context.Context) ([]models.Vault, error) {
 	return s.db.ListVaults(ctx)
 }

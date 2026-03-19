@@ -16,8 +16,9 @@ import (
 // VaultRef is an alias for tools.VaultRef used in MCP tool handlers.
 type VaultRef = tools.VaultRef
 
-// resolveVaultIDs returns the list of vault IDs the caller has access to.
-// In no-auth mode (wildcard access), it fetches all vault IDs from the DB.
+// resolveVaultIDs returns the list of vault IDs the caller has access to,
+// filtered by the MCPEnabled toggle. In no-auth mode (wildcard access), it
+// fetches all vault IDs from the DB.
 func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string, error) {
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
@@ -33,29 +34,57 @@ func resolveVaultIDs(ctx context.Context, vaultService *vault.Service) ([]string
 		}
 	}
 
+	var ids []string
+
 	if !hasWildcard {
-		ids := make([]string, 0, len(ac.Vaults))
+		ids = make([]string, 0, len(ac.Vaults))
 		for _, vp := range ac.Vaults {
 			ids = append(ids, vp.VaultID)
 		}
-		return ids, nil
+	} else {
+		// Wildcard: resolve to all vaults
+		allVaults, err := vaultService.List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list vaults: %w", err)
+		}
+		ids = make([]string, 0, len(allVaults))
+		for _, v := range allVaults {
+			id, err := models.RecordIDString(v.ID)
+			if err != nil {
+				logutil.FromCtx(ctx).Warn("failed to extract vault ID, skipping", "vault_name", v.Name, "error", err)
+				continue
+			}
+			ids = append(ids, id)
+		}
 	}
 
-	// Wildcard: resolve to all vaults
-	vaults, err := vaultService.List(ctx)
+	// Filter by MCPEnabled toggle (batch load to avoid N+1)
+	vaults, err := vaultService.GetByIDs(ctx, ids)
 	if err != nil {
-		return nil, fmt.Errorf("list vaults: %w", err)
+		return nil, fmt.Errorf("load vaults for MCP check: %w", err)
 	}
-	ids := make([]string, 0, len(vaults))
+	// Build set of MCP-disabled vault IDs to filter from the existing ids slice.
+	disabled := make(map[string]bool, len(vaults))
 	for _, v := range vaults {
-		id, err := models.RecordIDString(v.ID)
-		if err != nil {
-			logutil.FromCtx(ctx).Warn("failed to extract vault ID, skipping", "vault_name", v.Name, "error", err)
-			continue
+		if !v.Defaults().IsMCPEnabled() {
+			id, err := models.RecordIDString(v.ID)
+			if err != nil {
+				logutil.FromCtx(ctx).Warn("failed to extract vault ID for MCP filter, skipping", "vault_name", v.Name, "error", err)
+				continue
+			}
+			disabled[id] = true
 		}
-		ids = append(ids, id)
 	}
-	return ids, nil
+	if len(disabled) == 0 {
+		return ids, nil
+	}
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !disabled[id] {
+			filtered = append(filtered, id)
+		}
+	}
+	return filtered, nil
 }
 
 // resolveAllVaults returns VaultRefs for both local and remote vaults.

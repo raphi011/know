@@ -170,6 +170,7 @@ All routes are registered in `internal/api/server.go` (REST) and `cmd/know/cmd_s
 Each major feature has its own documentation file:
 - `docs/feature-agent.md` - Agent chat, TUI, tool approval, SSE streaming
 - `docs/feature-apple-app.md` - iOS/macOS app, quick picker, vault browsing
+- `docs/feature-auth.md` - Token auth, OIDC, device flow, PKCE, CLI login, self-signup
 - `docs/feature-audio-transcription.md` - STT pipeline, Whisper integration, template summarization
 - `docs/feature-ingestion.md` - Document pipeline, import command, frontmatter, wiki-links, versioning
 - `docs/feature-mcp.md` - MCP server, tools, multi-instance setup, Claude Code/Cursor config

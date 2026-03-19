@@ -18,6 +18,7 @@ import (
 	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/mcptools"
 	knownfs "github.com/raphi011/know/internal/nfs"
+	"github.com/raphi011/know/internal/oidc"
 	"github.com/raphi011/know/internal/server"
 	"github.com/raphi011/know/internal/sshd"
 	"github.com/raphi011/know/internal/tools"
@@ -170,6 +171,41 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Setup routes
 	mux := http.NewServeMux()
+
+	// Validate OIDC config before attempting setup
+	if err := cfg.ValidateOIDC(); err != nil {
+		return err
+	}
+
+	// OIDC auth routes (unauthenticated — must be registered before auth middleware)
+	if cfg.OIDCEnabled {
+		oidcProvider, oidcErr := oidc.New(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.OIDCRedirectURL, nil, cfg.OIDCProviderName)
+		if oidcErr != nil {
+			return fmt.Errorf("init oidc provider: %w", oidcErr)
+		}
+		oidcHandler, oidcErr := api.NewOIDCHandler(oidcProvider, app.DBClient(), cfg.SelfSignupEnabled, cfg.OIDCRedirectURL, cfg.TokenMaxLifetimeDays)
+		if oidcErr != nil {
+			return fmt.Errorf("init oidc handler: %w", oidcErr)
+		}
+		oidcHandler.RegisterRoutes(mux)
+		slog.Info("OIDC authentication enabled", "issuer", cfg.OIDCIssuerURL, "provider_name", oidcProvider.ProviderName())
+
+		// Periodically clean up expired device codes
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if err := app.DBClient().DeleteExpiredDeviceCodes(ctx); err != nil {
+						slog.Warn("failed to clean up expired device codes", "error", err)
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
 
 	// Auth middleware
 	var authMw func(http.Handler) http.Handler
