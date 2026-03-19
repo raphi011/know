@@ -63,6 +63,7 @@ func NewServer(
 
 	sshCfg := &ssh.ServerConfig{
 		PasswordCallback: s.passwordCallback,
+		MaxAuthTries:     3,
 	}
 
 	hostKey, err := loadOrGenerateHostKey(hostKeyPath)
@@ -130,8 +131,18 @@ func (s *Server) passwordCallback(conn ssh.ConnMetadata, password []byte) (*ssh.
 	ac, err := auth.Authenticate(context.Background(), s.dbClient, string(password), s.noAuth)
 	if err != nil {
 		slog.Warn("ssh: auth failed", "user", conn.User(), "remote", conn.RemoteAddr(), "error", err)
+		auth.AuditLog(context.Background(), auth.AuditFailure,
+			slog.String("protocol", "ssh"),
+			slog.String("ip", conn.RemoteAddr().String()),
+		)
 		return nil, fmt.Errorf("authentication failed")
 	}
+
+	auth.AuditLog(context.Background(), auth.AuditSuccess,
+		slog.String("protocol", "ssh"),
+		slog.String("user_id", ac.UserID),
+		slog.String("ip", conn.RemoteAddr().String()),
+	)
 
 	// Serialize vault permissions as "vaultID:role,vaultID:role,..."
 	var parts []string

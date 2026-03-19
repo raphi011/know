@@ -114,6 +114,27 @@ func TestEffectiveChunkConfig(t *testing.T) {
 	}
 }
 
+func TestIsProduction(t *testing.T) {
+	tests := []struct {
+		env  string
+		want bool
+	}{
+		{"production", true},
+		{"development", false},
+		{"", false},
+		{"Production", false}, // case-sensitive
+		{"staging", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.env, func(t *testing.T) {
+			c := Config{Environment: tt.env}
+			if got := c.IsProduction(); got != tt.want {
+				t.Errorf("IsProduction() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEffectiveChunkConfig_PassesValidate(t *testing.T) {
 	// EffectiveChunkConfig output must always pass Validate for reasonable inputs.
 	limits := []int{0, 300, 500, 1000, 2048, 5000, 10000}

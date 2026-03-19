@@ -9,17 +9,25 @@ import (
 	"github.com/raphi011/know/internal/models"
 )
 
+var testTokenExpiry = time.Now().Add(90 * 24 * time.Hour)
+
 func TestCreateAndLookupToken(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 
-	token, err := testDB.CreateToken(ctx, userID, "hash123unique"+fmt.Sprint(time.Now().UnixNano()), "test-token")
+	token, err := testDB.CreateToken(ctx, userID, "hash123unique"+fmt.Sprint(time.Now().UnixNano()), "test-token", testTokenExpiry)
 	if err != nil {
 		t.Fatalf("CreateToken failed: %v", err)
 	}
 	if token.Name != "test-token" {
 		t.Errorf("Expected name 'test-token', got %q", token.Name)
+	}
+	if token.ExpiresAt == nil {
+		t.Fatal("ExpiresAt should be set")
+	}
+	if token.ExpiresAt.Before(time.Now()) {
+		t.Error("ExpiresAt should be in the future")
 	}
 
 	found, err := testDB.GetTokenByHash(ctx, token.TokenHash)
@@ -44,7 +52,7 @@ func TestTokenLastUsed(t *testing.T) {
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
 
-	token, err := testDB.CreateToken(ctx, userID, "lastusedhash"+fmt.Sprint(time.Now().UnixNano()), "last-used-token")
+	token, err := testDB.CreateToken(ctx, userID, "lastusedhash"+fmt.Sprint(time.Now().UnixNano()), "last-used-token", testTokenExpiry)
 	if err != nil {
 		t.Fatalf("CreateToken failed: %v", err)
 	}
@@ -76,7 +84,7 @@ func TestListTokens(t *testing.T) {
 	for i := range 2 {
 		hash := fmt.Sprintf("list-token-hash-%d-%d", i, time.Now().UnixNano())
 		name := fmt.Sprintf("list-token-%d", i)
-		_, err := testDB.CreateToken(ctx, userID, hash, name)
+		_, err := testDB.CreateToken(ctx, userID, hash, name, testTokenExpiry)
 		if err != nil {
 			t.Fatalf("CreateToken %d failed: %v", i, err)
 		}
@@ -97,7 +105,7 @@ func TestDeleteToken(t *testing.T) {
 	userID := models.MustRecordIDString(user.ID)
 
 	hash := fmt.Sprintf("delete-token-hash-%d", time.Now().UnixNano())
-	token, err := testDB.CreateToken(ctx, userID, hash, "delete-me-token")
+	token, err := testDB.CreateToken(ctx, userID, hash, "delete-me-token", testTokenExpiry)
 	if err != nil {
 		t.Fatalf("CreateToken failed: %v", err)
 	}

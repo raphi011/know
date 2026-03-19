@@ -118,7 +118,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 	_ = rawToken // would be used by CLI
 
-	_, err = testDB.CreateToken(ctx, userID, tokenHash, "test-token")
+	_, err = testDB.CreateToken(ctx, userID, tokenHash, "test-token", time.Now().Add(90*24*time.Hour))
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}

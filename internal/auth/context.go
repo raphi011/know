@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
-	"strings"
 
 	"github.com/raphi011/know/internal/models"
 )
@@ -27,19 +25,22 @@ type vaultIDKey struct{}
 // WildcardVaultAccess grants admin access to all vaults (used in no-auth mode).
 const WildcardVaultAccess = "*"
 
-// ShareContext holds info when authenticated via a share link.
-type ShareContext struct {
-	VaultID  string
-	Path     string
-	IsFolder bool
-}
+// AuthProvider identifies how a user was authenticated.
+type AuthProvider string
+
+const (
+	// ProviderToken is the default provider for API token authentication.
+	ProviderToken AuthProvider = "token"
+	// ProviderNoAuth is used in no-auth development mode.
+	ProviderNoAuth AuthProvider = "noauth"
+)
 
 // AuthContext carries authenticated user information through request context.
 type AuthContext struct {
 	UserID        string
 	IsSystemAdmin bool
 	Vaults        []models.VaultPermission // vault permissions ("*" with RoleAdmin = all)
-	Share         *ShareContext            // non-nil when authenticated via share link
+	Provider      AuthProvider             // how the user was authenticated
 }
 
 // WithAuth stores auth context in the request context.
@@ -105,17 +106,8 @@ func RequireVaultRole(ctx context.Context, vaultID string, minRole models.VaultR
 
 // CheckVaultRole checks if an AuthContext has at least the given role on a vault.
 func CheckVaultRole(ac AuthContext, vaultID string, minRole models.VaultRole) error {
-	// System admin has full access
 	if ac.IsSystemAdmin {
 		return nil
-	}
-
-	// Share links grant read-only access to specific paths
-	if ac.Share != nil {
-		if minRole != models.RoleRead {
-			return fmt.Errorf("forbidden: share links are read-only")
-		}
-		return checkShareAccess(ac.Share, vaultID)
 	}
 
 	bare := models.BareID("vault", vaultID)
@@ -138,58 +130,6 @@ func RequireSystemAdmin(ctx context.Context) error {
 	}
 	if !ac.IsSystemAdmin {
 		return fmt.Errorf("forbidden: system admin required")
-	}
-	return nil
-}
-
-// RequireDocAccess checks if the authenticated user can access a specific document path.
-// For share links, verifies the path is within the share's scope.
-// For regular users, checks vault role (read level).
-func RequireDocAccess(ctx context.Context, vaultID, docPath string) error {
-	ac, err := FromContext(ctx)
-	if err != nil {
-		return fmt.Errorf("require doc access: %w", err)
-	}
-	if ac.Share != nil {
-		if err := checkShareAccess(ac.Share, vaultID); err != nil {
-			return fmt.Errorf("require doc access: %w", err)
-		}
-		if err := checkSharePath(ac.Share, docPath); err != nil {
-			return fmt.Errorf("require doc access: %w", err)
-		}
-		return nil
-	}
-	if err := CheckVaultRole(ac, vaultID, models.RoleRead); err != nil {
-		return fmt.Errorf("require doc access: %w", err)
-	}
-	return nil
-}
-
-// checkShareAccess verifies the share link targets the correct vault.
-func checkShareAccess(share *ShareContext, vaultID string) error {
-	bare := models.BareID("vault", vaultID)
-	if share.VaultID != bare {
-		return fmt.Errorf("forbidden: share link does not grant access to vault %s", vaultID)
-	}
-	return nil
-}
-
-// checkSharePath verifies the document path is within the share link's scope.
-// Paths are cleaned to prevent traversal attacks (e.g. "docs/secret/../other").
-func checkSharePath(share *ShareContext, docPath string) error {
-	docPath = path.Clean(docPath)
-	if share.IsFolder {
-		prefix := share.Path
-		if !strings.HasSuffix(prefix, "/") {
-			prefix += "/"
-		}
-		if !strings.HasPrefix(docPath, prefix) && docPath != share.Path {
-			return fmt.Errorf("forbidden: share link does not grant access to %s", docPath)
-		}
-		return nil
-	}
-	if docPath != share.Path {
-		return fmt.Errorf("forbidden: share link does not grant access to %s", docPath)
 	}
 	return nil
 }

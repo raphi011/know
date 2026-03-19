@@ -60,7 +60,7 @@ func setupWebDAV(t *testing.T, suffix string) (*httptest.Server, string) {
 	blobStore := blob.NewFS(t.TempDir())
 	docSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
 
-	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, blobStore, true, 1024*1024)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, blobStore, true, 1024*1024, nil)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -443,14 +443,14 @@ func setupWebDAVWithAuth(t *testing.T, suffix string) (*httptest.Server, string,
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
-	_, err = testDB.CreateToken(ctx, userID, tokenHash, "webdav-test-token")
+	_, err = testDB.CreateToken(ctx, userID, tokenHash, "webdav-test-token", time.Now().Add(90*24*time.Hour))
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
 
 	blobStore := blob.NewFS(t.TempDir())
 	docSvc := file.NewService(testDB, blobStore, nil, parser.DefaultChunkConfig(), file.VersionConfig{CoalesceMinutes: 10, RetentionCount: 50}, nil, 0)
-	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, blobStore, false, 1024*1024)
+	handler := knowdav.NewHandler(ctx, "/dav/", testDB, docSvc, vaultSvc, blobStore, false, 1024*1024, nil)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 

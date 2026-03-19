@@ -9,19 +9,23 @@ import (
 	"github.com/surrealdb/surrealdb.go"
 )
 
-func (c *Client) CreateToken(ctx context.Context, userID, tokenHash, name string) (*models.APIToken, error) {
+// CreateToken creates a new API token with an expiration time.
+// expiresAt must not be nil — callers should enforce a max lifetime.
+func (c *Client) CreateToken(ctx context.Context, userID, tokenHash, name string, expiresAt time.Time) (*models.APIToken, error) {
 	defer c.logOp(ctx, "token.create", time.Now())
 	sql := `
 		CREATE api_token SET
 			user = type::record("user", $user_id),
 			token_hash = $token_hash,
-			name = $name
+			name = $name,
+			expires_at = $expires_at
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.APIToken](ctx, c.DB(), sql, map[string]any{
 		"user_id":    bareID("user", userID),
 		"token_hash": tokenHash,
 		"name":       name,
+		"expires_at": expiresAt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create token: %w", err)

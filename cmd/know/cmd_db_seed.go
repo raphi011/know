@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/models"
 	"github.com/spf13/cobra"
 )
@@ -120,7 +121,9 @@ func runDBSeed(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if _, err := dbClient.CreateToken(ctx, userID, tokenHash, "bootstrap"); err != nil {
+	cfg := config.Load()
+	tokenExpiry := time.Now().Add(time.Duration(cfg.TokenMaxLifetimeDays) * 24 * time.Hour)
+	if _, err := dbClient.CreateToken(ctx, userID, tokenHash, "bootstrap", tokenExpiry); err != nil {
 		return fmt.Errorf("create token: %w", err)
 	}
 

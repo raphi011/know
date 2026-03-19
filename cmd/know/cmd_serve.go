@@ -86,6 +86,21 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	port := fmt.Sprintf("%d", servePort)
 
+	// Load configuration and apply flag overrides
+	cfg := config.Load()
+	cfg.NoAuth = serveNoAuth
+
+	// Production mode guards
+	if cfg.IsProduction() {
+		if serveNoAuth {
+			return fmt.Errorf("KNOW_NO_AUTH is not allowed in production mode (KNOW_ENVIRONMENT=production)")
+		}
+		if serveNFS {
+			slog.Warn("NFS server enabled in production mode — NFS has no per-user authentication, ensure network access is restricted")
+		}
+		slog.Info("running in production mode")
+	}
+
 	// In no-auth mode, bind to localhost only to prevent accidental public exposure.
 	listenHost := ""
 	if serveNoAuth {
@@ -100,10 +115,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("bind port %s: %w", port, err)
 	}
-
-	// Load configuration and apply flag overrides
-	cfg := config.Load()
-	cfg.NoAuth = serveNoAuth
 	cfg.SSHEnabled = serveSSH
 	cfg.SSHPort = fmt.Sprintf("%d", serveSSHPort)
 	cfg.NFSEnabled = serveNFS
@@ -166,7 +177,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Warn("no-auth mode enabled: skipping token validation")
 		authMw = auth.NoAuthMiddleware
 	} else {
-		authMw = auth.Middleware(app.DBClient())
+		authMw = auth.Middleware(app.DBClient(), app.Metrics())
 	}
 
 	// REST API (includes agent routes)
@@ -214,6 +225,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 			app.BlobStore(),
 			cfg.NoAuth,
 			10*1024*1024, // 10 MB max PUT body
+			app.Metrics(),
 		)
 
 		// Optional debug log: KNOW_DAV_DEBUG_LOG=/tmp/dav-debug.log
