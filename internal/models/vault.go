@@ -39,6 +39,11 @@ type VaultSettings struct {
 
 	// Web clipping
 	WebClipPath string `json:"web_clip_path,omitempty"`
+
+	// Feature toggles (nil = use server default, which is enabled)
+	AgentEnabled     *bool `json:"agent_enabled,omitempty"`
+	EmbeddingEnabled *bool `json:"embedding_enabled,omitempty"`
+	MCPEnabled       *bool `json:"mcp_enabled,omitempty"`
 }
 
 const (
@@ -151,6 +156,15 @@ func (s VaultSettings) Merge(patch VaultSettings) VaultSettings {
 	if patch.WebClipPath != "" {
 		s.WebClipPath = patch.WebClipPath
 	}
+	if patch.AgentEnabled != nil {
+		s.AgentEnabled = patch.AgentEnabled
+	}
+	if patch.EmbeddingEnabled != nil {
+		s.EmbeddingEnabled = patch.EmbeddingEnabled
+	}
+	if patch.MCPEnabled != nil {
+		s.MCPEnabled = patch.MCPEnabled
+	}
 	return s
 }
 
@@ -175,6 +189,24 @@ func (v *Vault) Defaults() VaultSettings {
 		return s
 	}
 	return s.Merge(*v.Settings)
+}
+
+// IsAgentEnabled returns whether agent chat is enabled for this vault.
+// Defaults to true if not explicitly set.
+func (s VaultSettings) IsAgentEnabled() bool {
+	return s.AgentEnabled == nil || *s.AgentEnabled
+}
+
+// IsEmbeddingEnabled returns whether embedding generation is enabled for this vault.
+// Defaults to true if not explicitly set.
+func (s VaultSettings) IsEmbeddingEnabled() bool {
+	return s.EmbeddingEnabled == nil || *s.EmbeddingEnabled
+}
+
+// IsMCPEnabled returns whether MCP tool access is enabled for this vault.
+// Defaults to true if not explicitly set.
+func (s VaultSettings) IsMCPEnabled() bool {
+	return s.MCPEnabled == nil || *s.MCPEnabled
 }
 
 // MemoryDefaults returns the vault's memory settings with defaults applied.

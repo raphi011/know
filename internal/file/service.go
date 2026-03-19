@@ -121,8 +121,18 @@ func (s *Service) SetPDFRenderDPI(dpi int) {
 }
 
 // shouldEmbed returns true if the file at filePath should have embeddings generated.
-// It checks whether any ancestor folder has no_embed = true. Fails open (returns true) on error.
+// It checks vault-level embedding toggle first, then whether any ancestor folder has
+// no_embed = true. Fails open (returns true) on error.
 func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) bool {
+	vault, err := s.db.GetVault(ctx, vaultID)
+	if err != nil {
+		logutil.FromCtx(ctx).Warn("failed to load vault for embed check", "vault_id", vaultID, "error", err)
+		return true // fail open
+	}
+	if vault != nil && !vault.Defaults().IsEmbeddingEnabled() {
+		return false
+	}
+
 	noEmbed, err := s.db.IsPathNoEmbed(ctx, vaultID, filePath)
 	if err != nil {
 		logutil.FromCtx(ctx).Warn("failed to check no_embed, proceeding with embedding", "vault_id", vaultID, "path", filePath, "error", err)

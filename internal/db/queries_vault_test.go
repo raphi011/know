@@ -247,6 +247,57 @@ func TestGetVaultInfo(t *testing.T) {
 	}
 }
 
+func TestGetVaultsByIDs(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	v1 := createTestVault(t, ctx, userID)
+	v1ID := models.MustRecordIDString(v1.ID)
+	v2 := createTestVault(t, ctx, userID)
+	v2ID := models.MustRecordIDString(v2.ID)
+
+	t.Run("returns matching vaults", func(t *testing.T) {
+		vaults, err := testDB.GetVaultsByIDs(ctx, []string{v1ID, v2ID})
+		if err != nil {
+			t.Fatalf("GetVaultsByIDs failed: %v", err)
+		}
+		if len(vaults) != 2 {
+			t.Fatalf("Expected 2 vaults, got %d", len(vaults))
+		}
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		vaults, err := testDB.GetVaultsByIDs(ctx, []string{})
+		if err != nil {
+			t.Fatalf("GetVaultsByIDs with empty input failed: %v", err)
+		}
+		if vaults != nil {
+			t.Errorf("Expected nil, got %v", vaults)
+		}
+	})
+
+	t.Run("non-existent IDs are excluded", func(t *testing.T) {
+		vaults, err := testDB.GetVaultsByIDs(ctx, []string{v1ID, "nonexistent"})
+		if err != nil {
+			t.Fatalf("GetVaultsByIDs failed: %v", err)
+		}
+		if len(vaults) != 1 {
+			t.Fatalf("Expected 1 vault, got %d", len(vaults))
+		}
+	})
+
+	t.Run("handles prefixed IDs", func(t *testing.T) {
+		vaults, err := testDB.GetVaultsByIDs(ctx, []string{"vault:" + v1ID})
+		if err != nil {
+			t.Fatalf("GetVaultsByIDs with prefixed ID failed: %v", err)
+		}
+		if len(vaults) != 1 {
+			t.Fatalf("Expected 1 vault, got %d", len(vaults))
+		}
+	})
+}
+
 func TestListDocumentPaths(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
