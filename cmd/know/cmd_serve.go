@@ -177,6 +177,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Auth rate limiter (wraps OIDC routes only)
+	var authRateLimiter *api.IPRateLimiter
+	if cfg.RateLimitAuthRPS > 0 {
+		authRateLimiter = api.NewIPRateLimiter(cfg.RateLimitAuthRPS, cfg.RateLimitAuthBurst, "auth", app.Metrics())
+		defer authRateLimiter.Stop()
+		slog.Info("auth rate limiting enabled", "rps", cfg.RateLimitAuthRPS, "burst", cfg.RateLimitAuthBurst)
+	}
+
 	// OIDC auth routes (unauthenticated — must be registered before auth middleware)
 	if cfg.OIDCEnabled {
 		oidcProvider, oidcErr := oidc.New(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.OIDCRedirectURL, nil, cfg.OIDCProviderName)
@@ -187,25 +195,36 @@ func runServe(_ *cobra.Command, _ []string) error {
 		if oidcErr != nil {
 			return fmt.Errorf("init oidc handler: %w", oidcErr)
 		}
-		oidcHandler.RegisterRoutes(mux)
+		if authRateLimiter != nil {
+			oidcHandler.RegisterRoutes(mux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
+		} else {
+			oidcHandler.RegisterRoutes(mux)
+		}
 		slog.Info("OIDC authentication enabled", "issuer", cfg.OIDCIssuerURL, "provider_name", oidcProvider.ProviderName())
-
-		// Periodically clean up expired device codes
-		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if err := app.DBClient().DeleteExpiredDeviceCodes(ctx); err != nil {
-						slog.Warn("failed to clean up expired device codes", "error", err)
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
 	}
+
+	// Periodic cleanup: expired tokens (always) and device codes (when OIDC enabled)
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := app.DBClient().DeleteExpiredTokens(serverCtx); err != nil {
+					slog.Warn("failed to clean up expired tokens", "error", err)
+					app.Metrics().RecordCleanupFailure("expired_tokens")
+				}
+				if cfg.OIDCEnabled {
+					if err := app.DBClient().DeleteExpiredDeviceCodes(serverCtx); err != nil {
+						slog.Warn("failed to clean up expired device codes", "error", err)
+						app.Metrics().RecordCleanupFailure("expired_device_codes")
+					}
+				}
+			case <-serverCtx.Done():
+				return
+			}
+		}
+	}()
 
 	// Auth middleware
 	var authMw func(http.Handler) http.Handler
@@ -213,7 +232,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Warn("no-auth mode enabled: skipping token validation")
 		authMw = auth.NoAuthMiddleware
 	} else {
-		authMw = auth.Middleware(app.DBClient(), app.Metrics())
+		authMw = auth.Middleware(app.DBClient(), app.Metrics(), auth.MiddlewareConfig{
+			TrustXForwardedFor: cfg.TrustXForwardedFor,
+		})
 	}
 
 	// REST API (includes agent routes)
@@ -366,9 +387,18 @@ func runServe(_ *cobra.Command, _ []string) error {
 		fmt.Fprintln(w, "ok")
 	})
 
+	// Global rate limiter (outermost middleware)
+	var handler http.Handler = api.RequestLogMiddleware(app.Metrics(), mux)
+	if cfg.RateLimitGlobalRPS > 0 {
+		globalRL := api.NewIPRateLimiter(cfg.RateLimitGlobalRPS, cfg.RateLimitGlobalBurst, "global", app.Metrics())
+		defer globalRL.Stop()
+		handler = globalRL.Middleware(cfg.TrustXForwardedFor)(handler)
+		slog.Info("global rate limiting enabled", "rps", cfg.RateLimitGlobalRPS, "burst", cfg.RateLimitGlobalBurst)
+	}
+
 	httpServer := &http.Server{
 		Addr:              listenHost + ":" + port,
-		Handler:           api.RequestLogMiddleware(app.Metrics(), mux),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		// WriteTimeout intentionally omitted: SSE endpoints are long-lived.

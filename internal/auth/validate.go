@@ -51,6 +51,8 @@ func Authenticate(ctx context.Context, dbClient *db.Client, rawToken string, noA
 		IsSystemAdmin: info.IsSystemAdmin,
 		Vaults:        info.Vaults,
 		Provider:      ProviderToken,
+		TokenID:       info.TokenID,
+		TokenName:     info.TokenName,
 	}, nil
 }
 

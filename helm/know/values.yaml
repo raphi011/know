@@ -128,6 +128,16 @@ oidc:
   providerName: ""  # explicit provider name for DB key (default: derived from issuer URL)
   selfSignupEnabled: false
 
+# Rate limiting (0 = disabled)
+rateLimit:
+  authRPS: 5         # requests/sec for /auth/* endpoints
+  authBurst: 10
+  globalRPS: 100     # requests/sec global per-IP
+  globalBurst: 200
+
+# Proxy trust (default false; set true in K8s where the server is behind an ingress proxy)
+trustXForwardedFor: true
+
 # API keys (set via existingSecret or directly)
 # Prefer using existingSecret for production
 apiKeys:

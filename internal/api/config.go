@@ -35,5 +35,6 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		MultimodalEmbedEnabled:  cfg.MultimodalEmbedEnabled,
 		TextExtractorModel:      cfg.TextExtractorModel,
 		TextExtractorEnabled:    cfg.TextExtractorEnabled,
+		OIDCEnabled:             cfg.OIDCEnabled,
 	})
 }

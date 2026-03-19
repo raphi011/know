@@ -43,6 +43,8 @@ type AuthContext struct {
 	IsSystemAdmin bool
 	Vaults        []models.VaultPermission // vault permissions ("*" with RoleAdmin = all)
 	Provider      AuthProvider             // how the user was authenticated
+	TokenID       string                   // bare token ID (empty in no-auth mode)
+	TokenName     string                   // human-readable token name (empty in no-auth mode)
 }
 
 // WithAuth stores auth context in the request context.

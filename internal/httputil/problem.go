@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 )
 
 // ProblemDetail is an RFC 9457 (Problem Details for HTTP APIs) response body.
@@ -32,4 +33,10 @@ func WriteProblem(w http.ResponseWriter, status int, detail string) {
 	if err := json.NewEncoder(w).Encode(p); err != nil {
 		slog.Warn("failed to encode problem detail", "error", err)
 	}
+}
+
+// WriteProblemWithRetry writes an RFC 9457 Problem Details response with a Retry-After header.
+func WriteProblemWithRetry(w http.ResponseWriter, status int, detail string, retryAfterSecs int) {
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSecs))
+	WriteProblem(w, status, detail)
 }

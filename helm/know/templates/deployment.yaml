@@ -83,6 +83,16 @@ spec:
             {{- end }}
             - name: KNOW_TOKEN_MAX_LIFETIME_DAYS
               value: {{ .Values.tokenMaxLifetimeDays | default 90 | quote }}
+            - name: KNOW_TRUST_X_FORWARDED_FOR
+              value: {{ .Values.trustXForwardedFor | default true | quote }}
+            - name: KNOW_RATE_LIMIT_AUTH_RPS
+              value: {{ .Values.rateLimit.authRPS | default 5 | quote }}
+            - name: KNOW_RATE_LIMIT_AUTH_BURST
+              value: {{ .Values.rateLimit.authBurst | default 10 | quote }}
+            - name: KNOW_RATE_LIMIT_GLOBAL_RPS
+              value: {{ .Values.rateLimit.globalRPS | default 100 | quote }}
+            - name: KNOW_RATE_LIMIT_GLOBAL_BURST
+              value: {{ .Values.rateLimit.globalBurst | default 200 | quote }}
             - name: KNOW_SERVER_PORT
               value: "8484"
             # Logging

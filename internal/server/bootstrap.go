@@ -74,7 +74,8 @@ type ServerConfig struct {
 	TextExtractorEnabled    bool   `json:"textExtractorEnabled"`
 
 	// Auth
-	TokenMaxLifetimeDays int `json:"tokenMaxLifetimeDays"`
+	TokenMaxLifetimeDays int  `json:"tokenMaxLifetimeDays"`
+	OIDCEnabled          bool `json:"oidcEnabled"`
 }
 
 // App holds all application services and dependencies.
@@ -326,6 +327,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			TextExtractorModel:      cfg.TextExtractorModel,
 			TextExtractorEnabled:    textExtractorOK,
 			TokenMaxLifetimeDays:    cfg.TokenMaxLifetimeDays,
+			OIDCEnabled:             cfg.OIDCEnabled,
 		},
 	}
 

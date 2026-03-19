@@ -76,6 +76,19 @@ var authLoginCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiURL, _ := cmd.Flags().GetString("api-url")
 
+		// Check if server has OIDC enabled
+		client := apiclient.New(apiURL, "")
+		cfg, err := client.GetConfig(context.Background())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not check server configuration: %v\n", err)
+			fmt.Println("Falling back to token-based login.")
+			return loginWithToken(apiURL)
+		}
+		if cfg == nil || !cfg.OIDCEnabled {
+			fmt.Println("OIDC is not enabled on this server.")
+			return loginWithToken(apiURL)
+		}
+
 		fmt.Println("How would you like to authenticate?")
 		fmt.Println("  1. Login with a web browser (OIDC)")
 		fmt.Println("  2. Paste an API token")
