@@ -26,16 +26,18 @@ type documentFetchedMsg struct {
 	err error
 }
 
-// Model is the root browser model composing a finder and viewer.
+// Model is the root browser model composing a finder, links list, and viewer.
 type Model struct {
-	state    viewState
-	finder   finderModel
-	viewer   viewerModel
-	client   *apiclient.Client
-	vaultID  string
-	noFinder bool // true when opened with a direct path (skip finder on Escape)
-	width    int
-	height   int
+	state     viewState
+	activeTab Tab
+	finder    finderModel
+	links     linksModel
+	viewer    viewerModel
+	client    *apiclient.Client
+	vaultID   string
+	noFinder  bool // true when opened with a direct path (skip finder on Escape)
+	width     int
+	height    int
 
 	glamourStyle string
 	renderer     *glamour.TermRenderer
@@ -59,11 +61,18 @@ func initGlamour(isDark bool) (string, *glamour.TermRenderer) {
 
 // NewModel creates a browser with a pre-fetched file list.
 // isDark should be detected before bubbletea starts.
-func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry, isDark bool) Model {
+// startTab selects which tab to show initially.
+func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry, isDark bool, startTab ...Tab) Model {
 	glamourStyle, r := initGlamour(isDark)
+	initial := TabAllFiles
+	if len(startTab) > 0 {
+		initial = startTab[0]
+	}
 	return Model{
 		state:        stateFinding,
+		activeTab:    initial,
 		finder:       newFinder(files),
+		links:        newLinksModel(client, vaultID),
 		client:       client,
 		vaultID:      vaultID,
 		glamourStyle: glamourStyle,
@@ -100,7 +109,10 @@ func renderContent(r *glamour.TermRenderer, doc *apiclient.Document) string {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.finder.Init()
+	cmds := []tea.Cmd{m.finder.Init()}
+	// Start loading links immediately so they're ready when user switches tabs
+	cmds = append(cmds, m.links.loadLinks())
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -108,7 +120,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.finder.picker.SetSize(msg.Width, msg.Height)
+		contentHeight := msg.Height - 1 // reserve 1 line for tab bar
+		m.finder.picker.SetSize(msg.Width, contentHeight)
+		m.links.width = msg.Width
+		m.links.height = contentHeight
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
@@ -123,16 +138,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// Tab switching with 1/2 keys (only in finding state, and only when
+		// the links model isn't in a confirmation mode)
+		if m.state == stateFinding && !m.links.confirmDelete {
+			switch msg.String() {
+			case "1":
+				if m.activeTab != TabAllFiles {
+					m.activeTab = TabAllFiles
+					return m, m.finder.picker.Input.Focus()
+				}
+				return m, nil
+			case "2":
+				if m.activeTab != TabLinks {
+					m.activeTab = TabLinks
+				}
+				return m, nil
+			}
+		}
+
 	case fileSelectedMsg:
 		return m, m.fetchDocument(msg.path)
 
 	case documentFetchedMsg:
 		if msg.err != nil {
 			slog.Warn("document fetch failed", "error", msg.err)
-			m.finder.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
+			if m.activeTab == TabAllFiles {
+				m.finder.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
+			} else {
+				m.links.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
+			}
 			return m, nil
 		}
 		m.finder.statusErr = ""
+		m.links.statusErr = ""
 		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
 		m.state = stateViewing
 		return m, nil
@@ -142,14 +180,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.state = stateFinding
-		return m, m.finder.picker.Input.Focus()
+		if m.activeTab == TabAllFiles {
+			return m, m.finder.picker.Input.Focus()
+		}
+		return m, nil
+	}
+
+	// Links-specific messages must always reach the links model,
+	// regardless of which tab is active (e.g. async load results).
+	switch msg.(type) {
+	case linksLoadedMsg, linkArchivedMsg, linkDeletedMsg:
+		var cmd tea.Cmd
+		m.links, cmd = m.links.Update(msg)
+		return m, cmd
 	}
 
 	// Route to active sub-model
 	switch m.state {
 	case stateFinding:
+		if m.activeTab == TabAllFiles {
+			var cmd tea.Cmd
+			m.finder, cmd = m.finder.Update(msg)
+			return m, cmd
+		}
 		var cmd tea.Cmd
-		m.finder, cmd = m.finder.Update(msg)
+		m.links, cmd = m.links.Update(msg)
 		return m, cmd
 	case stateViewing:
 		var cmd tea.Cmd
@@ -165,7 +220,12 @@ func (m Model) View() tea.View {
 
 	switch m.state {
 	case stateFinding:
-		content = m.finder.View()
+		tabBar := renderTabs(m.activeTab, len(m.links.allLinks))
+		if m.activeTab == TabAllFiles {
+			content = tabBar + "\n" + m.finder.View()
+		} else {
+			content = tabBar + "\n" + m.links.View()
+		}
 	case stateViewing:
 		content = m.viewer.View()
 	}
@@ -195,7 +255,7 @@ func (m *Model) updateRenderer() {
 		glamour.WithWordWrap(wrapWidth),
 	)
 	if err != nil {
-		slog.Warn("glamour renderer re-creation failed on resize", "width", wrapWidth, "error", err)
+		slog.Warn("glamour renderer re-creation failed on resize", "error", err)
 	} else {
 		m.renderer = r
 	}

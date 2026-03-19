@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/raphi011/know/internal/httputil"
@@ -660,6 +661,32 @@ func (c *Client) ListFiles(ctx context.Context, vaultName, path string, recursiv
 		return nil, fmt.Errorf("list files: %w", err)
 	}
 	return resp.Items, nil
+}
+
+// ListFilesByLabels lists files with specific labels across the vault.
+func (c *Client) ListFilesByLabels(ctx context.Context, vaultName string, labels []string) ([]models.FileEntry, error) {
+	q := url.Values{
+		"path":      {"/"},
+		"recursive": {"true"},
+		"labels":    {strings.Join(labels, ",")},
+	}
+	var resp httputil.ListResponse[models.FileEntry]
+	if err := c.Get(ctx, vaultPath(vaultName, "/documents/ls")+"?"+q.Encode(), &resp); err != nil {
+		return nil, fmt.Errorf("list files by labels: %w", err)
+	}
+	return resp.Items, nil
+}
+
+// PatchLabelsRequest is the request body for patching document labels.
+type PatchLabelsRequest struct {
+	Path   string   `json:"path"`
+	Add    []string `json:"add,omitempty"`
+	Remove []string `json:"remove,omitempty"`
+}
+
+// PatchDocumentLabels adds or removes labels on a document.
+func (c *Client) PatchDocumentLabels(ctx context.Context, vaultName string, req PatchLabelsRequest) error {
+	return c.Patch(ctx, vaultPath(vaultName, "/documents/labels"), req, nil)
 }
 
 // ListLabels returns all distinct labels in the given vault.

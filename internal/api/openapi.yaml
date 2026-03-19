@@ -574,6 +574,14 @@ components:
         size:
           type: integer
           description: Content size in bytes (0 for folders)
+        labels:
+          type: array
+          items:
+            type: string
+          description: Document labels (populated when filtering by labels)
+        source:
+          type: string
+          description: Original URL for web-clipped documents
 
     FetchRequest:
       type: object
@@ -1715,6 +1723,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: labels
+          in: query
+          schema:
+            type: string
+          description: Comma-separated label filter. When set, only files matching all labels are returned (with Labels and Source fields populated).
       responses:
         "200":
           description: Directory entries (files and folders)
@@ -2085,6 +2098,50 @@ paths:
           $ref: "#/components/responses/NotFound"
 
   # ── Labels ──────────────────────────────────────────────
+  /vaults/{vault}/documents/labels:
+    patch:
+      tags: [Labels]
+      summary: Add or remove labels on a document
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Document path
+                add:
+                  type: array
+                  items:
+                    type: string
+                  description: Labels to add
+                remove:
+                  type: array
+                  items:
+                    type: string
+                  description: Labels to remove
+      responses:
+        "200":
+          description: Updated labels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  labels:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /vaults/{vault}/labels:
     get:
       tags: [Labels]

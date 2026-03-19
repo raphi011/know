@@ -75,6 +75,7 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 
 	// --- Labels ---
 	mux.Handle("GET /api/v1/vaults/{vault}/labels", vs(s.listLabels))
+	mux.Handle("PATCH /api/v1/vaults/{vault}/documents/labels", vs(s.patchLabels))
 
 	// --- Tasks ---
 	mux.Handle("GET /api/v1/vaults/{vault}/tasks", vs(s.listTasks))

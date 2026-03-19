@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1574,5 +1575,66 @@ func TestListFiles_UpdatedSinceFilter(t *testing.T) {
 	}
 	if len(allDocs) != 2 {
 		t.Errorf("expected 2 docs total, got %d", len(allDocs))
+	}
+}
+
+func TestUpdateFileLabels(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/labels-test.md",
+		Title:   "Labels Test",
+		Content: "content",
+		Labels:  []string{"web-clip"},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+
+	fileID := models.MustRecordIDString(doc.ID)
+
+	// Add archived label
+	if err := testDB.UpdateFileLabels(ctx, fileID, []string{"web-clip", "archived"}); err != nil {
+		t.Fatalf("UpdateFileLabels failed: %v", err)
+	}
+
+	// Verify
+	updated, err := testDB.GetFileByPath(ctx, vaultID, "/labels-test.md")
+	if err != nil {
+		t.Fatalf("GetFileByPath failed: %v", err)
+	}
+	if !slices.Equal(updated.Labels, []string{"web-clip", "archived"}) {
+		t.Errorf("Expected [web-clip archived], got %v", updated.Labels)
+	}
+
+	// Remove archived label
+	if err := testDB.UpdateFileLabels(ctx, fileID, []string{"web-clip"}); err != nil {
+		t.Fatalf("UpdateFileLabels (remove) failed: %v", err)
+	}
+
+	updated, err = testDB.GetFileByPath(ctx, vaultID, "/labels-test.md")
+	if err != nil {
+		t.Fatalf("GetFileByPath failed: %v", err)
+	}
+	if len(updated.Labels) != 1 || updated.Labels[0] != "web-clip" {
+		t.Errorf("Expected [web-clip], got %v", updated.Labels)
+	}
+
+	// Set labels to nil (should normalize to empty slice)
+	if err := testDB.UpdateFileLabels(ctx, fileID, nil); err != nil {
+		t.Fatalf("UpdateFileLabels (nil) failed: %v", err)
+	}
+
+	updated, err = testDB.GetFileByPath(ctx, vaultID, "/labels-test.md")
+	if err != nil {
+		t.Fatalf("GetFileByPath failed: %v", err)
+	}
+	if len(updated.Labels) != 0 {
+		t.Errorf("Expected empty labels, got %v", updated.Labels)
 	}
 }
