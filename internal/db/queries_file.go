@@ -15,6 +15,12 @@ import (
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
+// idPath is used by stem-recomputation queries that only need the record ID and path.
+type idPath struct {
+	ID   surrealmodels.RecordID `json:"id"`
+	Path string                 `json:"path"`
+}
+
 // fileSize returns the appropriate size for a file input. It checks (in order):
 // an explicit Size override, len(Data) for binary files, and len(Content) for
 // text files. The Size override is used by streaming imports where the file data
@@ -305,6 +311,40 @@ func (c *Client) DeleteFile(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteFileAtomic removes a file and all its associated data (wiki links, label edges, chunks)
+// in a single transaction. Cascade events remain as a safety net but the primary cleanup is
+// synchronous and atomic. Post-commit steps (stem collision resolution, blob deletion, events)
+// must be handled by the caller.
+func (c *Client) DeleteFileAtomic(ctx context.Context, fileID string) error {
+	defer c.logOp(ctx, "file.delete_atomic", time.Now())
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("delete file atomic begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit
+
+	vars := map[string]any{"file_id": bareID("file", fileID)}
+	for _, step := range []struct {
+		name string
+		sql  string
+	}{
+		{"delete wiki links", `DELETE FROM wiki_link WHERE from_file = type::record("file", $file_id)`},
+		{"unresolve incoming wiki links", `UPDATE wiki_link SET to_file = NONE WHERE to_file = type::record("file", $file_id)`},
+		{"delete label edges", `DELETE FROM has_label WHERE in = type::record("file", $file_id)`},
+		{"delete chunks", `DELETE FROM chunk WHERE file = type::record("file", $file_id)`},
+		{"delete file", `DELETE type::record("file", $file_id)`},
+	} {
+		if _, err := surrealdb.Query[any](ctx, tx, step.sql, vars); err != nil {
+			return fmt.Errorf("delete file atomic %s: %w", step.name, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("delete file atomic commit: %w", err)
+	}
+	return nil
+}
+
 // DeleteFilesByPrefix deletes all non-folder files in a vault whose path starts with the given prefix.
 // Returns the number of deleted files. Folder cleanup is handled separately by DeleteFoldersByPrefix.
 func (c *Client) DeleteFilesByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
@@ -351,10 +391,6 @@ func (c *Client) RecomputeStems(ctx context.Context, vaultID, pathPrefix string)
 
 	// Fetch affected files
 	sql := `SELECT id, path FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = false AND string::starts_with(path, $prefix)`
-	type idPath struct {
-		ID   surrealmodels.RecordID `json:"id"`
-		Path string                 `json:"path"`
-	}
 	results, err := surrealdb.Query[[]idPath](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
 		"prefix":   pathPrefix,
@@ -363,20 +399,29 @@ func (c *Client) RecomputeStems(ctx context.Context, vaultID, pathPrefix string)
 		return fmt.Errorf("recompute stems fetch: %w", err)
 	}
 	rows := allResults(results)
+	if len(rows) == 0 {
+		return nil
+	}
 
-	for _, row := range rows {
+	// Batch all stem updates into a single transaction (avoids N round-trips).
+	var b strings.Builder
+	vars := make(map[string]any, len(rows)*2)
+	b.WriteString("BEGIN TRANSACTION;\n")
+	for i, row := range rows {
 		idStr, err := models.RecordIDString(row.ID)
 		if err != nil {
 			return fmt.Errorf("recompute stems extract id: %w", err)
 		}
-		stem := models.FilenameStem(row.Path)
-		updateSQL := `UPDATE type::record("file", $id) SET stem = $stem`
-		if _, err := surrealdb.Query[any](ctx, c.DB(), updateSQL, map[string]any{
-			"id":   idStr,
-			"stem": stem,
-		}); err != nil {
-			return fmt.Errorf("recompute stems update: %w", err)
-		}
+		idKey := fmt.Sprintf("id_%d", i)
+		stemKey := fmt.Sprintf("stem_%d", i)
+		fmt.Fprintf(&b, "UPDATE type::record(\"file\", $%s) SET stem = $%s;\n", idKey, stemKey)
+		vars[idKey] = idStr
+		vars[stemKey] = models.FilenameStem(row.Path)
+	}
+	b.WriteString("COMMIT TRANSACTION;")
+
+	if _, err := surrealdb.Query[any](ctx, c.DB(), b.String(), vars); err != nil {
+		return fmt.Errorf("recompute stems batch update: %w", err)
 	}
 	return nil
 }
@@ -398,6 +443,184 @@ func (c *Client) MoveFile(ctx context.Context, id, newPath string) (*models.File
 		return nil, fmt.Errorf("move file: %w", err)
 	}
 	return firstResult(results, "move file")
+}
+
+// MoveFileAtomic updates a file's path and ensures destination folders exist in a single
+// transaction. Post-commit steps (wiki-link raw_target recomputation, stem collision
+// resolution) must be handled by the caller.
+func (c *Client) MoveFileAtomic(ctx context.Context, vaultID, fileID, newPath string) (*models.File, error) {
+	defer c.logOp(ctx, "file.move_atomic", time.Now())
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("move file atomic begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit
+
+	// 1. Update file path + stem
+	moveSQL := `
+		UPDATE type::record("file", $id) SET
+			path = $new_path,
+			stem = $stem
+		RETURN AFTER
+	`
+	results, err := surrealdb.Query[[]models.File](ctx, tx, moveSQL, map[string]any{
+		"id":       bareID("file", fileID),
+		"new_path": newPath,
+		"stem":     models.FilenameStem(newPath),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("move file atomic update: %w", err)
+	}
+	doc, err := firstResult(results, "move file atomic")
+	if err != nil {
+		return nil, fmt.Errorf("move file atomic: %w", err)
+	}
+
+	// 2. Ensure destination ancestor folders exist
+	dir := path.Dir(newPath)
+	if dir != "/" && dir != "." {
+		folders := buildFolderRows(vaultID, dir)
+		folderSQL := `INSERT INTO file $folders ON DUPLICATE KEY UPDATE id = id`
+		if _, err := surrealdb.Query[any](ctx, tx, folderSQL, map[string]any{
+			"folders": folders,
+		}); err != nil {
+			return nil, fmt.Errorf("move file atomic ensure folders: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("move file atomic commit: %w", err)
+	}
+
+	// Invalidate folder cache for the new directory
+	c.InvalidateFolderCache(vaultID, dir)
+
+	return doc, nil
+}
+
+// buildFolderRows returns folder row maps for a directory and all its ancestors,
+// suitable for batch INSERT into the file table.
+func buildFolderRows(vaultID, folderPath string) []map[string]any {
+	var folders []string
+	for cur := folderPath; cur != "/" && cur != "."; cur = path.Dir(cur) {
+		folders = append(folders, cur)
+	}
+	vid := bareID("vault", vaultID)
+	rows := make([]map[string]any, len(folders))
+	for i, fp := range folders {
+		rows[i] = map[string]any{
+			"vault":          newRecordID("vault", vid),
+			"path":           fp,
+			"title":          path.Base(fp),
+			"is_folder":      true,
+			"mime_type":      "inode/directory",
+			"content_length": 0,
+			"labels":         []string{},
+			"size":           0,
+		}
+	}
+	return rows
+}
+
+// MoveByPrefixAtomic renames files, recomputes stems, moves folders, and ensures ancestor
+// folders in a single transaction. Returns the count of moved non-folder files.
+// Post-commit steps (wiki-link raw_target recomputation) must be handled by the caller.
+func (c *Client) MoveByPrefixAtomic(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
+	defer c.logOp(ctx, "file.move_by_prefix_atomic", time.Now())
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("move by prefix atomic begin tx: %w", err)
+	}
+	defer tx.Cancel(ctx) //nolint:errcheck // no-op after Commit
+
+	// 1. Move non-folder files
+	moveSQL := `
+		UPDATE file
+		SET path = string::concat($new_prefix, string::slice(path, string::len($old_prefix)))
+		WHERE vault = type::record("vault", $vault_id)
+		  AND is_folder = false
+		  AND string::starts_with(path, $old_prefix)
+		RETURN AFTER
+	`
+	moveVars := map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"old_prefix": oldPrefix,
+		"new_prefix": newPrefix,
+	}
+	moveResults, err := surrealdb.Query[[]models.File](ctx, tx, moveSQL, moveVars)
+	if err != nil {
+		return 0, fmt.Errorf("move by prefix atomic move files: %w", err)
+	}
+	count := countResults(moveResults)
+
+	// 2. Recompute stems for all moved files using the results from step 1 (no re-query).
+	//    Batched into a single multi-statement query within the interactive transaction.
+	movedFiles := allResults(moveResults)
+	if len(movedFiles) > 0 {
+		var b strings.Builder
+		vars := make(map[string]any, len(movedFiles)*2)
+		for i, f := range movedFiles {
+			idStr, err := models.RecordIDString(f.ID)
+			if err != nil {
+				return 0, fmt.Errorf("move by prefix atomic extract id: %w", err)
+			}
+			idKey := fmt.Sprintf("id_%d", i)
+			stemKey := fmt.Sprintf("stem_%d", i)
+			fmt.Fprintf(&b, "UPDATE type::record(\"file\", $%s) SET stem = $%s;\n", idKey, stemKey)
+			vars[idKey] = idStr
+			vars[stemKey] = models.FilenameStem(f.Path)
+		}
+		if _, err := surrealdb.Query[any](ctx, tx, b.String(), vars); err != nil {
+			return 0, fmt.Errorf("move by prefix atomic recompute stems: %w", err)
+		}
+	}
+
+	// 3. Move folder records
+	oldFolderPath := strings.TrimSuffix(oldPrefix, "/")
+	newFolderPath := strings.TrimSuffix(newPrefix, "/")
+	oldFolderPrefix := oldFolderPath + "/"
+	newFolderPrefix := newFolderPath + "/"
+	folderVars := map[string]any{
+		"vault_id":   bareID("vault", vaultID),
+		"old_path":   oldFolderPath,
+		"new_path":   newFolderPath,
+		"new_title":  path.Base(newFolderPath),
+		"old_prefix": oldFolderPrefix,
+		"new_prefix": newFolderPrefix,
+	}
+	if _, err := surrealdb.Query[any](ctx, tx,
+		`UPDATE file SET path = $new_path, title = $new_title WHERE vault = type::record("vault", $vault_id) AND is_folder = true AND path = $old_path`, folderVars); err != nil {
+		return 0, fmt.Errorf("move by prefix atomic move folder root: %w", err)
+	}
+	if _, err := surrealdb.Query[any](ctx, tx,
+		`UPDATE file SET
+			path = string::concat($new_prefix, string::slice(path, string::len($old_prefix))),
+			title = array::last(string::split(string::concat($new_prefix, string::slice(path, string::len($old_prefix))), "/"))
+		WHERE vault = type::record("vault", $vault_id)
+		AND is_folder = true
+		AND string::starts_with(path, $old_prefix)`, folderVars); err != nil {
+		return 0, fmt.Errorf("move by prefix atomic move folder children: %w", err)
+	}
+
+	// 4. Ensure destination ancestor folders exist
+	if newFolderPath != "/" && newFolderPath != "." {
+		folders := buildFolderRows(vaultID, newFolderPath)
+		if _, err := surrealdb.Query[any](ctx, tx,
+			`INSERT INTO file $folders ON DUPLICATE KEY UPDATE id = id`,
+			map[string]any{"folders": folders}); err != nil {
+			return 0, fmt.Errorf("move by prefix atomic ensure folders: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("move by prefix atomic commit: %w", err)
+	}
+
+	// Invalidate folder cache for old and new paths
+	c.InvalidateFolderCache(vaultID, oldFolderPath)
+	c.InvalidateFolderCache(vaultID, newFolderPath)
+
+	return count, nil
 }
 
 // ListUnprocessedFiles returns non-folder files that have a pending parse pipeline job.
@@ -819,28 +1042,7 @@ func (c *Client) EnsureFolderPath(ctx context.Context, vaultID, folderPath strin
 		return nil
 	}
 
-	// Collect the target folder and all its ancestors
-	var folders []string
-	for cur := folderPath; cur != "/" && cur != "."; cur = path.Dir(cur) {
-		folders = append(folders, cur)
-	}
-
-	// Build batch of folder rows for a single INSERT
-	rows := make([]map[string]any, len(folders))
-	vid := bareID("vault", vaultID)
-	for i, fp := range folders {
-		rows[i] = map[string]any{
-			"vault":          newRecordID("vault", vid),
-			"path":           fp,
-			"title":          path.Base(fp),
-			"is_folder":      true,
-			"mime_type":      "inode/directory",
-			"content_length": 0,
-			"labels":         []string{},
-			"size":           0,
-		}
-	}
-
+	rows := buildFolderRows(vaultID, folderPath)
 	sql := `INSERT INTO file $folders ON DUPLICATE KEY UPDATE id = id`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
 		"folders": rows,

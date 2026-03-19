@@ -148,7 +148,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS embedding  ON chunk TYPE option<array<float>>;
     DEFINE FIELD IF NOT EXISTS created_at ON chunk TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_chunk_file      ON chunk FIELDS file;
+    DEFINE INDEX IF NOT EXISTS idx_chunk_file_position ON chunk FIELDS file, position;
     DEFINE INDEX IF NOT EXISTS idx_chunk_text_ft    ON chunk FIELDS text FULLTEXT ANALYZER know_analyzer BM25;
     DEFINE INDEX IF NOT EXISTS idx_chunk_embedding  ON chunk FIELDS embedding
         HNSW DIMENSION %d DIST COSINE TYPE F32 EFC 150 M 12 HASHED_VECTOR;
@@ -276,8 +276,9 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS bg_started_at   ON conversation TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS bg_completed_at ON conversation TYPE option<datetime>;
 
-    DEFINE INDEX IF NOT EXISTS idx_conversation_vault ON conversation FIELDS vault;
-    DEFINE INDEX IF NOT EXISTS idx_conversation_user  ON conversation FIELDS user;
+    DEFINE INDEX IF NOT EXISTS idx_conversation_vault      ON conversation FIELDS vault;
+    DEFINE INDEX IF NOT EXISTS idx_conversation_user       ON conversation FIELDS user;
+    DEFINE INDEX IF NOT EXISTS idx_conversation_vault_user ON conversation FIELDS vault, user;
 
     -- ==========================================================================
     -- MESSAGE TABLE
@@ -295,7 +296,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS tool_calls   ON message TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS created_at   ON message TYPE datetime DEFAULT time::now();
 
-    DEFINE INDEX IF NOT EXISTS idx_message_conversation ON message FIELDS conversation;
+    DEFINE INDEX IF NOT EXISTS idx_message_conversation_created ON message FIELDS conversation, created_at;
 
     -- Cascade: delete messages when conversation deleted
     DEFINE EVENT IF NOT EXISTS cascade_delete_conversation_messages ON conversation
@@ -393,5 +394,12 @@ func SchemaSQL(dimension int) string {
 
     DEFINE INDEX IF NOT EXISTS idx_job_pending ON pipeline_job
         FIELDS status, run_after, priority, created_at;
+    DEFINE INDEX IF NOT EXISTS idx_job_file ON pipeline_job FIELDS file;
+
+    -- ==========================================================================
+    -- CLEANUP: remove superseded single-field indexes
+    -- ==========================================================================
+    REMOVE INDEX IF EXISTS idx_chunk_file ON chunk;
+    REMOVE INDEX IF EXISTS idx_message_conversation ON message;
 `, dimension)
 }

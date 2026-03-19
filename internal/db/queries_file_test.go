@@ -183,6 +183,260 @@ func TestDeleteFile(t *testing.T) {
 	}
 }
 
+func TestDeleteFileAtomic(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Create file with chunks, wiki links, and label edges
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/atomic-delete.md",
+		Title:   "Atomic Delete",
+		Content: "content",
+		Labels:  []string{"test"},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	if err := testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docID, Text: "Chunk 1", Position: 0, Embedding: dummyEmbedding()},
+		{FileID: docID, Text: "Chunk 2", Position: 1, Embedding: dummyEmbedding()},
+	}); err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	// Outgoing wiki link from the file being deleted
+	if err := testDB.CreateWikiLinks(ctx, docID, vaultID, []WikiLinkInput{
+		{RawTarget: "other"},
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks failed: %v", err)
+	}
+
+	// Create a second file with a wiki link pointing TO the file being deleted (incoming link)
+	otherDoc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/other.md",
+		Title:   "Other",
+		Content: "links to atomic-delete",
+		Labels:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile (other) failed: %v", err)
+	}
+	otherDocID := models.MustRecordIDString(otherDoc.ID)
+	if err := testDB.CreateWikiLinks(ctx, otherDocID, vaultID, []WikiLinkInput{
+		{RawTarget: "atomic-delete", ToFileID: &docID},
+	}); err != nil {
+		t.Fatalf("CreateWikiLinks (incoming) failed: %v", err)
+	}
+
+	if err := testDB.SyncFileLabels(ctx, docID, vaultID, []string{"test"}); err != nil {
+		t.Fatalf("SyncFileLabels failed: %v", err)
+	}
+
+	// Delete atomically
+	if err := testDB.DeleteFileAtomic(ctx, docID); err != nil {
+		t.Fatalf("DeleteFileAtomic failed: %v", err)
+	}
+
+	// Verify file is gone
+	gone, err := testDB.GetFileByID(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetFileByID after atomic delete error: %v", err)
+	}
+	if gone != nil {
+		t.Error("File should be nil after atomic delete")
+	}
+
+	// Verify chunks are gone
+	chunks, err := testDB.GetChunks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetChunks after atomic delete error: %v", err)
+	}
+	if len(chunks) != 0 {
+		t.Errorf("Expected 0 chunks after atomic delete, got %d", len(chunks))
+	}
+
+	// Verify outgoing wiki links are gone
+	links, err := testDB.GetWikiLinks(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks after atomic delete error: %v", err)
+	}
+	if len(links) != 0 {
+		t.Errorf("Expected 0 outgoing wiki links after atomic delete, got %d", len(links))
+	}
+
+	// Verify incoming wiki links were unresolved (to_file set to NONE)
+	incomingLinks, err := testDB.GetWikiLinksToFile(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetWikiLinksToFile after atomic delete error: %v", err)
+	}
+	if len(incomingLinks) != 0 {
+		t.Errorf("Expected 0 incoming wiki links after atomic delete, got %d", len(incomingLinks))
+	}
+	// The link itself should still exist on the other file, just unresolved
+	otherLinks, err := testDB.GetWikiLinks(ctx, otherDocID)
+	if err != nil {
+		t.Fatalf("GetWikiLinks for other doc error: %v", err)
+	}
+	if len(otherLinks) != 1 {
+		t.Errorf("Expected 1 wiki link on other doc, got %d", len(otherLinks))
+	}
+
+	// Verify label edges are gone
+	labels, err := testDB.GetLabelsForFile(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetLabelsForFile after atomic delete error: %v", err)
+	}
+	if len(labels) != 0 {
+		t.Errorf("Expected 0 labels after atomic delete, got %d", len(labels))
+	}
+}
+
+func TestMoveFileAtomic(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/old/move-test.md",
+		Title:   "Move Test",
+		Content: "content",
+		Labels:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	moved, err := testDB.MoveFileAtomic(ctx, vaultID, docID, "/new/subdir/move-test.md")
+	if err != nil {
+		t.Fatalf("MoveFileAtomic failed: %v", err)
+	}
+	if moved.Path != "/new/subdir/move-test.md" {
+		t.Errorf("Expected path '/new/subdir/move-test.md', got %q", moved.Path)
+	}
+	expectedStem := models.FilenameStem("/new/subdir/move-test.md")
+	if moved.Stem != expectedStem {
+		t.Errorf("Expected stem %q, got %q", expectedStem, moved.Stem)
+	}
+
+	// Verify ancestor folders were created atomically
+	folder, err := testDB.GetFolderByPath(ctx, vaultID, "/new/subdir")
+	if err != nil {
+		t.Fatalf("GetFolderByPath /new/subdir error: %v", err)
+	}
+	if folder == nil {
+		t.Error("Expected folder /new/subdir to exist after atomic move")
+	}
+
+	folder, err = testDB.GetFolderByPath(ctx, vaultID, "/new")
+	if err != nil {
+		t.Fatalf("GetFolderByPath /new error: %v", err)
+	}
+	if folder == nil {
+		t.Error("Expected folder /new to exist after atomic move")
+	}
+}
+
+func TestMoveByPrefixAtomic(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	// Create folder + files under /src/
+	ts := fmt.Sprintf("%d", time.Now().UnixNano())
+	srcPath := "/src-" + ts + "/"
+	dstPath := "/dst-" + ts + "/"
+
+	if _, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID:  vaultID,
+		Path:     strings.TrimSuffix(srcPath, "/"),
+		Title:    "src",
+		IsFolder: true,
+		Labels:   []string{},
+	}); err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+
+	for _, name := range []string{"a.md", "b.md"} {
+		if _, err := testDB.CreateFile(ctx, models.FileInput{
+			VaultID: vaultID,
+			Path:    srcPath + name,
+			Title:   name,
+			Content: "content",
+			Labels:  []string{},
+		}); err != nil {
+			t.Fatalf("CreateFile %s failed: %v", name, err)
+		}
+	}
+
+	count, err := testDB.MoveByPrefixAtomic(ctx, vaultID, srcPath, dstPath)
+	if err != nil {
+		t.Fatalf("MoveByPrefixAtomic failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Expected 2 moved files, got %d", count)
+	}
+
+	// Verify files are at new paths
+	for _, name := range []string{"a.md", "b.md"} {
+		f, err := testDB.GetFileByPath(ctx, vaultID, dstPath+name)
+		if err != nil {
+			t.Fatalf("GetFileByPath %s error: %v", dstPath+name, err)
+		}
+		if f == nil {
+			t.Errorf("Expected file at %s after prefix move", dstPath+name)
+		}
+		// Verify stem was recomputed
+		expectedStem := models.FilenameStem(dstPath + name)
+		if f != nil && f.Stem != expectedStem {
+			t.Errorf("Expected stem %q for %s, got %q", expectedStem, name, f.Stem)
+		}
+	}
+
+	// Verify old files are gone
+	for _, name := range []string{"a.md", "b.md"} {
+		f, err := testDB.GetFileByPath(ctx, vaultID, srcPath+name)
+		if err != nil {
+			t.Fatalf("GetFileByPath %s error: %v", srcPath+name, err)
+		}
+		if f != nil {
+			t.Errorf("Expected no file at old path %s", srcPath+name)
+		}
+	}
+
+	// Verify destination folder was created
+	dstFolderPath := strings.TrimSuffix(dstPath, "/")
+	folder, err := testDB.GetFolderByPath(ctx, vaultID, dstFolderPath)
+	if err != nil {
+		t.Fatalf("GetFolderByPath %s error: %v", dstFolderPath, err)
+	}
+	if folder == nil {
+		t.Errorf("Expected folder %s to exist after prefix move", dstFolderPath)
+	}
+
+	// Verify source folder was moved (not left behind as a ghost)
+	srcFolderPath := strings.TrimSuffix(srcPath, "/")
+	srcFolder, err := testDB.GetFolderByPath(ctx, vaultID, srcFolderPath)
+	if err != nil {
+		t.Fatalf("GetFolderByPath %s error: %v", srcFolderPath, err)
+	}
+	if srcFolder != nil {
+		t.Errorf("Expected source folder %s to be gone after prefix move", srcFolderPath)
+	}
+}
+
 func TestMoveFile(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
