@@ -10,10 +10,12 @@ The raw OpenAPI 3.1 spec is available at `/api/v1/openapi.yaml`.
 
 ## Features
 
-- Browse all REST API endpoints grouped by resource
-- View request/response schemas with examples
-- Try API calls directly in the browser (enter your Bearer token in the auth section)
-- Dark mode by default
+- **Sidebar grouping**: Endpoints organized into logical sections (Authentication, Knowledge Base, Content Management, AI Agent, Automation & Sync, Administration)
+- **Getting started guide**: Inline quick-start documentation covering auth, core workflows, and common patterns
+- **Rich schema descriptions**: Every field has a description with examples, making "Try It" useful out of the box
+- **Search**: Press `Cmd+K` (or `Ctrl+K`) to search endpoints, schemas, and descriptions
+- **Dark mode** by default
+- **BearerAuth** pre-selected in the auth section
 
 ## Architecture
 
@@ -21,18 +23,28 @@ The raw OpenAPI 3.1 spec is available at `/api/v1/openapi.yaml`.
 - **Scalar UI**: Loaded from CDN (`cdn.jsdelivr.net/npm/@scalar/api-reference`), no bundled JS
 - **Routes**: `GET /` (Scalar UI) and `GET /api/v1/openapi.yaml` (spec) — both unauthenticated
 - **Registration**: `api.RegisterDocs(mux)` in `cmd/know/cmd_serve.go`
+- **Tag groups**: `x-tagGroups` extension in the spec controls sidebar organization
 
 ## Maintaining the Spec
 
 When adding, modifying, or removing REST API endpoints, update `internal/api/openapi.yaml`:
 
 1. Add/update the path under `paths:`
-2. Add any new request/response schemas under `components.schemas:`
-3. Run `just build` to verify the embedded spec compiles
-4. Open `http://localhost:8484/` to verify it renders correctly
+2. Add any new request/response schemas under `components.schemas:` with descriptions and examples
+3. Ensure new tags are added to the appropriate `x-tagGroups` section
+4. Run `just build` to verify the embedded spec compiles
+5. Open `http://localhost:8484/` to verify it renders correctly
+
+### Spec Quality Checklist
+
+- Every schema field has a `description`
+- Important fields have `example` values (paths, names, scores, etc.)
+- Tag descriptions explain what the resource group does (2-4 sentences)
+- Request/response schemas for key endpoints have realistic examples
 
 ## Example Prompts
 
 - "Show me the API docs" → Open `http://localhost:8484/`
 - "What endpoints does Know have?" → Browse the Scalar UI or read `internal/api/openapi.yaml`
 - "Try searching for documents" → Use the Scalar "Try it" feature on `GET /vaults/{vault}/search`
+- "How does auth work?" → Read the Getting Started section in the API docs

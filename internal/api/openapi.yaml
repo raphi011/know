@@ -2,9 +2,35 @@ openapi: 3.1.0
 info:
   title: Know API
   description: |
-    REST API for the Know knowledge management server.
+    REST API for the **Know** knowledge management server — a persistent knowledge layer for AI agents backed by SurrealDB.
 
-    All vault-scoped endpoints use `{vault}` as a **vault name** (e.g. `default`), which is resolved server-side to the vault ID.
+    ## Quick Start
+
+    1. **Get a token** — run `know db seed` to bootstrap the database and receive a `kh_…` API token, or use the [OIDC device flow](#tag/Auth) for browser-based login.
+    2. **Authenticate** — pass the token as a Bearer header:
+       ```
+       Authorization: Bearer kh_abc123…
+       ```
+    3. **Create content** — [upsert documents](#tag/Documents/POST/vaults/{vault}/documents) into a vault. Frontmatter (`---\nlabels: [go, api]\n---`) is parsed automatically.
+    4. **Search** — [hybrid search](#tag/Search) combines keyword and semantic matching for relevant results.
+    5. **Chat with the agent** — [start a chat](#tag/Agent/POST/vaults/{vault}/agent/chat), then subscribe to the [SSE event stream](#tag/Agent/GET/agent/events/{id}) for streamed responses, tool calls, and approval interrupts.
+
+    ## Common Patterns
+
+    | Pattern | Detail |
+    |---------|--------|
+    | **List envelope** | All list endpoints return `{ "items": [...], "total": N }`. |
+    | **Vault name** | Vault-scoped paths use `{vault}` as a **name** (e.g. `default`), resolved server-side to the vault ID. |
+    | **Error format** | Errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with `application/problem+json` content type. |
+    | **Pagination** | Most list endpoints accept `limit`. Some also support `offset` for pagination. |
+
+    ## Server Layout
+
+    | Base URL | Purpose |
+    |----------|---------|
+    | `/api/v1` | REST API (most endpoints) |
+    | `/auth` | OIDC authentication (device flow, PKCE, callbacks) |
+    | `/` | API documentation (this page) and OpenAPI spec |
   version: 0.1.0
 
 servers:
@@ -17,50 +43,115 @@ security:
   - BearerAuth: []
 
 tags:
-  - name: Vaults
-    description: Vault management and settings
-  - name: Documents
-    description: Document CRUD, listing, move, web clipping
-  - name: Import
-    description: Two-phase manifest + upload import
-  - name: Export
-    description: Export vault as tar.gz or EPUB
-  - name: Backup
-    description: Manifest-based vault backup and restore
-  - name: Search
-    description: Hybrid BM25 + vector search
-  - name: Folders
-    description: Folder listing and settings
-  - name: Versions
-    description: Document version history
-  - name: Labels
-    description: Label listing with optional counts
-  - name: Tasks
-    description: Task listing and status toggling
-  - name: Assets
-    description: Binary asset upload, download, and metadata
-  - name: External Links
-    description: Outgoing link stats and listing
-  - name: Changes
-    description: Incremental sync (changes since timestamp)
-  - name: Conversations
-    description: Agent conversation CRUD
-  - name: Agent
-    description: Agent chat, SSE events, cancellation, tool approval
-  - name: Admin
-    description: System administration (user management, system admin only)
-  - name: Remotes
-    description: Multi-server federation (system admin)
-  - name: Jobs
-    description: Pipeline job status and stats
-  - name: Config
-    description: Server configuration
-  - name: Tokens
-    description: API token management (list, create, delete, rotate)
   - name: Auth
-    description: "OIDC authentication (device flow, PKCE). Note: these endpoints are served at `/auth/*`, not under `/api/v1/`."
+    description: |
+      OIDC authentication for browser-based login. Supports the OAuth 2.0 Device Authorization Grant
+      (for CLI/TUI) and PKCE (for native apps). Only available when OIDC is enabled on the server.
+  - name: Tokens
+    description: |
+      Manage API tokens for authenticating with the Know server. Tokens use the `kh_…` format and are
+      scoped to a single user. Supports creation with configurable expiry, rotation, and deletion.
+  - name: Vaults
+    description: |
+      Vaults are the top-level containers for documents, assets, and conversations. Each vault has its own
+      settings for search tuning, memory behavior, versioning, and feature toggles. Users access vaults by
+      name (e.g. `default`), which is resolved server-side to the vault ID.
+  - name: Documents
+    description: |
+      CRUD operations for markdown documents within a vault. Documents are path-addressed (e.g. `/notes/hello.md`)
+      and support frontmatter for labels, doc type, and metadata. Includes directory listing (`ls`), move/rename,
+      bulk upload, and web clipping via Jina Reader. Wiki-links between documents are automatically resolved.
+  - name: Folders
+    description: |
+      Virtual folders derived from document paths. Folder settings control embedding behavior — set `no_embed`
+      to exclude a folder's documents from vector search (useful for templates, archives, or generated content).
+  - name: Labels
+    description: |
+      Labels are extracted from document frontmatter and used for filtering in search and task queries.
+      The list endpoint returns either plain label names or label-with-count objects depending on the `counts` parameter.
+  - name: Search
+    description: |
+      Hybrid search combining BM25 (keyword) and vector (semantic) scoring with reciprocal rank fusion (RRF).
+      Results include matched document chunks with snippet highlights and heading paths. Requires an embedder
+      to be configured for semantic search; falls back to BM25-only otherwise. Filter results by labels.
+  - name: Import
+    description: |
+      Two-phase import for efficient bulk document ingestion. Phase 1 (manifest) sends file paths and SHA256
+      hashes — the server responds with which files need uploading. Phase 2 (upload) sends only the needed
+      files as multipart form data.
+  - name: Export
+    description: |
+      Export vault contents as downloadable archives. Supports tar.gz (full vault dump) and EPUB
+      (single document or folder as an e-book with chapters). EPUB export supports custom title and author metadata.
+  - name: Backup
+    description: |
+      Manifest-based vault backup and restore. Backups include all documents, assets, and metadata as a tar.gz
+      archive. Restore creates the vault if it doesn't exist and preserves document metadata.
+  - name: Assets
+    description: |
+      Binary asset storage for images, PDFs, and other non-text files. Assets are path-addressed within a vault
+      and stored in the blob store (filesystem or S3). Upload via multipart form, download as raw binary.
+  - name: Versions
+    description: |
+      Automatic version history for documents. Versions are created on content changes, with a coalescing window
+      to batch rapid edits (configurable via vault settings). Each version stores a content hash for blob retrieval.
+  - name: External Links
+    description: |
+      Tracks outgoing URLs found in document content. Provides per-hostname statistics and paginated link listings,
+      useful for auditing references, finding broken links, or understanding citation patterns.
+  - name: Tasks
+    description: |
+      Tasks are automatically extracted from markdown checkboxes (`- [ ]` / `- [x]`) in documents.
+      Filter by status, labels, due date range, folder, or specific document. Toggle status via API.
+  - name: Changes
+    description: |
+      Incremental sync for efficient client synchronization. Returns files updated and deleted since
+      a given timestamp, plus a `syncToken` for the next request.
   - name: Events
-    description: SSE document change stream
+    description: |
+      Server-Sent Events (SSE) stream for real-time document change notifications within a vault.
+      Connect with `EventSource` or any SSE client. The connection stays open until the client disconnects.
+  - name: Conversations
+    description: |
+      CRUD operations for agent chat conversations. Each conversation belongs to a vault and contains
+      a message history with user, assistant, and tool messages. Tracks cumulative token usage.
+  - name: Agent
+    description: |
+      AI agent chat with tool execution. Start a chat to get a conversation ID, then subscribe to the
+      SSE event stream for streamed responses and tool calls. Supports approval interrupts for
+      destructive operations and auto-approve mode.
+  - name: Admin
+    description: |
+      System administration endpoints. Create and list users, each with their own private vault.
+      Requires system admin privileges (set during `know db seed`).
+  - name: Remotes
+    description: |
+      Multi-server federation for distributed knowledge bases. Register remote Know servers to make
+      their vaults available locally (read-only). Requires system admin. Remote vaults appear in
+      vault listings with a `remote` field indicating their origin.
+  - name: Jobs
+    description: |
+      Monitor the background processing pipeline. Returns aggregate stats (pending, running, done, failed),
+      per-job-type duration metrics, currently active jobs, and recent failures. The pipeline handles
+      embedding, PDF extraction, audio transcription, and other async document processing.
+  - name: Config
+    description: |
+      Read-only server configuration. Returns the effective configuration including provider settings,
+      model names, feature flags, and capability detection (e.g. whether ffmpeg or poppler are installed).
+
+x-tagGroups:
+  - name: Authentication
+    tags: [Auth, Tokens]
+  - name: Knowledge Base
+    tags: [Vaults, Documents, Folders, Labels, Search]
+  - name: Content Management
+    tags: [Import, Export, Backup, Assets, Versions, External Links]
+  - name: AI Agent
+    tags: [Agent, Conversations]
+  - name: Automation & Sync
+    tags: [Tasks, Events, Changes, Jobs]
+  - name: Administration
+    tags: [Admin, Remotes, Config]
 
 components:
   securitySchemes:
@@ -81,17 +172,23 @@ components:
   schemas:
     AdminUser:
       type: object
+      description: A user account in the system
       properties:
         id:
           type: string
+          description: User record ID
         name:
           type: string
+          description: Display name
         email:
           type: string
+          description: Email address (unique per user)
         is_system_admin:
           type: boolean
+          description: Whether this user has system admin privileges
         oidc_provider:
           type: string
+          description: OIDC provider name if the user was created via SSO
 
     ProblemDetail:
       type: object
@@ -122,354 +219,559 @@ components:
 
     Vault:
       type: object
+      description: A vault — the top-level container for documents, assets, and conversations
       properties:
         id:
           type: string
+          description: Vault record ID
+          example: "vault:default"
         name:
           type: string
+          description: Vault name (used in API paths)
+          example: "default"
         description:
           type: string
+          description: Human-readable vault description
         createdBy:
           type: string
+          description: User record ID of the vault creator
         createdAt:
           type: string
           format: date-time
+          description: When the vault was created
         updatedAt:
           type: string
           format: date-time
+          description: When the vault was last modified
         remote:
           type: string
-          description: Remote name if this vault is federated
+          description: Remote server name if this vault is federated (absent for local vaults)
 
     VaultInfo:
       type: object
+      description: Comprehensive vault statistics — returned by the vault info endpoint
       properties:
         name:
           type: string
+          description: Vault name
+          example: "default"
         description:
           type: string
+          description: Human-readable vault description
         createdAt:
           type: string
           format: date-time
+          description: When the vault was created
         updatedAt:
           type: string
           format: date-time
+          description: When the vault was last modified
         documentCount:
           type: integer
+          description: Total number of documents in the vault
+          example: 142
         unprocessedDocs:
           type: integer
+          description: Documents with pending pipeline jobs (embedding, PDF extraction, etc.)
+          example: 3
         chunkTotal:
           type: integer
+          description: Total number of text chunks across all documents
+          example: 1024
         chunkWithEmbedding:
           type: integer
+          description: Chunks that have been embedded (vector-searchable)
+          example: 1020
         chunkPending:
           type: integer
+          description: Chunks awaiting embedding
+          example: 4
         labelCount:
           type: integer
+          description: Number of distinct labels across all documents
+          example: 15
         topLabels:
           type: array
+          description: Most-used labels with document counts
           items:
             $ref: "#/components/schemas/LabelStat"
         members:
           type: array
+          description: Vault members with their roles
           items:
             $ref: "#/components/schemas/MemberStat"
         assetCount:
           type: integer
+          description: Number of binary assets (images, PDFs, etc.)
+          example: 23
         assetTotalSize:
           type: integer
           format: int64
+          description: Total size of all assets in bytes
+          example: 52428800
         wikiLinkTotal:
           type: integer
+          description: Total wiki-links across all documents
+          example: 87
         wikiLinkBroken:
           type: integer
+          description: Wiki-links that don't resolve to any document
+          example: 2
         versionCount:
           type: integer
+          description: Total version snapshots across all documents
+          example: 356
         conversationCount:
           type: integer
+          description: Number of agent conversations in this vault
+          example: 8
         tokenInput:
           type: integer
           format: int64
+          description: Cumulative LLM input tokens used across all conversations
         tokenOutput:
           type: integer
           format: int64
+          description: Cumulative LLM output tokens used across all conversations
 
     LabelStat:
       type: object
+      description: A label with its document count
       properties:
         name:
           type: string
+          description: Label name
+          example: "go"
         count:
           type: integer
+          description: Number of documents with this label
+          example: 12
 
     MemberStat:
       type: object
+      description: A vault member with their access role
       properties:
         name:
           type: string
+          description: User display name
+          example: "Raphael"
         role:
           type: string
+          description: "Access role: `admin` or `member`"
+          example: "admin"
 
     VaultSettings:
       type: object
+      description: Per-vault configuration. All fields are optional — omitted fields retain their current values on PATCH.
       properties:
         memory_path:
           type: string
+          description: Vault path where memory documents are stored
+          example: "/memories"
         memory_merge_threshold:
           type: number
+          description: "Cosine similarity threshold (0–1) above which memories are merge candidates. Higher = stricter."
+          example: 0.95
         memory_archive_threshold:
           type: number
+          description: "Decay score (0–1) below which memories are auto-archived. Lower = more aggressive archiving."
+          example: 0.2
         memory_decay_half_life:
           type: integer
+          description: Half-life in days for memory recency decay scoring
+          example: 30
         template_path:
           type: string
+          description: Vault path where document templates are stored
+          example: "/templates"
         daily_note_path:
           type: string
+          description: Vault path for daily notes
+          example: "/daily"
         transcript_template:
           type: string
+          description: Path to the template used for LLM transcript summarization (empty string = disabled)
+          example: "/templates/transcript-summary.md"
         rrf_k:
           type: integer
+          description: "RRF K parameter for hybrid search fusion. Higher values give more weight to lower-ranked results. Default: 60"
+          example: 60
         hnsw_ef:
           type: integer
+          description: "HNSW EF parameter for vector search recall/speed trade-off. Higher = better recall, slower. Default: 40"
+          example: 40
         default_search_limit:
           type: integer
+          description: Default number of search results when `limit` is not specified
+          example: 20
         max_search_limit:
           type: integer
+          description: Maximum allowed value for the `limit` parameter on search endpoints
+          example: 100
         version_coalesce_minutes:
           type: integer
+          description: Minutes within which rapid edits are coalesced into a single version snapshot
+          example: 10
         version_retention_count:
           type: integer
+          description: Maximum number of version snapshots kept per document (oldest are pruned)
+          example: 50
         web_clip_path:
           type: string
+          description: Vault path where web-clipped documents are saved
+          example: "/web"
 
     Document:
       type: object
+      description: A markdown document in a vault
       properties:
         id:
           type: string
+          description: Document record ID
         vaultId:
           type: string
+          description: Vault record ID this document belongs to
         path:
           type: string
+          description: Vault-relative file path
+          example: "/notes/hello.md"
         title:
           type: string
+          description: Document title (from first heading or frontmatter)
+          example: "Hello World"
         content:
           type: string
+          description: Full markdown content including frontmatter
         labels:
           type: array
           items:
             type: string
+          description: Labels extracted from frontmatter
+          example: ["go", "api"]
         docType:
           type: string
+          description: Document type from frontmatter (e.g. `note`, `meeting`, `spec`)
         contentHash:
           type: [string, "null"]
+          description: SHA256 hash of the content (null if not yet computed)
         createdAt:
           type: string
           format: date-time
+          description: When the document was first created
         updatedAt:
           type: string
           format: date-time
+          description: When the document was last modified
         wikiLinks:
           type: array
+          description: Outgoing wiki-links with resolution status
           items:
             $ref: "#/components/schemas/WikiLinkInfo"
 
     WikiLinkInfo:
       type: object
+      description: A resolved wiki-link from a document
       properties:
         rawTarget:
           type: string
+          description: "Original wiki-link target as written (e.g. `[[hello]]`)"
+          example: "hello"
         path:
           type: string
+          description: Resolved vault path (null if unresolved)
+          example: "/notes/hello.md"
         title:
           type: string
+          description: Title of the linked document (null if unresolved)
+          example: "Hello World"
 
     UpsertDocumentRequest:
       type: object
+      description: Create or update a document. If a document exists at the given path, it is updated.
       required: [path, content]
       properties:
         path:
           type: string
+          description: Vault-relative file path
+          example: "/notes/hello.md"
         content:
           type: string
+          description: "Full markdown content. Frontmatter (`---\\nlabels: [go]\\n---`) is parsed automatically."
+          example: "---\nlabels: [go, api]\n---\n# Hello World\n\nThis is a document."
 
     DeleteDocumentsResponse:
       type: object
+      description: Result of a document or folder deletion
       properties:
         deleted:
           type: array
           items:
             type: string
+          description: Paths of deleted documents
         count:
           type: integer
+          description: Number of documents deleted
         dryRun:
           type: boolean
+          description: Whether this was a dry run (no actual deletion)
 
     MoveRequest:
       type: object
+      description: Move or rename a document or folder
       required: [source, destination]
       properties:
         source:
           type: string
+          description: Current path
+          example: "/notes/old-name.md"
         destination:
           type: string
+          description: New path
+          example: "/notes/new-name.md"
         dryRun:
           type: boolean
+          description: Preview the move without executing it
 
     MoveResponse:
       type: object
+      description: Result of a move operation
       properties:
         type:
           type: string
           enum: [document, folder]
+          description: Whether a single document or an entire folder was moved
         moved:
           type: array
           items:
             type: string
+          description: Paths of moved documents (after the move)
         count:
           type: integer
+          description: Number of documents moved
         dryRun:
           type: boolean
+          description: Whether this was a dry run
 
     FileEntry:
       type: object
+      description: A file or folder entry in a directory listing
       properties:
         name:
           type: string
+          description: File or folder name (without parent path)
+          example: "hello.md"
         path:
           type: string
+          description: Full vault-relative path
+          example: "/notes/hello.md"
         title:
           type: string
+          description: Document title (empty for folders)
+          example: "Hello World"
         isDir:
           type: boolean
+          description: Whether this entry is a folder
         size:
           type: integer
+          description: Content size in bytes (0 for folders)
 
     FetchRequest:
       type: object
+      description: Web clipping request — fetch a URL and save as a markdown document
       required: [url]
       properties:
         url:
           type: string
+          description: URL to fetch and convert to markdown
+          example: "https://example.com/article"
         path:
           type: string
-          description: Optional vault path to save under
+          description: "Vault path to save under (defaults to vault's `web_clip_path` setting)"
 
     FetchResponse:
       type: object
+      description: Result of a web clipping operation
       properties:
         path:
           type: string
+          description: Vault path where the document was saved
+          example: "/web/example-article.md"
         title:
           type: string
+          description: Extracted page title
+          example: "Example Article"
 
     SearchResult:
       type: object
+      description: A document matched by the search query, with scored chunk matches
       properties:
         documentId:
           type: string
+          description: Document record ID
         path:
           type: string
+          description: Vault-relative document path
+          example: "/notes/go-patterns.md"
         title:
           type: string
+          description: Document title
+          example: "Go Design Patterns"
         labels:
           type: array
           items:
             type: string
+          description: Document labels
+          example: ["go", "patterns"]
         docType:
           type: string
+          description: Document type from frontmatter
         score:
           type: number
+          description: "Fused relevance score (higher = more relevant). Computed via reciprocal rank fusion of BM25 and vector scores."
+          example: 0.85
         matchedChunks:
           type: array
+          description: Text chunks that matched the query, ordered by score
           items:
             $ref: "#/components/schemas/ChunkMatch"
 
     ChunkMatch:
       type: object
+      description: A text chunk within a document that matched the search query
       properties:
         snippet:
           type: string
+          description: The matched text content
+          example: "The builder pattern separates construction from representation..."
         headingPath:
           type: string
+          description: "Section context as a heading chain (e.g. `Design Patterns > Builder`)"
+          example: "Design Patterns > Builder"
         position:
           type: integer
+          description: Sequential position of this chunk within the document (0-based)
+          example: 3
         score:
           type: number
+          description: Chunk-level relevance score
+          example: 0.92
 
     FolderResponse:
       type: object
+      description: A virtual folder derived from document paths
       properties:
         path:
           type: string
+          description: Vault-relative folder path
+          example: "/notes"
         name:
           type: string
+          description: Folder name (last path component)
+          example: "notes"
         noEmbed:
           type: boolean
+          description: When true, documents in this folder are excluded from vector search
 
     UpdateFolderRequest:
       type: object
+      description: Update folder settings
       required: [path]
       properties:
         path:
           type: string
+          description: Vault-relative folder path
+          example: "/templates"
         no_embed:
           type: boolean
+          description: "Set to true to exclude this folder's documents from embedding/vector search"
 
     UpdateFolderResponse:
       type: object
+      description: Result of a folder settings update
       properties:
         strippedChunks:
           type: integer
+          description: Number of embedding chunks removed (when `no_embed` was enabled)
 
     VersionResponse:
       type: object
+      description: A historical version snapshot of a document
       properties:
         version:
           type: integer
+          description: Sequential version number (1 = first version)
+          example: 3
         title:
           type: string
+          description: Document title at the time of this snapshot
+          example: "Hello World"
         contentHash:
           type: string
+          description: SHA256 hash used to retrieve content from the blob store
         createdAt:
           type: string
           format: date-time
+          description: When this version was created
 
     LabelCount:
       type: object
+      description: A label with its document count (returned when `counts=true`)
       properties:
         label:
           type: string
+          description: Label name
+          example: "go"
         count:
           type: integer
+          description: Number of documents with this label
+          example: 12
 
     TaskResponse:
       type: object
+      description: "A task extracted from a markdown checkbox (`- [ ]` / `- [x]`)"
       properties:
         id:
           type: string
+          description: Task record ID
         documentPath:
           type: string
+          description: Path of the document containing this task
+          example: "/notes/todo.md"
         documentTitle:
           type: string
+          description: Title of the containing document
+          example: "TODO List"
         status:
           type: string
           enum: [open, done]
+          description: "Current status: `open` (unchecked) or `done` (checked)"
+          example: "open"
         text:
           type: string
+          description: Task text (cleaned — no checkbox marker, labels, or due dates)
+          example: "Review PR #42"
         labels:
           type: array
           items:
             type: string
+          description: "Inline `#labels` extracted from the task text"
+          example: ["urgent", "review"]
         dueDate:
           type: string
+          description: "Due date in YYYY-MM-DD format (from `due:YYYY-MM-DD` in task text)"
+          example: "2026-03-25"
         headingPath:
           type: string
+          description: "Section context (e.g. `Daily Note > Tasks`)"
+          example: "Sprint 12 > In Progress"
         lineNumber:
           type: integer
+          description: 1-based line number in the source document
+          example: 15
 
     TaskListResponse:
       type: object
+      description: Paginated list of tasks
       required: [items, total]
       properties:
         items:
@@ -478,52 +780,79 @@ components:
             $ref: "#/components/schemas/TaskResponse"
         total:
           type: integer
+          description: Total number of tasks matching the filter
 
     AssetMeta:
       type: object
+      description: Metadata for a binary asset (image, PDF, audio, etc.)
       properties:
         vaultId:
           type: string
+          description: Vault record ID
         path:
           type: string
+          description: Vault-relative asset path
+          example: "/assets/diagram.png"
         mimeType:
           type: string
+          description: MIME type of the asset
+          example: "image/png"
         size:
           type: integer
+          description: File size in bytes
+          example: 245760
         contentHash:
           type: [string, "null"]
+          description: SHA256 content hash
         updatedAt:
           type: string
           format: date-time
+          description: When the asset was last modified
 
     ExternalLink:
       type: object
+      description: An outgoing URL found in a document's content
       properties:
         id:
           $ref: "#/components/schemas/RecordID"
         from_file:
           $ref: "#/components/schemas/RecordID"
+          description: Document containing this link
         vault:
           $ref: "#/components/schemas/RecordID"
+          description: Vault the document belongs to
         hostname:
           type: string
+          description: Hostname of the linked URL
+          example: "github.com"
         url_path:
           type: string
+          description: Path portion of the URL
+          example: "/anthropics/claude-code"
         full_url:
           type: string
+          description: Complete URL
+          example: "https://github.com/anthropics/claude-code"
         link_text:
           type: [string, "null"]
+          description: Anchor text of the link (null if bare URL)
 
     ExternalLinkHostStats:
       type: object
+      description: Link count for a specific hostname
       properties:
         hostname:
           type: string
+          description: Hostname
+          example: "github.com"
         count:
           type: integer
+          description: Number of links to this hostname
+          example: 42
 
     ChangesResponse:
       type: object
+      description: Incremental sync response — files changed since a given timestamp
       required: [updated, deleted, syncToken, truncated]
       properties:
         updated:
@@ -566,6 +895,7 @@ components:
 
     ExternalLinkListResponse:
       type: object
+      description: Paginated list of external links
       required: [items, total]
       properties:
         items:
@@ -574,9 +904,11 @@ components:
             $ref: "#/components/schemas/ExternalLink"
         total:
           type: integer
+          description: Total number of links matching the filter
 
     ExternalLinkStatsResponse:
       type: object
+      description: External link counts grouped by hostname
       required: [items, total]
       properties:
         items:
@@ -585,285 +917,424 @@ components:
             $ref: "#/components/schemas/ExternalLinkHostStats"
         total:
           type: integer
+          description: Number of distinct hostnames
 
     Conversation:
       type: object
+      description: An agent chat conversation with message history and token usage
       properties:
         id:
           type: string
+          description: Conversation record ID
         vaultId:
           type: string
+          description: Vault this conversation belongs to
         title:
           type: string
+          description: Conversation title (auto-generated from first message or manually set)
+          example: "Search architecture discussion"
         tokenInput:
           type: integer
           format: int64
+          description: Cumulative LLM input tokens used
         tokenOutput:
           type: integer
           format: int64
+          description: Cumulative LLM output tokens used
         bgStatus:
           type: string
+          description: "Background job status: `running`, `completed`, `failed`, or absent"
         createdAt:
           type: string
           format: date-time
+          description: When the conversation was started
         updatedAt:
           type: string
           format: date-time
+          description: When the last message was added
         messages:
           type: array
+          description: "Full message history (only included when fetching a single conversation, omitted in list responses)"
           items:
             $ref: "#/components/schemas/ChatMessage"
 
     ChatMessage:
       type: object
+      description: A single message in an agent conversation
       properties:
         id:
           type: string
+          description: Message record ID
         role:
           type: string
           enum: [user, assistant, tool]
+          description: "Message role: `user` (human input), `assistant` (agent response), `tool` (tool call or result)"
         content:
           type: string
+          description: Message text content
         docRefs:
           type: array
           items:
             type: string
+          description: Document paths referenced in this message
         toolName:
           type: string
+          description: Tool name (for tool-role messages)
         toolInput:
           type: string
+          description: JSON-encoded tool input parameters
         toolCallId:
           type: string
+          description: Tool call ID linking a tool request to its result
         toolCalls:
           type: string
+          description: JSON-encoded array of tool calls (for assistant messages that invoke tools)
         createdAt:
           type: string
           format: date-time
+          description: When this message was created
 
     CreateConversationRequest:
       type: object
+      description: Create a new empty conversation in a vault
       required: [vaultId]
       properties:
         vaultId:
           type: string
+          description: Vault record ID to create the conversation in
 
     RenameConversationRequest:
       type: object
+      description: Rename an existing conversation
       required: [title]
       properties:
         title:
           type: string
+          description: New conversation title
+          example: "API design session"
 
     RemoteResponse:
       type: object
+      description: A registered federated remote server
       properties:
         name:
           type: string
+          description: Unique remote name (used as namespace prefix)
+          example: "team-server"
         url:
           type: string
+          description: Remote server URL
+          example: "https://know.example.com"
         createdAt:
           type: string
           format: date-time
+          description: When the remote was registered
         updatedAt:
           type: string
           format: date-time
+          description: When the remote was last modified
 
     AddRemoteRequest:
       type: object
+      description: Register a new federated remote server
       required: [name, url, token]
       properties:
         name:
           type: string
+          description: Unique name for this remote
+          example: "team-server"
         url:
           type: string
+          description: Remote server URL (must be reachable)
+          example: "https://know.example.com"
         token:
           type: string
+          description: "API token for authenticating with the remote server (`kh_…` format)"
 
     JobStats:
       type: object
+      description: Aggregate pipeline job counts by status
       properties:
         pending:
           type: integer
+          description: Jobs waiting to be processed
         running:
           type: integer
+          description: Jobs currently being processed
         done:
           type: integer
+          description: Successfully completed jobs
         failed:
           type: integer
+          description: Jobs that failed after all retry attempts
         cancelled:
           type: integer
+          description: Manually cancelled jobs
 
     JobTypeDuration:
       type: object
+      description: Duration statistics for a specific job type
       properties:
         type:
           type: string
+          description: "Job type (e.g. `embed`, `pdf_extract`, `transcribe`)"
+          example: "embed"
         count:
           type: integer
+          description: Number of completed jobs of this type
+          example: 150
         min_ms:
           type: integer
           format: int64
+          description: Fastest job duration in milliseconds
+          example: 45
         max_ms:
           type: integer
           format: int64
+          description: Slowest job duration in milliseconds
+          example: 3200
         avg_ms:
           type: number
+          description: Average job duration in milliseconds
+          example: 280.5
 
     PipelineJobDetail:
       type: object
+      description: Detailed information about a single pipeline job
       properties:
         id:
           $ref: "#/components/schemas/RecordID"
+          description: Job record ID
         file:
           $ref: "#/components/schemas/RecordID"
+          description: File being processed
         type:
           type: string
+          description: "Job type (e.g. `embed`, `pdf_extract`, `transcribe`, `chunk`)"
+          example: "embed"
         status:
           type: string
+          description: "Current status: `pending`, `running`, `done`, `failed`, `cancelled`"
+          example: "running"
         priority:
           type: integer
+          description: Processing priority (lower = higher priority)
+          example: 0
         attempt:
           type: integer
+          description: Current attempt number (1-based)
+          example: 1
         max_attempts:
           type: integer
+          description: Maximum retry attempts before marking as failed
+          example: 3
         run_after:
           type: string
           format: date-time
+          description: Earliest time this job can run (for delayed retries)
         error:
           type: string
+          description: Error message from the last failed attempt
         created_at:
           type: string
           format: date-time
+          description: When the job was created
         started_at:
           type: string
           format: date-time
+          description: When the current attempt started
         completed_at:
           type: string
           format: date-time
+          description: When the job completed (success or final failure)
         file_path:
           type: string
+          description: Vault-relative path of the file being processed
+          example: "/notes/hello.md"
 
     JobStatusResponse:
       type: object
+      description: Comprehensive pipeline status including stats, durations, active jobs, and recent failures
       properties:
         stats:
           $ref: "#/components/schemas/JobStats"
+          description: Aggregate job counts by status
         durations:
           type: array
+          description: Per-type duration statistics
           items:
             $ref: "#/components/schemas/JobTypeDuration"
         active:
           type: array
+          description: Currently running jobs
           items:
             $ref: "#/components/schemas/PipelineJobDetail"
         recent_failed:
           type: array
+          description: Most recently failed jobs
           items:
             $ref: "#/components/schemas/PipelineJobDetail"
 
     ServerConfig:
       type: object
+      description: "Server's effective configuration — read-only, reflects runtime capabilities and feature flags"
       properties:
         version:
           type: string
+          description: Server version (from build)
+          example: "0.1.0"
         commit:
           type: string
+          description: Git commit hash of the build
+          example: "abc1234"
         surrealdbURL:
           type: string
+          description: SurrealDB connection URL (password redacted)
         authEnabled:
           type: boolean
+          description: Whether token authentication is enforced
         llmProvider:
           type: string
+          description: "LLM provider for agent chat and synthesis (e.g. `anthropic`, `openai`, `google`, `ollama`)"
+          example: "anthropic"
         llmModel:
           type: string
+          description: LLM model name
+          example: "claude-sonnet-4-20250514"
         embedProvider:
           type: string
+          description: "Embedding provider (e.g. `openai`, `google`, `ollama`, `none`)"
+          example: "openai"
         embedModel:
           type: string
+          description: Embedding model name
+          example: "text-embedding-3-small"
         embedDimension:
           type: integer
+          description: Embedding vector dimension
+          example: 768
         semanticSearchEnabled:
           type: boolean
+          description: Whether vector search is available (requires an embedder)
         agentChatEnabled:
           type: boolean
+          description: Whether agent chat is available (requires an LLM)
         webSearchEnabled:
           type: boolean
+          description: Whether web search is available (requires Tavily API key)
         chunkThreshold:
           type: integer
+          description: Document character count above which content is chunked
+          example: 6000
         chunkTargetSize:
           type: integer
+          description: Ideal chunk size in characters
+          example: 3000
         chunkMaxSize:
           type: integer
+          description: Maximum chunk size in characters
+          example: 4000
         versionCoalesceMinutes:
           type: integer
+          description: Global default for version coalescing window
+          example: 10
         versionRetentionCount:
           type: integer
+          description: Global default for max versions per document
+          example: 50
         sttProvider:
           type: string
+          description: "Speech-to-text provider (e.g. `openai`, `google`, `none`)"
         sttModel:
           type: string
+          description: STT model name
         transcriptionEnabled:
           type: boolean
+          description: Whether audio transcription is available
         ffmpegInstalled:
           type: boolean
+          description: Whether ffmpeg is installed (required for audio processing)
         popplerInstalled:
           type: boolean
+          description: Whether poppler is installed (required for PDF rendering)
         pdfIngestionEnabled:
           type: boolean
+          description: Whether PDF text extraction is available
         multimodalEmbedProvider:
           type: string
+          description: Provider for native image/audio embedding
         multimodalEmbedModel:
           type: string
+          description: Multimodal embedding model name
         multimodalEmbedEnabled:
           type: boolean
+          description: Whether multimodal embedding is available
         textExtractorModel:
           type: string
+          description: LLM model used for PDF text extraction
         textExtractorEnabled:
           type: boolean
+          description: Whether LLM-based text extraction is available
         tokenMaxLifetimeDays:
           type: integer
+          description: Maximum API token lifetime in days (0 = no limit)
+          example: 90
         oidcEnabled:
           type: boolean
+          description: Whether OIDC authentication is enabled
 
     ImportManifestFile:
       type: object
+      description: A file entry in the import manifest
       required: [path, hash]
       properties:
         path:
           type: string
+          description: Vault-relative file path
+          example: "/notes/hello.md"
         hash:
           type: string
-          description: SHA256 content hash
+          description: SHA256 content hash (hex-encoded)
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
     ImportManifestRequest:
       type: object
+      description: "Phase 1 request: send file paths and hashes to determine which files need uploading"
       required: [files]
       properties:
         force:
           type: boolean
-          description: Re-upload even if hash differs
+          description: Upload files even when they already exist with a different content hash (normally skipped to prevent accidental overwrites)
         dryRun:
           type: boolean
+          description: Preview what would happen without making changes
         files:
           type: array
+          description: List of files to check
           items:
             $ref: "#/components/schemas/ImportManifestFile"
 
     ImportFileResult:
       type: object
+      description: Per-file result from an import or bulk upload
       properties:
         path:
           type: string
+          description: Vault-relative file path
         status:
           type: string
           enum: [created, updated, skipped, error]
+          description: "Result status: `created` (new file), `updated` (content changed), `skipped` (hash matched), `error`"
         reason:
           type: string
+          description: "Human-readable reason for the status (e.g. `hash match` for skipped)"
         error:
           type: string
+          description: Error message if status is `error`
 
     ImportManifestResponse:
       type: object
+      description: "Phase 1 response: indicates which files need uploading"
       properties:
         needed:
           type: array
@@ -872,132 +1343,166 @@ components:
           description: Paths that need to be uploaded in phase 2
         results:
           type: array
+          description: Per-file check results
           items:
             $ref: "#/components/schemas/ImportFileResult"
 
     ImportUploadResponse:
       type: object
+      description: Phase 2 response with per-file upload results
       properties:
         results:
           type: array
+          description: Per-file upload results
           items:
             $ref: "#/components/schemas/ImportFileResult"
         error:
           type: string
+          description: Top-level error if the entire upload failed
 
     BulkResponse:
       type: object
+      description: Response from a bulk document/asset upload
       properties:
         results:
           type: array
+          description: Per-file upload results
           items:
             $ref: "#/components/schemas/ImportFileResult"
         error:
           type: string
+          description: Top-level error if the entire upload failed
 
     TokenResponse:
       type: object
+      description: An API token (without the raw value — only metadata)
       required: [id, name, created_at]
       properties:
         id:
           type: string
+          description: Token record ID
         name:
           type: string
+          description: Human-readable token name
+          example: "cli-token"
         last_used:
           type: string
           format: date-time
+          description: When this token was last used for authentication
         expires_at:
           type: string
           format: date-time
+          description: When this token expires (absent if no expiry)
         created_at:
           type: string
           format: date-time
+          description: When this token was created
 
     CreateTokenRequest:
       type: object
+      description: Create a new API token
       required: [name]
       properties:
         name:
           type: string
-          description: Human-readable token name
+          description: Human-readable token name (must be unique per user)
+          example: "my-cli-token"
         expires_in_days:
           type: integer
-          description: Days until expiry (0 = server default)
+          description: "Days until expiry. 0 = use server default (`tokenMaxLifetimeDays`). Omit for no expiry."
+          example: 90
 
     CreateTokenResponse:
       type: object
+      description: "Newly created token with the raw value. **The raw token is only returned once** — store it securely."
       required: [raw_token, token]
       properties:
         raw_token:
           type: string
-          description: "The raw token value (only returned once). Format: `kh_...`"
+          description: "The raw token value. Format: `kh_…`. Store this — it cannot be retrieved again."
+          example: "kh_abc123def456..."
         token:
           $ref: "#/components/schemas/TokenResponse"
 
     DeviceFlowStartResponse:
       type: object
+      description: Response from starting the OAuth 2.0 Device Authorization Grant flow
       required: [user_code, verification_uri, device_code, expires_in, interval]
       properties:
         user_code:
           type: string
+          description: Code to display to the user for browser-based verification
           example: "ABCD-EFGH"
         verification_uri:
           type: string
           format: uri
+          description: URL where the user enters the code
         device_code:
           type: string
+          description: Opaque code for polling (do not display to user)
         expires_in:
           type: integer
           description: Seconds until the device code expires
+          example: 900
         interval:
           type: integer
-          description: Polling interval in seconds
+          description: Minimum seconds between polling requests
+          example: 5
 
     DeviceFlowPollRequest:
       type: object
+      description: Poll for device flow completion
       required: [device_code]
       properties:
         device_code:
           type: string
+          description: Device code from the start response
 
     DeviceFlowPollResponse:
       type: object
+      description: "Successful device flow completion — returns the API token"
       required: [token]
       properties:
         token:
           type: string
-          description: "API token (format: `kh_...`)"
+          description: "API token (format: `kh_…`). Store securely."
 
     TokenExchangeRequest:
       type: object
+      description: Exchange an authorization code for an API token (PKCE flow for native apps)
       required: [code, code_verifier]
       properties:
         code:
           type: string
-          description: Authorization code from OIDC provider
+          description: Authorization code from the OIDC provider redirect
         code_verifier:
           type: string
-          description: PKCE code verifier
+          description: PKCE code verifier (must match the challenge sent in the auth request)
         redirect_uri:
           type: string
-          description: Redirect URI used in the authorization request
+          description: Redirect URI used in the original authorization request
 
     TokenExchangeResponse:
       type: object
+      description: Successful token exchange — returns the API token and user info
       required: [token, user]
       properties:
         token:
           type: string
-          description: "API token (format: `kh_...`)"
+          description: "API token (format: `kh_…`). Store securely."
         user:
           type: object
+          description: Authenticated user info
           properties:
             id:
               type: string
+              description: User record ID
             name:
               type: string
+              description: Display name from the OIDC provider
             email:
               type: string
+              description: Email from the OIDC provider
 
   responses:
     BadRequest:
