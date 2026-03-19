@@ -7,6 +7,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/backup"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -32,7 +33,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	authCtx, err := auth.FromContext(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
@@ -41,7 +42,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	if err := backup.Restore(ctx, s.app.DBClient(), s.app.BlobStore(), s.app.VaultService(), authCtx.UserID, r.Body); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("restore failed: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("restore failed: %v", err))
 		logger.Error("backup restore failed", "error", err)
 		return
 	}

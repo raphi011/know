@@ -27,9 +27,9 @@ type moveResponse struct {
 	DryRun bool     `json:"dryRun"`
 }
 
-// errorResponse mirrors the server's error JSON.
+// errorResponse mirrors the server's RFC 9457 Problem Details JSON.
 type errorResponse struct {
-	Error string `json:"error"`
+	Detail string `json:"detail"`
 }
 
 // setupMoveServer creates a vault and httptest.Server with the move endpoint.
@@ -114,7 +114,7 @@ func TestMove_DocumentToExistingDocument_Conflict(t *testing.T) {
 	if err := json.Unmarshal(body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
-	if errResp.Error == "" {
+	if errResp.Detail == "" {
 		t.Error("expected non-empty error message")
 	}
 }
@@ -136,8 +136,8 @@ func TestMove_DocumentToExistingFolder_Conflict(t *testing.T) {
 	if err := json.Unmarshal(body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
-	if errResp.Error != "cannot move document to existing folder path: /myfolder" {
-		t.Errorf("unexpected error message: %s", errResp.Error)
+	if errResp.Detail != "cannot move document to existing folder path: /myfolder" {
+		t.Errorf("unexpected error message: %s", errResp.Detail)
 	}
 }
 
@@ -158,8 +158,8 @@ func TestMove_FolderToExistingDocument_Conflict(t *testing.T) {
 	if err := json.Unmarshal(body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
-	if errResp.Error != "cannot move folder to existing document path: /target.md" {
-		t.Errorf("unexpected error message: %s", errResp.Error)
+	if errResp.Detail != "cannot move folder to existing document path: /target.md" {
+		t.Errorf("unexpected error message: %s", errResp.Detail)
 	}
 }
 

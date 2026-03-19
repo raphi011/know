@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 
 	"github.com/raphi011/know/internal/models"
@@ -332,11 +333,9 @@ func (c *Client) ImportUpload(ctx context.Context, vaultName string, files []Imp
 
 	if resp2.StatusCode >= 400 {
 		<-errCh
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
-			return nil, &HTTPError{StatusCode: resp2.StatusCode, Message: errResp.Error}
+		var pd httputil.ProblemDetail
+		if json.Unmarshal(respBody, &pd) == nil && pd.Detail != "" {
+			return nil, &HTTPError{StatusCode: resp2.StatusCode, Message: pd.Detail}
 		}
 		return nil, &HTTPError{StatusCode: resp2.StatusCode, Message: string(respBody)}
 	}
@@ -413,11 +412,11 @@ type Vault struct {
 
 // ListVaults returns all accessible vaults.
 func (c *Client) ListVaults(ctx context.Context) ([]Vault, error) {
-	var vaults []Vault
-	if err := c.Get(ctx, "/api/v1/vaults", &vaults); err != nil {
+	var resp httputil.ListResponse[Vault]
+	if err := c.Get(ctx, "/api/v1/vaults", &resp); err != nil {
 		return nil, fmt.Errorf("list vaults: %w", err)
 	}
-	return vaults, nil
+	return resp.Items, nil
 }
 
 // SearchResult is the JSON representation of a search result from the REST API.
@@ -442,11 +441,11 @@ func (c *Client) SearchDocuments(ctx context.Context, vaultName, query string, l
 	if limit > 0 {
 		q.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	var results []SearchResult
-	if err := c.Get(ctx, vaultPath(vaultName, "/search")+"?"+q.Encode(), &results); err != nil {
+	var resp httputil.ListResponse[SearchResult]
+	if err := c.Get(ctx, vaultPath(vaultName, "/search")+"?"+q.Encode(), &resp); err != nil {
 		return nil, fmt.Errorf("search documents: %w", err)
 	}
-	return results, nil
+	return resp.Items, nil
 }
 
 // Folder is the JSON representation of a folder from the REST API.
@@ -465,11 +464,11 @@ func (c *Client) ListFolders(ctx context.Context, vaultName string, parent *stri
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	var folders []Folder
-	if err := c.Get(ctx, path, &folders); err != nil {
+	var resp httputil.ListResponse[Folder]
+	if err := c.Get(ctx, path, &resp); err != nil {
 		return nil, fmt.Errorf("list folders: %w", err)
 	}
-	return folders, nil
+	return resp.Items, nil
 }
 
 // CreateDocumentRequest is the body for creating a document via REST API.
@@ -515,11 +514,11 @@ func (c *Client) ListVersions(ctx context.Context, vaultName, path string, limit
 	if limit > 0 {
 		q.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	var versions []Version
-	if err := c.Get(ctx, vaultPath(vaultName, "/versions")+"?"+q.Encode(), &versions); err != nil {
+	var resp httputil.ListResponse[Version]
+	if err := c.Get(ctx, vaultPath(vaultName, "/versions")+"?"+q.Encode(), &resp); err != nil {
 		return nil, fmt.Errorf("list versions: %w", err)
 	}
-	return versions, nil
+	return resp.Items, nil
 }
 
 // Document is the JSON representation of a document returned by the REST API.
@@ -571,29 +570,29 @@ func (c *Client) ListFiles(ctx context.Context, vaultName, path string, recursiv
 	if recursive {
 		q.Set("recursive", "true")
 	}
-	var entries []models.FileEntry
-	if err := c.Get(ctx, vaultPath(vaultName, "/documents/ls")+"?"+q.Encode(), &entries); err != nil {
+	var resp httputil.ListResponse[models.FileEntry]
+	if err := c.Get(ctx, vaultPath(vaultName, "/documents/ls")+"?"+q.Encode(), &resp); err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}
-	return entries, nil
+	return resp.Items, nil
 }
 
 // ListLabels returns all distinct labels in the given vault.
 func (c *Client) ListLabels(ctx context.Context, vaultName string) ([]string, error) {
-	var labels []string
-	if err := c.Get(ctx, vaultPath(vaultName, "/labels"), &labels); err != nil {
+	var resp httputil.ListResponse[string]
+	if err := c.Get(ctx, vaultPath(vaultName, "/labels"), &resp); err != nil {
 		return nil, fmt.Errorf("list labels: %w", err)
 	}
-	return labels, nil
+	return resp.Items, nil
 }
 
 // ListLabelsWithCounts returns labels with their document counts for the given vault.
 func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultName string) ([]models.LabelCount, error) {
-	var counts []models.LabelCount
-	if err := c.Get(ctx, vaultPath(vaultName, "/labels")+"?counts=true", &counts); err != nil {
+	var resp httputil.ListResponse[models.LabelCount]
+	if err := c.Get(ctx, vaultPath(vaultName, "/labels")+"?counts=true", &resp); err != nil {
 		return nil, fmt.Errorf("list labels with counts: %w", err)
 	}
-	return counts, nil
+	return resp.Items, nil
 }
 
 // JobStatusResponse is the response from GET /api/jobs.
@@ -740,6 +739,10 @@ func (c *Client) RestoreBackup(ctx context.Context, archivePath string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		var pd httputil.ProblemDetail
+		if json.Unmarshal(body, &pd) == nil && pd.Detail != "" {
+			return &HTTPError{StatusCode: resp.StatusCode, Message: pd.Detail}
+		}
 		return &HTTPError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 	return nil
@@ -781,11 +784,9 @@ func (c *Client) downloadToFile(ctx context.Context, apiPath, outputPath string)
 		if readErr != nil {
 			return 0, fmt.Errorf("HTTP %d (failed to read error body: %w)", resp.StatusCode, readErr)
 		}
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
-			return 0, &HTTPError{StatusCode: resp.StatusCode, Message: errResp.Error}
+		var pd httputil.ProblemDetail
+		if json.Unmarshal(body, &pd) == nil && pd.Detail != "" {
+			return 0, &HTTPError{StatusCode: resp.StatusCode, Message: pd.Detail}
 		}
 		return 0, &HTTPError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
@@ -823,11 +824,9 @@ func (c *Client) handleResponse(req *http.Request, target any) error {
 	}
 
 	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
-			return &HTTPError{StatusCode: resp.StatusCode, Message: errResp.Error}
+		var pd httputil.ProblemDetail
+		if json.Unmarshal(respBody, &pd) == nil && pd.Detail != "" {
+			return &HTTPError{StatusCode: resp.StatusCode, Message: pd.Detail}
 		}
 		return &HTTPError{StatusCode: resp.StatusCode, Message: string(respBody)}
 	}

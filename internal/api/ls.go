@@ -7,6 +7,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -41,7 +42,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		Limit:    10000,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list documents")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list documents")
 		logger.Error("ls documents", "vault_id", vaultID, "path", folder, "error", err)
 		return
 	}
@@ -53,7 +54,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		// ListFolders(nil) returns all vault folders; filter to those under the prefix.
 		allFolders, err := s.app.VaultService().ListFolders(r.Context(), vaultID, nil)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list folders")
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list folders")
 			logger.Error("ls folders", "vault_id", vaultID, "path", folder, "error", err)
 			return
 		}
@@ -78,7 +79,7 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		// Non-recursive: only direct children
 		childFolders, err := s.app.DBClient().ListChildFolders(r.Context(), vaultID, folder)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list folders")
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list folders")
 			logger.Error("ls child folders", "vault_id", vaultID, "path", folder, "error", err)
 			return
 		}
@@ -104,9 +105,5 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if entries == nil {
-		entries = []models.FileEntry{}
-	}
-
-	writeJSON(w, http.StatusOK, entries)
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(entries, len(entries)))
 }

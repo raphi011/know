@@ -6,8 +6,8 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
-	"github.com/raphi011/know/internal/models"
 )
 
 func (s *Server) externalLinkStats(w http.ResponseWriter, r *http.Request) {
@@ -16,15 +16,11 @@ func (s *Server) externalLinkStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.app.DBClient().GetExternalLinkStats(r.Context(), vaultID)
 	if err != nil {
 		logutil.FromCtx(r.Context()).Error("get external link stats", "vault_id", vaultID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get external link stats")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get external link stats")
 		return
 	}
 
-	if stats == nil {
-		stats = []db.ExternalLinkHostStats{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"stats": stats})
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(stats, len(stats)))
 }
 
 func (s *Server) listExternalLinks(w http.ResponseWriter, r *http.Request) {
@@ -56,23 +52,16 @@ func (s *Server) listExternalLinks(w http.ResponseWriter, r *http.Request) {
 	links, err := s.app.DBClient().ListExternalLinks(r.Context(), filter)
 	if err != nil {
 		logger.Error("list external links", "vault_id", vaultID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list external links")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list external links")
 		return
 	}
 
 	total, err := s.app.DBClient().CountExternalLinks(r.Context(), filter)
 	if err != nil {
 		logger.Error("count external links", "vault_id", vaultID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to count external links")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to count external links")
 		return
 	}
 
-	if links == nil {
-		links = []models.ExternalLink{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"links": links,
-		"total": total,
-	})
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(links, total))
 }

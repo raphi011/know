@@ -94,7 +94,7 @@ func runTask(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("task: %w", err)
 	}
 
-	model := tui.NewTaskModel(client, *taskVaultID, filter, resp.Tasks)
+	model := tui.NewTaskModel(client, *taskVaultID, filter, resp.Items)
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("task: %w", err)

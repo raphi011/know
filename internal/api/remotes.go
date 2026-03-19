@@ -11,6 +11,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -24,19 +25,19 @@ type remoteResponse struct {
 
 func (s *Server) listRemotes(w http.ResponseWriter, r *http.Request) {
 	if err := auth.RequireSystemAdmin(r.Context()); err != nil {
-		writeError(w, http.StatusForbidden, "system admin required")
+		httputil.WriteProblem(w, http.StatusForbidden, "system admin required")
 		return
 	}
 
 	remoteSvc := s.app.RemoteService()
 	if remoteSvc == nil {
-		writeJSON(w, http.StatusOK, []remoteResponse{})
+		writeJSON(w, http.StatusOK, httputil.NewListResponse([]remoteResponse{}, 0))
 		return
 	}
 
 	remotes, err := remoteSvc.List(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list remotes")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list remotes")
 		logutil.FromCtx(r.Context()).Error("list remotes", "error", err)
 		return
 	}
@@ -51,7 +52,7 @@ func (s *Server) listRemotes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(resp, len(resp)))
 }
 
 type addRemoteRequest struct {
@@ -62,27 +63,27 @@ type addRemoteRequest struct {
 
 func (s *Server) addRemote(w http.ResponseWriter, r *http.Request) {
 	if err := auth.RequireSystemAdmin(r.Context()); err != nil {
-		writeError(w, http.StatusForbidden, "system admin required")
+		httputil.WriteProblem(w, http.StatusForbidden, "system admin required")
 		return
 	}
 
 	var body addRemoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if body.Name == "" || body.URL == "" || body.Token == "" {
-		writeError(w, http.StatusBadRequest, "name, url, and token are required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "name, url, and token are required")
 		return
 	}
 	if strings.Contains(body.Name, "/") || strings.Contains(body.Name, " ") {
-		writeError(w, http.StatusBadRequest, "remote name must not contain '/' or spaces")
+		httputil.WriteProblem(w, http.StatusBadRequest, "remote name must not contain '/' or spaces")
 		return
 	}
 
 	remoteSvc := s.app.RemoteService()
 	if remoteSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "remote service not available")
+		httputil.WriteProblem(w, http.StatusServiceUnavailable, "remote service not available")
 		return
 	}
 
@@ -91,13 +92,13 @@ func (s *Server) addRemote(w http.ResponseWriter, r *http.Request) {
 
 	// Validate connectivity by calling /health on the remote
 	if err := checkRemoteHealth(ctx, body.URL); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("cannot reach remote: %v", err))
+		httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("cannot reach remote: %v", err))
 		return
 	}
 
 	ac, err := auth.FromContext(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -107,7 +108,7 @@ func (s *Server) addRemote(w http.ResponseWriter, r *http.Request) {
 		Token: body.Token,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add remote")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to add remote")
 		logger.Error("add remote", "name", body.Name, "error", err)
 		return
 	}
@@ -122,19 +123,19 @@ func (s *Server) addRemote(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) removeRemote(w http.ResponseWriter, r *http.Request) {
 	if err := auth.RequireSystemAdmin(r.Context()); err != nil {
-		writeError(w, http.StatusForbidden, "system admin required")
+		httputil.WriteProblem(w, http.StatusForbidden, "system admin required")
 		return
 	}
 
 	name := r.PathValue("name")
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "remote name required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "remote name required")
 		return
 	}
 
 	remoteSvc := s.app.RemoteService()
 	if remoteSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "remote service not available")
+		httputil.WriteProblem(w, http.StatusServiceUnavailable, "remote service not available")
 		return
 	}
 
@@ -142,10 +143,10 @@ func (s *Server) removeRemote(w http.ResponseWriter, r *http.Request) {
 
 	if err := remoteSvc.Remove(r.Context(), name); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			writeError(w, http.StatusNotFound, fmt.Sprintf("remote not found: %s", name))
+			httputil.WriteProblem(w, http.StatusNotFound, fmt.Sprintf("remote not found: %s", name))
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to remove remote")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to remove remote")
 		logger.Error("remove remote", "name", name, "error", err)
 		return
 	}

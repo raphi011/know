@@ -1,0 +1,1988 @@
+openapi: 3.1.0
+info:
+  title: Know API
+  description: |
+    REST API for the Know knowledge management server.
+
+    All vault-scoped endpoints use `{vault}` as a **vault name** (e.g. `default`), which is resolved server-side to the vault ID.
+  version: 0.1.0
+
+servers:
+  - url: /api/v1
+    description: Local server
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Vaults
+    description: Vault management and settings
+  - name: Documents
+    description: Document CRUD, listing, move, web clipping
+  - name: Import
+    description: Two-phase manifest + upload import
+  - name: Export
+    description: Export vault as tar.gz or EPUB
+  - name: Backup
+    description: Manifest-based vault backup and restore
+  - name: Search
+    description: Hybrid BM25 + vector search
+  - name: Folders
+    description: Folder listing and settings
+  - name: Versions
+    description: Document version history
+  - name: Labels
+    description: Label listing with optional counts
+  - name: Tasks
+    description: Task listing and status toggling
+  - name: Assets
+    description: Binary asset upload, download, and metadata
+  - name: External Links
+    description: Outgoing link stats and listing
+  - name: Conversations
+    description: Agent conversation CRUD
+  - name: Agent
+    description: Agent chat, SSE events, cancellation, tool approval
+  - name: Remotes
+    description: Multi-server federation (system admin)
+  - name: Jobs
+    description: Pipeline job status and stats
+  - name: Config
+    description: Server configuration
+  - name: Events
+    description: SSE document change stream
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Token from `know db seed`. Format: `kh_...`"
+
+  parameters:
+    vault:
+      name: vault
+      in: path
+      required: true
+      description: Vault name (e.g. `default`)
+      schema:
+        type: string
+
+  schemas:
+    ProblemDetail:
+      type: object
+      description: "RFC 9457 Problem Details for HTTP APIs"
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          example: "about:blank"
+        title:
+          type: string
+          example: "Not Found"
+        status:
+          type: integer
+          example: 404
+        detail:
+          type: string
+          example: "document not found"
+
+    RecordID:
+      type: object
+      description: SurrealDB record identifier (serialized as `{"Table":"<table>","ID":"<id>"}`)
+      properties:
+        Table:
+          type: string
+        ID:
+          type: string
+
+    Vault:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        remote:
+          type: string
+          description: Remote name if this vault is federated
+
+    VaultInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        documentCount:
+          type: integer
+        unprocessedDocs:
+          type: integer
+        chunkTotal:
+          type: integer
+        chunkWithEmbedding:
+          type: integer
+        chunkPending:
+          type: integer
+        labelCount:
+          type: integer
+        topLabels:
+          type: array
+          items:
+            $ref: "#/components/schemas/LabelStat"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemberStat"
+        assetCount:
+          type: integer
+        assetTotalSize:
+          type: integer
+          format: int64
+        wikiLinkTotal:
+          type: integer
+        wikiLinkBroken:
+          type: integer
+        versionCount:
+          type: integer
+        conversationCount:
+          type: integer
+        tokenInput:
+          type: integer
+          format: int64
+        tokenOutput:
+          type: integer
+          format: int64
+
+    LabelStat:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+
+    MemberStat:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+
+    VaultSettings:
+      type: object
+      properties:
+        memory_path:
+          type: string
+        memory_merge_threshold:
+          type: number
+        memory_archive_threshold:
+          type: number
+        memory_decay_half_life:
+          type: integer
+        template_path:
+          type: string
+        daily_note_path:
+          type: string
+        transcript_template:
+          type: string
+        rrf_k:
+          type: integer
+        hnsw_ef:
+          type: integer
+        default_search_limit:
+          type: integer
+        max_search_limit:
+          type: integer
+        version_coalesce_minutes:
+          type: integer
+        version_retention_count:
+          type: integer
+        web_clip_path:
+          type: string
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+        vaultId:
+          type: string
+        path:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        docType:
+          type: string
+        contentHash:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        wikiLinks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WikiLinkInfo"
+
+    WikiLinkInfo:
+      type: object
+      properties:
+        rawTarget:
+          type: string
+        path:
+          type: string
+        title:
+          type: string
+
+    UpsertDocumentRequest:
+      type: object
+      required: [path, content]
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+
+    DeleteDocumentsResponse:
+      type: object
+      properties:
+        deleted:
+          type: array
+          items:
+            type: string
+        count:
+          type: integer
+        dryRun:
+          type: boolean
+
+    MoveRequest:
+      type: object
+      required: [source, destination]
+      properties:
+        source:
+          type: string
+        destination:
+          type: string
+        dryRun:
+          type: boolean
+
+    MoveResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [document, folder]
+        moved:
+          type: array
+          items:
+            type: string
+        count:
+          type: integer
+        dryRun:
+          type: boolean
+
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        title:
+          type: string
+        isDir:
+          type: boolean
+        size:
+          type: integer
+
+    FetchRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+        path:
+          type: string
+          description: Optional vault path to save under
+
+    FetchResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        title:
+          type: string
+
+    SearchResult:
+      type: object
+      properties:
+        documentId:
+          type: string
+        path:
+          type: string
+        title:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        docType:
+          type: string
+        score:
+          type: number
+        matchedChunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChunkMatch"
+
+    ChunkMatch:
+      type: object
+      properties:
+        snippet:
+          type: string
+        headingPath:
+          type: string
+        position:
+          type: integer
+        score:
+          type: number
+
+    FolderResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        noEmbed:
+          type: boolean
+
+    UpdateFolderRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        no_embed:
+          type: boolean
+
+    UpdateFolderResponse:
+      type: object
+      properties:
+        strippedChunks:
+          type: integer
+
+    VersionResponse:
+      type: object
+      properties:
+        version:
+          type: integer
+        title:
+          type: string
+        contentHash:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    LabelCount:
+      type: object
+      properties:
+        label:
+          type: string
+        count:
+          type: integer
+
+    TaskResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        documentPath:
+          type: string
+        documentTitle:
+          type: string
+        status:
+          type: string
+          enum: [open, done]
+        text:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        dueDate:
+          type: string
+        headingPath:
+          type: string
+        lineNumber:
+          type: integer
+
+    TaskListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskResponse"
+        total:
+          type: integer
+
+    AssetMeta:
+      type: object
+      properties:
+        vaultId:
+          type: string
+        path:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+        contentHash:
+          type: [string, "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    ExternalLink:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/RecordID"
+        from_file:
+          $ref: "#/components/schemas/RecordID"
+        vault:
+          $ref: "#/components/schemas/RecordID"
+        hostname:
+          type: string
+        url_path:
+          type: string
+        full_url:
+          type: string
+        link_text:
+          type: [string, "null"]
+
+    ExternalLinkHostStats:
+      type: object
+      properties:
+        hostname:
+          type: string
+        count:
+          type: integer
+
+    ExternalLinkListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalLink"
+        total:
+          type: integer
+
+    ExternalLinkStatsResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalLinkHostStats"
+        total:
+          type: integer
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        vaultId:
+          type: string
+        title:
+          type: string
+        tokenInput:
+          type: integer
+          format: int64
+        tokenOutput:
+          type: integer
+          format: int64
+        bgStatus:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: string
+        docRefs:
+          type: array
+          items:
+            type: string
+        toolName:
+          type: string
+        toolInput:
+          type: string
+        toolCallId:
+          type: string
+        toolCalls:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateConversationRequest:
+      type: object
+      required: [vaultId]
+      properties:
+        vaultId:
+          type: string
+
+    RenameConversationRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+
+    RemoteResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AddRemoteRequest:
+      type: object
+      required: [name, url, token]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        token:
+          type: string
+
+    JobStats:
+      type: object
+      properties:
+        pending:
+          type: integer
+        running:
+          type: integer
+        done:
+          type: integer
+        failed:
+          type: integer
+        cancelled:
+          type: integer
+
+    JobTypeDuration:
+      type: object
+      properties:
+        type:
+          type: string
+        count:
+          type: integer
+        min_ms:
+          type: integer
+          format: int64
+        max_ms:
+          type: integer
+          format: int64
+        avg_ms:
+          type: number
+
+    PipelineJobDetail:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/RecordID"
+        file:
+          $ref: "#/components/schemas/RecordID"
+        type:
+          type: string
+        status:
+          type: string
+        priority:
+          type: integer
+        attempt:
+          type: integer
+        max_attempts:
+          type: integer
+        run_after:
+          type: string
+          format: date-time
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        file_path:
+          type: string
+
+    JobStatusResponse:
+      type: object
+      properties:
+        stats:
+          $ref: "#/components/schemas/JobStats"
+        durations:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobTypeDuration"
+        active:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineJobDetail"
+        recent_failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineJobDetail"
+
+    ServerConfig:
+      type: object
+      properties:
+        version:
+          type: string
+        commit:
+          type: string
+        surrealdbURL:
+          type: string
+        authEnabled:
+          type: boolean
+        llmProvider:
+          type: string
+        llmModel:
+          type: string
+        embedProvider:
+          type: string
+        embedModel:
+          type: string
+        embedDimension:
+          type: integer
+        semanticSearchEnabled:
+          type: boolean
+        agentChatEnabled:
+          type: boolean
+        webSearchEnabled:
+          type: boolean
+        chunkThreshold:
+          type: integer
+        chunkTargetSize:
+          type: integer
+        chunkMaxSize:
+          type: integer
+        versionCoalesceMinutes:
+          type: integer
+        versionRetentionCount:
+          type: integer
+        sttProvider:
+          type: string
+        sttModel:
+          type: string
+        transcriptionEnabled:
+          type: boolean
+        ffmpegInstalled:
+          type: boolean
+        popplerInstalled:
+          type: boolean
+        pdfIngestionEnabled:
+          type: boolean
+        multimodalEmbedProvider:
+          type: string
+        multimodalEmbedModel:
+          type: string
+        multimodalEmbedEnabled:
+          type: boolean
+        textExtractorModel:
+          type: string
+        textExtractorEnabled:
+          type: boolean
+
+    ImportManifestFile:
+      type: object
+      required: [path, hash]
+      properties:
+        path:
+          type: string
+        hash:
+          type: string
+          description: SHA256 content hash
+
+    ImportManifestRequest:
+      type: object
+      required: [files]
+      properties:
+        force:
+          type: boolean
+          description: Re-upload even if hash differs
+        dryRun:
+          type: boolean
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportManifestFile"
+
+    ImportFileResult:
+      type: object
+      properties:
+        path:
+          type: string
+        status:
+          type: string
+          enum: [created, updated, skipped, error]
+        reason:
+          type: string
+        error:
+          type: string
+
+    ImportManifestResponse:
+      type: object
+      properties:
+        needed:
+          type: array
+          items:
+            type: string
+          description: Paths that need to be uploaded in phase 2
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportFileResult"
+
+    ImportUploadResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportFileResult"
+        error:
+          type: string
+
+    BulkResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportFileResult"
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+
+paths:
+  # ── Vaults ──────────────────────────────────────────────
+  /vaults:
+    get:
+      tags: [Vaults]
+      summary: List vaults
+      description: Returns vaults accessible to the authenticated user, including federated remote vaults.
+      responses:
+        "200":
+          description: List of vaults
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Vault"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /vaults/{vault}:
+    get:
+      tags: [Vaults]
+      summary: Get vault info
+      description: Returns comprehensive stats about a vault (document counts, chunk stats, labels, members, etc.).
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: Vault info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultInfo"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /vaults/{vault}/settings:
+    get:
+      tags: [Vaults]
+      summary: Get vault settings
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: Current vault settings (with defaults applied)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultSettings"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Vaults]
+      summary: Update vault settings
+      description: Partially updates vault settings. Only provided fields are changed. Requires admin role.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultSettings"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Documents ───────────────────────────────────────────
+  /vaults/{vault}/documents:
+    get:
+      tags: [Documents]
+      summary: Get document by path
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Document path (e.g. `/notes/hello.md`)
+      responses:
+        "200":
+          description: Document with content and resolved wiki-links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Documents]
+      summary: Create or update a document
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertDocumentRequest"
+      responses:
+        "200":
+          description: Upserted document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [Documents]
+      summary: Delete document or folder
+      description: |
+        Deletes a document or folder. For folders, `recursive=true` is required.
+        Use `dry-run=true` to preview what would be deleted.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: recursive
+          in: query
+          schema:
+            type: boolean
+        - name: dry-run
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteDocumentsResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /vaults/{vault}/documents/ls:
+    get:
+      tags: [Documents]
+      summary: List directory contents
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          schema:
+            type: string
+            default: "/"
+          description: Folder path to list
+        - name: recursive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Directory entries (files and folders)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FileEntry"
+                  total:
+                    type: integer
+
+  /vaults/{vault}/documents/move:
+    post:
+      tags: [Documents]
+      summary: Move a document or folder
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveRequest"
+      responses:
+        "200":
+          description: Move result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MoveResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Destination already exists
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+
+  /vaults/{vault}/documents/bulk:
+    post:
+      tags: [Documents]
+      summary: Bulk upload documents and assets
+      description: |
+        Multipart upload. First part must be `meta` (JSON with `force` and `dryRun` flags).
+        Subsequent parts are files identified by form name (vault path).
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                meta:
+                  type: string
+                  description: 'JSON: `{"force": false, "dryRun": false}`'
+      responses:
+        "200":
+          description: Per-file results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkResponse"
+
+  /vaults/{vault}/documents/clip:
+    post:
+      tags: [Documents]
+      summary: Fetch a web page and save as document
+      description: Uses Jina Reader to convert a URL to markdown and saves it in the vault.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FetchRequest"
+      responses:
+        "200":
+          description: Saved document info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchResponse"
+
+  # ── Import ──────────────────────────────────────────────
+  /vaults/{vault}/import/manifest:
+    post:
+      tags: [Import]
+      summary: "Phase 1: Check which files need uploading"
+      description: |
+        Send a list of files with their SHA256 hashes. The server responds with
+        which files need to be uploaded (phase 2) and which can be skipped.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportManifestRequest"
+      responses:
+        "200":
+          description: Manifest check results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportManifestResponse"
+
+  /vaults/{vault}/import/upload:
+    post:
+      tags: [Import]
+      summary: "Phase 2: Upload needed files"
+      description: |
+        Multipart upload of files indicated as "needed" by the manifest phase.
+        First part must be `meta` (JSON with `hashes` map: path → SHA256).
+        Subsequent parts are files identified by form name (vault path).
+        Hash verification is enforced — mismatches abort the import.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                meta:
+                  type: string
+                  description: 'JSON: `{"hashes": {"path": "sha256hash"}}`'
+      responses:
+        "200":
+          description: Per-file upload results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportUploadResponse"
+        "400":
+          description: Hash mismatch or oversized file
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+
+  # ── Export ──────────────────────────────────────────────
+  /vaults/{vault}/export:
+    get:
+      tags: [Export]
+      summary: Export vault as tar.gz
+      description: Streams the vault contents as a gzipped tar archive.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: Vault archive
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
+  /vaults/{vault}/export/epub:
+    get:
+      tags: [Export]
+      summary: Export vault as EPUB
+      description: |
+        Exports a single document or all markdown files under a folder as an EPUB book.
+        When `path` points to a file, that file becomes the sole chapter.
+        When `path` points to a folder, all `.md` files underneath are included.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Document or folder path to export
+        - name: title
+          in: query
+          schema:
+            type: string
+          description: EPUB title (defaults to document title or folder name)
+        - name: author
+          in: query
+          schema:
+            type: string
+          description: EPUB author metadata
+      responses:
+        "200":
+          description: EPUB file
+          content:
+            application/epub+zip:
+              schema:
+                type: string
+                format: binary
+
+  # ── Backup / Restore ────────────────────────────────────
+  /vaults/{vault}/backup:
+    get:
+      tags: [Backup]
+      summary: Export vault backup
+      description: Manifest-based backup as tar.gz archive including all documents, assets, and metadata.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: Backup archive
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
+  /backup/restore:
+    post:
+      tags: [Backup]
+      summary: Restore vault from backup
+      description: |
+        Restores a vault from a tar.gz backup archive. Creates the vault if it doesn't exist.
+        Send the archive as the raw request body with `Content-Type: application/gzip`.
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Restore completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  # ── Search ──────────────────────────────────────────────
+  /vaults/{vault}/search:
+    get:
+      tags: [Search]
+      summary: Search documents
+      description: Hybrid BM25 + vector search with reciprocal rank fusion.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: labels
+          in: query
+          schema:
+            type: string
+          description: Comma-separated label filter
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SearchResult"
+                  total:
+                    type: integer
+
+  # ── Folders ─────────────────────────────────────────────
+  /vaults/{vault}/folders:
+    get:
+      tags: [Folders]
+      summary: List folders
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: parent
+          in: query
+          schema:
+            type: string
+          description: Filter to immediate children of this folder
+      responses:
+        "200":
+          description: List of folders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FolderResponse"
+                  total:
+                    type: integer
+    patch:
+      tags: [Folders]
+      summary: Update folder settings
+      description: Currently supports toggling the `no_embed` flag. When enabled, strips existing embeddings.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFolderRequest"
+      responses:
+        "200":
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateFolderResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Versions ────────────────────────────────────────────
+  /vaults/{vault}/versions:
+    get:
+      tags: [Versions]
+      summary: List document versions
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Document path
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Version history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VersionResponse"
+                  total:
+                    type: integer
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Labels ──────────────────────────────────────────────
+  /vaults/{vault}/labels:
+    get:
+      tags: [Labels]
+      summary: List labels
+      description: Returns label names, or label names with document counts when `counts=true`.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: counts
+          in: query
+          schema:
+            type: boolean
+          description: Include document counts per label
+      responses:
+        "200":
+          description: Label list (string array) or label counts (object array), wrapped in items/total envelope
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    oneOf:
+                      - type: array
+                        items:
+                          type: string
+                      - type: array
+                        items:
+                          $ref: "#/components/schemas/LabelCount"
+                  total:
+                    type: integer
+
+  # ── Tasks ───────────────────────────────────────────────
+  /vaults/{vault}/tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      description: Lists tasks extracted from document checkboxes, with optional filters.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, done]
+        - name: labels
+          in: query
+          schema:
+            type: string
+          description: Comma-separated label filter
+        - name: due_before
+          in: query
+          schema:
+            type: string
+            format: date
+          description: "Filter: due date before (YYYY-MM-DD)"
+        - name: due_after
+          in: query
+          schema:
+            type: string
+            format: date
+          description: "Filter: due date after (YYYY-MM-DD)"
+        - name: folder
+          in: query
+          schema:
+            type: string
+        - name: path
+          in: query
+          schema:
+            type: string
+          description: Filter to tasks from a specific document
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated task list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+
+  /vaults/{vault}/tasks/{id}/toggle:
+    post:
+      tags: [Tasks]
+      summary: Toggle task status
+      description: Toggles a task between `open` and `done`, updating the source document's checkbox.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+
+  # ── Assets ──────────────────────────────────────────────
+  /vaults/{vault}/assets:
+    post:
+      tags: [Assets]
+      summary: Upload an image asset
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [path, file]
+              properties:
+                path:
+                  type: string
+                  description: Vault path for the asset
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Uploaded asset metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetMeta"
+    get:
+      tags: [Assets]
+      summary: Download asset binary
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Asset binary data
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Assets]
+      summary: Delete an asset
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Asset deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /vaults/{vault}/assets/meta:
+    get:
+      tags: [Assets]
+      summary: Get asset metadata
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Asset metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetMeta"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── External Links ──────────────────────────────────────
+  /vaults/{vault}/external-links:
+    get:
+      tags: [External Links]
+      summary: List external links
+      parameters:
+        - $ref: "#/components/parameters/vault"
+        - name: hostname
+          in: query
+          schema:
+            type: string
+        - name: file
+          in: query
+          schema:
+            type: string
+          description: Filter by file ID
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated link list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalLinkListResponse"
+
+  /vaults/{vault}/external-links/stats:
+    get:
+      tags: [External Links]
+      summary: External link stats by hostname
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: Link count per hostname
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalLinkStatsResponse"
+
+  # ── SSE Events ──────────────────────────────────────────
+  /vaults/{vault}/events:
+    get:
+      tags: [Events]
+      summary: SSE document change stream
+      description: |
+        Server-Sent Events stream for real-time document change notifications.
+        Connect with `EventSource` or any SSE client. The connection stays open
+        until the client disconnects.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  # ── Conversations ───────────────────────────────────────
+  /conversations:
+    get:
+      tags: [Conversations]
+      summary: List conversations
+      parameters:
+        - name: vault
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Vault record ID (not name — unlike path-scoped endpoints, this takes the raw vault ID)
+      responses:
+        "200":
+          description: List of conversations (without messages)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Conversation"
+                  total:
+                    type: integer
+    post:
+      tags: [Conversations]
+      summary: Create a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /conversations/{id}:
+    get:
+      tags: [Conversations]
+      summary: Get conversation with messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation with full message history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Conversations]
+      summary: Rename a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameConversationRequest"
+      responses:
+        "200":
+          description: Renamed conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+    delete:
+      tags: [Conversations]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Conversation deleted
+
+  # ── Agent ───────────────────────────────────────────────
+  /vaults/{vault}/agent/chat:
+    post:
+      tags: [Agent]
+      summary: Start agent chat
+      description: |
+        Sends a user message to the agent. Returns a conversation ID.
+        Subscribe to `/agent/events/{id}` for the streamed response.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                conversationId:
+                  type: string
+                  description: Existing conversation ID (omit to create new)
+                docRefs:
+                  type: array
+                  items:
+                    type: string
+                  description: Document paths to include as context
+                attachments:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      content:
+                        type: string
+                      mimeType:
+                        type: string
+                      language:
+                        type: string
+                      type:
+                        type: string
+                        enum: [text, image]
+                autoApprove:
+                  type: boolean
+                  description: Auto-approve all tool executions
+      responses:
+        "202":
+          description: Chat started (subscribe to `/agent/events/{id}` for response)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [running]
+
+  /agent/events/{id}:
+    get:
+      tags: [Agent]
+      summary: SSE stream for agent response
+      description: |
+        Server-Sent Events stream for a running agent conversation.
+        Events include text chunks, tool calls, tool results, and completion.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Stream ID from the chat response
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /agent/cancel/{id}:
+    post:
+      tags: [Agent]
+      summary: Cancel an agent run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancellation requested
+
+  /agent/approval:
+    post:
+      tags: [Agent]
+      summary: Approve or deny a tool execution
+      description: |
+        Responds to an approval interrupt from an agent run.
+        The agent resumes execution based on the chosen action.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conversationId, interruptId, action]
+              properties:
+                conversationId:
+                  type: string
+                interruptId:
+                  type: string
+                action:
+                  type: string
+                  enum: [approve_all, approve_hunks, reject]
+                hunkIndexes:
+                  type: array
+                  items:
+                    type: integer
+                  description: Hunk indexes to approve (only for `approve_hunks` action)
+      responses:
+        "202":
+          description: Agent resumed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [running]
+
+  # ── Remotes ─────────────────────────────────────────────
+  /remotes:
+    get:
+      tags: [Remotes]
+      summary: List remotes
+      description: System admin only.
+      responses:
+        "200":
+          description: List of configured remotes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteResponse"
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Remotes]
+      summary: Add a remote
+      description: Registers a new federated remote server. System admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddRemoteRequest"
+      responses:
+        "201":
+          description: Created remote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteResponse"
+        "400":
+          description: Validation error or remote unreachable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+
+  /remotes/{name}:
+    delete:
+      tags: [Remotes]
+      summary: Remove a remote
+      description: System admin only.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Remote removed
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Jobs ────────────────────────────────────────────────
+  /jobs:
+    get:
+      tags: [Jobs]
+      summary: Pipeline job status
+      description: Returns aggregate stats, per-type durations, active jobs, and recent failures.
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            default: "24h"
+          description: "Time window for stats (e.g. `1h`, `24h`, `7d`, `30d`)"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Max number of active/failed jobs to return
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+
+  # ── Config ──────────────────────────────────────────────
+  /config:
+    get:
+      tags: [Config]
+      summary: Server configuration
+      description: Returns the server's effective configuration (providers, models, feature flags).
+      responses:
+        "200":
+          description: Server config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerConfig"

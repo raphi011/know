@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -32,13 +33,13 @@ type chatResponseBody struct {
 func (rn *Runner) HandleChat() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httputil.WriteProblem(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
 		ac, err := auth.FromContext(r.Context())
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
@@ -47,30 +48,30 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
-				http.Error(w, "request body too large (max 50MB)", http.StatusRequestEntityTooLarge)
+				httputil.WriteProblem(w, http.StatusRequestEntityTooLarge, "request body too large (max 50MB)")
 				return
 			}
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 
 		vaultID := auth.MustVaultIDFromCtx(r.Context())
 
 		if body.Content == "" {
-			http.Error(w, "content is required", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "content is required")
 			return
 		}
 		if len(body.Attachments) > maxAttachments {
-			http.Error(w, fmt.Sprintf("too many attachments (max %d)", maxAttachments), http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("too many attachments (max %d)", maxAttachments))
 			return
 		}
 		for _, att := range body.Attachments {
 			if att.Path == "" || att.Content == "" {
-				http.Error(w, "attachments must have non-empty path and content", http.StatusBadRequest)
+				httputil.WriteProblem(w, http.StatusBadRequest, "attachments must have non-empty path and content")
 				return
 			}
 			if att.Type != models.AttachmentTypeText && att.Type != models.AttachmentTypeImage {
-				http.Error(w, fmt.Sprintf("unsupported attachment type: %q", att.Type), http.StatusBadRequest)
+				httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("unsupported attachment type: %q", att.Type))
 				return
 			}
 			if att.Type == models.AttachmentTypeImage {
@@ -78,14 +79,14 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 				case "image/png", "image/jpeg", "image/gif", "image/webp":
 					// valid
 				default:
-					http.Error(w, fmt.Sprintf("invalid mime type %q for image attachment %s", att.MimeType, att.Path), http.StatusBadRequest)
+					httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("invalid mime type %q for image attachment %s", att.MimeType, att.Path))
 					return
 				}
 			}
 		}
 
 		if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 			return
 		}
 
@@ -102,7 +103,7 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 		convID, err := rn.Start(r.Context(), req)
 		if err != nil {
 			logutil.FromCtx(r.Context()).Error("failed to start agent", "error", err)
-			http.Error(w, "failed to start agent", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to start agent")
 			return
 		}
 
@@ -122,18 +123,18 @@ func (rn *Runner) HandleChat() http.HandlerFunc {
 func (rn *Runner) HandleEvents() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httputil.WriteProblem(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
 		if _, err := auth.FromContext(r.Context()); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		convID := r.PathValue("id")
 		if convID == "" {
-			http.Error(w, "conversation ID required", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "conversation ID required")
 			return
 		}
 
@@ -144,22 +145,22 @@ func (rn *Runner) HandleEvents() http.HandlerFunc {
 			conv, dbErr := rn.db.GetConversation(r.Context(), convID)
 			if dbErr != nil {
 				logutil.FromCtx(r.Context()).Error("get conversation for events", "conversation_id", convID, "error", dbErr)
-				http.Error(w, "internal server error", http.StatusInternalServerError)
+				httputil.WriteProblem(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 			if conv == nil {
-				http.Error(w, "conversation not found", http.StatusNotFound)
+				httputil.WriteProblem(w, http.StatusNotFound, "conversation not found")
 				return
 			}
 			if conv.BgStatus == nil {
-				http.Error(w, "not a background task", http.StatusNotFound)
+				httputil.WriteProblem(w, http.StatusNotFound, "not a background task")
 				return
 			}
 
 			// Return terminal status as SSE
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				http.Error(w, "streaming not supported", http.StatusInternalServerError)
+				httputil.WriteProblem(w, http.StatusInternalServerError, "streaming not supported")
 				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -178,7 +179,7 @@ func (rn *Runner) HandleEvents() http.HandlerFunc {
 				writeSSE(w, flusher, StreamEvent{Type: "error", Content: errMsg})
 			default:
 				// "running" but not in tasks map — race condition or server restart
-				http.Error(w, "task not available", http.StatusNotFound)
+				httputil.WriteProblem(w, http.StatusNotFound, "task not available")
 			}
 			return
 		}
@@ -187,7 +188,7 @@ func (rn *Runner) HandleEvents() http.HandlerFunc {
 		// Set up SSE
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "streaming not supported")
 			return
 		}
 
@@ -225,23 +226,23 @@ func (rn *Runner) HandleEvents() http.HandlerFunc {
 func (rn *Runner) HandleCancel() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httputil.WriteProblem(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
 		if _, err := auth.FromContext(r.Context()); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		convID := r.PathValue("id")
 		if convID == "" {
-			http.Error(w, "conversation ID required", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "conversation ID required")
 			return
 		}
 
 		if err := rn.Cancel(convID); err != nil {
-			http.Error(w, "no running task for this conversation", http.StatusNotFound)
+			httputil.WriteProblem(w, http.StatusNotFound, "no running task for this conversation")
 			return
 		}
 
@@ -276,25 +277,25 @@ type approvalRequestBody struct {
 func (rn *Runner) HandleApproval() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httputil.WriteProblem(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
 		ac, err := auth.FromContext(r.Context())
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 		var body approvalRequestBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 
 		if body.ConversationID == "" || body.InterruptID == "" {
-			http.Error(w, "conversationId and interruptId are required", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "conversationId and interruptId are required")
 			return
 		}
 
@@ -302,7 +303,7 @@ func (rn *Runner) HandleApproval() http.HandlerFunc {
 		case ApprovalApproveAll, ApprovalApproveHunks, ApprovalReject:
 			// valid
 		default:
-			http.Error(w, "invalid action", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "invalid action")
 			return
 		}
 
@@ -310,22 +311,22 @@ func (rn *Runner) HandleApproval() http.HandlerFunc {
 		conv, dbErr := rn.db.GetConversation(r.Context(), body.ConversationID)
 		if dbErr != nil {
 			logutil.FromCtx(r.Context()).Error("get conversation for approval", "conversation_id", body.ConversationID, "error", dbErr)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		if conv == nil {
-			http.Error(w, "conversation not found", http.StatusNotFound)
+			httputil.WriteProblem(w, http.StatusNotFound, "conversation not found")
 			return
 		}
 
 		vaultID, vaultErr := models.RecordIDString(conv.Vault)
 		if vaultErr != nil {
-			http.Error(w, "invalid vault reference", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "invalid vault reference")
 			return
 		}
 
 		if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 			return
 		}
 
@@ -341,7 +342,7 @@ func (rn *Runner) HandleApproval() http.HandlerFunc {
 		})
 		if resumeErr != nil {
 			logutil.FromCtx(r.Context()).Error("failed to resume agent", "error", resumeErr)
-			http.Error(w, "failed to resume agent", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to resume agent")
 			return
 		}
 

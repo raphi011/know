@@ -5,6 +5,7 @@ import (
 	"path"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/pathutil"
@@ -26,7 +27,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 
 	folders, err := s.app.DBClient().ListFolders(ctx, vaultID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list folders")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list folders")
 		logger.Error("list folders", "vault_id", vaultID, "error", err)
 		return
 	}
@@ -52,7 +53,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(resp, len(resp)))
 }
 
 func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
@@ -62,14 +63,14 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, "path is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	ctx := r.Context()
 	vaultID := auth.MustVaultIDFromCtx(ctx)
 	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -80,12 +81,12 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 
 	folder, err := db.GetFolderByPath(ctx, vaultID, req.Path)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get folder")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get folder")
 		logger.Error("update folder: get folder", "vault_id", vaultID, "path", req.Path, "error", err)
 		return
 	}
 	if folder == nil {
-		writeError(w, http.StatusNotFound, "folder not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "folder not found")
 		return
 	}
 
@@ -93,14 +94,14 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 
 	if req.NoEmbed != nil {
 		if err := db.SetFolderNoEmbed(ctx, vaultID, req.Path, *req.NoEmbed); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update folder")
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to update folder")
 			logger.Error("update folder: set no_embed", "vault_id", vaultID, "path", req.Path, "error", err)
 			return
 		}
 		if *req.NoEmbed {
 			n, err := db.StripEmbeddingsByFolder(ctx, vaultID, req.Path)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to strip embeddings")
+				httputil.WriteProblem(w, http.StatusInternalServerError, "failed to strip embeddings")
 				logger.Error("update folder: strip embeddings", "vault_id", vaultID, "path", req.Path, "error", err)
 				return
 			}

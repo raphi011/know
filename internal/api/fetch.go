@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/webclip"
@@ -27,7 +28,7 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.TrimSpace(req.URL) == "" {
-		writeError(w, http.StatusBadRequest, "url is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "url is required")
 		return
 	}
 
@@ -36,7 +37,7 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 	vaultID := auth.MustVaultIDFromCtx(ctx)
 
 	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -46,11 +47,11 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 	v, err := s.app.DBClient().GetVault(ctx, vaultID)
 	if err != nil {
 		logger.Warn("fetch: load vault failed", "vault", vaultID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to load vault")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to load vault")
 		return
 	}
 	if v == nil {
-		writeError(w, http.StatusNotFound, "vault not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "vault not found")
 		return
 	}
 	settings := v.Defaults()
@@ -58,7 +59,7 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 	result, err := webclip.FetchAndSave(ctx, jinaClient, s.app.FileService(), vaultID, req.URL, req.Path, settings)
 	if err != nil {
 		logger.Warn("fetch: fetch and save failed", "url", req.URL, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to fetch and save page")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to fetch and save page")
 		return
 	}
 

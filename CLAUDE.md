@@ -140,6 +140,8 @@ All env vars use the `KNOW_` prefix: `KNOW_LOG_LEVEL`, `KNOW_LOG_FILE`, etc.
 
 The server exposes a REST API at `/api/` for CLI and TUI communication, and agent endpoints at `/agent/`. Auth via `Authorization: Bearer` header.
 
+**IMPORTANT**: When adding, modifying, or removing REST API endpoints, always update the OpenAPI spec at `internal/api/openapi.yaml` to keep it in sync. This includes changes to routes, request/response schemas, query parameters, and error responses. The spec powers the interactive API docs served at `/`.
+
 All routes are registered in `internal/api/server.go` (REST) and `cmd/know/cmd_serve.go` (agent). Key resource groups:
 
 - **Vaults**: list, info, settings (get/patch)

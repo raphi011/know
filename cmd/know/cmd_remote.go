@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/spf13/cobra"
 )
 
@@ -57,10 +58,11 @@ type remoteListResponse struct {
 func runRemoteList(_ *cobra.Command, _ []string) error {
 	client := remoteAPIFlags.newClient()
 
-	var remotes []remoteListResponse
-	if err := client.Get(context.Background(), "/api/v1/remotes", &remotes); err != nil {
+	var resp httputil.ListResponse[remoteListResponse]
+	if err := client.Get(context.Background(), "/api/v1/remotes", &resp); err != nil {
 		return fmt.Errorf("list remotes: %w", err)
 	}
+	remotes := resp.Items
 
 	if len(remotes) == 0 {
 		fmt.Println("No remotes configured.")

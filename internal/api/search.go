@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/search"
 )
@@ -15,7 +16,7 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("query")
 
 	if query == "" {
-		writeError(w, http.StatusBadRequest, "query parameter required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "query parameter required")
 		return
 	}
 
@@ -41,7 +42,7 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 		Limit:   limit,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "search failed")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "search failed")
 		logger.Error("search documents", "vault_id", vaultID, "error", err)
 		return
 	}
@@ -68,5 +69,5 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(resp, len(resp)))
 }

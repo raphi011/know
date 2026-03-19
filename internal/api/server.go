@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/know/internal/agent"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/server"
 )
@@ -128,11 +129,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-// writeError writes a JSON error response.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
 // decodeBody reads and JSON-decodes the request body with a size limit.
 // Returns the decoded value and true on success, or writes an error response and returns nil, false.
 func decodeBody[T any](w http.ResponseWriter, r *http.Request, maxBytes int64) (*T, bool) {
@@ -141,10 +137,10 @@ func decodeBody[T any](w http.ResponseWriter, r *http.Request, maxBytes int64) (
 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			httputil.WriteProblem(w, http.StatusRequestEntityTooLarge, "request body too large")
 		} else {
 			logutil.FromCtx(r.Context()).Debug("invalid request body", "error", err)
-			writeError(w, http.StatusBadRequest, "invalid request body")
+			httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
 		}
 		return nil, false
 	}
