@@ -117,6 +117,16 @@ versioning:
 tls:
   skipVerify: false  # skip TLS verification for Bedrock proxy
 
+# OIDC authentication
+oidc:
+  enabled: false
+  issuerURL: ""
+  clientID: ""
+  # clientSecret is stored in the secret
+  clientSecret: ""
+  redirectURL: ""
+  selfSignupEnabled: false
+
 # API keys (set via existingSecret or directly)
 # Prefer using existingSecret for production
 apiKeys:

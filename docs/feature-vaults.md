@@ -95,9 +95,45 @@ know vault default
 know vault my-vault --api-url http://localhost:4001
 ```
 
+## Feature Toggles
+
+Vaults support per-vault feature toggles that let you selectively disable agent chat, embedding generation, or MCP tool access. Each toggle is a boolean pointer in the vault settings -- `nil` (unset) means the feature is enabled by default.
+
+| Toggle             | Field              | Default | Effect when disabled                          |
+|--------------------|--------------------|---------|-----------------------------------------------|
+| Agent              | `agent_enabled`    | enabled | Blocks agent chat for this vault              |
+| Embedding          | `embedding_enabled`| enabled | Skips embedding generation for new documents  |
+| MCP                | `mcp_enabled`      | enabled | Hides vault from MCP tool access              |
+
+### API usage
+
+```bash
+# Disable embedding for a vault
+curl -X PATCH http://localhost:4000/api/v1/vaults/default/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"embedding_enabled": false}'
+
+# Disable agent and MCP access
+curl -X PATCH http://localhost:4000/api/v1/vaults/default/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"agent_enabled": false, "mcp_enabled": false}'
+
+# Re-enable all features (set back to true)
+curl -X PATCH http://localhost:4000/api/v1/vaults/default/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"agent_enabled": true, "embedding_enabled": true, "mcp_enabled": true}'
+```
+
+### Example prompts (MCP)
+
+- "Disable embedding for the archive vault"
+- "Turn off agent chat for the shared vault"
+- "Which vaults have MCP disabled?"
+
 ## Reference
 
 - Vaults are defined in `internal/vault/` (CRUD, virtual folder derivation)
 - Access control is enforced in `internal/auth/` (token validation, role checks)
 - Folder operations live in `internal/file/` (create, move, delete with cascading)
+- Feature toggles are in `internal/models/vault.go` (`VaultSettings`)
 - CLI commands: `know vault`, `know ls`
