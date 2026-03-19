@@ -121,7 +121,8 @@ tls:
 # OIDC authentication
 oidc:
   enabled: false
-  issuerURL: ""
+  providerType: "oidc"  # "oidc" or "github"
+  issuerURL: ""  # required for "oidc" provider type, unused for "github"
   clientID: ""
   # clientSecret is stored in the secret
   clientSecret: ""

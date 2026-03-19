@@ -107,7 +107,12 @@ Creates a new token with the same name and remaining TTL, then deletes the old o
 
 OIDC enables browser-based login via external identity providers. When enabled, Know exposes auth endpoints for device flow (CLI) and PKCE flow (native apps).
 
-### GitHub OAuth App example
+Two provider types are supported:
+
+- **`oidc`** (default): Standard OIDC providers with discovery (Google, Okta, Auth0, Keycloak, etc.)
+- **`github`**: GitHub OAuth Apps (GitHub does not support OIDC discovery, so a dedicated provider fetches user info via the GitHub REST API)
+
+### GitHub OAuth App
 
 1. Go to GitHub Settings > Developer Settings > OAuth Apps > New OAuth App
 2. Set:
@@ -120,7 +125,7 @@ OIDC enables browser-based login via external identity providers. When enabled, 
 
 ```bash
 export KNOW_OIDC_ENABLED=true
-export KNOW_OIDC_ISSUER_URL=https://github.com
+export KNOW_OIDC_PROVIDER_TYPE=github
 export KNOW_OIDC_CLIENT_ID=your-client-id
 export KNOW_OIDC_CLIENT_SECRET=your-client-secret
 export KNOW_OIDC_REDIRECT_URL=https://know.example.com/auth/callback
@@ -131,11 +136,28 @@ Or in the Helm chart:
 ```yaml
 oidc:
   enabled: true
-  issuerURL: "https://github.com"
+  providerType: "github"
   clientID: "your-client-id"
   clientSecret: "your-client-secret"
   redirectURL: "https://know.example.com/auth/callback"
   selfSignupEnabled: false
+```
+
+Note: `issuerURL` is not needed for GitHub -- the provider uses GitHub's well-known OAuth2 and API endpoints directly. The user's stable numeric GitHub ID is used as the identity subject (not the login, which can change).
+
+**PKCE limitation**: GitHub OAuth Apps do not support PKCE (`code_verifier` is silently ignored). The device flow (CLI) is unaffected, but native apps using the PKCE flow (`POST /auth/token`) will work without actual PKCE protection. If PKCE is required, consider using a GitHub App instead of an OAuth App.
+
+### Standard OIDC Provider (Google, Okta, etc.)
+
+For providers with OIDC discovery:
+
+```bash
+export KNOW_OIDC_ENABLED=true
+export KNOW_OIDC_PROVIDER_TYPE=oidc  # default, can be omitted
+export KNOW_OIDC_ISSUER_URL=https://accounts.google.com
+export KNOW_OIDC_CLIENT_ID=your-client-id
+export KNOW_OIDC_CLIENT_SECRET=your-client-secret
+export KNOW_OIDC_REDIRECT_URL=https://know.example.com/auth/callback
 ```
 
 ### Auth endpoints
@@ -247,7 +269,8 @@ When disabled (default), only pre-existing users can log in via OIDC. An admin m
 | Variable                       | Default | Description                                     |
 |--------------------------------|---------|-------------------------------------------------|
 | `KNOW_OIDC_ENABLED`           | `false` | Enable OIDC authentication                      |
-| `KNOW_OIDC_ISSUER_URL`        | —       | OIDC provider URL (e.g. `https://github.com`)   |
+| `KNOW_OIDC_PROVIDER_TYPE`     | `oidc`  | Provider type: `oidc` (standard OIDC) or `github` |
+| `KNOW_OIDC_ISSUER_URL`        | —       | OIDC discovery URL (required for `oidc` type, unused for `github`) |
 | `KNOW_OIDC_CLIENT_ID`         | —       | OAuth2 client ID                                |
 | `KNOW_OIDC_CLIENT_SECRET`     | —       | OAuth2 client secret                            |
 | `KNOW_OIDC_REDIRECT_URL`      | —       | Callback URL (e.g. `https://host/auth/callback`)|

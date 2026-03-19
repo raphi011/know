@@ -21,7 +21,7 @@ func TestProviderName(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.issuerURL, func(t *testing.T) {
-				p := &Provider{issuerURL: tt.issuerURL}
+				p := &OIDCProvider{issuerURL: tt.issuerURL}
 				got := p.ProviderName()
 				if got != tt.want {
 					t.Errorf("ProviderName(%q) = %q, want %q", tt.issuerURL, got, tt.want)
@@ -31,7 +31,7 @@ func TestProviderName(t *testing.T) {
 	})
 
 	t.Run("explicit name takes precedence", func(t *testing.T) {
-		p := &Provider{issuerURL: "https://login.microsoftonline.com/tenant", providerName: "azure"}
+		p := &OIDCProvider{issuerURL: "https://login.microsoftonline.com/tenant", providerName: "azure"}
 		got := p.ProviderName()
 		if got != "azure" {
 			t.Errorf("ProviderName() = %q, want %q", got, "azure")

@@ -64,8 +64,12 @@ spec:
             {{- if .Values.oidc.enabled }}
             - name: KNOW_OIDC_ENABLED
               value: "true"
+            - name: KNOW_OIDC_PROVIDER_TYPE
+              value: {{ .Values.oidc.providerType | default "oidc" | quote }}
+            {{- if ne (.Values.oidc.providerType | default "oidc") "github" }}
             - name: KNOW_OIDC_ISSUER_URL
               value: {{ .Values.oidc.issuerURL | quote }}
+            {{- end }}
             - name: KNOW_OIDC_CLIENT_ID
               value: {{ .Values.oidc.clientID | quote }}
             - name: KNOW_OIDC_CLIENT_SECRET

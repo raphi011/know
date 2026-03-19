@@ -194,6 +194,27 @@ func TestValidateOIDC(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "github provider type does not require issuer URL",
+			cfg: Config{
+				OIDCEnabled:      true,
+				OIDCProviderType: "github",
+				OIDCClientID:     "gh-client",
+				OIDCClientSecret: "gh-secret",
+				OIDCRedirectURL:  "https://know.example.com/auth/callback",
+			},
+			wantErr: false,
+		},
+		{
+			name: "unknown provider type",
+			cfg: Config{
+				OIDCEnabled:      true,
+				OIDCProviderType: "gitlab",
+				OIDCClientID:     "client",
+				OIDCRedirectURL:  "https://know.example.com/auth/callback",
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

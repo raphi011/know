@@ -10,8 +10,29 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Provider wraps an OIDC provider with OAuth2 configuration.
-type Provider struct {
+// Provider abstracts an OAuth2/OIDC identity provider.
+// Only AuthCodeURL and ExchangeCode differ between providers;
+// device flow, PKCE, and user resolution are provider-agnostic.
+type Provider interface {
+	// ProviderName returns a stable string used as the DB key for
+	// this identity provider (e.g. "github", "google").
+	ProviderName() string
+
+	// AuthCodeURL returns the URL to redirect the user to for authorization.
+	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
+
+	// ExchangeCode exchanges an authorization code for user info.
+	ExchangeCode(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*UserInfo, error)
+}
+
+// Compile-time interface satisfaction checks.
+var (
+	_ Provider = (*OIDCProvider)(nil)
+	_ Provider = (*GitHubProvider)(nil)
+)
+
+// OIDCProvider implements Provider using standard OIDC discovery and ID token verification.
+type OIDCProvider struct {
 	oidcProvider *gooidc.Provider
 	oauth2Config oauth2.Config
 	issuerURL    string
@@ -26,9 +47,9 @@ type UserInfo struct {
 	Provider string // e.g. "github"
 }
 
-// New creates a new OIDC provider by discovering the issuer's configuration.
+// NewOIDC creates a new OIDC provider by discovering the issuer's configuration.
 // providerName is used as the DB key for user identity. If empty, it is derived from the issuer URL.
-func New(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL string, scopes []string, providerName string) (*Provider, error) {
+func NewOIDC(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL string, scopes []string, providerName string) (*OIDCProvider, error) {
 	oidcProvider, err := gooidc.NewProvider(ctx, issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("discover oidc provider: %w", err)
@@ -38,7 +59,7 @@ func New(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL str
 		scopes = []string{gooidc.ScopeOpenID, "profile", "email"}
 	}
 
-	return &Provider{
+	return &OIDCProvider{
 		oidcProvider: oidcProvider,
 		oauth2Config: oauth2.Config{
 			ClientID:     clientID,
@@ -56,7 +77,7 @@ func New(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL str
 // If an explicit name was set via New(), it is returned directly.
 // Otherwise, a short name is derived from the issuer URL:
 // e.g. "https://github.com" -> "github", "https://accounts.google.com" -> "google"
-func (p *Provider) ProviderName() string {
+func (p *OIDCProvider) ProviderName() string {
 	if p.providerName != "" {
 		return p.providerName
 	}
@@ -73,7 +94,7 @@ func (p *Provider) ProviderName() string {
 }
 
 // ExchangeCode exchanges an authorization code for user info.
-func (p *Provider) ExchangeCode(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*UserInfo, error) {
+func (p *OIDCProvider) ExchangeCode(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*UserInfo, error) {
 	token, err := p.oauth2Config.Exchange(ctx, code, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("exchange code: %w", err)
@@ -117,6 +138,6 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string, opts ...oauth2
 }
 
 // AuthCodeURL returns the URL to redirect the user to for authorization.
-func (p *Provider) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
+func (p *OIDCProvider) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
 	return p.oauth2Config.AuthCodeURL(state, opts...)
 }
