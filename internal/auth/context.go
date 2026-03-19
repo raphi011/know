@@ -33,6 +33,8 @@ const (
 	ProviderToken AuthProvider = "token"
 	// ProviderNoAuth is used in no-auth development mode.
 	ProviderNoAuth AuthProvider = "noauth"
+	// ProviderOIDC is used for OIDC-authenticated users.
+	ProviderOIDC AuthProvider = "oidc"
 )
 
 // AuthContext carries authenticated user information through request context.

@@ -78,6 +78,14 @@ type Config struct {
 	// Auth settings
 	TokenMaxLifetimeDays int // KNOW_TOKEN_MAX_LIFETIME_DAYS (default: 90, 0 = no limit)
 
+	// OIDC authentication
+	OIDCEnabled       bool   // KNOW_OIDC_ENABLED (default: false)
+	OIDCIssuerURL     string // KNOW_OIDC_ISSUER_URL
+	OIDCClientID      string // KNOW_OIDC_CLIENT_ID
+	OIDCClientSecret  string // KNOW_OIDC_CLIENT_SECRET
+	OIDCRedirectURL   string // KNOW_OIDC_REDIRECT_URL
+	SelfSignupEnabled bool   // KNOW_SELF_SIGNUP_ENABLED (default: false)
+
 	// Server settings
 	Environment       string // KNOW_ENVIRONMENT ("development" or "production", default: "development")
 	IngestConcurrency int
@@ -245,6 +253,14 @@ func Load() Config {
 
 		// Auth settings
 		TokenMaxLifetimeDays: getEnvInt("KNOW_TOKEN_MAX_LIFETIME_DAYS", 90),
+
+		// OIDC authentication
+		OIDCEnabled:       getEnvBool("KNOW_OIDC_ENABLED", false),
+		OIDCIssuerURL:     getEnv("KNOW_OIDC_ISSUER_URL", ""),
+		OIDCClientID:      getEnv("KNOW_OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:  getEnv("KNOW_OIDC_CLIENT_SECRET", ""),
+		OIDCRedirectURL:   getEnv("KNOW_OIDC_REDIRECT_URL", ""),
+		SelfSignupEnabled: getEnvBool("KNOW_SELF_SIGNUP_ENABLED", false),
 
 		// Server settings
 		Environment:       getEnv("KNOW_ENVIRONMENT", "development"),

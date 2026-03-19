@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -32,9 +33,10 @@ type CreateTokenResponse struct {
 	Token    TokenResponse `json:"token"`
 }
 
-func tokenToResponse(t models.APIToken) TokenResponse {
+func tokenToResponse(t models.APIToken, logger *slog.Logger) TokenResponse {
 	id, err := models.RecordIDString(t.ID)
 	if err != nil {
+		logger.Warn("failed to extract token ID", "error", err)
 		id = "unknown"
 	}
 	return TokenResponse{
@@ -65,7 +67,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]TokenResponse, 0, len(tokens))
 	for _, t := range tokens {
-		resp = append(resp, tokenToResponse(t))
+		resp = append(resp, tokenToResponse(t, logutil.FromCtx(ctx)))
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -134,7 +136,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, CreateTokenResponse{
 		RawToken: raw,
-		Token:    tokenToResponse(*token),
+		Token:    tokenToResponse(*token, logutil.FromCtx(ctx)),
 	})
 }
 
@@ -168,7 +170,7 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
 
 	ownerID, err := models.RecordIDString(token.User)
 	if err != nil {
-		logutil.FromCtx(ctx).Error("extract token owner", "error", err)
+		logutil.FromCtx(ctx).Error("delete token: extract owner", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to verify token ownership")
 		return
 	}
@@ -217,7 +219,7 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 
 	ownerID, err := models.RecordIDString(oldToken.User)
 	if err != nil {
-		logutil.FromCtx(ctx).Error("extract token owner", "error", err)
+		logutil.FromCtx(ctx).Error("rotate token: extract owner", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to verify token ownership")
 		return
 	}
@@ -227,8 +229,9 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine expiry for new token: use same remaining duration as old token,
-	// or default max lifetime if old token had no expiry.
+	// Determine expiry for new token: preserve remaining TTL from old token
+	// (intentional — rotation doesn't extend the original grant's lifetime).
+	// If old token had no expiry or was already expired, use max lifetime.
 	var expiresAt time.Time
 	if oldToken.ExpiresAt != nil {
 		remaining := time.Until(*oldToken.ExpiresAt)
@@ -273,6 +276,6 @@ func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, CreateTokenResponse{
 		RawToken: raw,
-		Token:    tokenToResponse(*newToken),
+		Token:    tokenToResponse(*newToken, logutil.FromCtx(ctx)),
 	})
 }

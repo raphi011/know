@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func TestTokenToResponse(t *testing.T) {
 		CreatedAt: now,
 	}
 
-	resp := tokenToResponse(token)
+	resp := tokenToResponse(token, slog.Default())
 
 	if resp.ID != "abc123" {
 		t.Errorf("expected ID 'abc123', got %q", resp.ID)
@@ -66,7 +67,7 @@ func TestTokenToResponse_noOptionalFields(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	resp := tokenToResponse(token)
+	resp := tokenToResponse(token, slog.Default())
 
 	if resp.LastUsed != nil {
 		t.Error("expected LastUsed to be nil")
