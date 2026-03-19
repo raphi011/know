@@ -13,6 +13,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/blob"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -89,7 +90,7 @@ func (s *Server) importManifest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vaultID := auth.MustVaultIDFromCtx(ctx)
 	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -103,7 +104,7 @@ func (s *Server) importManifest(w http.ResponseWriter, r *http.Request) {
 	existingMap, err := s.app.DBClient().GetFileMetaByPaths(ctx, vaultID, paths)
 	if err != nil {
 		logger.Error("import manifest: batch query", "vault", vaultID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to check existing files")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to check existing files")
 		return
 	}
 
@@ -161,30 +162,30 @@ type importUploadMeta struct {
 func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 	reader, err := r.MultipartReader()
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "expected multipart/form-data request")
+		httputil.WriteProblem(w, http.StatusBadRequest, "expected multipart/form-data request")
 		return
 	}
 
 	// First part must be "meta" with JSON metadata including per-file hashes.
 	metaPart, err := reader.NextPart()
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "missing meta part")
+		httputil.WriteProblem(w, http.StatusBadRequest, "missing meta part")
 		return
 	}
 	if metaPart.FormName() != "meta" {
-		writeError(w, http.StatusBadRequest, "first part must be named 'meta'")
+		httputil.WriteProblem(w, http.StatusBadRequest, "first part must be named 'meta'")
 		return
 	}
 
 	var meta importUploadMeta
 	if err := json.NewDecoder(metaPart).Decode(&meta); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid meta JSON: %v", err))
+		httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("invalid meta JSON: %v", err))
 		return
 	}
 	ctx := r.Context()
 	vaultID := auth.MustVaultIDFromCtx(ctx)
 	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -15,28 +16,28 @@ import (
 func HandleEvents(bus *Bus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httputil.WriteProblem(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
 		vaultID := r.URL.Query().Get("vaultId")
 		if vaultID == "" {
-			http.Error(w, "vaultId query parameter required", http.StatusBadRequest)
+			httputil.WriteProblem(w, http.StatusBadRequest, "vaultId query parameter required")
 			return
 		}
 
 		if _, err := auth.FromContext(r.Context()); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 			return
 		}
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "streaming not supported")
 			return
 		}
 

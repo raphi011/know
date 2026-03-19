@@ -182,7 +182,7 @@ func refetchTasksCmd(client *apiclient.Client, vaultID string, filter apiclient.
 		if err != nil {
 			return refetchResultMsg{err: err}
 		}
-		return refetchResultMsg{tasks: resp.Tasks}
+		return refetchResultMsg{tasks: resp.Items}
 	}
 }
 

@@ -54,6 +54,9 @@ func (vm *vaultMap[T]) Range(fn func(vaultID string, v T) bool) {
 // The path prefix is stripped from incoming requests (e.g. "/dav/default/").
 // Auth uses HTTP Basic Auth where the password is a know API token.
 // maxPutBytes limits the size of PUT request bodies (0 = no limit).
+//
+// Note: errors use plain http.Error (not httputil.WriteProblem) because WebDAV
+// clients (macOS Finder, etc.) expect text/plain error bodies, not JSON.
 func NewHandler(
 	ctx context.Context,
 	pathPrefix string,

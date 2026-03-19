@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -25,7 +26,7 @@ func (s *Server) vaultScope(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("vault")
 		if name == "" {
-			writeError(w, http.StatusBadRequest, "vault name required")
+			httputil.WriteProblem(w, http.StatusBadRequest, "vault name required")
 			return
 		}
 
@@ -33,30 +34,30 @@ func (s *Server) vaultScope(next http.HandlerFunc) http.Handler {
 
 		ac, err := auth.FromContext(ctx)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		v, err := s.app.VaultService().GetByName(ctx, name)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to resolve vault")
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to resolve vault")
 			logutil.FromCtx(ctx).Error("vault scope: get by name", "name", name, "error", err)
 			return
 		}
 		if v == nil {
-			writeError(w, http.StatusNotFound, "vault not found")
+			httputil.WriteProblem(w, http.StatusNotFound, "vault not found")
 			return
 		}
 
 		vaultID, err := models.RecordIDString(v.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "invalid vault ID")
+			httputil.WriteProblem(w, http.StatusInternalServerError, "invalid vault ID")
 			logutil.FromCtx(ctx).Error("vault scope: extract ID", "name", name, "error", err)
 			return
 		}
 
 		if err := auth.CheckVaultRole(ac, vaultID, models.RoleRead); err != nil {
-			writeError(w, http.StatusForbidden, "forbidden")
+			httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 			return
 		}
 

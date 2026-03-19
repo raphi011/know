@@ -13,6 +13,7 @@ import (
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/epub"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 )
 
@@ -23,7 +24,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 	vaultID := auth.MustVaultIDFromCtx(ctx)
 	filePath := r.URL.Query().Get("path")
 	if filePath == "" {
-		writeError(w, http.StatusBadRequest, "path query parameter is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path query parameter is required")
 		return
 	}
 
@@ -33,7 +34,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 	var chapters []epub.Chapter
 	f, err := dbClient.GetFileByPath(ctx, vaultID, filePath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("get file: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("get file: %v", err))
 		return
 	}
 
@@ -43,7 +44,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 		// Single document mode.
 		content, err := fileSvc.ReadFileContent(ctx, f)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("read content: %v", err))
+			httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("read content: %v", err))
 			return
 		}
 		chapters = append(chapters, epub.Chapter{
@@ -53,7 +54,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 		})
 	} else if f == nil && path.Ext(filePath) != "" {
 		// Specific file requested but not found.
-		writeError(w, http.StatusNotFound, fmt.Sprintf("document not found: %s", filePath))
+		httputil.WriteProblem(w, http.StatusNotFound, fmt.Sprintf("document not found: %s", filePath))
 		return
 	} else {
 		// Folder mode — list markdown files under this path.
@@ -74,7 +75,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 				Offset:   offset,
 			})
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("list files: %v", err))
+				httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("list files: %v", err))
 				return
 			}
 			for _, file := range batch {
@@ -95,7 +96,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(chapters) == 0 {
-			writeError(w, http.StatusNotFound, "no markdown files found at path")
+			httputil.WriteProblem(w, http.StatusNotFound, "no markdown files found at path")
 			return
 		}
 	}
@@ -119,7 +120,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 	// Resolve images.
 	images, err := s.resolveImages(ctx, vaultID, imagePaths, chapterDirs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("resolve images: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("resolve images: %v", err))
 		return
 	}
 
@@ -145,7 +146,7 @@ func (s *Server) exportEPUB(w http.ResponseWriter, r *http.Request) {
 
 	data, err := epub.Generate(opts, chapters, images)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("generate epub: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("generate epub: %v", err))
 		return
 	}
 

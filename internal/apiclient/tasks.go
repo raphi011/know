@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/raphi011/know/internal/httputil"
 )
 
 // TaskFilter holds query parameters for listing tasks.
@@ -30,10 +32,7 @@ type TaskResponse struct {
 }
 
 // TaskListResponse is the JSON envelope for listing tasks.
-type TaskListResponse struct {
-	Tasks []TaskResponse `json:"tasks"`
-	Total int            `json:"total"`
-}
+type TaskListResponse = httputil.ListResponse[TaskResponse]
 
 // ToggleTaskResponse holds the response from toggling a task.
 // If ID is non-empty, the task was returned directly.

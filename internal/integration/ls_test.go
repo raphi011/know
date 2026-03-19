@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -184,11 +185,11 @@ func lsRequest(t *testing.T, srv *httptest.Server, vaultName, path string, recur
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
 	}
 
-	var entries []models.FileEntry
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+	var listResp httputil.ListResponse[models.FileEntry]
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	return entries
+	return listResp.Items
 }
 
 func entryNames(entries []models.FileEntry) []string {

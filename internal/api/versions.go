@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -14,7 +15,7 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "path parameter required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path parameter required")
 		return
 	}
 
@@ -30,25 +31,25 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 
 	doc, err := s.app.DBClient().GetFileByPath(ctx, vaultID, path)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get document")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get document")
 		logger.Error("list versions: get document", "vault_id", vaultID, "path", path, "error", err)
 		return
 	}
 	if doc == nil {
-		writeError(w, http.StatusNotFound, "document not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "document not found")
 		return
 	}
 
 	docID, err := models.RecordIDString(doc.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid document ID")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid document ID")
 		logger.Error("list versions: extract doc ID", "path", path, "error", err)
 		return
 	}
 
 	versions, err := s.app.DBClient().ListVersions(ctx, docID, limit, 0)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list versions")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list versions")
 		logger.Error("list versions", "doc_id", docID, "error", err)
 		return
 	}
@@ -63,5 +64,5 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(resp, len(resp)))
 }

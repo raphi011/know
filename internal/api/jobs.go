@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -30,7 +31,7 @@ func (s *Server) getJobStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	sinceDur, err := parseSinceDuration(sinceStr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid since parameter: %q is not a valid duration", sinceStr))
+		httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("invalid since parameter: %q is not a valid duration", sinceStr))
 		return
 	}
 	since := time.Now().Add(-sinceDur)
@@ -40,7 +41,7 @@ func (s *Server) getJobStatus(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			httputil.WriteProblem(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		limit = n
@@ -49,28 +50,28 @@ func (s *Server) getJobStatus(w http.ResponseWriter, r *http.Request) {
 	stats, err := db.GetJobStats(ctx, since)
 	if err != nil {
 		logger.Error("get job stats", "since", since, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get job stats")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get job stats")
 		return
 	}
 
 	active, err := db.ListRecentJobs(ctx, limit, []string{"running"})
 	if err != nil {
 		logger.Error("list active jobs", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list active jobs")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list active jobs")
 		return
 	}
 
 	recentFailed, err := db.ListRecentJobs(ctx, limit, []string{"failed"})
 	if err != nil {
 		logger.Error("list failed jobs", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list failed jobs")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list failed jobs")
 		return
 	}
 
 	durations, err := db.GetJobTypeDurations(ctx, since)
 	if err != nil {
 		logger.Error("get job type durations", "since", since, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to get job durations")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get job durations")
 		return
 	}
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -13,24 +14,24 @@ import (
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	vaultID := r.URL.Query().Get("vault")
 	if vaultID == "" {
-		writeError(w, http.StatusBadRequest, "vault query parameter required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "vault query parameter required")
 		return
 	}
 
 	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
 	ac, err := auth.FromContext(r.Context())
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	convs, err := s.app.DBClient().ListConversations(r.Context(), vaultID, ac.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list conversations")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list conversations")
 		logutil.FromCtx(r.Context()).Error("list conversations", "error", err)
 		return
 	}
@@ -39,7 +40,7 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	for i := range convs {
 		result[i] = conversationFromModel(&convs[i])
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(result, len(result)))
 }
 
 func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
@@ -48,22 +49,22 @@ func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 
 	conv, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get conversation")
 		logger.Error("get conversation", "error", err)
 		return
 	}
 	if conv == nil {
-		writeError(w, http.StatusNotFound, "conversation not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "conversation not found")
 		return
 	}
 
 	vaultID, err := models.RecordIDString(conv.Vault)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid vault ID")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid vault ID")
 		return
 	}
 	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleRead); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -71,7 +72,7 @@ func (s *Server) getConversation(w http.ResponseWriter, r *http.Request) {
 
 	msgs, err := s.app.DBClient().ListMessages(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list messages")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list messages")
 		logger.Error("list messages", "error", err)
 		return
 	}
@@ -93,24 +94,24 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.VaultID == "" {
-		writeError(w, http.StatusBadRequest, "vaultId is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "vaultId is required")
 		return
 	}
 
 	if err := auth.RequireVaultRole(r.Context(), body.VaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
 	ac, err := auth.FromContext(r.Context())
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.WriteProblem(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	conv, err := s.app.DBClient().CreateConversation(r.Context(), body.VaultID, ac.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create conversation")
 		logutil.FromCtx(r.Context()).Error("create conversation", "error", err)
 		return
 	}
@@ -126,27 +127,27 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 
 	conv, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get conversation")
 		logger.Error("get conversation for delete", "error", err)
 		return
 	}
 	if conv == nil {
-		writeError(w, http.StatusNotFound, "conversation not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "conversation not found")
 		return
 	}
 
 	vaultID, err := models.RecordIDString(conv.Vault)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid vault ID")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid vault ID")
 		return
 	}
 	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
 	if err := s.app.DBClient().DeleteConversation(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to delete conversation")
 		logger.Error("delete conversation", "error", err)
 		return
 	}
@@ -166,40 +167,40 @@ func (s *Server) renameConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	logger := logutil.FromCtx(r.Context())
 	if body.Title == "" {
-		writeError(w, http.StatusBadRequest, "title is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "title is required")
 		return
 	}
 
 	conv, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get conversation")
 		logger.Error("get conversation for rename", "error", err)
 		return
 	}
 	if conv == nil {
-		writeError(w, http.StatusNotFound, "conversation not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "conversation not found")
 		return
 	}
 
 	vaultID, err := models.RecordIDString(conv.Vault)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid vault ID")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid vault ID")
 		return
 	}
 	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
 	if err := s.app.DBClient().UpdateConversationTitle(r.Context(), id, body.Title); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to rename conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to rename conversation")
 		logger.Error("rename conversation", "error", err)
 		return
 	}
 
 	updated, err := s.app.DBClient().GetConversation(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get updated conversation")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get updated conversation")
 		logger.Error("get renamed conversation", "error", err)
 		return
 	}

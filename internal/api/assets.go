@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/raphi011/know/internal/auth"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -17,38 +18,38 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	// 32 MB max memory for multipart parsing
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		logger.Warn("parse multipart form", "error", err)
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
+		httputil.WriteProblem(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
 
 	vaultID := auth.MustVaultIDFromCtx(r.Context())
 	path := r.FormValue("path")
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "path field is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path field is required")
 		return
 	}
 
 	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
 	if !models.IsImageFile(path) {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unsupported image format: %s", path))
+		httputil.WriteProblem(w, http.StatusBadRequest, fmt.Sprintf("unsupported image format: %s", path))
 		return
 	}
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		logger.Warn("form file extraction failed", "error", err)
-		writeError(w, http.StatusBadRequest, "file field is required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "file field is required")
 		return
 	}
 	defer file.Close()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read file")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read file")
 		logger.Error("read upload file", "error", err)
 		return
 	}
@@ -59,7 +60,7 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 		Data:    data,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to upload asset")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to upload asset")
 		logger.Error("upload asset", "error", err)
 		return
 	}
@@ -80,36 +81,36 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "path query parameter required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
 	asset, err := s.app.FileService().Get(r.Context(), vaultID, path)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get asset")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get asset")
 		logutil.FromCtx(r.Context()).Error("get asset", "error", err)
 		return
 	}
 	if asset == nil {
-		writeError(w, http.StatusNotFound, "asset not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "asset not found")
 		return
 	}
 
 	if asset.ContentHash == nil {
-		writeError(w, http.StatusNotFound, "asset has no content")
+		httputil.WriteProblem(w, http.StatusNotFound, "asset has no content")
 		return
 	}
 
 	rc, err := s.app.BlobStore().Get(r.Context(), *asset.ContentHash)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read asset data")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read asset data")
 		logutil.FromCtx(r.Context()).Error("get asset blob", "hash", *asset.ContentHash, "error", err)
 		return
 	}
 	defer rc.Close()
 	data, err := io.ReadAll(rc)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read asset data")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read asset data")
 		logutil.FromCtx(r.Context()).Error("read asset blob", "error", err)
 		return
 	}
@@ -124,18 +125,18 @@ func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "path query parameter required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
 	meta, err := s.app.FileService().GetMeta(r.Context(), vaultID, path)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get asset metadata")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to get asset metadata")
 		logutil.FromCtx(r.Context()).Error("get asset meta", "error", err)
 		return
 	}
 	if meta == nil {
-		writeError(w, http.StatusNotFound, "asset not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "asset not found")
 		return
 	}
 
@@ -155,12 +156,12 @@ func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 
 	if path == "" {
-		writeError(w, http.StatusBadRequest, "path query parameter required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "path query parameter required")
 		return
 	}
 
 	if err := auth.RequireVaultRole(r.Context(), vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -169,17 +170,17 @@ func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	// Check existence first so we return 404 instead of silent 204
 	meta, err := s.app.FileService().GetMeta(r.Context(), vaultID, path)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check asset")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to check asset")
 		logger.Error("delete asset: check existence", "error", err)
 		return
 	}
 	if meta == nil {
-		writeError(w, http.StatusNotFound, "asset not found")
+		httputil.WriteProblem(w, http.StatusNotFound, "asset not found")
 		return
 	}
 
 	if err := s.app.FileService().Delete(r.Context(), vaultID, path); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete asset")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to delete asset")
 		logger.Error("delete asset", "error", err)
 		return
 	}

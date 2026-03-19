@@ -184,6 +184,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	apiServer := api.NewServer(app)
 	apiServer.Register(mux, authMw, app.AgentRunner())
 
+	// API documentation (Scalar UI at /, spec at /api/v1/openapi.yaml)
+	api.RegisterDocs(mux)
+
 	// Document change events (SSE) — vault-scoped
 	// Uses the apiServer's vault scope middleware for consistent vault resolution.
 	mux.Handle("GET /api/v1/vaults/{vault}/events", authMw(apiServer.VaultScopeHandler(event.HandleEvents(app.EventBus()))))
@@ -342,6 +345,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	go func() {
 		slog.Info("REST API available", "url", fmt.Sprintf("http://localhost:%s/api/v1/", port))
+		slog.Info("API docs available", "url", fmt.Sprintf("http://localhost:%s/", port))
 
 		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)

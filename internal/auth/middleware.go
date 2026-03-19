@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/metrics"
 )
@@ -18,7 +19,7 @@ func NoAuthMiddleware(next http.Handler) http.Handler {
 		ac, err := Authenticate(r.Context(), nil, "", true)
 		if err != nil {
 			slog.Error("no-auth mode: unexpected error", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		ctx := WithAuth(r.Context(), ac)
@@ -40,7 +41,7 @@ func Middleware(dbClient *db.Client, m *metrics.Metrics) func(http.Handler) http
 					slog.String("ip", clientIP(r)),
 				)
 				m.RecordAuthEvent(string(event), string(event.Result()))
-				http.Error(w, "missing authorization header", http.StatusUnauthorized)
+				httputil.WriteProblem(w, http.StatusUnauthorized, "missing authorization header")
 				return
 			}
 			rawToken := strings.TrimPrefix(header, "Bearer ")
@@ -58,7 +59,7 @@ func Middleware(dbClient *db.Client, m *metrics.Metrics) func(http.Handler) http
 					slog.String("ip", clientIP(r)),
 				)
 				m.RecordAuthEvent(string(event), string(event.Result()))
-				http.Error(w, "invalid token", http.StatusUnauthorized)
+				httputil.WriteProblem(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
 

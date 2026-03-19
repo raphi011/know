@@ -8,6 +8,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -24,7 +25,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("status"); v != "" {
 		status := models.TaskStatus(v)
 		if !status.Valid() {
-			writeError(w, http.StatusBadRequest, "status must be 'open' or 'done'")
+			httputil.WriteProblem(w, http.StatusBadRequest, "status must be 'open' or 'done'")
 			return
 		}
 		filter.Status = &status
@@ -34,14 +35,14 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := r.URL.Query().Get("due_before"); v != "" {
 		if !models.IsValidDate(v) {
-			writeError(w, http.StatusBadRequest, "due_before must be YYYY-MM-DD")
+			httputil.WriteProblem(w, http.StatusBadRequest, "due_before must be YYYY-MM-DD")
 			return
 		}
 		filter.DueBefore = &v
 	}
 	if v := r.URL.Query().Get("due_after"); v != "" {
 		if !models.IsValidDate(v) {
-			writeError(w, http.StatusBadRequest, "due_after must be YYYY-MM-DD")
+			httputil.WriteProblem(w, http.StatusBadRequest, "due_after must be YYYY-MM-DD")
 			return
 		}
 		filter.DueAfter = &v
@@ -55,7 +56,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			httputil.WriteProblem(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		filter.Limit = n
@@ -63,7 +64,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("offset"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			writeError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			httputil.WriteProblem(w, http.StatusBadRequest, "offset must be a non-negative integer")
 			return
 		}
 		filter.Offset = n
@@ -71,53 +72,42 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 
 	tasks, err := s.app.DBClient().ListTasks(ctx, filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list tasks")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list tasks")
 		logger.Error("list tasks", "vault_id", vaultID, "error", err)
 		return
 	}
 
 	total, err := s.app.DBClient().CountTasks(ctx, filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to count tasks")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to count tasks")
 		logger.Error("count tasks", "vault_id", vaultID, "error", err)
 		return
-	}
-
-	if tasks == nil {
-		tasks = []models.TaskWithDoc{}
 	}
 
 	var resp []TaskResponse
 	for _, t := range tasks {
 		tr, err := taskResponseFromModel(t)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "invalid task record ID")
+			httputil.WriteProblem(w, http.StatusInternalServerError, "invalid task record ID")
 			logger.Error("task with corrupt record ID", "error", err)
 			return
 		}
 		resp = append(resp, tr)
 	}
-	if resp == nil {
-		resp = []TaskResponse{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"tasks": resp,
-		"total": total,
-	})
+	writeJSON(w, http.StatusOK, httputil.NewListResponse(resp, total))
 }
 
 func (s *Server) toggleTask(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("id")
 	if taskID == "" {
-		writeError(w, http.StatusBadRequest, "task id required")
+		httputil.WriteProblem(w, http.StatusBadRequest, "task id required")
 		return
 	}
 
 	ctx := r.Context()
 	vaultID := auth.MustVaultIDFromCtx(ctx)
 	if err := auth.RequireVaultRole(ctx, vaultID, models.RoleWrite); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
+		httputil.WriteProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -125,7 +115,7 @@ func (s *Server) toggleTask(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := s.app.FileService().ToggleTask(ctx, vaultID, taskID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to toggle task")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to toggle task")
 		logger.Error("toggle task", "task_id", taskID, "error", err)
 		return
 	}
@@ -134,7 +124,7 @@ func (s *Server) toggleTask(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := taskResponseFromTask(*updated)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid task id in response")
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid task id in response")
 		logger.Error("extract task id", "error", err)
 		return
 	}

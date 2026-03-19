@@ -196,13 +196,13 @@ func TestExportEPUB_MissingPath(t *testing.T) {
 	}
 
 	var errResp struct {
-		Error string `json:"error"`
+		Detail string `json:"detail"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if errResp.Error == "" {
-		t.Error("expected non-empty error message")
+	if errResp.Detail == "" {
+		t.Error("expected non-empty error detail")
 	}
 }
 

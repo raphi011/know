@@ -12,6 +12,7 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
+	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 )
@@ -37,7 +38,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 			Offset:   offset,
 		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("list files: %v", err))
+			httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("list files: %v", err))
 			return
 		}
 		fileMetas = append(fileMetas, batch...)
@@ -49,7 +50,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	// Phase 2: Write tar.gz to temp file.
 	tmp, err := os.CreateTemp("", "know-export-*.tar.gz")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("create temp file: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("create temp file: %v", err))
 		return
 	}
 	defer os.Remove(tmp.Name())
@@ -61,7 +62,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	for _, meta := range fileMetas {
 		f, err := dbClient.GetFileByPath(ctx, vaultID, meta.Path)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("get file %s: %v", meta.Path, err))
+			httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("get file %s: %v", meta.Path, err))
 			return
 		}
 		if f == nil {
@@ -72,34 +73,34 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 		if f.ContentHash != nil {
 			rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("read blob for %s: %v", meta.Path, err))
+				httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("read blob for %s: %v", meta.Path, err))
 				return
 			}
 			data, err = io.ReadAll(rc)
 			rc.Close()
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("read blob data for %s: %v", meta.Path, err))
+				httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("read blob data for %s: %v", meta.Path, err))
 				return
 			}
 		}
 		if err := writeTarEntry(tw, f.Path, data, f.UpdatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("write file %s: %v", meta.Path, err))
+			httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("write file %s: %v", meta.Path, err))
 			return
 		}
 	}
 
 	if err := tw.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("close tar writer: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("close tar writer: %v", err))
 		return
 	}
 	if err := gzw.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("close gzip writer: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("close gzip writer: %v", err))
 		return
 	}
 
 	// Phase 3: Serve completed file.
 	if _, err := tmp.Seek(0, 0); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("seek temp file: %v", err))
+		httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("seek temp file: %v", err))
 		return
 	}
 
