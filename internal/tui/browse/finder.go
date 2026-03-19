@@ -41,7 +41,7 @@ func (f finderModel) Update(msg tea.Msg) (finderModel, tea.Cmd) {
 				}
 			}
 			return f, nil
-		case "esc", "escape":
+		case "esc":
 			return f, tea.Quit
 		}
 	}

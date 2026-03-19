@@ -51,6 +51,8 @@ Examples:
   know browse                              # fuzzy search → TUI viewer
   know browse /docs/readme.md              # TUI viewer for specific file
   know browse /docs/readme.md | head       # print raw content (piped)
+  know browse | head                       # fuzzy pick → pipe content
+  know browse | wc -l                      # fuzzy pick → count lines
   know browse --viewer bat /docs/readme.md # view with bat
   know browse -e /docs/readme.md           # edit in $EDITOR
   know browse -e                           # fuzzy pick → edit`,
@@ -153,6 +155,15 @@ func browseWithPicker(ctx context.Context, client *apiclient.Client) error {
 		})
 	}
 
+	// When stdout is piped, pick on stderr and pipe content to stdout.
+	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
+	if !isTTY {
+		return pickAndDo(ctx, client, docs, func(_ string, doc *apiclient.Document) error {
+			fmt.Print(doc.Content)
+			return nil
+		}, tea.WithOutput(os.Stderr))
+	}
+
 	// Standard browse TUI.
 	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	model := browse.NewModel(client, *browseVaultID, docs, isDark)
@@ -164,8 +175,8 @@ func browseWithPicker(ctx context.Context, client *apiclient.Client) error {
 }
 
 // pickAndDo launches the fuzzy picker then runs action on the selected document.
-func pickAndDo(ctx context.Context, client *apiclient.Client, docs []models.FileEntry, action func(string, *apiclient.Document) error) error {
-	selected, err := pick.Run(docs)
+func pickAndDo(ctx context.Context, client *apiclient.Client, docs []models.FileEntry, action func(string, *apiclient.Document) error, opts ...tea.ProgramOption) error {
+	selected, err := pick.Run(docs, opts...)
 	if err != nil {
 		return fmt.Errorf("browse: %w", err)
 	}
