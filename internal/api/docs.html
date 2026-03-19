@@ -7,16 +7,22 @@
 </head>
 <body>
     <div id="app"></div>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.28.12"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.49.1"></script>
     <script>
         Scalar.createApiReference('#app', {
             url: '/api/v1/openapi.yaml',
             darkMode: true,
+            forceDarkModeState: 'dark',
             authentication: {
                 preferredSecurityScheme: 'BearerAuth'
             },
+            persistAuth: true,
             defaultOpenAllTags: false,
+            defaultOpenFirstTag: true,
+            defaultHttpClient: { targetKey: 'shell', clientKey: 'curl' },
+            hiddenClients: ['c', 'clojure', 'kotlin', 'objc', 'ocaml', 'powershell', 'r', 'swift'],
             searchHotKey: 'k',
+            documentDownloadType: 'yaml',
             metaData: {
                 title: 'Know API Reference',
                 description: 'REST API for the Know knowledge management server'

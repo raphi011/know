@@ -178,9 +178,12 @@ The `know auth` command group manages authentication from the terminal.
 
 ### `know auth login`
 
-Interactive login with two options:
+The CLI uses a **try-and-fallback** approach to discover available auth methods:
+it attempts the device flow (`POST /auth/device/start`) first. If it succeeds,
+OIDC is available and the user is offered a choice. If it fails (404 when OIDC
+is disabled, or any other error), the CLI falls back to token paste.
 
-1. **Browser login (OIDC)** -- starts the device flow:
+1. **Browser login (OIDC)** -- uses the device flow:
    - Server generates a user code (e.g. `ABCD-EFGH`) and device code
    - CLI displays the user code and opens the browser to the verification URL
    - User authenticates with the OIDC provider in the browser
