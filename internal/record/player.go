@@ -87,6 +87,11 @@ func (p *Player) Play() error {
 		return nil
 	}
 
+	// If at end of audio, reset to start.
+	if p.playOffset >= len(p.pcmBuf) {
+		p.playOffset = 0
+	}
+
 	if p.device == nil {
 		if err := p.initDevice(); err != nil {
 			p.mu.Unlock()
@@ -253,11 +258,10 @@ func (p *Player) initDevice() error {
 		available := len(p.pcmBuf) - p.playOffset
 
 		if available <= 0 {
-			// End of audio — fill with silence, reset to start, and pause.
+			// End of audio — fill with silence and mark finished.
 			for i := range output {
 				output[i] = 0
 			}
-			p.playOffset = 0
 			p.state = PlayerPaused
 			return
 		}
