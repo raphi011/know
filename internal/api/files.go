@@ -355,6 +355,7 @@ func documentFromModel(d *models.File, content string) Document {
 		Labels:    nonNilLabels(d.Labels),
 		DocType:   d.DocType,
 		Hash:      d.Hash,
+		MimeType:  d.MimeType,
 		CreatedAt: d.CreatedAt,
 		UpdatedAt: d.UpdatedAt,
 	}

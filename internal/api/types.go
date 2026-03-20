@@ -35,6 +35,7 @@ type Document struct {
 	Labels    []string       `json:"labels"`
 	DocType   *string        `json:"docType,omitempty"`
 	Hash      *string        `json:"hash,omitempty"`
+	MimeType  string         `json:"mimeType,omitempty"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
 	WikiLinks []WikiLinkInfo `json:"wikiLinks,omitempty"`

@@ -605,12 +605,13 @@ func (c *Client) ListVersions(ctx context.Context, vaultName, path string, limit
 
 // Document is the JSON representation of a document returned by the REST API.
 type Document struct {
-	ID      string  `json:"id"`
-	VaultID string  `json:"vaultId"`
-	Path    string  `json:"path"`
-	Title   string  `json:"title"`
-	Content string  `json:"content"`
-	Hash    *string `json:"hash,omitempty"`
+	ID       string  `json:"id"`
+	VaultID  string  `json:"vaultId"`
+	Path     string  `json:"path"`
+	Title    string  `json:"title"`
+	Content  string  `json:"content"`
+	Hash     *string `json:"hash,omitempty"`
+	MimeType string  `json:"mimeType,omitempty"`
 }
 
 // GetDocument fetches a document by vault and path.
