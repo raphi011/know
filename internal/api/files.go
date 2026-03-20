@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
@@ -35,11 +36,18 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := s.app.FileService().ReadFileContent(ctx, doc)
-	if err != nil {
-		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read document content")
-		logger.Error("read document content", "error", err)
-		return
+	// Skip blob read for audio files — their content hash points to the
+	// binary audio data, not a text transcript. The transcript (if available)
+	// is stored in the DB Content field after STT processing.
+	var content string
+	if !strings.HasPrefix(doc.MimeType, "audio/") {
+		var err error
+		content, err = s.app.FileService().ReadFileContent(ctx, doc)
+		if err != nil {
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read document content")
+			logger.Error("read document content", "error", err)
+			return
+		}
 	}
 
 	fileID, err := models.RecordIDString(doc.ID)
