@@ -253,10 +253,11 @@ func (p *Player) initDevice() error {
 		available := len(p.pcmBuf) - p.playOffset
 
 		if available <= 0 {
-			// End of audio — fill with silence and pause (no loop).
+			// End of audio — fill with silence, reset to start, and pause.
 			for i := range output {
 				output[i] = 0
 			}
+			p.playOffset = 0
 			p.state = PlayerPaused
 			return
 		}
