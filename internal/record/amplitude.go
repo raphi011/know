@@ -1,0 +1,66 @@
+package record
+
+import (
+	"encoding/binary"
+	"math"
+)
+
+// RMSAmplitude computes the root-mean-square amplitude of 16-bit little-endian
+// PCM samples, normalized to 0.0–1.0. Leftover bytes are ignored.
+func RMSAmplitude(pcm []byte) float64 {
+	nSamples := len(pcm) / 2
+	if nSamples == 0 {
+		return 0
+	}
+
+	var sumSquares float64
+	for i := range nSamples {
+		sample := int16(binary.LittleEndian.Uint16(pcm[i*2:]))
+		norm := float64(sample) / 32768.0
+		sumSquares += norm * norm
+	}
+
+	return math.Sqrt(sumSquares / float64(nSamples))
+}
+
+// ComputeWaveform splits PCM data into `width` equal chunks and computes
+// the peak amplitude for each chunk. Returns a slice of amplitudes (0.0–1.0).
+func ComputeWaveform(pcm []byte, width int) []float64 {
+	nSamples := len(pcm) / 2
+	if nSamples == 0 || width == 0 {
+		return nil
+	}
+
+	samplesPerBar := nSamples / width
+	if samplesPerBar == 0 {
+		samplesPerBar = 1
+	}
+
+	bars := make([]float64, 0, width)
+	for i := 0; i < nSamples && len(bars) < width; i += samplesPerBar {
+		end := min(i+samplesPerBar, nSamples)
+		chunk := pcm[i*2 : end*2]
+		bars = append(bars, peakAmplitude(chunk))
+	}
+
+	return bars
+}
+
+// peakAmplitude returns the max absolute sample value, normalized to 0.0–1.0.
+func peakAmplitude(pcm []byte) float64 {
+	nSamples := len(pcm) / 2
+	if nSamples == 0 {
+		return 0
+	}
+
+	var peak float64
+	for i := range nSamples {
+		sample := int16(binary.LittleEndian.Uint16(pcm[i*2:]))
+		abs := math.Abs(float64(sample)) / 32768.0
+		if abs > peak {
+			peak = abs
+		}
+	}
+
+	return peak
+}
