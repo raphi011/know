@@ -97,6 +97,7 @@ type Config struct {
 
 	// Server settings
 	Environment       string // KNOW_ENVIRONMENT ("development" or "production", default: "development")
+	DocsEnabled       bool   // KNOW_DOCS_ENABLED (default: true; Helm defaults to false)
 	IngestConcurrency int
 	NoAuth            bool   // bypass token auth (for local/Docker use)
 	MCPEnabled        bool   // serve MCP endpoint at /mcp (default: true)
@@ -306,6 +307,7 @@ func Load() Config {
 
 		// Server settings
 		Environment:       getEnv("KNOW_ENVIRONMENT", "development"),
+		DocsEnabled:       getEnvBool("KNOW_DOCS_ENABLED", true),
 		IngestConcurrency: getEnvInt("KNOW_INGEST_CONCURRENCY", 4),
 		NoAuth:            getEnvBool("KNOW_NO_AUTH", false),
 		MCPEnabled:        getEnvBool("KNOW_MCP_ENABLED", true),

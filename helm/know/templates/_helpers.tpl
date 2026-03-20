@@ -49,6 +49,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Validate SurrealDB credentials are provided
+*/}}
+{{- define "know.validateSurrealDB" -}}
+{{- if not .Values.surrealdb.existingSecret }}
+{{- if not .Values.surrealdb.user }}
+{{- fail "surrealdb.user and surrealdb.password must both be set (or use surrealdb.existingSecret)" }}
+{{- end }}
+{{- if not .Values.surrealdb.password }}
+{{- fail "surrealdb.user and surrealdb.password must both be set (or use surrealdb.existingSecret)" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "know.serviceAccountName" -}}

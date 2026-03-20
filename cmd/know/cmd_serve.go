@@ -96,6 +96,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		if serveNoAuth {
 			return fmt.Errorf("KNOW_NO_AUTH is not allowed in production mode (KNOW_ENVIRONMENT=production)")
 		}
+		if cfg.TLSSkipVerify {
+			return fmt.Errorf("KNOW_TLS_SKIP_VERIFY=true is not allowed in production mode (KNOW_ENVIRONMENT=production)")
+		}
 		if serveNFS {
 			slog.Warn("NFS server enabled in production mode — NFS has no per-user authentication, ensure network access is restricted")
 		}
@@ -251,7 +254,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 	apiServer.Register(mux, authMw, app.AgentRunner())
 
 	// API documentation (Scalar UI at /, spec at /api/v1/openapi.yaml)
-	api.RegisterDocs(mux)
+	if cfg.DocsEnabled {
+		api.RegisterDocs(mux)
+	} else {
+		slog.Info("API docs disabled (KNOW_DOCS_ENABLED=false)")
+	}
 
 	// Document change events (SSE) — vault-scoped
 	// Uses the apiServer's vault scope middleware for consistent vault resolution.
@@ -397,7 +404,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	})
 
 	// Global rate limiter (outermost middleware)
-	var handler http.Handler = api.RequestLogMiddleware(app.Metrics(), mux)
+	var handler http.Handler = api.SecurityHeadersMiddleware(api.RequestLogMiddleware(app.Metrics(), mux))
 	if cfg.RateLimitGlobalRPS > 0 {
 		globalRL := api.NewIPRateLimiter(cfg.RateLimitGlobalRPS, cfg.RateLimitGlobalBurst, "global", app.Metrics())
 		defer globalRL.Stop()

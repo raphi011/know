@@ -43,6 +43,17 @@ func RequestLogMiddleware(m *metrics.Metrics, next http.Handler) http.Handler {
 	})
 }
 
+// SecurityHeadersMiddleware sets standard security response headers.
+func SecurityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // statusRecorder wraps http.ResponseWriter to capture the status code.
 type statusRecorder struct {
 	http.ResponseWriter

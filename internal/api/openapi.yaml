@@ -421,6 +421,54 @@ components:
           description: Vault path where web-clipped documents are saved
           example: "/web"
 
+    ChangeEvent:
+      type: object
+      description: |
+        A change event delivered via SSE. Each event is sent as a
+        `data:` line containing a JSON-encoded ChangeEvent object.
+        For `job.created` events, `payload` is null.
+      required: [type, vaultId]
+      properties:
+        type:
+          type: string
+          description: Event type
+          enum:
+            - file.created
+            - file.updated
+            - file.deleted
+            - file.moved
+            - file.processed
+            - job.created
+        vaultId:
+          type: string
+          description: Vault record ID
+        payload:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/DocumentPayload"
+
+    DocumentPayload:
+      type: object
+      description: Payload for document change events (file.* event types)
+      required: [docId, path, contentHash]
+      properties:
+        docId:
+          type: string
+          description: Document record ID
+          example: "file:abc123"
+        path:
+          type: string
+          description: Current vault path of the document
+          example: "/notes/hello.md"
+        oldPath:
+          type: string
+          description: Previous path (only present for `file.moved` events)
+          example: "/notes/old-name.md"
+        contentHash:
+          type: string
+          description: SHA-256 content hash of the document body
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
     Document:
       type: object
       description: A markdown document in a vault
@@ -2426,7 +2474,24 @@ paths:
       description: |
         Server-Sent Events stream for real-time document change notifications.
         Connect with `EventSource` or any SSE client. The connection stays open
-        until the client disconnects.
+        until the client disconnects. A `: ping` comment is sent every 30 seconds
+        as a keep-alive.
+
+        Each `data:` line contains a JSON-encoded `ChangeEvent` object:
+
+        ```
+        data: {"type":"file.updated","vaultId":"abc","payload":{"docId":"file:123","path":"/notes/hello.md","contentHash":"e3b0..."}}
+        ```
+
+        **Event types:**
+        | Type | Description |
+        |------|-------------|
+        | `file.created` | A new document was created |
+        | `file.updated` | An existing document's content changed |
+        | `file.deleted` | A document was deleted |
+        | `file.moved` | A document was renamed/moved (includes `oldPath`) |
+        | `file.processed` | A document finished pipeline processing (embedding, chunking) |
+        | `job.created` | A new pipeline job was queued |
       parameters:
         - $ref: "#/components/parameters/vault"
       responses:
@@ -2435,7 +2500,7 @@ paths:
           content:
             text/event-stream:
               schema:
-                type: string
+                $ref: "#/components/schemas/ChangeEvent"
 
   # ── Conversations ───────────────────────────────────────
   /conversations:

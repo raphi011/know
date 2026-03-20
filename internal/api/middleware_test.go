@@ -61,3 +61,27 @@ func TestRequestLogMiddleware_capturesStatusCode(t *testing.T) {
 		t.Errorf("expected status=404 in log output, got: %s", output)
 	}
 }
+
+func TestSecurityHeadersMiddleware(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := SecurityHeadersMiddleware(inner)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	expected := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+		"Permissions-Policy":     "camera=(), microphone=(), geolocation=()",
+	}
+	for header, want := range expected {
+		got := rec.Header().Get(header)
+		if got != want {
+			t.Errorf("header %s = %q, want %q", header, got, want)
+		}
+	}
+}
