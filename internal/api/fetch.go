@@ -6,14 +6,16 @@ import (
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/httputil"
+	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/webclip"
 )
 
 type fetchRequest struct {
-	URL  string  `json:"url"`
-	Path *string `json:"path,omitempty"`
+	URL   string  `json:"url"`
+	Path  *string `json:"path,omitempty"`
+	Clean bool    `json:"clean,omitempty"`
 }
 
 type fetchResponse struct {
@@ -56,7 +58,16 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 	}
 	settings := v.Defaults()
 
-	result, err := webclip.FetchAndSave(ctx, jinaClient, s.app.FileService(), vaultID, req.URL, req.Path, settings)
+	var model *llm.Model
+	if req.Clean {
+		model = s.app.LLMModel()
+		if model == nil {
+			httputil.WriteProblem(w, http.StatusUnprocessableEntity, "clean option requires an LLM provider to be configured")
+			return
+		}
+	}
+
+	result, err := webclip.FetchAndSave(ctx, jinaClient, s.app.FileService(), vaultID, req.URL, req.Path, settings, model)
 	if err != nil {
 		logger.Warn("fetch: fetch and save failed", "url", req.URL, "error", err)
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to fetch and save page")

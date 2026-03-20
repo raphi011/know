@@ -780,6 +780,7 @@ type FetchWebpageRequest struct {
 	URL       string  `json:"url"`
 	VaultName string  `json:"-"`
 	Path      *string `json:"path,omitempty"`
+	Clean     bool    `json:"clean,omitempty"`
 }
 
 // FetchWebpageResponse is the response from the fetch webpage endpoint.

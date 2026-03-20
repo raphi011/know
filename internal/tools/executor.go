@@ -9,6 +9,7 @@ import (
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/jina"
+	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/memory"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/render"
@@ -29,6 +30,7 @@ type Executor struct {
 	FileSvc   *file.Service
 	RenderSvc *render.Service
 	Jina      *jina.Client
+	Model     *llm.Model
 
 	once     sync.Once
 	registry map[string]tool.InvokableTool
@@ -57,7 +59,7 @@ func (e *Executor) initRegistry() {
 			e.registry["toggle_task"] = &ToggleTaskTool{docService: e.FileSvc}
 		}
 
-		e.registry["fetch_webpage"] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc}
+		e.registry["fetch_webpage"] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc, model: e.Model}
 	})
 }
 
