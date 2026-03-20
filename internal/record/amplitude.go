@@ -43,6 +43,19 @@ func ComputeWaveform(pcm []byte, width int) []float64 {
 		bars = append(bars, peakAmplitude(chunk))
 	}
 
+	// Auto-gain: normalize against peak so the waveform fills the visual range.
+	var peak float64
+	for _, a := range bars {
+		if a > peak {
+			peak = a
+		}
+	}
+	if peak > 0 {
+		for i, a := range bars {
+			bars[i] = a / peak
+		}
+	}
+
 	return bars
 }
 
