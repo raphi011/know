@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/rand"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -428,7 +427,7 @@ func (h *AuthHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	logger.Info("oauth flow completed", slog.String("user_id", userID), slog.String("provider", userInfo.Provider))
+	logger.Info("oauth flow completed", "user_id", userID, "provider", userInfo.Provider)
 
 	// Redirect back to the client with the authorization code
 	u, _ := url.Parse(payload.RedirectURI)
