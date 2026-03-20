@@ -221,6 +221,8 @@ spec:
             {{- if .Values.protocol.enabled }}
             - name: KNOW_PROTOCOL_PORT
               value: {{ .Values.protocol.port | default "4002" | quote }}
+            - name: KNOW_PROTOCOL_BASE_URL
+              value: {{ .Values.protocol.protocolBaseURL | default "" | quote }}
             {{- end }}
             # SSH/SFTP server
             {{- if .Values.ssh.enabled }}

@@ -17,6 +17,25 @@ know serve
 # MCP endpoint available at http://localhost:8484/mcp
 ```
 
+### Native Authentication (OAuth)
+
+If the server has OIDC enabled, Claude Code can authenticate directly via browser login:
+
+```bash
+# Add with OAuth support
+claude mcp add --transport http --client-id know-mcp know http://localhost:4002/mcp
+
+# Then authenticate via /mcp in Claude Code
+```
+
+This uses the OAuth 2.0 Authorization Code + PKCE flow. The server proxies authentication to the configured OIDC provider and issues a `kh_` API token that Claude Code stores in the system keychain.
+
+For servers without OIDC, use bearer token authentication:
+```bash
+claude mcp add --transport http know http://localhost:4002/mcp \
+  --header "Authorization: Bearer ${KNOW_TOKEN}"
+```
+
 ### Client setup
 
 #### Claude Code
