@@ -76,35 +76,49 @@ func NewPlayer(r io.ReadCloser) (*Player, error) {
 // Play starts or resumes playback.
 func (p *Player) Play() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if p.state == PlayerPlaying {
+		p.mu.Unlock()
 		return nil
 	}
 
 	if p.device == nil {
 		if err := p.initDevice(); err != nil {
+			p.mu.Unlock()
 			return err
 		}
 	}
 
-	if err := p.device.Start(); err != nil {
+	device := p.device
+	p.mu.Unlock()
+
+	// Start outside the lock — the audio callback acquires mu.
+	if err := device.Start(); err != nil {
 		return fmt.Errorf("start playback: %w", err)
 	}
+
+	p.mu.Lock()
 	p.state = PlayerPlaying
+	p.mu.Unlock()
 	return nil
 }
 
 // Pause pauses playback.
 func (p *Player) Pause() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.state != PlayerPlaying || p.device == nil {
+		p.mu.Unlock()
 		return
 	}
-	p.device.Stop()
+	device := p.device
+	p.mu.Unlock()
+
+	// Stop outside the lock — the audio callback acquires mu.
+	device.Stop()
+
+	p.mu.Lock()
 	p.state = PlayerPaused
+	p.mu.Unlock()
 }
 
 // PlayPause toggles between playing and paused.
@@ -187,18 +201,21 @@ func (p *Player) PCMData() []byte {
 // Close stops playback and releases resources. Safe to call multiple times.
 func (p *Player) Close() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	p.state = PlayerStopped
-	if p.device != nil {
-		p.device.Stop()
-		p.device.Uninit()
-		p.device = nil
+	device := p.device
+	p.device = nil
+	ctx := p.ctx
+	p.ctx = nil
+	p.mu.Unlock()
+
+	// Stop/uninit outside the lock — the audio callback acquires mu.
+	if device != nil {
+		device.Stop()
+		device.Uninit()
 	}
-	if p.ctx != nil {
-		_ = p.ctx.Uninit()
-		p.ctx.Free()
-		p.ctx = nil
+	if ctx != nil {
+		_ = ctx.Uninit()
+		ctx.Free()
 	}
 }
 
