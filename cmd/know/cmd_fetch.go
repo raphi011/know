@@ -11,6 +11,7 @@ var (
 	fetchAPI     *apiFlags
 	fetchVaultID *string
 	fetchPath    string
+	fetchClean   bool
 )
 
 var fetchCmd = &cobra.Command{
@@ -35,6 +36,7 @@ func init() {
 	fetchAPI = addAPIFlags(fetchCmd)
 	fetchVaultID = addVaultFlag(fetchCmd, fetchAPI)
 	fetchCmd.Flags().StringVar(&fetchPath, "path", "", "custom vault path (default: auto-derived from page title)")
+	fetchCmd.Flags().BoolVar(&fetchClean, "clean", false, "clean up markdown formatting with LLM")
 }
 
 func runFetch(cmd *cobra.Command, args []string) error {
@@ -45,6 +47,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	req := apiclient.FetchWebpageRequest{
 		URL:       url,
 		VaultName: *fetchVaultID,
+		Clean:     fetchClean,
 	}
 	if fetchPath != "" {
 		req.Path = &fetchPath

@@ -94,6 +94,7 @@ type App struct {
 	agentRunner          *agent.Runner
 	remoteService        *remote.Service
 	memoryService        *memory.Service
+	model                *llm.Model
 	apifyClient          *apify.Client
 	jinaClient           *jina.Client
 	bus                  *event.Bus
@@ -274,6 +275,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		FileSvc:   fileSvc,
 		RenderSvc: renderSvc,
 		Jina:      jinaClient,
+		Model:     model,
 	}
 	vaultSvc := vault.NewService(dbClient)
 	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
@@ -293,6 +295,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		renderService:      renderSvc,
 		agentService:       agentSvc,
 		agentRunner:        agentRunner,
+		model:              model,
 		apifyClient:        apifyClient,
 		jinaClient:         jinaClient,
 		bus:                bus,
@@ -404,6 +407,11 @@ func (a *App) MemoryService() *memory.Service {
 // ApifyClient returns the Apify client, or nil if not configured.
 func (a *App) ApifyClient() *apify.Client {
 	return a.apifyClient
+}
+
+// LLMModel returns the LLM model (nil if not configured).
+func (a *App) LLMModel() *llm.Model {
+	return a.model
 }
 
 // JinaClient returns the Jina Reader client.
@@ -557,6 +565,7 @@ func (a *App) ReloadLLM() error {
 		a.searchService.SetEmbedder(newEmbedder)
 	}
 	if modelChanged {
+		a.model = newModel
 		a.agentService.SetModel(newModel)
 		a.fileService.SetModel(newModel)
 	}

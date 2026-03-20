@@ -595,6 +595,10 @@ components:
         path:
           type: string
           description: "Vault path to save under (defaults to vault's `web_clip_path` setting)"
+        clean:
+          type: boolean
+          description: "Clean up markdown formatting with LLM before saving. Fixes broken headings, removes non-content boilerplate (navigation, cookie banners), and improves readability while preserving article content. Requires an LLM provider to be configured."
+          default: false
 
     FetchResponse:
       type: object

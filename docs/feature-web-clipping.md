@@ -47,6 +47,9 @@ know fetch https://example.com/article --path /articles/custom.md
 
 # Specify vault
 know fetch https://example.com/article --vault my-vault
+
+# Clean up markdown formatting with LLM before saving
+know fetch https://example.com/article --clean
 ```
 
 ## REST API
@@ -70,6 +73,7 @@ Request body:
 - `url` (required) — URL to fetch
 - `vault_id` (optional) — target vault, defaults to first accessible vault
 - `path` (optional) — custom save path, defaults to `/web/<slug>.md`
+- `clean` (optional) — clean up markdown formatting with LLM before saving (default: `false`)
 
 Response:
 
@@ -101,6 +105,16 @@ Fetches and persists to the vault:
 "Fetch https://example.com/guide and save it to my vault"
 "Clip this article to /references/guide.md: https://example.com/guide"
 ```
+
+### LLM cleanup
+
+Use `clean=true` to pass the fetched markdown through an LLM that fixes formatting issues (broken headings, navigation remnants, malformed tables) without changing content:
+
+```
+"Fetch https://example.com/article, clean up the formatting, and save it"
+```
+
+Requires an LLM provider to be configured. Returns an error if no LLM is available and `clean` is requested.
 
 ### Example prompts
 

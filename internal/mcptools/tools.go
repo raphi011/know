@@ -705,7 +705,7 @@ func (t *mcpTools) fetchWebpage(ctx context.Context, req *mcp.CallToolRequest, i
 
 	if !input.Save {
 		// Read-only mode — fetch directly without going through executor.
-		result, err := webclip.Fetch(ctx, t.jinaClient, input.URL)
+		result, err := webclip.Fetch(ctx, t.jinaClient, input.URL, nil)
 		if err != nil {
 			logutil.FromCtx(ctx).Warn("fetch webpage failed", "url", input.URL, "error", err)
 			return errorResult(fmt.Sprintf("failed to fetch page: %v", err)), nil, nil
