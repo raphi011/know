@@ -2,67 +2,28 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/raphi011/know/internal/apiclient"
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/browser"
+	"github.com/raphi011/know/internal/keychain"
 	"github.com/spf13/cobra"
 )
 
-// AuthConfig is stored in ~/.config/know/auth.json.
-type AuthConfig struct {
-	APIURL string `json:"api_url"`
-	Token  string `json:"token"`
-}
-
-func authConfigPath() (string, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("user config dir: %w", err)
+// saveCredentials stores the token and API URL in the system keychain.
+func saveCredentials(apiURL, token string) error {
+	if err := keychain.SetToken(token); err != nil {
+		return fmt.Errorf("save token: %w", err)
 	}
-	return filepath.Join(configDir, "know", "auth.json"), nil
-}
-
-func loadAuthConfig() (*AuthConfig, error) {
-	path, err := authConfigPath()
-	if err != nil {
-		return nil, err
+	if err := keychain.SetAPIURL(apiURL); err != nil {
+		return fmt.Errorf("save api url: %w", err)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var cfg AuthConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-func saveAuthConfig(cfg *AuthConfig) error {
-	path, err := authConfigPath()
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0600)
+	return nil
 }
 
 var authCmd = &cobra.Command{
@@ -146,10 +107,10 @@ func loginWithDeviceFlow(apiURL string, resp *apiclient.DeviceFlowStartResponse)
 				return fmt.Errorf("poll device flow: %w", err)
 			}
 			if token != "" {
-				if err := saveAuthConfig(&AuthConfig{APIURL: apiURL, Token: token}); err != nil {
-					return fmt.Errorf("save auth config: %w", err)
+				if err := saveCredentials(apiURL, token); err != nil {
+					return fmt.Errorf("save credentials: %w", err)
 				}
-				fmt.Println("\nLogin successful! Token saved.")
+				fmt.Println("\nLogin successful! Token saved to system keychain.")
 				return nil
 			}
 		case <-timeout:
@@ -173,10 +134,10 @@ func loginWithToken(apiURL string) error {
 		return fmt.Errorf("token validation failed: %w", err)
 	}
 
-	if err := saveAuthConfig(&AuthConfig{APIURL: apiURL, Token: token}); err != nil {
-		return fmt.Errorf("save auth config: %w", err)
+	if err := saveCredentials(apiURL, token); err != nil {
+		return fmt.Errorf("save credentials: %w", err)
 	}
-	fmt.Println("Token saved successfully!")
+	fmt.Println("Token saved to system keychain.")
 	return nil
 }
 
@@ -189,18 +150,23 @@ var authStatusCmd = &cobra.Command{
 			return nil
 		}
 
-		cfg, err := loadAuthConfig()
+		token, err := keychain.GetToken()
 		if err != nil {
-			return fmt.Errorf("load auth config: %w", err)
-		}
-		if cfg == nil {
-			fmt.Println("Not logged in.")
-			return nil
+			if keychain.IsNotFound(err) {
+				fmt.Println("Not logged in.")
+				return nil
+			}
+			return fmt.Errorf("read keychain: %w", err)
 		}
 
-		fmt.Printf("Logged in to: %s\n", cfg.APIURL)
-		if len(cfg.Token) > 10 {
-			fmt.Printf("Token: %s...%s\n", cfg.Token[:6], cfg.Token[len(cfg.Token)-4:])
+		apiURL, _ := keychain.GetAPIURL()
+
+		fmt.Println("Token source: system keychain")
+		if apiURL != "" {
+			fmt.Printf("Server: %s\n", apiURL)
+		}
+		if len(token) > 10 {
+			fmt.Printf("Token: %s...%s\n", token[:6], token[len(token)-4:])
 		} else {
 			fmt.Println("Token: (stored)")
 		}
@@ -212,16 +178,18 @@ var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored authentication token",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path, err := authConfigPath()
-		if err != nil {
-			return fmt.Errorf("auth config path: %w", err)
+		tokenErr := keychain.DeleteToken()
+		urlErr := keychain.DeleteAPIURL()
+
+		if tokenErr != nil && keychain.IsNotFound(tokenErr) && (urlErr == nil || keychain.IsNotFound(urlErr)) {
+			fmt.Println("Not logged in.")
+			return nil
 		}
-		if err := os.Remove(path); err != nil {
-			if os.IsNotExist(err) {
-				fmt.Println("Not logged in.")
-				return nil
-			}
-			return fmt.Errorf("remove auth config: %w", err)
+		if tokenErr != nil && !keychain.IsNotFound(tokenErr) {
+			return fmt.Errorf("remove token: %w", tokenErr)
+		}
+		if urlErr != nil && !keychain.IsNotFound(urlErr) {
+			return fmt.Errorf("remove api url: %w", urlErr)
 		}
 		fmt.Println("Logged out successfully.")
 		return nil

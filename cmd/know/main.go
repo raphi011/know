@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/keychain"
 	"github.com/spf13/cobra"
 )
 
@@ -39,15 +40,16 @@ func addAPIFlags(cmd *cobra.Command) *apiFlags {
 	defaultURL := envOrDefault("KNOW_SERVER_URL", "http://localhost:4001")
 	defaultToken := os.Getenv("KNOW_TOKEN")
 
-	// Fall back to ~/.config/know/auth.json when no env var is set.
+	// Fall back to system keychain when no env var is set.
 	if defaultToken == "" {
-		cfg, err := loadAuthConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not read auth config: %v\n", err)
-		} else if cfg != nil {
-			defaultToken = cfg.Token
-			if defaultURL == "http://localhost:4001" && cfg.APIURL != "" {
-				defaultURL = cfg.APIURL
+		if token, err := keychain.GetToken(); err == nil {
+			defaultToken = token
+		} else if !keychain.IsNotFound(err) {
+			fmt.Fprintf(os.Stderr, "Warning: could not read keychain: %v\n", err)
+		}
+		if defaultURL == "http://localhost:4001" {
+			if url, err := keychain.GetAPIURL(); err == nil && url != "" {
+				defaultURL = url
 			}
 		}
 	}
