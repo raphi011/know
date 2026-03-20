@@ -723,6 +723,32 @@ func (c *Client) RemoveBookmark(ctx context.Context, vaultName, filePath string)
 	return c.DeleteWithBody(ctx, vaultPath(vaultName, "/bookmarks"), map[string]string{"path": filePath})
 }
 
+// GetAssetReader downloads a binary asset and returns the response body as an io.ReadCloser.
+// The caller must close the reader when done.
+func (c *Client) GetAssetReader(ctx context.Context, vaultName, path string) (io.ReadCloser, error) {
+	q := url.Values{"path": {path}}
+	reqURL := c.baseURL + vaultPath(vaultName, "/assets") + "?" + q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get asset: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("get asset: HTTP %d", resp.StatusCode)
+	}
+
+	return resp.Body, nil
+}
+
 // JobStatusResponse is the response from GET /api/jobs.
 type JobStatusResponse struct {
 	Stats        models.JobStats            `json:"stats"`
