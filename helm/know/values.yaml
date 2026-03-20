@@ -26,8 +26,8 @@ surrealdb:
   url: "ws://surrealdb:8000/rpc"
   namespace: "knowledge"
   database: "graph"
-  user: "root"
-  password: "root"
+  user: ""       # required — set via values or existingSecret
+  password: ""   # required — set via values or existingSecret
   # Authentication level: "root" or "database"
   authLevel: "root"
   # Use existing secret for credentials (optional)
@@ -73,6 +73,9 @@ ollama:
 pdf:
   textExtractorModel: ""  # model for PDF text extraction (default: gemini-2.0-flash)
   renderDpi: ""           # DPI for PDF rendering (default: 300)
+
+# API docs (Scalar UI at /, OpenAPI spec at /api/v1/openapi.yaml)
+docsEnabled: false  # disabled in production by default
 
 # MCP (Model Context Protocol) endpoint
 mcp:

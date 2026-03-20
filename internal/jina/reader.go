@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -50,8 +52,46 @@ type responseData struct {
 	Content     string `json:"content"`
 }
 
+// validateURL checks that the target URL uses a safe scheme and does not
+// resolve to a private, loopback, or link-local address (SSRF prevention).
+//
+// Note: this is a best-effort client-side check. The actual HTTP request goes
+// to r.jina.ai, which performs its own fetch of the target URL. A DNS rebinding
+// attack (TOCTOU) is therefore mitigated by Jina being the intermediary.
+func validateURL(targetURL string) error {
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported scheme %q: only http and https are allowed", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL has no host")
+	}
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("resolve host %q: %w", host, err)
+	}
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			return fmt.Errorf("could not parse resolved IP %q for host %q", ipStr, host)
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL resolves to non-public IP %s", ipStr)
+		}
+	}
+	return nil
+}
+
 // Read fetches a URL via Jina Reader and returns the markdown content with metadata.
 func (c *Client) Read(ctx context.Context, targetURL string) (*ReadResult, error) {
+	if err := validateURL(targetURL); err != nil {
+		return nil, fmt.Errorf("validate URL: %w", err)
+	}
+
 	reqURL := baseURL + "/" + targetURL
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
