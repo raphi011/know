@@ -124,9 +124,10 @@ func (h *OAuthHandler) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ac, err := h.auth.db.GetOAuthAuthCode(ctx, code)
+	// Atomically consume the auth code to prevent replay attacks.
+	ac, err := h.auth.db.ConsumeOAuthAuthCode(ctx, code)
 	if err != nil {
-		logger.Error("get oauth auth code", "error", err)
+		logger.Error("consume oauth auth code", "error", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "internal error")
 		return
 	}
@@ -136,9 +137,6 @@ func (h *OAuthHandler) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if time.Now().After(ac.ExpiresAt) {
-		if err := h.auth.db.DeleteOAuthAuthCode(ctx, code); err != nil {
-			logger.Warn("delete expired oauth auth code", "error", err)
-		}
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code expired")
 		return
 	}
@@ -153,10 +151,6 @@ func (h *OAuthHandler) handleToken(w http.ResponseWriter, r *http.Request) {
 	if computedChallenge != ac.CodeChallenge {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
 		return
-	}
-
-	if err := h.auth.db.DeleteOAuthAuthCode(ctx, code); err != nil {
-		logger.Error("delete oauth auth code", "error", err)
 	}
 
 	rawToken, err := oidc.DecryptWithDeviceCode(ac.EncryptedToken, ac.CodeChallenge)
@@ -181,8 +175,14 @@ func isLoopbackRedirectURI(rawURI string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
+// redirectWithError redirects the client back to redirectURI with OAuth error parameters.
+// Precondition: redirectURI must have been validated as a loopback URI before calling.
 func redirectWithError(w http.ResponseWriter, r *http.Request, redirectURI, state, errorCode, description string) {
-	u, _ := url.Parse(redirectURI)
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid redirect URI")
+		return
+	}
 	q := u.Query()
 	q.Set("error", errorCode)
 	q.Set("error_description", description)

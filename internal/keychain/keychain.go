@@ -23,7 +23,7 @@ func SetToken(token string) error {
 }
 
 // GetToken retrieves the API token from the system keychain.
-// Returns ErrNotFound if no token is stored.
+// Returns an error wrapping ErrNotFound when no token is stored (use IsNotFound to check).
 func GetToken() (string, error) {
 	token, err := keyring.Get(service, "token")
 	if err != nil {
@@ -49,7 +49,7 @@ func SetAPIURL(url string) error {
 }
 
 // GetAPIURL retrieves the server URL from the system keychain.
-// Returns ErrNotFound if no URL is stored.
+// Returns an error wrapping ErrNotFound when no URL is stored (use IsNotFound to check).
 func GetAPIURL() (string, error) {
 	url, err := keyring.Get(service, "api_url")
 	if err != nil {

@@ -36,6 +36,20 @@ func (c *Client) GetOAuthAuthCode(ctx context.Context, code string) (*models.OAu
 	return firstResultOpt(results), nil
 }
 
+// ConsumeOAuthAuthCode atomically deletes an auth code and returns it.
+// Returns nil if the code does not exist (already consumed or never created).
+func (c *Client) ConsumeOAuthAuthCode(ctx context.Context, code string) (*models.OAuthAuthCode, error) {
+	defer c.logOp(ctx, "oauth_auth_code.consume", time.Now())
+	sql := `DELETE oauth_auth_code WHERE code = $code RETURN BEFORE`
+	results, err := surrealdb.Query[[]models.OAuthAuthCode](ctx, c.DB(), sql, map[string]any{
+		"code": code,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("consume oauth auth code: %w", err)
+	}
+	return firstResultOpt(results), nil
+}
+
 func (c *Client) DeleteOAuthAuthCode(ctx context.Context, code string) error {
 	defer c.logOp(ctx, "oauth_auth_code.delete", time.Now())
 	sql := `DELETE oauth_auth_code WHERE code = $code`

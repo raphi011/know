@@ -208,7 +208,8 @@ Shows current authentication state:
 
 ```bash
 know auth status
-# Logged in to: https://know.example.com
+# Token source: system keychain
+# Server: https://know.example.com
 # Token: kh_abc...xyz9
 ```
 
@@ -242,7 +243,7 @@ When OIDC is enabled, Know exposes an OAuth 2.0 Authorization Server facade on t
 claude mcp add --transport http --client-id know-mcp know http://localhost:4002/mcp
 ```
 
-Then in Claude Code, run `/mcp` and select "Authenticate" — a browser window opens, you log in with your OIDC provider, and the token is stored automatically in the system keychain.
+Then in Claude Code, run `/mcp` and select "Authenticate" — a browser window opens, you log in with your OIDC provider, and the token is issued and stored automatically by the MCP client.
 
 **Configuration:**
 - `KNOW_PROTOCOL_BASE_URL` — Public URL of the protocol port (required in production, e.g. `https://know.example.com:4002`)

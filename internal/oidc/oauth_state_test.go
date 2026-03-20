@@ -40,12 +40,19 @@ func TestSignVerifyOAuthState(t *testing.T) {
 func TestVerifyOAuthState_WrongSecret(t *testing.T) {
 	secret1 := make([]byte, 32)
 	secret2 := make([]byte, 32)
-	rand.Read(secret1)
-	rand.Read(secret2)
-	state, _ := SignOAuthState(secret1, OAuthStatePayload{
+	if _, err := rand.Read(secret1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(secret2); err != nil {
+		t.Fatal(err)
+	}
+	state, err := SignOAuthState(secret1, OAuthStatePayload{
 		RedirectURI: "http://localhost:1234/callback", CodeChallenge: "challenge", ClientState: "state",
 	})
-	_, err := VerifyOAuthState(secret2, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = VerifyOAuthState(secret2, state)
 	if err == nil {
 		t.Error("expected error with wrong secret")
 	}
@@ -53,14 +60,31 @@ func TestVerifyOAuthState_WrongSecret(t *testing.T) {
 
 func TestVerifyOAuthState_Tampered(t *testing.T) {
 	secret := make([]byte, 32)
-	rand.Read(secret)
-	state, _ := SignOAuthState(secret, OAuthStatePayload{
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatal(err)
+	}
+	state, err := SignOAuthState(secret, OAuthStatePayload{
 		RedirectURI: "http://localhost:1234/callback", CodeChallenge: "challenge", ClientState: "state",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tampered := state[:len(state)-2] + "xx"
-	_, err := VerifyOAuthState(secret, tampered)
+	_, err = VerifyOAuthState(secret, tampered)
 	if err == nil {
 		t.Error("expected error with tampered state")
+	}
+}
+
+func TestVerifyOAuthState_Malformed(t *testing.T) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatal(err)
+	}
+	// Has oauth: prefix but no dot separator
+	_, err := VerifyOAuthState(secret, "oauth:nodot")
+	if err == nil {
+		t.Error("expected error for malformed state without dot separator")
 	}
 }
 

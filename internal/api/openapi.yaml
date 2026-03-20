@@ -3237,6 +3237,10 @@ paths:
                     type: array
                     items:
                       type: string
+                  token_endpoint_auth_methods_supported:
+                    type: array
+                    items:
+                      type: string
 
   /oauth/authorize:
     get:
@@ -3274,10 +3278,12 @@ paths:
             type: string
         - name: code_challenge
           in: query
+          required: true
           schema:
             type: string
         - name: code_challenge_method
           in: query
+          required: true
           schema:
             type: string
             enum: [S256]
@@ -3299,7 +3305,7 @@ paths:
       description: |
         Exchanges an authorization code for a `kh_` API token. Called by MCP clients
         after the user completes browser login. Supports the Authorization Code grant
-        with optional PKCE verification. **Unauthenticated endpoint.**
+        with mandatory PKCE verification (code_verifier is required). **Unauthenticated endpoint.**
         Only available when OIDC is enabled. Served on the protocol port (default 4002).
       security: []
       servers:
@@ -3311,7 +3317,7 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
-              required: [grant_type, code, redirect_uri, client_id]
+              required: [grant_type, code, code_verifier]
               properties:
                 grant_type:
                   type: string
@@ -3325,7 +3331,7 @@ paths:
                   type: string
                 code_verifier:
                   type: string
-                  description: PKCE code verifier (required if code_challenge was provided)
+                  description: PKCE code verifier (required)
       responses:
         "200":
           description: Access token issued

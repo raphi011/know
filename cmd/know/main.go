@@ -50,6 +50,8 @@ func addAPIFlags(cmd *cobra.Command) *apiFlags {
 		if defaultURL == "http://localhost:4001" {
 			if url, err := keychain.GetAPIURL(); err == nil && url != "" {
 				defaultURL = url
+			} else if err != nil && !keychain.IsNotFound(err) {
+				fmt.Fprintf(os.Stderr, "Warning: could not read server URL from keychain: %v\n", err)
 			}
 		}
 	}

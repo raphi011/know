@@ -21,6 +21,8 @@ func saveCredentials(apiURL, token string) error {
 		return fmt.Errorf("save token: %w", err)
 	}
 	if err := keychain.SetAPIURL(apiURL); err != nil {
+		// Remove the token to avoid partial keychain state.
+		_ = keychain.DeleteToken() // best-effort cleanup
 		return fmt.Errorf("save api url: %w", err)
 	}
 	return nil
@@ -159,7 +161,10 @@ var authStatusCmd = &cobra.Command{
 			return fmt.Errorf("read keychain: %w", err)
 		}
 
-		apiURL, _ := keychain.GetAPIURL()
+		apiURL, err := keychain.GetAPIURL()
+		if err != nil && !keychain.IsNotFound(err) {
+			fmt.Fprintf(os.Stderr, "Warning: could not read server URL from keychain: %v\n", err)
+		}
 
 		fmt.Println("Token source: system keychain")
 		if apiURL != "" {

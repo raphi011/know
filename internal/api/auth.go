@@ -227,6 +227,7 @@ func (h *AuthHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 				redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "access_denied", r.URL.Query().Get("error_description"))
 				return
 			}
+			logutil.FromCtx(r.Context()).Warn("oauth state verification failed", "error", err)
 		}
 		httputil.WriteProblem(w, http.StatusBadRequest, "authentication failed: "+oauthError)
 		return
@@ -430,7 +431,12 @@ func (h *AuthHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request
 	logger.Info("oauth flow completed", "user_id", userID, "provider", userInfo.Provider)
 
 	// Redirect back to the client with the authorization code
-	u, _ := url.Parse(payload.RedirectURI)
+	u, err := url.Parse(payload.RedirectURI)
+	if err != nil {
+		logger.Error("parse redirect uri", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid redirect URI")
+		return
+	}
 	q := u.Query()
 	q.Set("code", authCode)
 	if payload.ClientState != "" {
