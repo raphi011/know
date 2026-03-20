@@ -192,7 +192,7 @@ is disabled, or any other error), the CLI falls back to token paste.
 2. **Token paste** -- manually enter an existing API token:
    - CLI validates the token format (`kh_` prefix)
    - Verifies the token works by calling the API
-   - Saves to `~/.config/know/auth.json`
+   - Saves to the system keychain (macOS Keychain, Linux libsecret, Windows Credential Manager)
 
 ```bash
 # Login to default server
@@ -208,7 +208,8 @@ Shows current authentication state:
 
 ```bash
 know auth status
-# Logged in to: https://know.example.com
+# Token source: system keychain
+# Server: https://know.example.com
 # Token: kh_abc...xyz9
 ```
 
@@ -224,9 +225,29 @@ know auth logout
 ### Token resolution order
 
 The CLI resolves tokens in this order:
-1. `KNOW_TOKEN` environment variable
-2. `~/.config/know/auth.json` (saved by `know auth login`)
+1. `KNOW_TOKEN` environment variable (recommended for CI/headless systems)
+2. System keychain (saved by `know auth login`)
 3. `--token` flag (if supported by the command)
+
+### OAuth MCP Authentication
+
+When OIDC is enabled, Know exposes an OAuth 2.0 Authorization Server facade on the protocol port. This lets Claude Code and other MCP clients authenticate via browser login without manual token configuration.
+
+**Endpoints** (on protocol port, default 4002):
+- `GET /.well-known/oauth-authorization-server` — OAuth metadata (RFC 8414)
+- `GET /oauth/authorize` — Starts the auth flow (redirects to OIDC provider)
+- `POST /oauth/token` — Exchanges authorization code for `kh_` token
+
+**Setup:**
+```bash
+claude mcp add --transport http --client-id know-mcp know http://localhost:4002/mcp
+```
+
+Then in Claude Code, run `/mcp` and select "Authenticate" — a browser window opens, you log in with your OIDC provider, and the token is issued and stored automatically by the MCP client.
+
+**Configuration:**
+- `KNOW_PROTOCOL_BASE_URL` — Public URL of the protocol port (required in production, e.g. `https://know.example.com:4002`)
+- Requires `KNOW_OIDC_ENABLED=true` and a configured OIDC provider
 
 ## Native App Login (PKCE)
 

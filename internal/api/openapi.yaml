@@ -3191,3 +3191,161 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  # ── OAuth AS Facade (protocol port) ─────────────────────
+  # These endpoints are served on the protocol port (default 4002), not /api/v1/.
+  # They implement the OAuth 2.0 Authorization Server metadata and flow so that
+  # MCP clients (e.g. Claude Code) can authenticate via browser login.
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [Auth]
+      summary: OAuth Authorization Server metadata
+      description: |
+        Returns OAuth 2.0 Authorization Server metadata per RFC 8414. Used by MCP clients
+        to discover authorization and token endpoints. **Unauthenticated endpoint.**
+        Only available when OIDC is enabled. Served on the protocol port (default 4002).
+      security: []
+      servers:
+        - url: /
+          description: Protocol port (default 4002)
+      responses:
+        "200":
+          description: OAuth Authorization Server metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issuer:
+                    type: string
+                    description: Base URL of the authorization server
+                  authorization_endpoint:
+                    type: string
+                    description: URL of the authorization endpoint
+                  token_endpoint:
+                    type: string
+                    description: URL of the token endpoint
+                  response_types_supported:
+                    type: array
+                    items:
+                      type: string
+                  grant_types_supported:
+                    type: array
+                    items:
+                      type: string
+                  code_challenge_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                  token_endpoint_auth_methods_supported:
+                    type: array
+                    items:
+                      type: string
+
+  /oauth/authorize:
+    get:
+      tags: [Auth]
+      summary: OAuth authorization endpoint
+      description: |
+        Starts the OAuth 2.0 Authorization Code flow. Redirects the browser to the
+        configured OIDC provider. On successful authentication, the provider redirects
+        back to the client with an authorization code. **Unauthenticated endpoint.**
+        Only available when OIDC is enabled. Served on the protocol port (default 4002).
+      security: []
+      servers:
+        - url: /
+          description: Protocol port (default 4002)
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [S256]
+      responses:
+        "302":
+          description: Redirect to OIDC provider
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the OIDC provider authorization endpoint
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /oauth/token:
+    post:
+      tags: [Auth]
+      summary: OAuth token endpoint
+      description: |
+        Exchanges an authorization code for a `kh_` API token. Called by MCP clients
+        after the user completes browser login. Supports the Authorization Code grant
+        with mandatory PKCE verification (code_verifier is required). **Unauthenticated endpoint.**
+        Only available when OIDC is enabled. Served on the protocol port (default 4002).
+      security: []
+      servers:
+        - url: /
+          description: Protocol port (default 4002)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, code, code_verifier]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code]
+                code:
+                  type: string
+                  description: Authorization code from the redirect
+                redirect_uri:
+                  type: string
+                client_id:
+                  type: string
+                code_verifier:
+                  type: string
+                  description: PKCE code verifier (required)
+      responses:
+        "200":
+          description: Access token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type]
+                properties:
+                  access_token:
+                    type: string
+                    description: The `kh_` API token
+                  token_type:
+                    type: string
+                    enum: [bearer]
+        "400":
+          $ref: "#/components/responses/BadRequest"

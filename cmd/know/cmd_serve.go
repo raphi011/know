@@ -189,6 +189,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// OIDC auth routes (unauthenticated — must be registered before auth middleware)
+	var oidcHandler *api.AuthHandler
 	if cfg.OIDCEnabled {
 		var oidcProvider oidc.Provider
 		switch cfg.OIDCProviderType {
@@ -203,7 +204,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 			}
 			oidcProvider = p
 		}
-		oidcHandler, oidcErr := api.NewAuthHandler(oidcProvider, app.DBClient(), cfg.SelfSignupEnabled, cfg.OIDCRedirectURL, cfg.TokenMaxLifetimeDays)
+		var oidcErr error
+		oidcHandler, oidcErr = api.NewAuthHandler(oidcProvider, app.DBClient(), cfg.SelfSignupEnabled, cfg.OIDCRedirectURL, cfg.TokenMaxLifetimeDays)
 		if oidcErr != nil {
 			return fmt.Errorf("init oidc handler: %w", oidcErr)
 		}
@@ -230,6 +232,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 					if err := app.DBClient().DeleteExpiredDeviceCodes(serverCtx); err != nil {
 						slog.Warn("failed to clean up expired device codes", "error", err)
 						app.Metrics().RecordCleanupFailure("expired_device_codes")
+					}
+					if err := app.DBClient().DeleteExpiredOAuthAuthCodes(serverCtx); err != nil {
+						slog.Warn("failed to clean up expired oauth auth codes", "error", err)
+						app.Metrics().RecordCleanupFailure("expired_oauth_auth_codes")
 					}
 				}
 			case <-serverCtx.Done():
@@ -289,6 +295,17 @@ func runServe(_ *cobra.Command, _ []string) error {
 			)
 			protoMux.Handle("/mcp", authMw(mcpHandler))
 			slog.Info("MCP endpoint enabled", "port", cfg.ProtocolPort, "path", "/mcp")
+		}
+
+		// OAuth AS facade for MCP auth (lets Claude Code authenticate via browser)
+		if cfg.OIDCEnabled && oidcHandler != nil {
+			oauthHandler := api.NewOAuthHandler(oidcHandler, cfg.ProtocolBaseURL)
+			if authRateLimiter != nil {
+				oauthHandler.RegisterRoutes(protoMux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
+			} else {
+				oauthHandler.RegisterRoutes(protoMux)
+			}
+			slog.Info("OAuth MCP auth enabled", "base_url", cfg.ProtocolBaseURL)
 		}
 
 		// WebDAV endpoint for document editing with any editor

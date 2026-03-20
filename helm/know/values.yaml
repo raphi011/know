@@ -85,6 +85,7 @@ mcp:
 protocol:
   enabled: true
   port: "4002"
+  # protocolBaseURL: "" # Public URL for protocol port (required for OAuth in production)
 
 # SSH/SFTP server
 ssh:

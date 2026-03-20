@@ -212,19 +212,44 @@ func (h *AuthHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
-// handleOIDCCallback handles the OIDC provider's redirect after authentication.
+// handleOIDCCallback dispatches the OIDC provider's redirect to the appropriate flow.
 // GET /auth/callback?state=...&code=...
 func (h *AuthHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	logger := logutil.FromCtx(ctx)
-
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
+	oauthError := r.URL.Query().Get("error")
+
+	// Handle upstream provider errors (user denied consent, etc.)
+	if oauthError != "" {
+		if oidc.IsOAuthState(state) {
+			payload, err := oidc.VerifyOAuthState(h.stateSecret, state)
+			if err == nil {
+				redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "access_denied", r.URL.Query().Get("error_description"))
+				return
+			}
+			logutil.FromCtx(r.Context()).Warn("oauth state verification failed", "error", err)
+		}
+		httputil.WriteProblem(w, http.StatusBadRequest, "authentication failed: "+oauthError)
+		return
+	}
 
 	if state == "" || code == "" {
 		httputil.WriteProblem(w, http.StatusBadRequest, "missing state or code parameter")
 		return
 	}
+
+	if oidc.IsOAuthState(state) {
+		h.handleOAuthCallback(w, r, state, code)
+		return
+	}
+
+	h.handleDeviceFlowCallback(w, r, state, code)
+}
+
+// handleDeviceFlowCallback completes the device authorization flow after OIDC authentication.
+func (h *AuthHandler) handleDeviceFlowCallback(w http.ResponseWriter, r *http.Request, state, code string) {
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
 
 	userCode, ok := oidc.VerifyState(h.stateSecret, state)
 	if !ok {
@@ -320,6 +345,105 @@ func (h *AuthHandler) handleOIDCCallback(w http.ResponseWriter, r *http.Request)
 </div>
 </body>
 </html>`)
+}
+
+// handleOAuthCallback completes the OAuth authorization code flow after OIDC authentication.
+func (h *AuthHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request, state, code string) {
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
+
+	payload, err := oidc.VerifyOAuthState(h.stateSecret, state)
+	if err != nil {
+		logger.Warn("invalid oauth state", "error", err)
+		httputil.WriteProblem(w, http.StatusBadRequest, "invalid state parameter")
+		return
+	}
+
+	// Exchange upstream authorization code for user info
+	userInfo, err := h.provider.ExchangeCode(ctx, code)
+	if err != nil {
+		logger.Error("exchange oidc code", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "failed to exchange authorization code")
+		return
+	}
+
+	// Resolve or create the user
+	user, err := oidc.FindOrCreateUser(ctx, h.db, userInfo, h.selfSignup)
+	if err != nil {
+		logger.Warn("find or create user failed", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "access_denied", "login failed: user not found or registration disabled")
+		return
+	}
+
+	userID, err := models.RecordIDString(user.ID)
+	if err != nil {
+		logger.Error("extract user id", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
+		return
+	}
+
+	// Generate an API token for the MCP client
+	rawToken, tokenHash, err := auth.GenerateToken()
+	if err != nil {
+		logger.Error("generate token", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
+		return
+	}
+
+	tokenExpiry := time.Now().Add(time.Duration(h.tokenMaxLifetimeDays) * 24 * time.Hour)
+	token, err := h.db.CreateToken(ctx, userID, tokenHash, "oauth-mcp-login", tokenExpiry)
+	if err != nil {
+		logger.Error("create token", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
+		return
+	}
+
+	// Generate a short-lived auth code to pass back to the client
+	authCode, err := generateAuthCode()
+	if err != nil {
+		logger.Error("generate auth code", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
+		return
+	}
+
+	// Encrypt the raw token with the code_challenge as key — only the client
+	// that holds the code_verifier can derive the challenge and decrypt it.
+	encryptedToken, err := oidc.EncryptWithDeviceCode(rawToken, payload.CodeChallenge)
+	if err != nil {
+		logger.Error("encrypt token for oauth", "error", err)
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
+		return
+	}
+
+	if err := h.db.CreateOAuthAuthCode(ctx, authCode, encryptedToken, payload.CodeChallenge, payload.RedirectURI, time.Now().Add(oauthAuthCodeExpiry)); err != nil {
+		logger.Error("create oauth auth code", "error", err)
+		// Clean up the orphaned token to avoid leaving a valid but undelivered credential
+		tokenID, idErr := models.RecordIDString(token.ID)
+		if idErr != nil {
+			logger.Error("extract token id for cleanup", "error", idErr)
+		} else if delErr := h.db.DeleteToken(ctx, tokenID); delErr != nil {
+			logger.Error("delete orphaned token after oauth auth code failure", "error", delErr)
+		}
+		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
+		return
+	}
+
+	logger.Info("oauth flow completed", "user_id", userID, "provider", userInfo.Provider)
+
+	// Redirect back to the client with the authorization code
+	u, err := url.Parse(payload.RedirectURI)
+	if err != nil {
+		logger.Error("parse redirect uri", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid redirect URI")
+		return
+	}
+	q := u.Query()
+	q.Set("code", authCode)
+	if payload.ClientState != "" {
+		q.Set("state", payload.ClientState)
+	}
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 // handleTokenExchange handles POST /auth/token

@@ -65,7 +65,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();
     DEFINE FIELD IF NOT EXISTS updated_at     ON file TYPE datetime VALUE time::now();
     DEFINE FIELD IF NOT EXISTS stem           ON file TYPE string DEFAULT "";
-    DEFINE FIELD no_embed ON file TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS no_embed ON file TYPE bool DEFAULT false;
     -- Backfill: existing records may have NONE from an older schema.
     UPDATE file SET no_embed = false WHERE no_embed = NONE;
 
@@ -418,6 +418,20 @@ func SchemaSQL(dimension int) string {
 
     DEFINE INDEX IF NOT EXISTS idx_device_code_code ON device_code FIELDS device_code UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_device_code_user_code ON device_code FIELDS user_code UNIQUE;
+
+    -- ==========================================================================
+    -- OAUTH_AUTH_CODE TABLE (short-lived authorization codes for MCP OAuth flow)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS oauth_auth_code SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS code            ON oauth_auth_code TYPE string;
+    DEFINE FIELD IF NOT EXISTS encrypted_token ON oauth_auth_code TYPE string;
+    DEFINE FIELD IF NOT EXISTS code_challenge  ON oauth_auth_code TYPE string;
+    DEFINE FIELD IF NOT EXISTS redirect_uri    ON oauth_auth_code TYPE string;
+    DEFINE FIELD IF NOT EXISTS expires_at      ON oauth_auth_code TYPE datetime;
+    DEFINE FIELD IF NOT EXISTS created_at      ON oauth_auth_code TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_oauth_auth_code ON oauth_auth_code FIELDS code UNIQUE;
 
     -- ==========================================================================
     -- CLEANUP: remove superseded single-field indexes
