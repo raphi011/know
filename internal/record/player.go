@@ -1,6 +1,7 @@
 package record
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"sync"
@@ -38,6 +39,9 @@ type Player struct {
 	bitsPerSample uint16
 	duration      time.Duration
 
+	// Volume (0.0–1.0).
+	volume float64
+
 	// malgo resources.
 	ctx    *malgo.AllocatedContext
 	device *malgo.Device
@@ -67,6 +71,7 @@ func NewPlayer(r io.ReadCloser) (*Player, error) {
 		channels:      hdr.Channels,
 		bitsPerSample: hdr.BitsPerSample,
 		duration:      hdr.Duration(),
+		volume:        1.0,
 		ctx:           ctx,
 	}
 
@@ -174,6 +179,20 @@ func (p *Player) Duration() time.Duration {
 	return p.duration
 }
 
+// Volume returns the current volume (0.0–1.0).
+func (p *Player) Volume() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.volume
+}
+
+// SetVolume sets the playback volume, clamped to 0.0–1.0.
+func (p *Player) SetVolume(v float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.volume = max(0, min(1, v))
+}
+
 // State returns the current player state.
 func (p *Player) State() PlayerState {
 	p.mu.Lock()
@@ -234,20 +253,27 @@ func (p *Player) initDevice() error {
 		available := len(p.pcmBuf) - p.playOffset
 
 		if available <= 0 {
-			// End of audio — fill with silence and reset to start.
+			// End of audio — fill with silence and pause (no loop).
 			for i := range output {
 				output[i] = 0
 			}
-			if p.downloaded {
-				p.state = PlayerPaused
-				p.playOffset = 0
-			}
+			p.state = PlayerPaused
 			return
 		}
 
 		toRead := min(bytesNeeded, available)
 		copy(output[:toRead], p.pcmBuf[p.playOffset:p.playOffset+toRead])
 		p.playOffset += toRead
+
+		// Apply volume scaling to the output samples (16-bit LE).
+		vol := p.volume
+		if vol < 1.0 {
+			for i := 0; i+1 < toRead; i += 2 {
+				sample := int16(binary.LittleEndian.Uint16(output[i:]))
+				scaled := int16(float64(sample) * vol)
+				binary.LittleEndian.PutUint16(output[i:], uint16(scaled))
+			}
+		}
 
 		// Fill remainder with silence if buffer underrun.
 		for i := toRead; i < bytesNeeded; i++ {

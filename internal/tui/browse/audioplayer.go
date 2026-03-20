@@ -71,7 +71,7 @@ func (m audioPlayerModel) Update(msg tea.Msg) (audioPlayerModel, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case " ":
+		case " ", "space":
 			if err := m.player.PlayPause(); err != nil {
 				m.err = err.Error()
 			}
@@ -81,6 +81,12 @@ func (m audioPlayerModel) Update(msg tea.Msg) (audioPlayerModel, tea.Cmd) {
 			return m, nil
 		case "right":
 			m.player.Seek(5 * time.Second)
+			return m, nil
+		case "+", "=":
+			m.player.SetVolume(m.player.Volume() + 0.1)
+			return m, nil
+		case "-":
+			m.player.SetVolume(m.player.Volume() - 0.1)
 			return m, nil
 		case "esc":
 			m.player.Close()
@@ -126,11 +132,13 @@ func (m audioPlayerModel) View() string {
 	default:
 		status = playerPausedStyle.Render("⏹ Stopped")
 	}
-	b.WriteString("  " + status + "\n")
+	vol := int(m.player.Volume() * 100)
+	b.WriteString("  " + status + playerHotkeyStyle.Render(fmt.Sprintf("  vol: %d%%", vol)) + "\n")
 
 	b.WriteString("  ")
 	b.WriteString(playerHotkeyKeyStyle.Render("space") + playerHotkeyStyle.Render(" play/pause  "))
 	b.WriteString(playerHotkeyKeyStyle.Render("←/→") + playerHotkeyStyle.Render(" seek  "))
+	b.WriteString(playerHotkeyKeyStyle.Render("+/-") + playerHotkeyStyle.Render(" volume  "))
 	b.WriteString(playerHotkeyKeyStyle.Render("esc") + playerHotkeyStyle.Render(" back"))
 	b.WriteString("\n")
 
