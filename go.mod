@@ -35,6 +35,7 @@ require (
 	github.com/willscott/go-nfs v0.0.3
 	github.com/yuin/goldmark v1.7.16
 	github.com/yuin/goldmark-meta v1.1.0
+	github.com/zalando/go-keyring v0.2.6
 	go.abhg.dev/goldmark/wikilink v0.6.0
 	go.yaml.in/yaml/v2 v2.4.4
 	golang.org/x/crypto v0.49.0
@@ -45,12 +46,15 @@ require (
 )
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.20 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gofrs/uuid/v5 v5.4.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
