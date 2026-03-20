@@ -6,16 +6,19 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/raphi011/know/internal/record"
 )
 
 // backToFinderMsg signals the browser to switch back to the finder.
 type backToFinderMsg struct{}
 
 type viewerModel struct {
-	viewport   viewport.Model
-	path       string
-	width      int
-	bookmarked bool
+	viewport    viewport.Model
+	audioPlayer *audioPlayerModel
+	path        string
+	width       int
+	height      int
+	bookmarked  bool
 }
 
 func newViewer(path, renderedContent string, width, height int) viewerModel {
@@ -26,10 +29,27 @@ func newViewer(path, renderedContent string, width, height int) viewerModel {
 		viewport: vp,
 		path:     path,
 		width:    width,
+		height:   height,
+	}
+}
+
+func newAudioViewer(path string, player *record.Player, transcript string, width, height int) viewerModel {
+	ap := newAudioPlayer(player, transcript, width, height)
+	return viewerModel{
+		audioPlayer: &ap,
+		path:        path,
+		width:       width,
+		height:      height,
 	}
 }
 
 func (v viewerModel) Update(msg tea.Msg) (viewerModel, tea.Cmd) {
+	if v.audioPlayer != nil {
+		var cmd tea.Cmd
+		*v.audioPlayer, cmd = v.audioPlayer.Update(msg)
+		return v, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
@@ -53,18 +73,22 @@ func (v viewerModel) View() string {
 	b.WriteString(header)
 	b.WriteString("\n")
 
-	// Viewport content
-	b.WriteString(v.viewport.View())
-	b.WriteString("\n")
+	if v.audioPlayer != nil {
+		b.WriteString(v.audioPlayer.View())
+	} else {
+		// Viewport content
+		b.WriteString(v.viewport.View())
+		b.WriteString("\n")
 
-	// Footer with scroll position and keybinds
-	pct := v.viewport.ScrollPercent()
-	bookmarkHint := "b: bookmark"
-	if v.bookmarked {
-		bookmarkHint = "b: unbookmark"
+		// Footer with scroll position and keybinds
+		pct := v.viewport.ScrollPercent()
+		bookmarkHint := "b: bookmark"
+		if v.bookmarked {
+			bookmarkHint = "b: unbookmark"
+		}
+		footer := footerBarStyle.Render(fmt.Sprintf("  %.0f%%  %s  esc: back  q: quit", pct*100, bookmarkHint))
+		b.WriteString(footer)
 	}
-	footer := footerBarStyle.Render(fmt.Sprintf("  %.0f%%  %s  esc: back  q: quit", pct*100, bookmarkHint))
-	b.WriteString(footer)
 
 	return b.String()
 }

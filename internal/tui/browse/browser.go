@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/raphi011/know/internal/apiclient"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/record"
 )
 
 type viewState int
@@ -24,6 +26,14 @@ const (
 type documentFetchedMsg struct {
 	doc *apiclient.Document
 	err error
+}
+
+// audioReadyMsg is the result of an async audio asset fetch.
+type audioReadyMsg struct {
+	path       string
+	player     *record.Player
+	transcript string
+	err        error
 }
 
 // Model is the root browser model composing a finder, links list, bookmarks, and viewer.
@@ -131,8 +141,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
-			m.viewer.viewport.SetWidth(msg.Width)
-			m.viewer.viewport.SetHeight(max(msg.Height-2, 1))
+			m.viewer.height = msg.Height
+			if m.viewer.audioPlayer != nil {
+				// Audio player handles its own resize via WindowSizeMsg
+			} else {
+				m.viewer.viewport.SetWidth(msg.Width)
+				m.viewer.viewport.SetHeight(max(msg.Height-2, 1))
+			}
 		}
 		return m, nil
 
@@ -185,6 +200,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finder.statusErr = ""
 		m.links.statusErr = ""
 		m.bookmarks.statusErr = ""
+
+		// Audio files: fetch binary asset for playback.
+		if strings.HasPrefix(msg.doc.MimeType, "audio/") && strings.HasSuffix(msg.doc.Path, ".wav") {
+			return m, m.fetchAudio(msg.doc)
+		}
+
 		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
 		// Initialize bookmark state from loaded bookmarks.
 		for _, bm := range m.bookmarks.items {
@@ -195,6 +216,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state = stateViewing
 		return m, nil
+
+	case audioReadyMsg:
+		if msg.err != nil {
+			slog.Warn("audio player init failed", "error", msg.err)
+			if m.activeTab == TabAllFiles {
+				m.finder.statusErr = fmt.Sprintf("Audio playback failed: %v", msg.err)
+			} else {
+				m.links.statusErr = fmt.Sprintf("Audio playback failed: %v", msg.err)
+			}
+			return m, nil
+		}
+		transcript := ""
+		if msg.transcript != "" {
+			transcript = renderContent(m.renderer, &apiclient.Document{Content: msg.transcript})
+		}
+		m.viewer = newAudioViewer(msg.path, msg.player, transcript, m.width, m.height)
+		m.state = stateViewing
+		return m, m.viewer.audioPlayer.tick()
 
 	case backToFinderMsg:
 		if m.noFinder {
@@ -291,6 +330,26 @@ func (m *Model) fetchDocument(path string) tea.Cmd {
 			return documentFetchedMsg{err: fmt.Errorf("fetch %s: %w", path, err)}
 		}
 		return documentFetchedMsg{doc: doc}
+	}
+}
+
+func (m Model) fetchAudio(doc *apiclient.Document) tea.Cmd {
+	client := m.client
+	vaultID := m.vaultID
+	return func() tea.Msg {
+		rc, err := client.GetAssetReader(context.Background(), vaultID, doc.Path)
+		if err != nil {
+			return audioReadyMsg{err: fmt.Errorf("download audio: %w", err)}
+		}
+		player, err := record.NewPlayer(rc)
+		if err != nil {
+			return audioReadyMsg{err: fmt.Errorf("init player: %w", err)}
+		}
+		return audioReadyMsg{
+			path:       doc.Path,
+			player:     player,
+			transcript: doc.Content,
+		}
 	}
 }
 
