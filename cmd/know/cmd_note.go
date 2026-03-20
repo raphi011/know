@@ -48,6 +48,7 @@ func init() {
 	noteVaultID = addVaultFlag(noteCmd, noteAPI)
 	noteCmd.Flags().StringVarP(&noteDate, "date", "d", "", "target date in YYYY-MM-DD format (default: today)")
 	noteCmd.Flags().BoolVarP(&noteEdit, "edit", "e", false, "open daily note in $EDITOR")
+	noteCmd.AddCommand(noteRecordCmd)
 }
 
 func runNote(_ *cobra.Command, args []string) error {

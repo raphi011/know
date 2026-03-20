@@ -54,11 +54,11 @@ default:
 
 # Build binary
 build:
-    CGO_ENABLED=0 go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/know
+    CGO_ENABLED=1 go build -buildvcs=false -o {{build_dir}}/{{binary}} ./cmd/know
 
 # Run all tests
 test:
-    CGO_ENABLED=0 go test -buildvcs=false -v ./...
+    CGO_ENABLED=1 go test -buildvcs=false -v ./...
 
 # Build and run CLI command (e.g., just run serve, just run cp ./docs /)
 run *args: build
@@ -66,7 +66,7 @@ run *args: build
 
 # Install binary to ~/go/bin and shell completions
 install:
-    GOBIN="$HOME/go/bin" CGO_ENABLED=0 go install -buildvcs=false ./cmd/know
+    GOBIN="$HOME/go/bin" CGO_ENABLED=1 go install -buildvcs=false ./cmd/know
     @echo "Installing shell completions..."
     "$HOME/go/bin/know" completion fish > ~/.config/fish/completions/know.fish
     @echo "Installed fish completions to ~/.config/fish/completions/know.fish"
