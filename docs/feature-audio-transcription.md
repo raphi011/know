@@ -6,7 +6,7 @@ Audio files can be automatically transcribed and made searchable. Transcription 
 
 ### Ingestion Flow
 
-1. **Upload audio file** -- Audio files (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.webm`, `.aac`, `.opus`) are ingested via `know import` or the REST API, stored as binary files with their MIME type and content hash.
+1. **Upload audio file** -- Audio files (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.webm`, `.aac`, `.opus`) are ingested via `know import`, `know note record`, or the REST API, stored as binary files with their MIME type and content hash.
 2. **Parse job** -- The pipeline worker creates a `transcribe` job for audio files when an STT provider is configured.
 3. **Transcribe job** -- The worker sends the audio to the configured STT provider and receives timestamped transcript segments. Segments are grouped into time-window chunks (default 60s). Each chunk has `Text` (transcript text), `SourceLoc` (time range like `"1:00-2:00"`), and `EmbedAt` set for embedding. The full stitched transcript is written to `file.Content`.
 4. **Summarize job** (optional) -- If an LLM is available and the vault has `transcript_template` configured, the raw transcript is summarized using the template via an LLM. The summary replaces `file.Content` and a re-parse job regenerates chunks from the summarized content.
@@ -111,8 +111,75 @@ The TUI includes an inline audio player with waveform visualization, allowing pl
 
 The Docker image includes `ffmpeg` for splitting large audio files (>25MB). No additional setup needed.
 
+## CLI Audio Recording
+
+Record audio directly from the terminal and upload to a vault for automatic transcription.
+
+### Usage
+
+```bash
+# Record audio and upload to default vault
+know note record
+
+# Record to a specific vault and folder
+know note record --vault meetings --path /standups/
+```
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Stop recording and upload |
+| `Escape` | Cancel and discard |
+
+### TUI
+
+The recording interface shows a real-time waveform visualization using Unicode block characters, elapsed time, and hotkey hints:
+
+```
+● Recording  1:23
+▁▂▃▅▇█▆▃▂▁▃▅▇█▇▅▃▂▁▁▂▄▆▇█▇▅▃▁▂▃▅▇
+enter save  esc cancel
+```
+
+Recordings are saved as WAV files (44100 Hz, 16-bit, mono) and uploaded to the vault at `/recordings/recording-YYYY-MM-DD-HHMMSS.wav`. The server's transcription pipeline processes them automatically.
+
+### Dependencies
+
+Audio capture uses [malgo](https://github.com/gen2brain/malgo) (miniaudio Go bindings), which requires CGO. On macOS, no additional system libraries are needed (uses CoreAudio). On Linux, requires `-ldl` (libc dynamic loader).
+
+## Playback in Browse
+
+WAV audio files can be played back directly in `know browse`. When you open a WAV file, the viewer shows a waveform visualization with playback controls above the transcript (if available).
+
+### Usage
+
+```bash
+# Browse vault and select an audio file
+know browse --vault default
+
+# Or open a specific audio file directly
+know browse /recordings/standup-2026-03-20.wav --vault default
+```
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| `space` | Play / pause |
+| `←` | Seek back 5 seconds |
+| `→` | Seek forward 5 seconds |
+| `esc` | Stop playback, return to finder |
+| `q` | Quit |
+
+### Limitations
+
+- **WAV only** — playback is currently supported for `.wav` files only. Other audio formats (MP3, OGG, etc.) show the transcript without playback controls.
+- Requires an audio output device on the machine running `know browse`.
+
 ## Example Prompts
 
+- `know note record` -- Record a voice note; transcript is generated automatically when `KNOW_STT_PROVIDER=openai`.
 - `know import ~/recordings/ /meetings/ --vault default` -- Ingest a folder of audio recordings; transcripts are generated automatically when `KNOW_STT_PROVIDER=openai`.
 - Search for meeting content: use the `search` MCP tool to find information mentioned in transcribed meetings.
 - "What did we discuss in last week's standup?" -- Semantic search over transcribed meeting audio.
