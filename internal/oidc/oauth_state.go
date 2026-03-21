@@ -23,6 +23,9 @@ func IsOAuthState(state string) bool {
 }
 
 func SignOAuthState(secret []byte, payload OAuthStatePayload) (string, error) {
+	if len(secret) == 0 {
+		return "", fmt.Errorf("empty HMAC secret")
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal oauth state: %w", err)

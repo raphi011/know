@@ -115,12 +115,12 @@ func (s *Server) importManifest(w http.ResponseWriter, r *http.Request) {
 		existing := existingMap[f.Path]
 
 		if existing != nil {
-			if existing.ContentHash != nil && *existing.ContentHash == f.Hash {
+			if existing.Hash != nil && *existing.Hash == f.Hash {
 				results = append(results, importFileResult{Path: f.Path, Status: statusSkipped, Reason: reasonHashMatch})
 				continue
 			}
 			// Hash unknown (nil) or differs — need upload unless force is off and hash is known.
-			if existing.ContentHash != nil && !req.Force {
+			if existing.Hash != nil && !req.Force {
 				results = append(results, importFileResult{Path: f.Path, Status: statusSkipped, Reason: reasonHashDiffers})
 				continue
 			}
@@ -368,11 +368,11 @@ func (s *Server) processImportBinary(ctx context.Context, r io.Reader, path, exp
 	}
 
 	_, err = s.app.FileService().CreateBinaryFromHash(ctx, models.FileInput{
-		VaultID:     vaultID,
-		Path:        path,
-		ContentHash: &expectedHash,
-		MimeType:    models.DetectMimeType(path),
-		Size:        size,
+		VaultID:  vaultID,
+		Path:     path,
+		Hash:     &expectedHash,
+		MimeType: models.DetectMimeType(path),
+		Size:     size,
 	})
 	if err != nil {
 		logger.Error("import: upsert asset", "vault", vaultID, "path", path, "error", err)

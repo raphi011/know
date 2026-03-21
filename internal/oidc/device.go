@@ -56,9 +56,9 @@ func SignState(secret []byte, userCode string) string {
 	return userCode + "." + sig
 }
 
-// gcmFromDeviceCode derives an AES-256-GCM cipher from the SHA256 of the device code.
-func gcmFromDeviceCode(deviceCode string) (cipher.AEAD, error) {
-	key := sha256.Sum256([]byte(deviceCode))
+// gcmFromSecret derives an AES-256-GCM cipher from the SHA256 of the secret.
+func gcmFromSecret(secret string) (cipher.AEAD, error) {
+	key := sha256.Sum256([]byte(secret))
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, fmt.Errorf("create cipher: %w", err)
@@ -70,10 +70,10 @@ func gcmFromDeviceCode(deviceCode string) (cipher.AEAD, error) {
 	return gcm, nil
 }
 
-// EncryptWithDeviceCode encrypts plaintext using AES-GCM with the SHA256 of the device code as key.
-// Only the holder of the device code can decrypt. Returns base64-encoded ciphertext.
-func EncryptWithDeviceCode(plaintext, deviceCode string) (string, error) {
-	gcm, err := gcmFromDeviceCode(deviceCode)
+// EncryptWithSecret encrypts plaintext using AES-GCM with the SHA256 of the secret as key.
+// Only the holder of the secret can decrypt. Returns base64-encoded ciphertext.
+func EncryptWithSecret(plaintext, secret string) (string, error) {
+	gcm, err := gcmFromSecret(secret)
 	if err != nil {
 		return "", err
 	}
@@ -85,13 +85,13 @@ func EncryptWithDeviceCode(plaintext, deviceCode string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DecryptWithDeviceCode decrypts base64-encoded ciphertext using AES-GCM with the SHA256 of the device code as key.
-func DecryptWithDeviceCode(encrypted, deviceCode string) (string, error) {
+// DecryptWithSecret decrypts base64-encoded ciphertext using AES-GCM with the SHA256 of the secret as key.
+func DecryptWithSecret(encrypted, secret string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(encrypted)
 	if err != nil {
 		return "", fmt.Errorf("decode base64: %w", err)
 	}
-	gcm, err := gcmFromDeviceCode(deviceCode)
+	gcm, err := gcmFromSecret(secret)
 	if err != nil {
 		return "", err
 	}

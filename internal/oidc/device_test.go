@@ -56,40 +56,40 @@ func TestFormatUserCode(t *testing.T) {
 	}
 }
 
-func TestEncryptDecryptWithDeviceCode(t *testing.T) {
+func TestEncryptDecryptWithSecret(t *testing.T) {
 	_, deviceCode, err := GenerateDeviceCode()
 	if err != nil {
 		t.Fatalf("GenerateDeviceCode failed: %v", err)
 	}
 
 	plaintext := "kh_abc123def456"
-	encrypted, err := EncryptWithDeviceCode(plaintext, deviceCode)
+	encrypted, err := EncryptWithSecret(plaintext, deviceCode)
 	if err != nil {
-		t.Fatalf("EncryptWithDeviceCode failed: %v", err)
+		t.Fatalf("EncryptWithSecret failed: %v", err)
 	}
 
 	if encrypted == plaintext {
 		t.Error("encrypted should differ from plaintext")
 	}
 
-	decrypted, err := DecryptWithDeviceCode(encrypted, deviceCode)
+	decrypted, err := DecryptWithSecret(encrypted, deviceCode)
 	if err != nil {
-		t.Fatalf("DecryptWithDeviceCode failed: %v", err)
+		t.Fatalf("DecryptWithSecret failed: %v", err)
 	}
 	if decrypted != plaintext {
 		t.Errorf("decrypted = %q, want %q", decrypted, plaintext)
 	}
 
-	// Wrong device code should fail
-	_, err = DecryptWithDeviceCode(encrypted, "wrong-device-code")
+	// Wrong secret should fail
+	_, err = DecryptWithSecret(encrypted, "wrong-secret")
 	if err == nil {
-		t.Error("DecryptWithDeviceCode should fail with wrong device code")
+		t.Error("DecryptWithSecret should fail with wrong secret")
 	}
 
 	// Tampered ciphertext should fail
-	_, err = DecryptWithDeviceCode(encrypted+"x", deviceCode)
+	_, err = DecryptWithSecret(encrypted+"x", deviceCode)
 	if err == nil {
-		t.Error("DecryptWithDeviceCode should fail with tampered ciphertext")
+		t.Error("DecryptWithSecret should fail with tampered ciphertext")
 	}
 }
 

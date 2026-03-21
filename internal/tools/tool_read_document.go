@@ -65,8 +65,8 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# %s\n\n", doc.Title)
 
-	if doc.ContentHash != nil {
-		fmt.Fprintf(&sb, "Content-Hash: %s\n\n", *doc.ContentHash)
+	if doc.Hash != nil {
+		fmt.Fprintf(&sb, "Content-Hash: %s\n\n", *doc.Hash)
 	}
 
 	content, err := t.fileSvc.ReadFileContent(ctx, doc)

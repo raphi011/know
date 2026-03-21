@@ -88,6 +88,21 @@ func TestVerifyOAuthState_Malformed(t *testing.T) {
 	}
 }
 
+func TestSignOAuthState_EmptySecret(t *testing.T) {
+	_, err := SignOAuthState(nil, OAuthStatePayload{
+		RedirectURI: "http://localhost:1234/callback", CodeChallenge: "challenge", ClientState: "state",
+	})
+	if err == nil {
+		t.Error("expected error with empty secret")
+	}
+	_, err = SignOAuthState([]byte{}, OAuthStatePayload{
+		RedirectURI: "http://localhost:1234/callback", CodeChallenge: "challenge", ClientState: "state",
+	})
+	if err == nil {
+		t.Error("expected error with zero-length secret")
+	}
+}
+
 func TestIsOAuthState(t *testing.T) {
 	if !IsOAuthState("oauth:somebase64.hmac") {
 		t.Error("expected true for oauth: prefix")

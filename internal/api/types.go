@@ -27,17 +27,17 @@ type WikiLinkInfo struct {
 
 // Document is the JSON representation of a document.
 type Document struct {
-	ID          string         `json:"id"`
-	VaultID     string         `json:"vaultId"`
-	Path        string         `json:"path"`
-	Title       string         `json:"title"`
-	Content     string         `json:"content"`
-	Labels      []string       `json:"labels"`
-	DocType     *string        `json:"docType,omitempty"`
-	ContentHash *string        `json:"contentHash,omitempty"`
-	CreatedAt   time.Time      `json:"createdAt"`
-	UpdatedAt   time.Time      `json:"updatedAt"`
-	WikiLinks   []WikiLinkInfo `json:"wikiLinks,omitempty"`
+	ID        string         `json:"id"`
+	VaultID   string         `json:"vaultId"`
+	Path      string         `json:"path"`
+	Title     string         `json:"title"`
+	Content   string         `json:"content"`
+	Labels    []string       `json:"labels"`
+	DocType   *string        `json:"docType,omitempty"`
+	Hash      *string        `json:"hash,omitempty"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	WikiLinks []WikiLinkInfo `json:"wikiLinks,omitempty"`
 }
 
 // Conversation is the JSON representation of a conversation.
@@ -68,12 +68,12 @@ type ChatMessage struct {
 
 // AssetMeta is the JSON representation of asset metadata.
 type AssetMeta struct {
-	VaultID     string    `json:"vaultId"`
-	Path        string    `json:"path"`
-	MimeType    string    `json:"mimeType"`
-	Size        int       `json:"size"`
-	ContentHash *string   `json:"contentHash"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	VaultID   string    `json:"vaultId"`
+	Path      string    `json:"path"`
+	MimeType  string    `json:"mimeType"`
+	Size      int       `json:"size"`
+	Hash      *string   `json:"hash,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // VaultInfo holds comprehensive stats about a vault.
@@ -149,26 +149,26 @@ type FolderResponse struct {
 
 // VersionResponse is the JSON representation of a document version.
 type VersionResponse struct {
-	Version     int       `json:"version"`
-	Title       string    `json:"title"`
-	ContentHash string    `json:"contentHash"`
-	CreatedAt   time.Time `json:"createdAt"`
+	Version   int       `json:"version"`
+	Title     string    `json:"title"`
+	Hash      string    `json:"hash"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ChangesResponse is the JSON representation of incremental changes since a timestamp.
 type ChangesResponse struct {
 	Updated   []FileChange `json:"updated"`
 	Deleted   []FileChange `json:"deleted"`
-	SyncToken string       `json:"syncToken"`  // RFC3339Nano — use as next "since" value
-	Truncated bool         `json:"truncated"`   // true if results were capped at the server limit
+	SyncToken string       `json:"syncToken"` // RFC3339Nano — use as next "since" value
+	Truncated bool         `json:"truncated"` // true if results were capped at the server limit
 }
 
 // FileChange represents a single file change in the changes response.
 type FileChange struct {
-	FileID      string    `json:"fileId"`
-	Path        string    `json:"path"`
-	ContentHash *string   `json:"contentHash,omitempty"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	FileID    string    `json:"fileId"`
+	Path      string    `json:"path"`
+	Hash      *string   `json:"hash,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // ServerConfig holds the server's effective configuration.

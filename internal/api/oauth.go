@@ -132,12 +132,7 @@ func (h *OAuthHandler) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ac == nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code not found")
-		return
-	}
-
-	if time.Now().After(ac.ExpiresAt) {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code expired")
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code not found or expired")
 		return
 	}
 
@@ -153,7 +148,7 @@ func (h *OAuthHandler) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken, err := oidc.DecryptWithDeviceCode(ac.EncryptedToken, ac.CodeChallenge)
+	rawToken, err := oidc.DecryptWithSecret(ac.EncryptedToken, ac.CodeChallenge)
 	if err != nil {
 		logger.Error("decrypt oauth token", "error", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to decrypt token")

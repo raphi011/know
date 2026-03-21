@@ -26,12 +26,13 @@ type documentFetchedMsg struct {
 	err error
 }
 
-// Model is the root browser model composing a finder, links list, and viewer.
+// Model is the root browser model composing a finder, links list, bookmarks, and viewer.
 type Model struct {
 	state     viewState
 	activeTab Tab
 	finder    finderModel
 	links     linksModel
+	bookmarks bookmarksModel
 	viewer    viewerModel
 	client    *apiclient.Client
 	vaultID   string
@@ -73,6 +74,7 @@ func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry
 		activeTab:    initial,
 		finder:       newFinder(files),
 		links:        newLinksModel(client, vaultID),
+		bookmarks:    newBookmarksModel(client, vaultID),
 		client:       client,
 		vaultID:      vaultID,
 		glamourStyle: glamourStyle,
@@ -110,8 +112,8 @@ func renderContent(r *glamour.TermRenderer, doc *apiclient.Document) string {
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.finder.Init()}
-	// Start loading links immediately so they're ready when user switches tabs
-	cmds = append(cmds, m.links.loadLinks())
+	// Start loading links and bookmarks immediately so they're ready when user switches tabs
+	cmds = append(cmds, m.links.loadLinks(), m.bookmarks.loadBookmarks())
 	return tea.Batch(cmds...)
 }
 
@@ -124,6 +126,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
+		m.bookmarks.width = msg.Width
+		m.bookmarks.height = contentHeight
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
@@ -153,6 +157,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.activeTab = TabLinks
 				}
 				return m, nil
+			case "3":
+				if m.activeTab != TabBookmarks {
+					m.activeTab = TabBookmarks
+				}
+				return m, nil
 			}
 		}
 
@@ -162,16 +171,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case documentFetchedMsg:
 		if msg.err != nil {
 			slog.Warn("document fetch failed", "error", msg.err)
-			if m.activeTab == TabAllFiles {
-				m.finder.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
-			} else {
-				m.links.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
+			errMsg := fmt.Sprintf("Failed to open: %v", msg.err)
+			switch m.activeTab {
+			case TabAllFiles:
+				m.finder.statusErr = errMsg
+			case TabLinks:
+				m.links.statusErr = errMsg
+			case TabBookmarks:
+				m.bookmarks.statusErr = errMsg
 			}
 			return m, nil
 		}
 		m.finder.statusErr = ""
 		m.links.statusErr = ""
+		m.bookmarks.statusErr = ""
 		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
+		// Initialize bookmark state from loaded bookmarks.
+		for _, bm := range m.bookmarks.items {
+			if bm.Path == msg.doc.Path {
+				m.viewer.bookmarked = true
+				break
+			}
+		}
 		m.state = stateViewing
 		return m, nil
 
@@ -184,29 +205,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.finder.picker.Input.Focus()
 		}
 		return m, nil
+
+	case bookmarkToggledMsg:
+		var cmd tea.Cmd
+		m.bookmarks, cmd = m.bookmarks.Update(msg)
+		if msg.err == nil && msg.added {
+			m.viewer.bookmarked = true
+		} else if msg.err == nil && !msg.added {
+			m.viewer.bookmarked = false
+		}
+		return m, cmd
 	}
 
-	// Links-specific messages must always reach the links model,
-	// regardless of which tab is active (e.g. async load results).
+	// Async messages must always reach their model regardless of active tab.
 	switch msg.(type) {
 	case linksLoadedMsg, linkArchivedMsg, linkDeletedMsg:
 		var cmd tea.Cmd
 		m.links, cmd = m.links.Update(msg)
+		return m, cmd
+	case bookmarksLoadedMsg:
+		var cmd tea.Cmd
+		m.bookmarks, cmd = m.bookmarks.Update(msg)
 		return m, cmd
 	}
 
 	// Route to active sub-model
 	switch m.state {
 	case stateFinding:
-		if m.activeTab == TabAllFiles {
+		switch m.activeTab {
+		case TabAllFiles:
 			var cmd tea.Cmd
 			m.finder, cmd = m.finder.Update(msg)
 			return m, cmd
+		case TabLinks:
+			var cmd tea.Cmd
+			m.links, cmd = m.links.Update(msg)
+			return m, cmd
+		case TabBookmarks:
+			var cmd tea.Cmd
+			m.bookmarks, cmd = m.bookmarks.Update(msg)
+			return m, cmd
 		}
-		var cmd tea.Cmd
-		m.links, cmd = m.links.Update(msg)
-		return m, cmd
 	case stateViewing:
+		// Handle bookmark toggle in viewer
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok && keyMsg.String() == "b" {
+			return m, m.bookmarks.toggleBookmark(m.viewer.path, !m.viewer.bookmarked)
+		}
 		var cmd tea.Cmd
 		m.viewer, cmd = m.viewer.Update(msg)
 		return m, cmd
@@ -220,11 +264,14 @@ func (m Model) View() tea.View {
 
 	switch m.state {
 	case stateFinding:
-		tabBar := renderTabs(m.activeTab, len(m.links.allLinks))
-		if m.activeTab == TabAllFiles {
+		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items))
+		switch m.activeTab {
+		case TabAllFiles:
 			content = tabBar + "\n" + m.finder.View()
-		} else {
+		case TabLinks:
 			content = tabBar + "\n" + m.links.View()
+		case TabBookmarks:
+			content = tabBar + "\n" + m.bookmarks.View()
 		}
 	case stateViewing:
 		content = m.viewer.View()

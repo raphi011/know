@@ -121,7 +121,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMo
 				if err != nil {
 					return nil, fmt.Errorf("read content for %s: %w", name, err)
 				}
-				return newReadFile(name, []byte(content), doc.UpdatedAt, doc.ContentHash), nil
+				return newReadFile(name, []byte(content), doc.UpdatedAt, doc.Hash), nil
 			}
 			arf, err := newAssetReadFile(ctx, name, doc, f.blobStore)
 			if err != nil {
@@ -299,7 +299,7 @@ func (f *FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 			modTime:     meta.UpdatedAt,
 			isDir:       false,
 			contentType: ct,
-			etag:        contentHashETag(meta.ContentHash),
+			etag:        contentHashETag(meta.Hash),
 		}, nil
 	}
 
@@ -391,7 +391,7 @@ func (f *FS) listDirEntries(ctx context.Context, dirPath string) ([]os.FileInfo,
 			modTime:     meta.UpdatedAt,
 			isDir:       false,
 			contentType: ct,
-			etag:        contentHashETag(meta.ContentHash),
+			etag:        contentHashETag(meta.Hash),
 		})
 	}
 

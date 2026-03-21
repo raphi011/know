@@ -130,8 +130,8 @@ func TestVersionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if restored.ContentHash == nil || *restored.ContentHash != v1.ContentHash {
-		t.Errorf("rollback content_hash mismatch:\ngot:  %v\nwant: %q", restored.ContentHash, v1.ContentHash)
+	if restored.Hash == nil || *restored.Hash != v1.Hash {
+		t.Errorf("rollback hash mismatch:\ngot:  %v\nwant: %q", restored.Hash, v1.Hash)
 	}
 
 	count, err = testDB.CountVersions(ctx, docID)

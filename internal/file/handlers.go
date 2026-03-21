@@ -214,9 +214,17 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return nil
 		}
 
-		docContent, err := svc.ReadFileContent(ctx, doc)
-		if err != nil {
-			return fmt.Errorf("read file content: %w", err)
+		var docContent string
+		if models.IsTextFile(doc.Path) {
+			docContent, err = svc.ReadFileContent(ctx, doc)
+			if err != nil {
+				return fmt.Errorf("read file content: %w", err)
+			}
+		} else {
+			docContent, err = svc.ReadTextFromChunks(ctx, fileID)
+			if err != nil {
+				return fmt.Errorf("read text from chunks: %w", err)
+			}
 		}
 		if docContent == "" {
 			logger.Warn("file has no transcript content, skipping summarization", "file_id", fileID)
@@ -239,17 +247,20 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return fmt.Errorf("fill template: %w", err)
 		}
 
-		// Store summary in blob store and update DB metadata.
-		if err := svc.storeTranscript(ctx, fileID, summary); err != nil {
-			return fmt.Errorf("store summary: %w", err)
+		// Create chunks directly from the summary text.
+		parsed := parser.ParseMarkdown(summary)
+		if err := svc.syncChunks(ctx, fileID, parsed, doc.Labels); err != nil {
+			return fmt.Errorf("sync summary chunks: %w", err)
 		}
 
-		// Re-parse so chunks are regenerated from the summary content.
-		if err := svc.db.CreateJob(ctx, fileID, "parse", 0); err != nil {
-			return fmt.Errorf("create parse job after summarization: %w", err)
-		}
-		if bus != nil {
-			bus.Publish(event.ChangeEvent{Type: "job.created"})
+		// Enqueue embed job so new chunks get embeddings.
+		if svc.getEmbedder() != nil && svc.shouldEmbed(ctx, vaultID, doc.Path) {
+			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
+				return fmt.Errorf("create embed job after summarization: %w", err)
+			}
+			if bus != nil {
+				bus.Publish(event.ChangeEvent{Type: "job.created"})
+			}
 		}
 
 		svc.publishFileEvent("file.processed", vaultID, doc)

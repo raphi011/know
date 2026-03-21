@@ -203,12 +203,12 @@ func (s *Server) resolveImages(ctx context.Context, vaultID string, imagePaths m
 			continue
 		}
 
-		if f.ContentHash == nil {
-			logger.Warn("image has no content hash", "path", vaultPath)
+		if f.Hash == nil {
+			logger.Warn("image has no hash", "path", vaultPath)
 			failCount++
 			continue
 		}
-		rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
+		rc, err := s.app.BlobStore().Get(ctx, *f.Hash)
 		if err != nil {
 			logger.Warn("failed to read image blob", "path", vaultPath, "error", err)
 			failCount++

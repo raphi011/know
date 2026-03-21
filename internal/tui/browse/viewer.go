@@ -12,9 +12,10 @@ import (
 type backToFinderMsg struct{}
 
 type viewerModel struct {
-	viewport viewport.Model
-	path     string
-	width    int
+	viewport   viewport.Model
+	path       string
+	width      int
+	bookmarked bool
 }
 
 func newViewer(path, renderedContent string, width, height int) viewerModel {
@@ -58,7 +59,11 @@ func (v viewerModel) View() string {
 
 	// Footer with scroll position and keybinds
 	pct := v.viewport.ScrollPercent()
-	footer := footerBarStyle.Render(fmt.Sprintf("  %.0f%%  esc: back  q: quit", pct*100))
+	bookmarkHint := "b: bookmark"
+	if v.bookmarked {
+		bookmarkHint = "b: unbookmark"
+	}
+	footer := footerBarStyle.Render(fmt.Sprintf("  %.0f%%  %s  esc: back  q: quit", pct*100, bookmarkHint))
 	b.WriteString(footer)
 
 	return b.String()

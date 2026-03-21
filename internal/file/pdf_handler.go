@@ -80,7 +80,7 @@ func PDFHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 func (s *Service) processPDF(ctx context.Context, f *models.File, fileID string) error {
 	logger := logutil.FromCtx(ctx).With("path", f.Path)
 
-	if f.ContentHash == nil {
+	if f.Hash == nil {
 		return fmt.Errorf("file has no content hash")
 	}
 
@@ -154,7 +154,7 @@ func (s *Service) processPDF(ctx context.Context, f *models.File, fileID string)
 			MimeType:  "image/png",
 			Position:  pageNum,
 			SourceLoc: &sourceLoc,
-			DataHash:  &pngHash,
+			Hash:      &pngHash,
 			Labels:    labels,
 		})
 	}
@@ -165,13 +165,6 @@ func (s *Service) processPDF(ctx context.Context, f *models.File, fileID string)
 	}
 	if err := s.db.CreateChunks(ctx, chunks); err != nil {
 		return fmt.Errorf("create chunks: %w", err)
-	}
-
-	// Store concatenated extracted text in blob and update DB metadata.
-	if allText.Len() > 0 {
-		if err := s.storeTranscript(ctx, fileID, allText.String()); err != nil {
-			return fmt.Errorf("store pdf transcript: %w", err)
-		}
 	}
 
 	logger.Info("pdf processing complete", "chunks", len(chunks))
@@ -210,11 +203,11 @@ func (s *Service) extractPageText(ctx context.Context, extractor *llm.TextExtrac
 // Otherwise, downloads to a temp file and returns a cleanup function.
 func (s *Service) resolveBlobPath(ctx context.Context, f *models.File) (string, func(), error) {
 	if local, ok := s.blobStore.(blob.LocalPathStore); ok {
-		return local.LocalPath(*f.ContentHash), nil, nil
+		return local.LocalPath(*f.Hash), nil, nil
 	}
 
 	// Download to temp file for S3-backed stores.
-	rc, err := s.blobStore.Get(ctx, *f.ContentHash)
+	rc, err := s.blobStore.Get(ctx, *f.Hash)
 	if err != nil {
 		return "", nil, fmt.Errorf("get blob: %w", err)
 	}

@@ -20,11 +20,12 @@ import (
 )
 
 var (
-	browseAPI     *apiFlags
-	browseVaultID *string
-	browseEdit    bool
-	browseViewer  string
-	browseLinks   bool
+	browseAPI       *apiFlags
+	browseVaultID   *string
+	browseEdit      bool
+	browseViewer    string
+	browseLinks     bool
+	browseBookmarks bool
 )
 
 var browseCmd = &cobra.Command{
@@ -68,6 +69,7 @@ func init() {
 	browseCmd.Flags().BoolVarP(&browseEdit, "edit", "e", false, "open in $EDITOR and save changes")
 	browseCmd.Flags().StringVar(&browseViewer, "viewer", os.Getenv("KNOW_VIEWER"), "viewer command (env: KNOW_VIEWER)")
 	browseCmd.Flags().BoolVarP(&browseLinks, "links", "l", false, "start on the Links tab (saved web clips)")
+	browseCmd.Flags().BoolVarP(&browseBookmarks, "bookmarks", "b", false, "start on the Bookmarks tab")
 	browseCmd.ValidArgsFunction = completeVaultPaths(browseAPI, browseVaultID, pathFilterFiles)
 }
 
@@ -172,6 +174,8 @@ func browseWithPicker(ctx context.Context, client *apiclient.Client) error {
 	var startTab []browse.Tab
 	if browseLinks {
 		startTab = append(startTab, browse.TabLinks)
+	} else if browseBookmarks {
+		startTab = append(startTab, browse.TabBookmarks)
 	}
 	model := browse.NewModel(client, *browseVaultID, docs, isDark, startTab...)
 	p := tea.NewProgram(model)

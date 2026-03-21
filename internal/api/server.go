@@ -77,6 +77,11 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("GET /api/v1/vaults/{vault}/labels", vs(s.listLabels))
 	mux.Handle("PATCH /api/v1/vaults/{vault}/documents/labels", vs(s.patchLabels))
 
+	// --- Bookmarks ---
+	mux.Handle("GET /api/v1/vaults/{vault}/bookmarks", vs(s.listBookmarks))
+	mux.Handle("PUT /api/v1/vaults/{vault}/bookmarks", vs(s.addBookmark))
+	mux.Handle("DELETE /api/v1/vaults/{vault}/bookmarks", vs(s.removeBookmark))
+
 	// --- Tasks ---
 	mux.Handle("GET /api/v1/vaults/{vault}/tasks", vs(s.listTasks))
 	mux.Handle("POST /api/v1/vaults/{vault}/tasks/{id}/toggle", vs(s.toggleTask))

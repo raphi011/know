@@ -99,7 +99,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 	if existing == nil {
 		return "", &ToolError{Message: fmt.Sprintf("document not found: %s. Use search_documents to find it or list_folder_contents to browse", args.Path)}
 	}
-	if err := checkContentHash(args.ExpectedHash, existing.ContentHash); err != nil {
+	if err := checkContentHash(args.ExpectedHash, existing.Hash); err != nil {
 		return "", err
 	}
 

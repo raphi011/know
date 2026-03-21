@@ -15,6 +15,8 @@ const (
 	TabAllFiles Tab = iota
 	// TabLinks shows saved web clips.
 	TabLinks
+	// TabBookmarks shows user-bookmarked files and folders.
+	TabBookmarks
 )
 
 var (
@@ -29,12 +31,23 @@ var (
 				Padding(0, 1)
 )
 
-func renderTabs(active Tab, linkCount int) string {
-	allFiles := "All Files"
-	links := fmt.Sprintf("Links (%d)", linkCount)
-
-	if active == TabAllFiles {
-		return activeTabStyle.Render(allFiles) + " " + inactiveTabStyle.Render(links)
+func renderTabs(active Tab, linkCount, bookmarkCount int) string {
+	tabs := []struct {
+		tab   Tab
+		label string
+	}{
+		{TabAllFiles, "All Files"},
+		{TabLinks, fmt.Sprintf("Links (%d)", linkCount)},
+		{TabBookmarks, fmt.Sprintf("Bookmarks (%d)", bookmarkCount)},
 	}
-	return inactiveTabStyle.Render(allFiles) + " " + activeTabStyle.Render(links)
+
+	var parts []string
+	for _, t := range tabs {
+		if t.tab == active {
+			parts = append(parts, activeTabStyle.Render(t.label))
+		} else {
+			parts = append(parts, inactiveTabStyle.Render(t.label))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
 }

@@ -15,9 +15,9 @@ func TestBus_PublishSubscribe(t *testing.T) {
 		Type:    "file.created",
 		VaultID: "vault:default",
 		Payload: DocumentPayload{
-			DocID:       "doc:1",
-			Path:        "notes/hello.md",
-			ContentHash: "abc123",
+			DocID: "doc:1",
+			Path:  "notes/hello.md",
+			Hash:  "abc123",
 		},
 	}
 
@@ -55,7 +55,7 @@ func TestBus_MultipleSubscribers(t *testing.T) {
 	event := ChangeEvent{
 		Type:    "file.updated",
 		VaultID: "vault:a",
-		Payload: DocumentPayload{DocID: "doc:2", Path: "readme.md", ContentHash: "def"},
+		Payload: DocumentPayload{DocID: "doc:2", Path: "readme.md", Hash: "def"},
 	}
 
 	bus.Publish(event)
@@ -84,7 +84,7 @@ func TestBus_VaultIsolation(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.created",
 		VaultID: "vault:a",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", Hash: "x"},
 	})
 
 	// Subscriber A should receive the event.
@@ -121,7 +121,7 @@ func TestBus_Unsubscribe(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.deleted",
 		VaultID: "vault:default",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "gone.md", ContentHash: "z"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "gone.md", Hash: "z"},
 	})
 
 	// Calling unsubscribe again should be safe.
@@ -139,7 +139,7 @@ func TestBus_SlowConsumer(t *testing.T) {
 		bus.Publish(ChangeEvent{
 			Type:    "file.updated",
 			VaultID: "vault:default",
-			Payload: DocumentPayload{DocID: "doc:fill", Path: "fill.md", ContentHash: string(rune('a' + i%26))},
+			Payload: DocumentPayload{DocID: "doc:fill", Path: "fill.md", Hash: string(rune('a' + i%26))},
 		})
 	}
 
@@ -147,7 +147,7 @@ func TestBus_SlowConsumer(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.updated",
 		VaultID: "vault:default",
-		Payload: DocumentPayload{DocID: "doc:overflow", Path: "overflow.md", ContentHash: "over"},
+		Payload: DocumentPayload{DocID: "doc:overflow", Path: "overflow.md", Hash: "over"},
 	})
 
 	// Drain the buffered events first.
@@ -178,14 +178,14 @@ func TestBus_SubscribeByPath(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.updated",
 		VaultID: "vault:default",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/readme.md", ContentHash: "abc"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/readme.md", Hash: "abc"},
 	})
 
 	// Publish event for non-matching path
 	bus.Publish(ChangeEvent{
 		Type:    "file.updated",
 		VaultID: "vault:default",
-		Payload: DocumentPayload{DocID: "doc:2", Path: "/docs/other.md", ContentHash: "def"},
+		Payload: DocumentPayload{DocID: "doc:2", Path: "/docs/other.md", Hash: "def"},
 	})
 
 	// Should receive only the matching event
@@ -218,7 +218,7 @@ func TestBus_SubscribeByPath_OldPath(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.moved",
 		VaultID: "vault:default",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/new.md", OldPath: "/docs/old.md", ContentHash: "abc"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "/docs/new.md", OldPath: "/docs/old.md", Hash: "abc"},
 	})
 
 	select {
@@ -272,9 +272,9 @@ func TestBus_ConcurrentPublish(t *testing.T) {
 					Type:    "file.updated",
 					VaultID: "vault:concurrent",
 					Payload: DocumentPayload{
-						DocID:       "doc:concurrent",
-						Path:        "concurrent.md",
-						ContentHash: string(rune(publisherID*1000 + j)),
+						DocID: "doc:concurrent",
+						Path:  "concurrent.md",
+						Hash:  string(rune(publisherID*1000 + j)),
 					},
 				})
 			}
@@ -314,12 +314,12 @@ func TestBus_SubscribeGlobal(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.created",
 		VaultID: "vault:a",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", Hash: "x"},
 	})
 	bus.Publish(ChangeEvent{
 		Type:    "file.updated",
 		VaultID: "vault:b",
-		Payload: DocumentPayload{DocID: "doc:2", Path: "b.md", ContentHash: "y"},
+		Payload: DocumentPayload{DocID: "doc:2", Path: "b.md", Hash: "y"},
 	})
 
 	// Global subscriber should receive both events
@@ -351,7 +351,7 @@ func TestBus_SubscribeGlobal_Unsubscribe(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.created",
 		VaultID: "vault:a",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", Hash: "x"},
 	})
 
 	// Double unsubscribe is safe
@@ -400,7 +400,7 @@ func TestBus_Close(t *testing.T) {
 	bus.Publish(ChangeEvent{
 		Type:    "file.created",
 		VaultID: "vault:a",
-		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: "x"},
+		Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", Hash: "x"},
 	})
 
 	// Subscribe after Close returns a closed channel.
@@ -440,7 +440,7 @@ func TestBus_Close_ConcurrentPublish(t *testing.T) {
 				bus.Publish(ChangeEvent{
 					Type:    "file.updated",
 					VaultID: "vault:a",
-					Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", ContentHash: string(rune(i))},
+					Payload: DocumentPayload{DocID: "doc:1", Path: "a.md", Hash: string(rune(i))},
 				})
 			}
 		})

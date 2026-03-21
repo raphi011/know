@@ -14,10 +14,10 @@ type ChangeEvent struct {
 
 // DocumentPayload carries document-specific change details.
 type DocumentPayload struct {
-	DocID       string `json:"docId"`
-	Path        string `json:"path"`
-	OldPath     string `json:"oldPath,omitempty"`
-	ContentHash string `json:"contentHash"`
+	DocID   string `json:"docId"`
+	Path    string `json:"path"`
+	OldPath string `json:"oldPath,omitempty"`
+	Hash    string `json:"hash"`
 }
 
 // Bus is an in-process pub/sub event bus that fans out change events

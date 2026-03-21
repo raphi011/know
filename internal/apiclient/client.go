@@ -62,6 +62,11 @@ func (c *Client) Post(ctx context.Context, path string, body, target any) error 
 	return c.do(ctx, http.MethodPost, path, body, target)
 }
 
+// Put performs a PUT request with a JSON body and decodes the response into target.
+func (c *Client) Put(ctx context.Context, path string, body, target any) error {
+	return c.do(ctx, http.MethodPut, path, body, target)
+}
+
 // Patch performs a PATCH request with a JSON body and decodes the response into target.
 func (c *Client) Patch(ctx context.Context, path string, body, target any) error {
 	return c.do(ctx, http.MethodPatch, path, body, target)
@@ -70,6 +75,11 @@ func (c *Client) Patch(ctx context.Context, path string, body, target any) error
 // Delete performs a DELETE request.
 func (c *Client) Delete(ctx context.Context, path string) error {
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// DeleteWithBody performs a DELETE request with a JSON body.
+func (c *Client) DeleteWithBody(ctx context.Context, path string, body any) error {
+	return c.do(ctx, http.MethodDelete, path, body, nil)
 }
 
 // PostMultipart performs a multipart/form-data POST request.
@@ -574,10 +584,10 @@ func (c *Client) EditDocument(ctx context.Context, req EditDocumentRequest) (*Do
 
 // Version is the JSON representation of a document version from the REST API.
 type Version struct {
-	Version     int       `json:"version"`
-	Title       string    `json:"title"`
-	ContentHash string    `json:"contentHash"`
-	CreatedAt   time.Time `json:"createdAt"`
+	Version   int       `json:"version"`
+	Title     string    `json:"title"`
+	Hash      string    `json:"hash"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ListVersions returns version history for a document.
@@ -595,12 +605,12 @@ func (c *Client) ListVersions(ctx context.Context, vaultName, path string, limit
 
 // Document is the JSON representation of a document returned by the REST API.
 type Document struct {
-	ID          string  `json:"id"`
-	VaultID     string  `json:"vaultId"`
-	Path        string  `json:"path"`
-	Title       string  `json:"title"`
-	Content     string  `json:"content"`
-	ContentHash *string `json:"contentHash,omitempty"`
+	ID      string  `json:"id"`
+	VaultID string  `json:"vaultId"`
+	Path    string  `json:"path"`
+	Title   string  `json:"title"`
+	Content string  `json:"content"`
+	Hash    *string `json:"hash,omitempty"`
 }
 
 // GetDocument fetches a document by vault and path.
@@ -691,6 +701,25 @@ func (c *Client) ListLabelsWithCounts(ctx context.Context, vaultName string) ([]
 		return nil, fmt.Errorf("list labels with counts: %w", err)
 	}
 	return resp.Items, nil
+}
+
+// ListBookmarks returns bookmarked files for the given vault.
+func (c *Client) ListBookmarks(ctx context.Context, vaultName string) ([]models.FileEntry, error) {
+	var resp httputil.ListResponse[models.FileEntry]
+	if err := c.Get(ctx, vaultPath(vaultName, "/bookmarks"), &resp); err != nil {
+		return nil, fmt.Errorf("list bookmarks: %w", err)
+	}
+	return resp.Items, nil
+}
+
+// AddBookmark pins a file/folder by path.
+func (c *Client) AddBookmark(ctx context.Context, vaultName, filePath string) error {
+	return c.Put(ctx, vaultPath(vaultName, "/bookmarks"), map[string]string{"path": filePath}, nil)
+}
+
+// RemoveBookmark unpins a file/folder by path.
+func (c *Client) RemoveBookmark(ctx context.Context, vaultName, filePath string) error {
+	return c.DeleteWithBody(ctx, vaultPath(vaultName, "/bookmarks"), map[string]string{"path": filePath})
 }
 
 // JobStatusResponse is the response from GET /api/jobs.

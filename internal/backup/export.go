@@ -83,7 +83,7 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 			fi := FileInfo{
 				Path:      f.Path,
 				Title:     f.Title,
-				Size:      f.ContentLength,
+				Size:      f.Size,
 				Labels:    f.Labels,
 				DocType:   f.DocType,
 				Metadata:  f.Metadata,
@@ -93,10 +93,10 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 				UpdatedAt: f.UpdatedAt,
 			}
 
-			if f.ContentHash != nil {
-				fi.ContentHash = *f.ContentHash
-				if err := writeBlob(ctx, tw, blobStore, fi.ContentHash, writtenBlobs); err != nil {
-					logger.Warn("skipping file, blob not readable", "path", f.Path, "hash", fi.ContentHash, "error", err)
+			if f.Hash != nil {
+				fi.Hash = *f.Hash
+				if err := writeBlob(ctx, tw, blobStore, fi.Hash, writtenBlobs); err != nil {
+					logger.Warn("skipping file, blob not readable", "path", f.Path, "hash", fi.Hash, "error", err)
 					continue
 				}
 			}
@@ -139,14 +139,14 @@ func Export(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vaul
 		}
 
 		manifest.Versions = append(manifest.Versions, VersionInfo{
-			FilePath:    filePath,
-			Version:     v.Version,
-			ContentHash: v.ContentHash,
-			Title:       v.Title,
-			CreatedAt:   v.CreatedAt,
+			FilePath:  filePath,
+			Version:   v.Version,
+			Hash:      v.Hash,
+			Title:     v.Title,
+			CreatedAt: v.CreatedAt,
 		})
 
-		if err := writeBlob(ctx, tw, blobStore, v.ContentHash, writtenBlobs); err != nil {
+		if err := writeBlob(ctx, tw, blobStore, v.Hash, writtenBlobs); err != nil {
 			logger.Warn("skipping version blob", "path", filePath, "version", v.Version, "error", err)
 		}
 	}

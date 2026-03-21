@@ -57,10 +57,10 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 	resp := make([]VersionResponse, len(versions))
 	for i, v := range versions {
 		resp[i] = VersionResponse{
-			Version:     v.Version,
-			Title:       v.Title,
-			ContentHash: v.ContentHash,
-			CreatedAt:   v.CreatedAt,
+			Version:   v.Version,
+			Title:     v.Title,
+			Hash:      v.Hash,
+			CreatedAt: v.CreatedAt,
 		}
 	}
 

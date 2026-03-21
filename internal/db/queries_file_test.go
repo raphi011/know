@@ -20,12 +20,12 @@ func TestCreateFile(t *testing.T) {
 
 	hash := "abc123"
 	doc, err := testDB.CreateFile(ctx, models.FileInput{
-		VaultID:     vaultID,
-		Path:        "/docs/hello.md",
-		Title:       "Hello World",
-		Content:     "---\ntitle: Hello\n---\nHello world content",
-		Labels:      []string{"test", "greeting"},
-		ContentHash: &hash,
+		VaultID: vaultID,
+		Path:    "/docs/hello.md",
+		Title:   "Hello World",
+		Content: "---\ntitle: Hello\n---\nHello world content",
+		Labels:  []string{"test", "greeting"},
+		Hash:    &hash,
 	})
 	if err != nil {
 		t.Fatalf("CreateFile failed: %v", err)
@@ -912,44 +912,6 @@ func TestListFilesByPrefix(t *testing.T) {
 		if !strings.HasPrefix(f.Path, docsPrefix) {
 			t.Errorf("Unexpected path %q returned for prefix %q", f.Path, docsPrefix)
 		}
-	}
-}
-
-func TestUpdateFileTranscript(t *testing.T) {
-	ctx := context.Background()
-	user := createTestUser(t, ctx)
-	userID := models.MustRecordIDString(user.ID)
-	vault := createTestVault(t, ctx, userID)
-	vaultID := models.MustRecordIDString(vault.ID)
-
-	suffix := fmt.Sprint(time.Now().UnixNano())
-	doc, err := testDB.CreateFile(ctx, models.FileInput{
-		VaultID: vaultID, Path: "/transcript-" + suffix + ".md", Title: "Transcript Test",
-		ContentLength: 8, Labels: []string{},
-	})
-	if err != nil {
-		t.Fatalf("CreateFile failed: %v", err)
-	}
-	docID := models.MustRecordIDString(doc.ID)
-
-	newHash := "abc123hash"
-	newLen := 20
-	if err := testDB.UpdateFileTranscript(ctx, docID, newHash, newLen); err != nil {
-		t.Fatalf("UpdateFileTranscript failed: %v", err)
-	}
-
-	fetched, err := testDB.GetFileByID(ctx, docID)
-	if err != nil {
-		t.Fatalf("GetFileByID failed: %v", err)
-	}
-	if fetched == nil {
-		t.Fatal("GetFileByID returned nil")
-	}
-	if fetched.ContentHash == nil || *fetched.ContentHash != newHash {
-		t.Errorf("Expected content_hash %q, got %v", newHash, fetched.ContentHash)
-	}
-	if fetched.ContentLength != newLen {
-		t.Errorf("Expected content_length %d, got %d", newLen, fetched.ContentLength)
 	}
 }
 

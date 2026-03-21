@@ -163,7 +163,7 @@ func (h *AuthHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := oidc.DecryptWithDeviceCode(encryptedToken, body.DeviceCode)
+	token, err := oidc.DecryptWithSecret(encryptedToken, body.DeviceCode)
 	if err != nil {
 		logger.Error("decrypt device code token", "error", err)
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to decrypt token")
@@ -171,7 +171,7 @@ func (h *AuthHandler) handleDevicePoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.DeleteDeviceCode(ctx, body.DeviceCode); err != nil {
-		logger.Error("delete approved device code", "error", err)
+		logger.Warn("delete approved device code", "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -309,7 +309,7 @@ func (h *AuthHandler) handleDeviceFlowCallback(w http.ResponseWriter, r *http.Re
 		httputil.WriteProblem(w, http.StatusNotFound, "device code not found or expired")
 		return
 	}
-	encryptedToken, err := oidc.EncryptWithDeviceCode(rawToken, dc.DeviceCode)
+	encryptedToken, err := oidc.EncryptWithSecret(rawToken, dc.DeviceCode)
 	if err != nil {
 		logger.Error("encrypt token for device code", "error", err)
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to encrypt token")
@@ -408,7 +408,7 @@ func (h *AuthHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request
 
 	// Encrypt the raw token with the code_challenge as key — only the client
 	// that holds the code_verifier can derive the challenge and decrypt it.
-	encryptedToken, err := oidc.EncryptWithDeviceCode(rawToken, payload.CodeChallenge)
+	encryptedToken, err := oidc.EncryptWithSecret(rawToken, payload.CodeChallenge)
 	if err != nil {
 		logger.Error("encrypt token for oauth", "error", err)
 		redirectWithError(w, r, payload.RedirectURI, payload.ClientState, "server_error", "internal error")
