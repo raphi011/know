@@ -40,22 +40,6 @@ func addAPIFlags(cmd *cobra.Command) *apiFlags {
 	defaultURL := envOrDefault("KNOW_SERVER_URL", "http://localhost:4001")
 	defaultToken := os.Getenv("KNOW_TOKEN")
 
-	// Fall back to system keychain when no env var is set.
-	if defaultToken == "" {
-		if token, err := keychain.GetToken(); err == nil {
-			defaultToken = token
-		} else if !keychain.IsNotFound(err) {
-			fmt.Fprintf(os.Stderr, "Warning: could not read keychain: %v\n", err)
-		}
-		if defaultURL == "http://localhost:4001" {
-			if url, err := keychain.GetAPIURL(); err == nil && url != "" {
-				defaultURL = url
-			} else if err != nil && !keychain.IsNotFound(err) {
-				fmt.Fprintf(os.Stderr, "Warning: could not read server URL from keychain: %v\n", err)
-			}
-		}
-	}
-
 	cmd.Flags().StringVar(&f.URL, "api-url", defaultURL, "REST API base URL")
 	cmd.Flags().StringVar(&f.Token, "token", defaultToken, "API bearer token")
 	if err := cmd.RegisterFlagCompletionFunc("api-url", noFileCompletions); err != nil {
@@ -67,7 +51,23 @@ func addAPIFlags(cmd *cobra.Command) *apiFlags {
 	return f
 }
 
+// newClient creates an API client, falling back to the system keychain
+// for token and URL when not provided via flags or environment variables.
 func (f *apiFlags) newClient() *apiclient.Client {
+	if f.Token == "" {
+		if token, err := keychain.GetToken(); err == nil {
+			f.Token = token
+		} else if !keychain.IsNotFound(err) {
+			fmt.Fprintf(os.Stderr, "Warning: could not read keychain: %v\n", err)
+		}
+	}
+	if f.URL == "http://localhost:4001" {
+		if url, err := keychain.GetAPIURL(); err == nil && url != "" {
+			f.URL = url
+		} else if err != nil && !keychain.IsNotFound(err) {
+			fmt.Fprintf(os.Stderr, "Warning: could not read server URL from keychain: %v\n", err)
+		}
+	}
 	return apiclient.New(f.URL, f.Token)
 }
 
