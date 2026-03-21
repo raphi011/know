@@ -240,7 +240,7 @@ func TestHandleStreamEvent_ToolStartReuse(t *testing.T) {
 
 	// Simulate tool completing (e.g. before approval).
 	m.streamParts[0].Status = ToolComplete
-	m.streamParts[0].Meta = &tools.ToolResultMeta{ContentLength: new(100)}
+	m.streamParts[0].Meta = &tools.ToolResultMeta{Size: new(100)}
 
 	// Second tool_start with same CallID reuses the existing part.
 	msg2 := streamEventMsg{
@@ -504,7 +504,7 @@ func TestToolDetail(t *testing.T) {
 	})
 
 	t.Run("read_document with content length", func(t *testing.T) {
-		meta := &tools.ToolResultMeta{ContentLength: new(1234)}
+		meta := &tools.ToolResultMeta{Size: new(1234)}
 		got := toolDetail("read_document", meta)
 		if got != "1234 chars" {
 			t.Errorf("expected '1234 chars', got %q", got)
@@ -559,7 +559,7 @@ func TestRenderToolStatus(t *testing.T) {
 			ToolName: "read_document",
 			Input:    map[string]any{"path": "/doc.md"},
 			Status:   ToolComplete,
-			Meta:     &tools.ToolResultMeta{ContentLength: new(500)},
+			Meta:     &tools.ToolResultMeta{Size: new(500)},
 		}
 		got := renderToolStatus(p)
 		if !strings.Contains(got, "500 chars") {
