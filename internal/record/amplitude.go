@@ -59,6 +59,51 @@ func ComputeWaveform(pcm []byte, width int) []float64 {
 	return bars
 }
 
+// TrimSilence removes leading and trailing 16-bit LE PCM samples whose
+// absolute amplitude is below threshold (0.0–1.0). Works in windows of
+// windowSize samples to avoid cutting mid-word on a single quiet sample.
+// Returns a sub-slice of the original data (no copy).
+func TrimSilence(pcm []byte, threshold float64, windowSize int) []byte {
+	nSamples := len(pcm) / 2
+	if nSamples == 0 || windowSize <= 0 {
+		return pcm
+	}
+
+	isLoud := func(start, end int) bool {
+		for i := start; i < end && i < nSamples; i++ {
+			abs := math.Abs(float64(int16(binary.LittleEndian.Uint16(pcm[i*2:])))) / 32768.0
+			if abs >= threshold {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Find first loud window.
+	startSample := 0
+	for startSample < nSamples {
+		if isLoud(startSample, startSample+windowSize) {
+			break
+		}
+		startSample += windowSize
+	}
+
+	// Find last loud window.
+	endSample := nSamples
+	for endSample > startSample {
+		windowStart := max(endSample-windowSize, startSample)
+		if isLoud(windowStart, endSample) {
+			break
+		}
+		endSample = windowStart
+	}
+
+	if startSample >= endSample {
+		return pcm[:0]
+	}
+	return pcm[startSample*2 : endSample*2]
+}
+
 // NormalizePCM applies peak normalization to 16-bit LE PCM data in-place,
 // scaling all samples so the loudest reaches targetPeak (0.0–1.0).
 // Returns immediately if the audio is silent or already loud enough.

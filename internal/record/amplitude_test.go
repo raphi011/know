@@ -157,6 +157,50 @@ func TestNormalizePCM_Silent(t *testing.T) {
 	}
 }
 
+func TestTrimSilence(t *testing.T) {
+	// 3 silent samples, 2 loud, 3 silent — window size 1.
+	pcm := int16PCM(0, 0, 0, 10000, 15000, 0, 0, 0)
+	trimmed := TrimSilence(pcm, 0.01, 1)
+
+	// Should keep only the 2 loud samples.
+	if len(trimmed) != 4 { // 2 samples * 2 bytes
+		t.Fatalf("expected 4 bytes (2 samples), got %d", len(trimmed))
+	}
+	s0 := int16(binary.LittleEndian.Uint16(trimmed[0:]))
+	s1 := int16(binary.LittleEndian.Uint16(trimmed[2:]))
+	if s0 != 10000 || s1 != 15000 {
+		t.Errorf("expected [10000, 15000], got [%d, %d]", s0, s1)
+	}
+}
+
+func TestTrimSilence_AllSilent(t *testing.T) {
+	pcm := int16PCM(0, 0, 0, 0)
+	trimmed := TrimSilence(pcm, 0.01, 1)
+	if len(trimmed) != 0 {
+		t.Errorf("expected empty, got %d bytes", len(trimmed))
+	}
+}
+
+func TestTrimSilence_NoSilence(t *testing.T) {
+	pcm := int16PCM(5000, 10000, 8000)
+	trimmed := TrimSilence(pcm, 0.01, 1)
+	if len(trimmed) != len(pcm) {
+		t.Errorf("expected no trimming, got %d vs %d bytes", len(trimmed), len(pcm))
+	}
+}
+
+func TestTrimSilence_WindowSize(t *testing.T) {
+	// 4 silent samples, 2 loud, 4 silent — window size 2.
+	pcm := int16PCM(0, 0, 0, 0, 20000, 20000, 0, 0, 0, 0)
+	trimmed := TrimSilence(pcm, 0.01, 2)
+
+	// Windows: [0,0] [0,0] [20000,20000] [0,0] [0,0]
+	// First loud window starts at sample 4, last loud ends at sample 6.
+	if len(trimmed) != 4 { // 2 samples * 2 bytes
+		t.Fatalf("expected 4 bytes (2 samples), got %d", len(trimmed))
+	}
+}
+
 func TestPeakAmplitude_QuietSignal(t *testing.T) {
 	pcm := int16PCM(328, -200, 100, -328)
 	amp := peakAmplitude(pcm)

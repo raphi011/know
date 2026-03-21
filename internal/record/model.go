@@ -219,7 +219,8 @@ func (m Model) save(pcm []byte) tea.Cmd {
 		}
 		defer os.Remove(tmpFile.Name())
 
-		// Normalize audio so the peak reaches 90% of max volume.
+		// Trim leading/trailing silence, then normalize volume.
+		pcm = TrimSilence(pcm, 0.01, sampleRate/10) // 100ms windows, ~1% threshold
 		NormalizePCM(pcm, 0.9)
 
 		if err := WriteWAV(tmpFile, pcm, sampleRate, channels, bitsPerSample); err != nil {
