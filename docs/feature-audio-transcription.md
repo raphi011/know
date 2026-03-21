@@ -78,23 +78,20 @@ Ingest audio file (file.Data = audio binary)
 
 ## TUI Audio Player
 
-The TUI includes an inline audio player with waveform visualization, allowing playback of audio files directly from the terminal. (Not yet implemented.)
+The TUI includes an inline audio player with waveform visualization, allowing playback of WAV files directly from the terminal via `know browse`.
 
 ### Libraries
 
-- **[gopxl/beep v2](https://github.com/gopxl/beep)** -- Audio decoding (MP3, WAV, FLAC, OGG Vorbis) and playback via the `Streamer` interface.
-- **Reference implementation**: [llehouerou/waves](https://github.com/llehouerou/waves) -- A Bubbletea audio player built with beep v2.
+- **[gen2brain/malgo](https://github.com/gen2brain/malgo)** -- Cross-platform audio I/O via miniaudio C bindings. Used for both recording and playback.
 
-### UX Mockup
+### Controls
 
-```
-+-- standup-2026-03-14.mp3 ----------------------+
-|  ▃▅▇█▆▃▁▂▅▇█▇▅▃▁▁▂▃▅▆▇█▇▅▃▂▁▃▅▇█▆▃▁▂▅▇▆▃▁▂▃▅▆  |
-|       ^ 1:23 / 4:56                                |
-|  > Playing    Vol: ████░░ 70%                       |
-|  [space] play/pause  [<-/->] seek  [up/dn] volume  |
-+-------------------------------------------------+
-```
+| Key | Action |
+|-----|--------|
+| `space` | Play / pause |
+| `←` / `→` | Seek -/+ 5 seconds |
+| `+` / `-` | Volume up / down |
+| `esc` | Back to file browser |
 
 ## Configuration
 
