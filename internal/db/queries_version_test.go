@@ -49,7 +49,7 @@ func TestCreateVersion(t *testing.T) {
 		t.Errorf("Expected title 'Version 1', got %q", v.Title)
 	}
 	if v.Hash != "hash1" {
-		t.Errorf("Expected content_hash 'hash1', got %q", v.Hash)
+		t.Errorf("Expected hash 'hash1', got %q", v.Hash)
 	}
 }
 

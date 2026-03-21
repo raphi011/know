@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/raphi011/know/internal/models"
 )
@@ -148,6 +149,9 @@ func TestBookmarkCascadeOnFileDelete(t *testing.T) {
 	if err := testDB.DeleteFile(ctx, fileID); err != nil {
 		t.Fatalf("DeleteFile: %v", err)
 	}
+
+	// Wait for async cascade event to complete
+	time.Sleep(100 * time.Millisecond)
 
 	files, err := testDB.ListBookmarks(ctx, userID, vaultID)
 	if err != nil {

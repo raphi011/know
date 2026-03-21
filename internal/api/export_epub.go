@@ -204,7 +204,7 @@ func (s *Server) resolveImages(ctx context.Context, vaultID string, imagePaths m
 		}
 
 		if f.Hash == nil {
-			logger.Warn("image has no content hash", "path", vaultPath)
+			logger.Warn("image has no hash", "path", vaultPath)
 			failCount++
 			continue
 		}

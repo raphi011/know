@@ -44,29 +44,38 @@ func (c *Client) DeleteBookmark(ctx context.Context, userID, fileID string) erro
 	return nil
 }
 
+// bookmarkWithFile is used to deserialize the FETCH file result.
+type bookmarkWithFile struct {
+	File models.File `json:"file"`
+}
+
 // ListBookmarks returns all files bookmarked by the user in the given vault,
 // ordered by bookmark creation time (newest first).
 func (c *Client) ListBookmarks(ctx context.Context, userID, vaultID string) ([]models.File, error) {
 	defer c.logOp(ctx, "bookmark.list", time.Now())
-	// Two statements: first get ordered file IDs, then fetch full file records.
-	// SurrealDB v3 doesn't support ORDER BY with SELECT VALUE or field expansion.
+	// FETCH file resolves the record link to a full file record.
+	// created_at must be in the SELECT for ORDER BY to use it.
 	sql := `
-		LET $file_ids = SELECT file, created_at FROM bookmark
+		SELECT file, created_at FROM bookmark
 			WHERE user = type::record("user", $user_id)
 			  AND vault = type::record("vault", $vault_id)
-			ORDER BY created_at DESC;
-		SELECT * FROM file WHERE id IN $file_ids.file;
+			ORDER BY created_at DESC
+			FETCH file;
 	`
-	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+	results, err := surrealdb.Query[[]bookmarkWithFile](ctx, c.DB(), sql, map[string]any{
 		"user_id":  bareID("user", userID),
 		"vault_id": bareID("vault", vaultID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list bookmarks: %w", err)
 	}
-	// LET produces a first result entry; the SELECT is the second.
-	if results == nil || len(*results) < 2 {
+	if results == nil || len(*results) < 1 {
 		return nil, nil
 	}
-	return (*results)[1].Result, nil
+	rows := (*results)[0].Result
+	files := make([]models.File, len(rows))
+	for i, r := range rows {
+		files[i] = r.File
+	}
+	return files, nil
 }

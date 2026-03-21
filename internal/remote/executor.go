@@ -127,7 +127,7 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,
-		Size:          &contentLen,
+		ContentLength: &contentLen,
 	}
 	return sb.String(), meta, nil
 }

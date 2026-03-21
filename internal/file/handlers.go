@@ -214,9 +214,17 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return nil
 		}
 
-		docContent, err := svc.ReadFileContent(ctx, doc)
-		if err != nil {
-			return fmt.Errorf("read file content: %w", err)
+		var docContent string
+		if models.IsTextFile(doc.Path) {
+			docContent, err = svc.ReadFileContent(ctx, doc)
+			if err != nil {
+				return fmt.Errorf("read file content: %w", err)
+			}
+		} else {
+			docContent, err = svc.ReadTextFromChunks(ctx, fileID)
+			if err != nil {
+				return fmt.Errorf("read text from chunks: %w", err)
+			}
 		}
 		if docContent == "" {
 			logger.Warn("file has no transcript content, skipping summarization", "file_id", fileID)

@@ -171,16 +171,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case documentFetchedMsg:
 		if msg.err != nil {
 			slog.Warn("document fetch failed", "error", msg.err)
-			if m.activeTab == TabAllFiles {
-				m.finder.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
-			} else {
-				m.links.statusErr = fmt.Sprintf("Failed to open: %v", msg.err)
+			errMsg := fmt.Sprintf("Failed to open: %v", msg.err)
+			switch m.activeTab {
+			case TabAllFiles:
+				m.finder.statusErr = errMsg
+			case TabLinks:
+				m.links.statusErr = errMsg
+			case TabBookmarks:
+				m.bookmarks.statusErr = errMsg
 			}
 			return m, nil
 		}
 		m.finder.statusErr = ""
 		m.links.statusErr = ""
+		m.bookmarks.statusErr = ""
 		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
+		// Initialize bookmark state from loaded bookmarks.
+		for _, bm := range m.bookmarks.items {
+			if bm.Path == msg.doc.Path {
+				m.viewer.bookmarked = true
+				break
+			}
+		}
 		m.state = stateViewing
 		return m, nil
 

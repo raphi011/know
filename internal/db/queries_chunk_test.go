@@ -51,7 +51,7 @@ func TestCreateAndGetChunks(t *testing.T) {
 	}
 }
 
-func TestCreateChunksWithDataHash(t *testing.T) {
+func TestCreateChunksWithHash(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -61,7 +61,7 @@ func TestCreateChunksWithDataHash(t *testing.T) {
 	doc, err := testDB.CreateFile(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    "/chunk-datahash-test.pdf",
-		Title:   "DataHash Test",
+		Title:   "Hash Test",
 		Content: "",
 		Labels:  []string{"test"},
 	})
@@ -102,23 +102,23 @@ func TestCreateChunksWithDataHash(t *testing.T) {
 		t.Fatalf("Expected 2 chunks, got %d", len(chunks))
 	}
 
-	// Chunk with DataHash should round-trip.
+	// Chunk with Hash should round-trip.
 	if chunks[0].Hash == nil {
-		t.Fatal("Expected DataHash to be set on chunk 0")
+		t.Fatal("Expected Hash to be set on chunk 0")
 	}
 	if *chunks[0].Hash != hash {
-		t.Errorf("Expected DataHash %q, got %q", hash, *chunks[0].Hash)
+		t.Errorf("Expected Hash %q, got %q", hash, *chunks[0].Hash)
 	}
 	if chunks[0].MimeType != "image/png" {
 		t.Errorf("Expected MimeType 'image/png', got %q", chunks[0].MimeType)
 	}
 	if !chunks[0].IsMultimodal() {
-		t.Error("Expected chunk with DataHash+image/png to be multimodal")
+		t.Error("Expected chunk with Hash+image/png to be multimodal")
 	}
 
-	// Chunk without DataHash.
+	// Chunk without Hash.
 	if chunks[1].Hash != nil {
-		t.Errorf("Expected DataHash to be nil on chunk 1, got %v", *chunks[1].Hash)
+		t.Errorf("Expected Hash to be nil on chunk 1, got %v", *chunks[1].Hash)
 	}
 	if chunks[1].IsMultimodal() {
 		t.Error("Expected text-only chunk to not be multimodal")

@@ -131,7 +131,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS file         ON file_version TYPE record<file>;
     DEFINE FIELD IF NOT EXISTS vault        ON file_version TYPE record<vault>;
     DEFINE FIELD IF NOT EXISTS version      ON file_version TYPE int;
-    DEFINE FIELD IF NOT EXISTS hash         ON file_version TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS hash         ON file_version TYPE string;
     DEFINE FIELD IF NOT EXISTS title        ON file_version TYPE string;
     DEFINE FIELD IF NOT EXISTS created_at   ON file_version TYPE datetime DEFAULT time::now();
 

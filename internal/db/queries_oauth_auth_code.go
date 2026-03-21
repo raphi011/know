@@ -40,7 +40,7 @@ func (c *Client) GetOAuthAuthCode(ctx context.Context, code string) (*models.OAu
 // Returns nil if the code does not exist (already consumed or never created).
 func (c *Client) ConsumeOAuthAuthCode(ctx context.Context, code string) (*models.OAuthAuthCode, error) {
 	defer c.logOp(ctx, "oauth_auth_code.consume", time.Now())
-	sql := `DELETE oauth_auth_code WHERE code = $code RETURN BEFORE`
+	sql := `DELETE oauth_auth_code WHERE code = $code AND expires_at > time::now() RETURN BEFORE`
 	results, err := surrealdb.Query[[]models.OAuthAuthCode](ctx, c.DB(), sql, map[string]any{
 		"code": code,
 	})

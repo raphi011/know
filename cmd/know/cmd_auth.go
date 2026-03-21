@@ -22,7 +22,9 @@ func saveCredentials(apiURL, token string) error {
 	}
 	if err := keychain.SetAPIURL(apiURL); err != nil {
 		// Remove the token to avoid partial keychain state.
-		_ = keychain.DeleteToken() // best-effort cleanup
+		if delErr := keychain.DeleteToken(); delErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up partial keychain state: %v\n", delErr)
+		}
 		return fmt.Errorf("save api url: %w", err)
 	}
 	return nil
@@ -37,7 +39,7 @@ var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Log in to a Know server",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		apiURL, _ := cmd.Flags().GetString("api-url")
+		apiURL, _ := cmd.Flags().GetString("api-url") // guaranteed registered in init()
 
 		// Try device flow to discover if OIDC is available.
 		// 200 = OIDC enabled, 404 = not enabled, other errors = warn and fall back.

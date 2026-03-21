@@ -758,11 +758,11 @@ func (c *Client) ListFilesByPrefix(ctx context.Context, vaultID, prefix string) 
 // violation (another request created the same path between our check and insert),
 // we retry as an update.
 //
-// For binary files (non-empty Data), content_hash and size are computed from the data.
+// For binary files (non-empty Data), hash and size are computed from the data.
 func (c *Client) UpsertFile(ctx context.Context, input models.FileInput) (file *models.File, created bool, previousFile *models.File, err error) {
 	defer c.logOp(ctx, "file.upsert", time.Now())
 
-	// For binary files, compute content_hash and size from the data.
+	// For binary files, compute hash and size from the data.
 	if len(input.Data) > 0 {
 		h := sha256.Sum256(input.Data)
 		hash := hex.EncodeToString(h[:])

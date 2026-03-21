@@ -10,7 +10,7 @@ type ToolResultMeta struct {
 	MatchedDocs    []ToolDocRef `json:"matchedDocs,omitempty"`
 	DocumentPath   *string      `json:"documentPath,omitempty"`
 	DocumentTitle  *string      `json:"documentTitle,omitempty"`
-	Size           *int         `json:"size,omitempty"`
+	ContentLength  *int         `json:"contentLength,omitempty"`
 	WebResultCount *int         `json:"webResultCount,omitempty"`
 	WebSources     []ToolWebRef `json:"webSources,omitempty"`
 }

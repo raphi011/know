@@ -72,7 +72,7 @@ type AssetMeta struct {
 	Path      string    `json:"path"`
 	MimeType  string    `json:"mimeType"`
 	Size      int       `json:"size"`
-	Hash      *string   `json:"hash"`
+	Hash      *string   `json:"hash,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 

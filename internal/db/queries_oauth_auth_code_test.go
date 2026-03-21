@@ -119,12 +119,36 @@ func TestDeleteExpiredOAuthAuthCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteExpiredOAuthAuthCodes: %v", err)
 	}
-	ac, _ := testDB.GetOAuthAuthCode(ctx, expiredCode)
+	ac, err := testDB.GetOAuthAuthCode(ctx, expiredCode)
+	if err != nil {
+		t.Fatalf("GetOAuthAuthCode (expired): %v", err)
+	}
 	if ac != nil {
 		t.Error("expired auth code should be deleted")
 	}
-	ac2, _ := testDB.GetOAuthAuthCode(ctx, validCode)
+	ac2, err := testDB.GetOAuthAuthCode(ctx, validCode)
+	if err != nil {
+		t.Fatalf("GetOAuthAuthCode (valid): %v", err)
+	}
 	if ac2 == nil {
 		t.Error("valid auth code should still exist")
+	}
+}
+
+func TestConsumeExpiredOAuthAuthCode(t *testing.T) {
+	ctx := context.Background()
+	code := "oauthcode_test_consume_expired_" + t.Name()
+	err := testDB.CreateOAuthAuthCode(ctx, code, "encrypted_tok", "challenge_xyz", "http://localhost:9999/callback", time.Now().Add(-1*time.Minute))
+	if err != nil {
+		t.Fatalf("CreateOAuthAuthCode: %v", err)
+	}
+
+	// Consuming an expired code should return nil (rejected by expires_at filter).
+	ac, err := testDB.ConsumeOAuthAuthCode(ctx, code)
+	if err != nil {
+		t.Fatalf("ConsumeOAuthAuthCode (expired): %v", err)
+	}
+	if ac != nil {
+		t.Error("expected nil for expired code")
 	}
 }

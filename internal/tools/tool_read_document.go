@@ -109,7 +109,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,
-		Size:          &contentLen,
+		ContentLength: &contentLen,
 	})
 	return sb.String(), nil
 }

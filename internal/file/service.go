@@ -203,7 +203,7 @@ func (s *Service) ReadContent(ctx context.Context, contentHash string) (string, 
 }
 
 // ReadFileContent loads content for a file from the blob store.
-// Convenience wrapper that handles nil ContentHash.
+// Convenience wrapper that handles nil Hash.
 func (s *Service) ReadFileContent(ctx context.Context, f *models.File) (string, error) {
 	if f.Hash == nil {
 		return "", nil
@@ -376,7 +376,7 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		metadata = input.Metadata
 	}
 
-	// Compute content_hash and store content in blob
+	// Compute hash and store content in blob
 	var contentHash string
 	var contentLength int
 
@@ -774,7 +774,7 @@ func stripMarkdownHeadingPrefixes(path string) string {
 }
 
 // EmbedPendingChunksForFile embeds all un-embedded chunks for a specific file.
-// Text chunks use the regular Embedder; multimodal chunks (with DataHash and
+// Text chunks use the regular Embedder; multimodal chunks (with Hash and
 // non-text MIME type) use the MultimodalEmbedder, falling back to text embedding.
 // Returns the number of chunks successfully embedded.
 func (s *Service) EmbedPendingChunksForFile(ctx context.Context, fileID string) (int, error) {

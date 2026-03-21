@@ -29,7 +29,7 @@ func (s *Server) listBookmarks(w http.ResponseWriter, r *http.Request) {
 	files, err := s.app.DBClient().ListBookmarks(ctx, userID, vaultID)
 	if err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to list bookmarks")
-		logger.Error("list bookmarks", "vault_id", vaultID, "error", err)
+		logger.Error("list bookmarks", "vault_id", vaultID, "user_id", userID, "error", err)
 		return
 	}
 
@@ -72,18 +72,23 @@ func (s *Server) addBookmark(w http.ResponseWriter, r *http.Request) {
 	file, err := s.app.DBClient().GetFileByPath(ctx, vaultID, req.Path)
 	if err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to look up file")
-		logger.Error("add bookmark: get file", "vault_id", vaultID, "path", req.Path, "error", err)
+		logger.Error("add bookmark: get file", "vault_id", vaultID, "user_id", userID, "path", req.Path, "error", err)
 		return
 	}
 	if file == nil {
 		httputil.WriteProblem(w, http.StatusNotFound, "file not found")
 		return
 	}
-	fileID := models.MustRecordIDString(file.ID)
+	fileID, err := models.RecordIDString(file.ID)
+	if err != nil {
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid file ID")
+		logger.Error("add bookmark: extract file ID", "error", err)
+		return
+	}
 
 	if err := s.app.DBClient().CreateBookmark(ctx, userID, fileID, vaultID); err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to create bookmark")
-		logger.Error("add bookmark", "vault_id", vaultID, "path", req.Path, "error", err)
+		logger.Error("add bookmark", "vault_id", vaultID, "user_id", userID, "path", req.Path, "error", err)
 		return
 	}
 
@@ -115,7 +120,7 @@ func (s *Server) removeBookmark(w http.ResponseWriter, r *http.Request) {
 	file, err := s.app.DBClient().GetFileByPath(ctx, vaultID, req.Path)
 	if err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to look up file")
-		logger.Error("remove bookmark: get file", "vault_id", vaultID, "path", req.Path, "error", err)
+		logger.Error("remove bookmark: get file", "vault_id", vaultID, "user_id", userID, "path", req.Path, "error", err)
 		return
 	}
 	if file == nil {
@@ -123,11 +128,16 @@ func (s *Server) removeBookmark(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	fileID := models.MustRecordIDString(file.ID)
+	fileID, err := models.RecordIDString(file.ID)
+	if err != nil {
+		httputil.WriteProblem(w, http.StatusInternalServerError, "invalid file ID")
+		logger.Error("remove bookmark: extract file ID", "error", err)
+		return
+	}
 
 	if err := s.app.DBClient().DeleteBookmark(ctx, userID, fileID); err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to remove bookmark")
-		logger.Error("remove bookmark", "vault_id", vaultID, "path", req.Path, "error", err)
+		logger.Error("remove bookmark", "vault_id", vaultID, "user_id", userID, "path", req.Path, "error", err)
 		return
 	}
 
