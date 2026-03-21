@@ -59,8 +59,14 @@ func runNoteRecord(_ *cobra.Command, _ []string) error {
 	model := record.NewModel(rec, client, *noteRecordVaultID, path)
 
 	p := tea.NewProgram(model)
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		return fmt.Errorf("record: %w", err)
+	}
+	if m, ok := finalModel.(record.Model); ok {
+		if errMsg := m.Err(); errMsg != "" {
+			return fmt.Errorf("record: %s", errMsg)
+		}
 	}
 
 	return nil

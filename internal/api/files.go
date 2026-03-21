@@ -36,11 +36,15 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Skip blob read for audio files — their content hash points to the
-	// binary audio data, not a text transcript. The transcript (if available)
-	// is stored in the DB Content field after STT processing.
+	// For audio files, hash points to the binary blob — read transcript
+	// from chunks instead. For everything else, read content from blob.
 	var content string
-	if !strings.HasPrefix(doc.MimeType, "audio/") {
+	if strings.HasPrefix(doc.MimeType, "audio/") {
+		fileID, fErr := models.RecordIDString(doc.ID)
+		if fErr == nil {
+			content, _ = s.app.FileService().ReadTextFromChunks(ctx, fileID)
+		}
+	} else {
 		var err error
 		content, err = s.app.FileService().ReadFileContent(ctx, doc)
 		if err != nil {

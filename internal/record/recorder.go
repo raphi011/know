@@ -125,7 +125,7 @@ func (r *Recorder) Close() {
 	defer r.mu.Unlock()
 
 	if r.ctx != nil {
-		_ = r.ctx.Uninit()
+		_ = r.ctx.Uninit() // best-effort cleanup; context is freed immediately after
 		r.ctx.Free()
 		r.ctx = nil
 	}

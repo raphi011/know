@@ -220,6 +220,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case audioReadyMsg:
 		if msg.err != nil {
 			slog.Warn("audio player init failed", "error", msg.err)
+			// Fall back to text viewer if we have a transcript.
+			if msg.transcript != "" {
+				doc := &apiclient.Document{Content: msg.transcript}
+				m.viewer = newViewer(msg.path, renderContent(m.renderer, doc), m.width, m.height)
+				m.state = stateViewing
+				return m, nil
+			}
 			if m.activeTab == TabAllFiles {
 				m.finder.statusErr = fmt.Sprintf("Audio playback failed: %v", msg.err)
 			} else {
@@ -339,11 +346,13 @@ func (m Model) fetchAudio(doc *apiclient.Document) tea.Cmd {
 	return func() tea.Msg {
 		rc, err := client.GetAssetReader(context.Background(), vaultID, doc.Path)
 		if err != nil {
-			return audioReadyMsg{err: fmt.Errorf("download audio: %w", err)}
+			// Asset not available (e.g. after transcription replaced the binary).
+			// Fall back to showing the text content.
+			return audioReadyMsg{path: doc.Path, transcript: doc.Content, err: fmt.Errorf("download audio: %w", err)}
 		}
 		player, err := record.NewPlayer(rc)
 		if err != nil {
-			return audioReadyMsg{err: fmt.Errorf("init player: %w", err)}
+			return audioReadyMsg{path: doc.Path, transcript: doc.Content, err: fmt.Errorf("init player: %w", err)}
 		}
 		return audioReadyMsg{
 			path:       doc.Path,

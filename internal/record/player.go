@@ -20,7 +20,8 @@ const (
 	PlayerStopped
 )
 
-// Player manages streaming WAV download and malgo playback.
+// Player manages WAV playback via malgo. Currently reads the full WAV
+// synchronously; designed to support streaming download.
 type Player struct {
 	mu sync.Mutex
 
@@ -150,7 +151,7 @@ func (p *Player) Seek(d time.Duration) {
 	defer p.mu.Unlock()
 
 	bytesPerSecond := int(p.sampleRate) * int(p.channels) * int(p.bitsPerSample) / 8
-	offsetBytes := int(d.Seconds()) * bytesPerSecond
+	offsetBytes := int(d.Seconds() * float64(bytesPerSecond))
 
 	// Align to sample boundary.
 	blockAlign := int(p.channels) * int(p.bitsPerSample) / 8
@@ -207,11 +208,11 @@ func (p *Player) State() PlayerState {
 
 // DownloadedRatio returns 0.0–1.0 indicating download progress.
 func (p *Player) DownloadedRatio() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.totalBytes == 0 {
 		return 1
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return float64(len(p.pcmBuf)) / float64(p.totalBytes)
 }
 
@@ -233,12 +234,13 @@ func (p *Player) Close() {
 	p.mu.Unlock()
 
 	// Stop/uninit outside the lock — the audio callback acquires mu.
+	// Errors are best-effort during cleanup; the resources are freed next.
 	if device != nil {
 		device.Stop()
 		device.Uninit()
 	}
 	if ctx != nil {
-		_ = ctx.Uninit()
+		_ = ctx.Uninit() // best-effort cleanup; context is freed immediately after
 		ctx.Free()
 	}
 }

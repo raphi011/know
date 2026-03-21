@@ -58,6 +58,14 @@ type Model struct {
 	width int
 }
 
+// Err returns the error message if the model ended in an error state.
+func (m Model) Err() string {
+	if m.state == stateError {
+		return m.errMsg
+	}
+	return ""
+}
+
 // NewModel creates a new recording TUI model.
 func NewModel(recorder *Recorder, client *apiclient.Client, vaultID, basePath string) Model {
 	return Model{
@@ -211,11 +219,16 @@ func (m Model) save(pcm []byte) tea.Cmd {
 		}
 		defer os.Remove(tmpFile.Name())
 
+		// Normalize audio so the peak reaches 90% of max volume.
+		NormalizePCM(pcm, 0.9)
+
 		if err := WriteWAV(tmpFile, pcm, sampleRate, channels, bitsPerSample); err != nil {
 			tmpFile.Close()
 			return saveCompleteMsg{err: fmt.Errorf("write WAV: %w", err)}
 		}
-		tmpFile.Close()
+		if err := tmpFile.Close(); err != nil {
+			return saveCompleteMsg{err: fmt.Errorf("flush WAV: %w", err)}
+		}
 
 		// Re-open for reading.
 		f, err := os.Open(tmpFile.Name())
