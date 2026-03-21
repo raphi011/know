@@ -3,7 +3,7 @@ FROM golang:1.26-alpine AS go-builder
 
 WORKDIR /app
 
-RUN apk add --no-cache git
+RUN apk add --no-cache git build-base alsa-lib-dev
 
 # Download Go modules first (cache layer)
 COPY go.mod go.sum ./
@@ -17,14 +17,14 @@ COPY internal/ ./internal/
 ARG VERSION=dev
 ARG COMMIT=none
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=1 GOOS=linux go build \
     -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
     -o /know ./cmd/know
 
 # Runtime
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata ffmpeg poppler-utils \
+RUN apk add --no-cache ca-certificates tzdata ffmpeg poppler-utils alsa-lib \
     && addgroup -S -g 1000 know \
     && adduser -S -u 1000 -G know know
 
