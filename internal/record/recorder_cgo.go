@@ -1,16 +1,13 @@
+//go:build cgo
+
 package record
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 
 	"github.com/gen2brain/malgo"
-)
-
-const (
-	sampleRate    = 44100
-	channels      = 1
-	bitsPerSample = 16
 )
 
 // Recorder captures audio from the default input device via malgo.
@@ -32,7 +29,7 @@ type Recorder struct {
 func NewRecorder() (*Recorder, error) {
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init audio context: %w", err)
 	}
 	return &Recorder{ctx: ctx}, nil
 }
@@ -66,11 +63,14 @@ func (r *Recorder) Start() error {
 
 	device, err := malgo.InitDevice(r.ctx.Context, deviceConfig, callbacks)
 	if err != nil {
-		return err
+		return fmt.Errorf("init capture device: %w", err)
 	}
 	r.device = device
 
-	return r.device.Start()
+	if err := r.device.Start(); err != nil {
+		return fmt.Errorf("start capture: %w", err)
+	}
+	return nil
 }
 
 // DrainAmplitudes returns and clears the buffered amplitudes from the audio

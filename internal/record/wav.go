@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+// Default recording format: 44.1 kHz, mono, 16-bit signed PCM.
+const (
+	sampleRate    = 44100
+	channels      = 1
+	bitsPerSample = 16
+)
+
 // WAVHeader contains parsed WAV file metadata and PCM data.
 type WAVHeader struct {
 	SampleRate    uint32
