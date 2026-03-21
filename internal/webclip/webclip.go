@@ -75,9 +75,12 @@ func Fetch(ctx context.Context, client *jina.Client, url string, model *llm.Mode
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
 
-	markdown, err := CleanMarkdown(ctx, model, r.Markdown)
-	if err != nil {
-		return nil, fmt.Errorf("clean: %w", err)
+	markdown := r.Markdown
+	if model != nil {
+		markdown, err = CleanMarkdown(ctx, model, markdown)
+		if err != nil {
+			return nil, fmt.Errorf("clean: %w", err)
+		}
 	}
 
 	return &Result{
@@ -106,9 +109,11 @@ func FetchAndSave(ctx context.Context, client *jina.Client, fileSvc *file.Servic
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
 
-	r.Markdown, err = CleanMarkdown(ctx, model, r.Markdown)
-	if err != nil {
-		return nil, fmt.Errorf("clean: %w", err)
+	if model != nil {
+		r.Markdown, err = CleanMarkdown(ctx, model, r.Markdown)
+		if err != nil {
+			return nil, fmt.Errorf("clean: %w", err)
+		}
 	}
 
 	// Derive save path.

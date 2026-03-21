@@ -18,4 +18,23 @@ var (
 
 	footerBarStyle = lipgloss.NewStyle().
 			Foreground(pick.MutedColor)
+
+	// Audio player styles
+	playerStatusStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#10B981")).
+				Bold(true)
+
+	playerPausedStyle = lipgloss.NewStyle().
+				Foreground(pick.MutedColor).
+				Bold(true)
+
+	playerHotkeyKeyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#10B981")).
+				Bold(true)
+
+	playerHotkeyStyle = lipgloss.NewStyle().
+				Foreground(pick.MutedColor)
+
+	separatorStyle = lipgloss.NewStyle().
+			Foreground(pick.MutedColor)
 )

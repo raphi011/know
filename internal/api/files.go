@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
@@ -35,11 +36,28 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := s.app.FileService().ReadFileContent(ctx, doc)
-	if err != nil {
-		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read document content")
-		logger.Error("read document content", "error", err)
-		return
+	// For audio files, hash points to the binary blob — read transcript
+	// from chunks instead. For everything else, read content from blob.
+	var content string
+	if strings.HasPrefix(doc.MimeType, "audio/") {
+		fileID, fErr := models.RecordIDString(doc.ID)
+		if fErr != nil {
+			logger.Warn("extract file ID for audio transcript", "path", doc.Path, "error", fErr)
+		} else {
+			var chunkErr error
+			content, chunkErr = s.app.FileService().ReadTextFromChunks(ctx, fileID)
+			if chunkErr != nil {
+				logger.Warn("read audio transcript from chunks", "path", doc.Path, "error", chunkErr)
+			}
+		}
+	} else {
+		var err error
+		content, err = s.app.FileService().ReadFileContent(ctx, doc)
+		if err != nil {
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read document content")
+			logger.Error("read document content", "error", err)
+			return
+		}
 	}
 
 	fileID, err := models.RecordIDString(doc.ID)
@@ -355,6 +373,7 @@ func documentFromModel(d *models.File, content string) Document {
 		Labels:    nonNilLabels(d.Labels),
 		DocType:   d.DocType,
 		Hash:      d.Hash,
+		MimeType:  d.MimeType,
 		CreatedAt: d.CreatedAt,
 		UpdatedAt: d.UpdatedAt,
 	}

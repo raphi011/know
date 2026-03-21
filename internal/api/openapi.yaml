@@ -502,6 +502,10 @@ components:
         hash:
           type: [string, "null"]
           description: SHA256 hash of the content (null if not yet computed)
+        mimeType:
+          type: string
+          description: MIME type of the file (e.g. `text/markdown`, `audio/wav`)
+          example: "text/markdown"
         createdAt:
           type: string
           format: date-time
@@ -630,6 +634,10 @@ components:
         source:
           type: string
           description: Original URL for web-clipped documents
+        mimeType:
+          type: string
+          description: MIME type of the file (e.g. `text/markdown`, `audio/wav`)
+          example: "text/markdown"
 
     FetchRequest:
       type: object

@@ -59,12 +59,13 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		for _, f := range files {
 			source, _ := f.Metadata["source"].(string) // zero-value "" is fine when absent or non-string
 			entries = append(entries, models.FileEntry{
-				Name:   path.Base(f.Path),
-				Path:   f.Path,
-				Title:  f.Title,
-				Size:   f.Size,
-				Labels: f.Labels,
-				Source: source,
+				Name:     path.Base(f.Path),
+				Path:     f.Path,
+				Title:    f.Title,
+				Size:     f.Size,
+				Labels:   f.Labels,
+				Source:   source,
+				MimeType: f.MimeType,
 			})
 		}
 		writeJSON(w, http.StatusOK, httputil.NewListResponse(entries, len(entries)))
@@ -109,10 +110,11 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, d := range docs {
 			entries = append(entries, models.FileEntry{
-				Name:  path.Base(d.Path),
-				Path:  d.Path,
-				Title: d.Title,
-				Size:  d.Size,
+				Name:     path.Base(d.Path),
+				Path:     d.Path,
+				Title:    d.Title,
+				Size:     d.Size,
+				MimeType: d.MimeType,
 			})
 		}
 	} else {
@@ -136,10 +138,11 @@ func (s *Server) ls(w http.ResponseWriter, r *http.Request) {
 			rel := strings.TrimPrefix(d.Path, prefix)
 			if rel != d.Path && !strings.Contains(rel, "/") {
 				entries = append(entries, models.FileEntry{
-					Name:  path.Base(d.Path),
-					Path:  d.Path,
-					Title: d.Title,
-					Size:  d.Size,
+					Name:     path.Base(d.Path),
+					Path:     d.Path,
+					Title:    d.Title,
+					Size:     d.Size,
+					MimeType: d.MimeType,
 				})
 			}
 		}

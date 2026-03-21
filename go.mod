@@ -19,6 +19,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.8
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.10
 	github.com/coreos/go-oidc/v3 v3.17.0
+	github.com/gen2brain/malgo v0.11.24
 	github.com/go-git/go-billy/v5 v5.8.0
 	github.com/go-shiori/go-epub v1.2.1
 	github.com/modelcontextprotocol/go-sdk v1.4.1
