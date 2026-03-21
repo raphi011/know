@@ -79,7 +79,7 @@ func TestCreateChunksWithDataHash(t *testing.T) {
 			MimeType:  "image/png",
 			Position:  1,
 			SourceLoc: &sourceLoc,
-			DataHash:  &hash,
+			Hash:      &hash,
 			Labels:    []string{"test"},
 		},
 		{
@@ -103,11 +103,11 @@ func TestCreateChunksWithDataHash(t *testing.T) {
 	}
 
 	// Chunk with DataHash should round-trip.
-	if chunks[0].DataHash == nil {
+	if chunks[0].Hash == nil {
 		t.Fatal("Expected DataHash to be set on chunk 0")
 	}
-	if *chunks[0].DataHash != hash {
-		t.Errorf("Expected DataHash %q, got %q", hash, *chunks[0].DataHash)
+	if *chunks[0].Hash != hash {
+		t.Errorf("Expected DataHash %q, got %q", hash, *chunks[0].Hash)
 	}
 	if chunks[0].MimeType != "image/png" {
 		t.Errorf("Expected MimeType 'image/png', got %q", chunks[0].MimeType)
@@ -117,8 +117,8 @@ func TestCreateChunksWithDataHash(t *testing.T) {
 	}
 
 	// Chunk without DataHash.
-	if chunks[1].DataHash != nil {
-		t.Errorf("Expected DataHash to be nil on chunk 1, got %v", *chunks[1].DataHash)
+	if chunks[1].Hash != nil {
+		t.Errorf("Expected DataHash to be nil on chunk 1, got %v", *chunks[1].Hash)
 	}
 	if chunks[1].IsMultimodal() {
 		t.Error("Expected text-only chunk to not be multimodal")

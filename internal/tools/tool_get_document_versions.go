@@ -100,7 +100,7 @@ func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJ
 			fmt.Fprintf(&sb, "### Version %d\n", v.Version)
 			fmt.Fprintf(&sb, "- Title: %s\n", v.Title)
 			fmt.Fprintf(&sb, "- Created: %s\n", v.CreatedAt.Format(time.RFC3339))
-			fmt.Fprintf(&sb, "- Hash: %s\n\n", v.ContentHash)
+			fmt.Fprintf(&sb, "- Hash: %s\n\n", v.Hash)
 		}
 	}
 

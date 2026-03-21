@@ -21,9 +21,9 @@ type idPath struct {
 	Path string                 `json:"path"`
 }
 
-// fileSize returns the appropriate size for a file input. It checks (in order):
-// an explicit Size override, len(Data) for binary files, and len(Content) for
-// text files. The Size override is used by streaming imports where the file data
+// fileSize returns the byte size for a file input. It checks (in order):
+// an explicit Size override, len(Data) for binary files, and len(Content)
+// for text files. The override is used by streaming imports where the file data
 // is not buffered in memory.
 func fileSize(input models.FileInput) int {
 	if input.Size > 0 {
@@ -147,29 +147,27 @@ func (c *Client) CreateFile(ctx context.Context, input models.FileInput) (*model
 			path = $path,
 			title = $title,
 			stem = $stem,
-			content_length = $content_length,
+			size = $size,
 			labels = $labels,
 			doc_type = $doc_type,
-			content_hash = $content_hash,
+			hash = $hash,
 			metadata = $metadata,
 			is_folder = $is_folder,
-			mime_type = $mime_type,
-			size = $size
+			mime_type = $mime_type
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
-		"vault_id":       bareID("vault", input.VaultID),
-		"path":           input.Path,
-		"title":          input.Title,
-		"stem":           stem,
-		"content_length": input.ContentLength,
-		"labels":         labels,
-		"doc_type":       optionalString(input.DocType),
-		"content_hash":   optionalString(input.ContentHash),
-		"metadata":       optionalObject(input.Metadata),
-		"is_folder":      input.IsFolder,
-		"mime_type":      input.MimeType,
-		"size":           fileSize(input),
+		"vault_id":  bareID("vault", input.VaultID),
+		"path":      input.Path,
+		"title":     input.Title,
+		"stem":      stem,
+		"size":      fileSize(input),
+		"labels":    labels,
+		"doc_type":  optionalString(input.DocType),
+		"hash":      optionalString(input.Hash),
+		"metadata":  optionalObject(input.Metadata),
+		"is_folder": input.IsFolder,
+		"mime_type": input.MimeType,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
@@ -236,26 +234,24 @@ func (c *Client) UpdateFile(ctx context.Context, id string, input models.FileInp
 
 	sql := `
 		UPDATE type::record("file", $id) SET
-			content_length = $content_length,
+			size = $size,
 			title = $title,
 			stem = $stem,
 			labels = $labels,
-			content_hash = $content_hash,
+			hash = $hash,
 			metadata = $metadata,
-			mime_type = $mime_type,
-			size = $size
+			mime_type = $mime_type
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
-		"id":             id,
-		"content_length": input.ContentLength,
-		"title":          input.Title,
-		"stem":           stem,
-		"labels":         labels,
-		"content_hash":   optionalString(input.ContentHash),
-		"metadata":       optionalObject(input.Metadata),
-		"mime_type":      input.MimeType,
-		"size":           fileSize(input),
+		"id":        id,
+		"size":      fileSize(input),
+		"title":     input.Title,
+		"stem":      stem,
+		"labels":    labels,
+		"hash":      optionalString(input.Hash),
+		"metadata":  optionalObject(input.Metadata),
+		"mime_type": input.MimeType,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update file: %w", err)
@@ -297,28 +293,26 @@ func (c *Client) updateFileByPath(ctx context.Context, input models.FileInput) (
 
 	sql := `
 		UPDATE file SET
-			content_length = $content_length,
+			size = $size,
 			title = $title,
 			stem = $stem,
 			labels = $labels,
-			content_hash = $content_hash,
+			hash = $hash,
 			metadata = $metadata,
-			mime_type = $mime_type,
-			size = $size
+			mime_type = $mime_type
 		WHERE vault = type::record("vault", $vault_id) AND path = $path
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
-		"vault_id":       bareID("vault", input.VaultID),
-		"path":           input.Path,
-		"content_length": input.ContentLength,
-		"title":          input.Title,
-		"stem":           stem,
-		"labels":         labels,
-		"content_hash":   optionalString(input.ContentHash),
-		"metadata":       optionalObject(input.Metadata),
-		"mime_type":      input.MimeType,
-		"size":           fileSize(input),
+		"vault_id":  bareID("vault", input.VaultID),
+		"path":      input.Path,
+		"size":      fileSize(input),
+		"title":     input.Title,
+		"stem":      stem,
+		"labels":    labels,
+		"hash":      optionalString(input.Hash),
+		"metadata":  optionalObject(input.Metadata),
+		"mime_type": input.MimeType,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update file by path: %w", err)
@@ -533,14 +527,13 @@ func buildFolderRows(vaultID, folderPath string) []map[string]any {
 	rows := make([]map[string]any, len(folders))
 	for i, fp := range folders {
 		rows[i] = map[string]any{
-			"vault":          newRecordID("vault", vid),
-			"path":           fp,
-			"title":          path.Base(fp),
-			"is_folder":      true,
-			"mime_type":      "inode/directory",
-			"content_length": 0,
-			"labels":         []string{},
-			"size":           0,
+			"vault":     newRecordID("vault", vid),
+			"path":      fp,
+			"title":     path.Base(fp),
+			"is_folder": true,
+			"mime_type": "inode/directory",
+			"size":      0,
+			"labels":    []string{},
 		}
 	}
 	return rows
@@ -755,17 +748,17 @@ func (c *Client) ListFilesByPrefix(ctx context.Context, vaultID, prefix string) 
 	return allResults(results), nil
 }
 
-// UpdateFileTranscript updates the file's content_hash and content_length after
-// a transcript has been stored in the blob store.
-func (c *Client) UpdateFileTranscript(ctx context.Context, fileID string, contentHash string, contentLength int) error {
-	defer c.logOp(ctx, "file.update_transcript", time.Now())
-	sql := `UPDATE type::record("file", $id) SET content_hash = $content_hash, content_length = $content_length`
+// UpdateFileHashAndSize updates a file's hash and size after content has been
+// stored in the blob store (e.g. after transcription or PDF text extraction).
+func (c *Client) UpdateFileHashAndSize(ctx context.Context, fileID string, hash string, size int) error {
+	defer c.logOp(ctx, "file.update_hash_and_size", time.Now())
+	sql := `UPDATE type::record("file", $id) SET hash = $hash, size = $size`
 	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id":             bareID("file", fileID),
-		"content_hash":   contentHash,
-		"content_length": contentLength,
+		"id":   bareID("file", fileID),
+		"hash": hash,
+		"size": size,
 	}); err != nil {
-		return fmt.Errorf("update transcript: %w", err)
+		return fmt.Errorf("update hash and size: %w", err)
 	}
 	return nil
 }
@@ -788,7 +781,7 @@ func (c *Client) UpsertFile(ctx context.Context, input models.FileInput) (file *
 	if len(input.Data) > 0 {
 		h := sha256.Sum256(input.Data)
 		hash := hex.EncodeToString(h[:])
-		input.ContentHash = &hash
+		input.Hash = &hash
 	}
 
 	existing, err := c.GetFileByPath(ctx, input.VaultID, input.Path)
@@ -944,7 +937,7 @@ func (c *Client) GetFilesByAllLabels(ctx context.Context, vaultID string, labels
 // Returns nil if the file doesn't exist.
 func (c *Client) GetFileMetaByPath(ctx context.Context, vaultID, filePath string) (*models.FileMeta, error) {
 	defer c.logOp(ctx, "file.get_meta_by_path", time.Now())
-	sql := `SELECT path, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
+	sql := `SELECT path, mime_type, size, hash ?? null AS hash, is_folder, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND path = $path LIMIT 1`
 	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
 		"path":     filePath,
@@ -962,7 +955,7 @@ func (c *Client) GetFileMetaByPaths(ctx context.Context, vaultID string, paths [
 	if len(paths) == 0 {
 		return map[string]*models.FileMeta{}, nil
 	}
-	sql := `SELECT path, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND path IN $paths`
+	sql := `SELECT path, mime_type, size, hash ?? null AS hash, is_folder, updated_at FROM file WHERE vault = type::record("vault", $vault_id) AND path IN $paths`
 	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, map[string]any{
 		"vault_id": bareID("vault", vaultID),
 		"paths":    paths,
@@ -985,7 +978,7 @@ func (c *Client) ListFileMetas(ctx context.Context, filter ListFilesFilter) ([]m
 	if err != nil {
 		return nil, fmt.Errorf("list file metas: %w", err)
 	}
-	sql := fmt.Sprintf("SELECT path, title, mime_type, size, content_hash ?? null AS content_hash, is_folder, updated_at FROM file WHERE %s %s", where, suffix)
+	sql := fmt.Sprintf("SELECT path, title, mime_type, size, hash ?? null AS hash, is_folder, updated_at FROM file WHERE %s %s", where, suffix)
 
 	results, err := surrealdb.Query[[]models.FileMeta](ctx, c.DB(), sql, vars)
 	if err != nil {
@@ -1010,9 +1003,8 @@ func (c *Client) CreateFolder(ctx context.Context, vaultID, folderPath string) (
 			title: $title,
 			is_folder: true,
 			mime_type: "inode/directory",
-			content_length: 0,
-			labels: [],
 			size: 0,
+			labels: [],
 		} ON DUPLICATE KEY UPDATE id = id
 		RETURN AFTER
 	`

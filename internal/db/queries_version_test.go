@@ -12,11 +12,11 @@ import (
 func createTestFile(t *testing.T, ctx context.Context, vaultID string) *models.File {
 	t.Helper()
 	doc, err := testDB.CreateFile(ctx, models.FileInput{
-		VaultID:       vaultID,
-		Path:          fmt.Sprintf("/version-test-%d.md", time.Now().UnixNano()),
-		Title:         "Version Test Doc",
-		ContentLength: 20,
-		Labels:        []string{},
+		VaultID: vaultID,
+		Path:    fmt.Sprintf("/version-test-%d.md", time.Now().UnixNano()),
+		Title:   "Version Test Doc",
+		Size:    20,
+		Labels:  []string{},
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
@@ -34,10 +34,10 @@ func TestCreateVersion(t *testing.T) {
 	docID := models.MustRecordIDString(doc.ID)
 
 	v, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-		FileID:      docID,
-		VaultID:     vaultID,
-		ContentHash: "hash1",
-		Title:       "Version 1",
+		FileID:  docID,
+		VaultID: vaultID,
+		Hash:    "hash1",
+		Title:   "Version 1",
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -48,8 +48,8 @@ func TestCreateVersion(t *testing.T) {
 	if v.Title != "Version 1" {
 		t.Errorf("Expected title 'Version 1', got %q", v.Title)
 	}
-	if v.ContentHash != "hash1" {
-		t.Errorf("Expected content_hash 'hash1', got %q", v.ContentHash)
+	if v.Hash != "hash1" {
+		t.Errorf("Expected content_hash 'hash1', got %q", v.Hash)
 	}
 }
 
@@ -63,10 +63,10 @@ func TestGetVersion(t *testing.T) {
 	docID := models.MustRecordIDString(doc.ID)
 
 	created, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-		FileID:      docID,
-		VaultID:     vaultID,
-		ContentHash: "hash-get",
-		Title:       "Get Version",
+		FileID:  docID,
+		VaultID: vaultID,
+		Hash:    "hash-get",
+		Title:   "Get Version",
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -98,10 +98,10 @@ func TestGetVersionByNumber(t *testing.T) {
 	docID := models.MustRecordIDString(doc.ID)
 
 	_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-		FileID:      docID,
-		VaultID:     vaultID,
-		ContentHash: "hash-num",
-		Title:       "By Number",
+		FileID:  docID,
+		VaultID: vaultID,
+		Hash:    "hash-num",
+		Title:   "By Number",
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -133,10 +133,10 @@ func TestListVersions(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      docID,
-			VaultID:     vaultID,
-			ContentHash: fmt.Sprintf("hash-%d", i),
-			Title:       fmt.Sprintf("Version %d", i),
+			FileID:  docID,
+			VaultID: vaultID,
+			Hash:    fmt.Sprintf("hash-%d", i),
+			Title:   fmt.Sprintf("Version %d", i),
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -163,10 +163,10 @@ func TestGetLatestVersion(t *testing.T) {
 
 	for i := 1; i <= 2; i++ {
 		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      docID,
-			VaultID:     vaultID,
-			ContentHash: fmt.Sprintf("hash-%d", i),
-			Title:       fmt.Sprintf("Version %d", i),
+			FileID:  docID,
+			VaultID: vaultID,
+			Hash:    fmt.Sprintf("hash-%d", i),
+			Title:   fmt.Sprintf("Version %d", i),
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -196,10 +196,10 @@ func TestCountVersions(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      docID,
-			VaultID:     vaultID,
-			ContentHash: fmt.Sprintf("hash-%d", i),
-			Title:       fmt.Sprintf("Version %d", i),
+			FileID:  docID,
+			VaultID: vaultID,
+			Hash:    fmt.Sprintf("hash-%d", i),
+			Title:   fmt.Sprintf("Version %d", i),
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -226,10 +226,10 @@ func TestDeleteOldestVersions(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      docID,
-			VaultID:     vaultID,
-			ContentHash: fmt.Sprintf("hash-%d", i),
-			Title:       fmt.Sprintf("Version %d", i),
+			FileID:  docID,
+			VaultID: vaultID,
+			Hash:    fmt.Sprintf("hash-%d", i),
+			Title:   fmt.Sprintf("Version %d", i),
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion %d failed: %v", i, err)
@@ -273,10 +273,10 @@ func TestNextVersionNumber(t *testing.T) {
 
 	// Create version 1
 	_, err = testDB.CreateVersion(ctx, models.FileVersionInput{
-		FileID:      docID,
-		VaultID:     vaultID,
-		ContentHash: "hash-1",
-		Title:       "Version 1",
+		FileID:  docID,
+		VaultID: vaultID,
+		Hash:    "hash-1",
+		Title:   "Version 1",
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateVersion failed: %v", err)
@@ -306,10 +306,10 @@ func TestListVersionsByFileIDs(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      docAID,
-			VaultID:     vaultID,
-			ContentHash: fmt.Sprintf("hashA-%d", i),
-			Title:       fmt.Sprintf("A v%d", i),
+			FileID:  docAID,
+			VaultID: vaultID,
+			Hash:    fmt.Sprintf("hashA-%d", i),
+			Title:   fmt.Sprintf("A v%d", i),
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion A v%d: %v", i, err)
@@ -317,10 +317,10 @@ func TestListVersionsByFileIDs(t *testing.T) {
 	}
 	for i := 1; i <= 2; i++ {
 		_, err := testDB.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      docBID,
-			VaultID:     vaultID,
-			ContentHash: fmt.Sprintf("hashB-%d", i),
-			Title:       fmt.Sprintf("B v%d", i),
+			FileID:  docBID,
+			VaultID: vaultID,
+			Hash:    fmt.Sprintf("hashB-%d", i),
+			Title:   fmt.Sprintf("B v%d", i),
 		}, i)
 		if err != nil {
 			t.Fatalf("CreateVersion B v%d: %v", i, err)

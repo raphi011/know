@@ -19,16 +19,16 @@ func (c *Client) CreateVersion(ctx context.Context, input models.FileVersionInpu
 			file = type::record("file", $file_id),
 			vault = type::record("vault", $vault_id),
 			version = $version,
-			content_hash = $content_hash,
+			hash = $hash,
 			title = $title
 		RETURN AFTER
 	`
 	results, err := surrealdb.Query[[]models.FileVersion](ctx, c.DB(), sql, map[string]any{
-		"file_id":      bareID("file", input.FileID),
-		"vault_id":     bareID("vault", input.VaultID),
-		"version":      version,
-		"content_hash": input.ContentHash,
-		"title":        input.Title,
+		"file_id":  bareID("file", input.FileID),
+		"vault_id": bareID("vault", input.VaultID),
+		"version":  version,
+		"hash":     input.Hash,
+		"title":    input.Title,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create version: %w", err)

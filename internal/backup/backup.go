@@ -33,17 +33,17 @@ type VaultInfo struct {
 
 // FileInfo captures file metadata (content is stored as a blob in the archive).
 type FileInfo struct {
-	Path        string         `json:"path"`
-	Title       string         `json:"title"`
-	ContentHash string         `json:"content_hash"`
-	Size        int            `json:"size"`
-	Labels      []string       `json:"labels,omitempty"`
-	DocType     *string        `json:"doc_type,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	MimeType    string         `json:"mime_type"`
-	NoEmbed     bool           `json:"no_embed,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	Path      string         `json:"path"`
+	Title     string         `json:"title"`
+	Hash      string         `json:"hash"`
+	Size      int            `json:"size"`
+	Labels    []string       `json:"labels,omitempty"`
+	DocType   *string        `json:"doc_type,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	MimeType  string         `json:"mime_type"`
+	NoEmbed   bool           `json:"no_embed,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 // FolderInfo captures folder metadata and settings.
@@ -55,9 +55,9 @@ type FolderInfo struct {
 // VersionInfo captures a historical version snapshot.
 // Content is stored in the archive under versions/<sharded-hash>.
 type VersionInfo struct {
-	FilePath    string    `json:"file_path"`
-	Version     int       `json:"version"`
-	ContentHash string    `json:"content_hash"`
-	Title       string    `json:"title"`
-	CreatedAt   time.Time `json:"created_at"`
+	FilePath  string    `json:"file_path"`
+	Version   int       `json:"version"`
+	Hash      string    `json:"hash"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
 }

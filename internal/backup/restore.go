@@ -123,15 +123,15 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 	filesRestored := 0
 	for _, fi := range manifest.Files {
 		input := models.FileInput{
-			VaultID:       vaultID,
-			Path:          fi.Path,
-			Title:         fi.Title,
-			ContentHash:   strPtr(fi.ContentHash),
-			ContentLength: fi.Size,
-			Labels:        fi.Labels,
-			DocType:       fi.DocType,
-			Metadata:      fi.Metadata,
-			MimeType:      fi.MimeType,
+			VaultID:  vaultID,
+			Path:     fi.Path,
+			Title:    fi.Title,
+			Hash:     strPtr(fi.Hash),
+			Size:     fi.Size,
+			Labels:   fi.Labels,
+			DocType:  fi.DocType,
+			Metadata: fi.Metadata,
+			MimeType: fi.MimeType,
 		}
 
 		file, err := dbClient.CreateFile(ctx, input)
@@ -167,10 +167,10 @@ func Restore(ctx context.Context, dbClient *db.Client, blobStore blob.Store, vau
 		}
 
 		if _, err := dbClient.CreateVersion(ctx, models.FileVersionInput{
-			FileID:      fileID,
-			VaultID:     vaultID,
-			ContentHash: vi.ContentHash,
-			Title:       vi.Title,
+			FileID:  fileID,
+			VaultID: vaultID,
+			Hash:    vi.Hash,
+			Title:   vi.Title,
 		}, vi.Version); err != nil {
 			logger.Warn("failed to restore version", "path", vi.FilePath, "version", vi.Version, "error", err)
 			continue

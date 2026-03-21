@@ -225,10 +225,10 @@ type assetReadFile struct {
 }
 
 func newAssetReadFile(ctx context.Context, name string, a *models.File, blobStore blob.Store) (*assetReadFile, error) {
-	if a.ContentHash == nil {
+	if a.Hash == nil {
 		return nil, fmt.Errorf("asset %s has no content hash", name)
 	}
-	rc, err := blobStore.Get(ctx, *a.ContentHash)
+	rc, err := blobStore.Get(ctx, *a.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("read blob for %s: %w", name, err)
 	}
@@ -257,7 +257,7 @@ func (f *assetReadFile) Stat() (fs.FileInfo, error) {
 		size:        int64(f.reader.Len()),
 		modTime:     f.asset.UpdatedAt,
 		contentType: f.asset.MimeType,
-		etag:        contentHashETag(f.asset.ContentHash),
+		etag:        contentHashETag(f.asset.Hash),
 	}, nil
 }
 

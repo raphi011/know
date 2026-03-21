@@ -67,12 +67,12 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 
 	vID := models.BareID("vault", vaultID)
 	writeJSON(w, http.StatusCreated, AssetMeta{
-		VaultID:     vID,
-		Path:        asset.Path,
-		MimeType:    asset.MimeType,
-		Size:        asset.Size,
-		ContentHash: asset.ContentHash,
-		UpdatedAt:   asset.UpdatedAt,
+		VaultID:   vID,
+		Path:      asset.Path,
+		MimeType:  asset.MimeType,
+		Size:      asset.Size,
+		Hash:      asset.Hash,
+		UpdatedAt: asset.UpdatedAt,
 	})
 }
 
@@ -96,15 +96,15 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if asset.ContentHash == nil {
+	if asset.Hash == nil {
 		httputil.WriteProblem(w, http.StatusNotFound, "asset has no content")
 		return
 	}
 
-	rc, err := s.app.BlobStore().Get(r.Context(), *asset.ContentHash)
+	rc, err := s.app.BlobStore().Get(r.Context(), *asset.Hash)
 	if err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to read asset data")
-		logutil.FromCtx(r.Context()).Error("get asset blob", "hash", *asset.ContentHash, "error", err)
+		logutil.FromCtx(r.Context()).Error("get asset blob", "hash", *asset.Hash, "error", err)
 		return
 	}
 	defer rc.Close()
@@ -115,7 +115,7 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", asset.MimeType)
-	w.Header().Set("ETag", `"`+*asset.ContentHash+`"`)
+	w.Header().Set("ETag", `"`+*asset.Hash+`"`)
 	w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
 	http.ServeContent(w, r, asset.Path, asset.UpdatedAt, bytes.NewReader(data))
 }
@@ -142,12 +142,12 @@ func (s *Server) getAssetMeta(w http.ResponseWriter, r *http.Request) {
 
 	vID := models.BareID("vault", vaultID)
 	writeJSON(w, http.StatusOK, AssetMeta{
-		VaultID:     vID,
-		Path:        meta.Path,
-		MimeType:    meta.MimeType,
-		Size:        meta.Size,
-		ContentHash: meta.ContentHash,
-		UpdatedAt:   meta.UpdatedAt,
+		VaultID:   vID,
+		Path:      meta.Path,
+		MimeType:  meta.MimeType,
+		Size:      meta.Size,
+		Hash:      meta.Hash,
+		UpdatedAt: meta.UpdatedAt,
 	})
 }
 

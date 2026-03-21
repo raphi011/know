@@ -70,8 +70,8 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var data []byte
-		if f.ContentHash != nil {
-			rc, err := s.app.BlobStore().Get(ctx, *f.ContentHash)
+		if f.Hash != nil {
+			rc, err := s.app.BlobStore().Get(ctx, *f.Hash)
 			if err != nil {
 				httputil.WriteProblem(w, http.StatusInternalServerError, fmt.Sprintf("read blob for %s: %v", meta.Path, err))
 				return

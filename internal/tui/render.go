@@ -121,8 +121,8 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 	}
 	switch toolName {
 	case "read_document":
-		if meta.ContentLength != nil {
-			return fmt.Sprintf("%d chars", *meta.ContentLength)
+		if meta.Size != nil {
+			return fmt.Sprintf("%d chars", *meta.Size)
 		}
 	case "search_documents":
 		var parts []string

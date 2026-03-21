@@ -117,8 +117,8 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# %s\n\n", doc.Title)
-	if doc.ContentHash != nil {
-		fmt.Fprintf(&sb, "Content-Hash: %s\n\n", *doc.ContentHash)
+	if doc.Hash != nil {
+		fmt.Fprintf(&sb, "Content-Hash: %s\n\n", *doc.Hash)
 	}
 	sb.WriteString(doc.Content)
 
@@ -127,7 +127,7 @@ func (e *Executor) execReadDocument(ctx context.Context, vaultID, arguments stri
 		DurationMs:    durationMs,
 		DocumentPath:  &doc.Path,
 		DocumentTitle: &doc.Title,
-		ContentLength: &contentLen,
+		Size:          &contentLen,
 	}
 	return sb.String(), meta, nil
 }
@@ -333,7 +333,7 @@ func (e *Executor) execGetDocumentVersions(ctx context.Context, vaultID, argumen
 			fmt.Fprintf(&sb, "### Version %d\n", v.Version)
 			fmt.Fprintf(&sb, "- Title: %s\n", v.Title)
 			fmt.Fprintf(&sb, "- Created: %s\n", v.CreatedAt.Format(time.RFC3339))
-			fmt.Fprintf(&sb, "- Hash: %s\n\n", v.ContentHash)
+			fmt.Fprintf(&sb, "- Hash: %s\n\n", v.Hash)
 		}
 	}
 

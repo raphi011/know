@@ -55,10 +55,10 @@ func (s *Server) getChanges(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updated = append(updated, FileChange{
-			FileID:      fileID,
-			Path:        f.Path,
-			ContentHash: f.ContentHash,
-			UpdatedAt:   f.UpdatedAt,
+			FileID:    fileID,
+			Path:      f.Path,
+			Hash:      f.Hash,
+			UpdatedAt: f.UpdatedAt,
 		})
 	}
 

@@ -54,12 +54,11 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS title          ON file TYPE string DEFAULT "";
     DEFINE FIELD IF NOT EXISTS is_folder      ON file TYPE bool DEFAULT false;
     DEFINE FIELD IF NOT EXISTS mime_type      ON file TYPE string DEFAULT "application/octet-stream";
-    DEFINE FIELD IF NOT EXISTS content_length ON file TYPE int DEFAULT 0;
+    DEFINE FIELD IF NOT EXISTS size          ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS labels         ON file TYPE array<string> DEFAULT [];
     DEFINE FIELD IF NOT EXISTS doc_type       ON file TYPE option<string>;
-    DEFINE FIELD IF NOT EXISTS content_hash   ON file TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS hash           ON file TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS metadata       ON file TYPE option<object> FLEXIBLE;
-    DEFINE FIELD IF NOT EXISTS size           ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS last_accessed_at ON file TYPE option<datetime>;
     DEFINE FIELD IF NOT EXISTS access_count   ON file TYPE int DEFAULT 0;
     DEFINE FIELD IF NOT EXISTS created_at     ON file TYPE datetime DEFAULT time::now();
@@ -132,7 +131,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS file         ON file_version TYPE record<file>;
     DEFINE FIELD IF NOT EXISTS vault        ON file_version TYPE record<vault>;
     DEFINE FIELD IF NOT EXISTS version      ON file_version TYPE int;
-    DEFINE FIELD IF NOT EXISTS content_hash ON file_version TYPE string;
+    DEFINE FIELD IF NOT EXISTS hash         ON file_version TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS title        ON file_version TYPE string;
     DEFINE FIELD IF NOT EXISTS created_at   ON file_version TYPE datetime DEFAULT time::now();
 
@@ -151,7 +150,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS position   ON chunk TYPE int;
     DEFINE FIELD IF NOT EXISTS source_loc ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS labels     ON chunk TYPE array<string> DEFAULT [];
-    DEFINE FIELD IF NOT EXISTS data_hash  ON chunk TYPE option<string>;
+    DEFINE FIELD IF NOT EXISTS hash      ON chunk TYPE option<string>;
     DEFINE FIELD IF NOT EXISTS embedding  ON chunk TYPE option<array<float>>;
     DEFINE FIELD IF NOT EXISTS created_at ON chunk TYPE datetime DEFAULT time::now();
 
@@ -434,10 +433,40 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_oauth_auth_code ON oauth_auth_code FIELDS code UNIQUE;
 
     -- ==========================================================================
+    -- BOOKMARK TABLE (user-scoped file/folder pins)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS bookmark SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS user       ON bookmark TYPE record<user>;
+    DEFINE FIELD IF NOT EXISTS file       ON bookmark TYPE record<file>;
+    DEFINE FIELD IF NOT EXISTS vault      ON bookmark TYPE record<vault>;
+    DEFINE FIELD IF NOT EXISTS created_at ON bookmark TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_bookmark_user_file  ON bookmark FIELDS user, file UNIQUE;
+    DEFINE INDEX IF NOT EXISTS idx_bookmark_user_vault ON bookmark FIELDS user, vault;
+
+    -- Cascade: delete bookmarks when file deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_file_bookmarks ON file
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM bookmark WHERE file = $before.id
+    };
+
+    -- Cascade: delete bookmarks when vault deleted
+    DEFINE EVENT IF NOT EXISTS cascade_delete_vault_bookmarks ON vault
+    WHEN $event = "DELETE" ASYNC RETRY 3 THEN {
+        DELETE FROM bookmark WHERE vault = $before.id
+    };
+
+    -- ==========================================================================
     -- CLEANUP: remove superseded single-field indexes
     -- ==========================================================================
     REMOVE INDEX IF EXISTS idx_chunk_file ON chunk;
     REMOVE INDEX IF EXISTS idx_message_conversation ON message;
     REMOVE FIELD IF EXISTS token_hash ON device_code;
+    REMOVE FIELD IF EXISTS content_hash ON file;
+    REMOVE FIELD IF EXISTS content_length ON file;
+    REMOVE FIELD IF EXISTS char_count ON file;
+    REMOVE FIELD IF EXISTS content_hash ON file_version;
+    REMOVE FIELD IF EXISTS data_hash ON chunk;
 `, dimension)
 }

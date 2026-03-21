@@ -347,15 +347,15 @@ func documentFromModel(d *models.File, content string) Document {
 		vaultID = fmt.Sprintf("%v", d.Vault.ID)
 	}
 	return Document{
-		ID:          id,
-		VaultID:     vaultID,
-		Path:        d.Path,
-		Title:       d.Title,
-		Content:     content,
-		Labels:      nonNilLabels(d.Labels),
-		DocType:     d.DocType,
-		ContentHash: d.ContentHash,
-		CreatedAt:   d.CreatedAt,
-		UpdatedAt:   d.UpdatedAt,
+		ID:        id,
+		VaultID:   vaultID,
+		Path:      d.Path,
+		Title:     d.Title,
+		Content:   content,
+		Labels:    nonNilLabels(d.Labels),
+		DocType:   d.DocType,
+		Hash:      d.Hash,
+		CreatedAt: d.CreatedAt,
+		UpdatedAt: d.UpdatedAt,
 	}
 }

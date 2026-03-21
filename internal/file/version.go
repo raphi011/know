@@ -38,7 +38,7 @@ func (s *Service) maybeCreateVersion(ctx context.Context, fileID, vaultID string
 	logger := logutil.FromCtx(ctx)
 
 	// Skip if content hasn't actually changed
-	if oldFile.ContentHash != nil && *oldFile.ContentHash == newContentHash {
+	if oldFile.Hash != nil && *oldFile.Hash == newContentHash {
 		return
 	}
 
@@ -68,14 +68,14 @@ func (s *Service) maybeCreateVersion(ctx context.Context, fileID, vaultID string
 
 	// Create version snapshot — content blob already exists from when the file was created.
 	var hash string
-	if oldFile.ContentHash != nil {
-		hash = *oldFile.ContentHash
+	if oldFile.Hash != nil {
+		hash = *oldFile.Hash
 	}
 	if _, err := s.db.CreateVersion(ctx, models.FileVersionInput{
-		FileID:      fileID,
-		VaultID:     vaultID,
-		ContentHash: hash,
-		Title:       oldFile.Title,
+		FileID:  fileID,
+		VaultID: vaultID,
+		Hash:    hash,
+		Title:   oldFile.Title,
 	}, nextVersion); err != nil {
 		logger.Warn("failed to create version snapshot", "file_id", fileID, "version", nextVersion, "error", err)
 		return
@@ -129,7 +129,7 @@ func (s *Service) Rollback(ctx context.Context, vaultID, fileID, versionID strin
 	}
 
 	// Load version content from blob store
-	content, err := s.ReadContent(ctx, version.ContentHash)
+	content, err := s.ReadContent(ctx, version.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("read version content: %w", err)
 	}
@@ -158,7 +158,7 @@ func (s *Service) VersionContent(ctx context.Context, fileID string, versionID *
 		if v == nil {
 			return "", fmt.Errorf("version not found: %s", *versionID)
 		}
-		return s.ReadContent(ctx, v.ContentHash)
+		return s.ReadContent(ctx, v.Hash)
 	}
 
 	doc, err := s.db.GetFileByID(ctx, fileID)
@@ -168,8 +168,8 @@ func (s *Service) VersionContent(ctx context.Context, fileID string, versionID *
 	if doc == nil {
 		return "", fmt.Errorf("file not found: %s", fileID)
 	}
-	if doc.ContentHash == nil {
+	if doc.Hash == nil {
 		return "", nil
 	}
-	return s.ReadContent(ctx, *doc.ContentHash)
+	return s.ReadContent(ctx, *doc.Hash)
 }

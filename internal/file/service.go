@@ -185,14 +185,14 @@ func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) boo
 func (s *Service) BlobStore() blob.Store { return s.blobStore }
 
 // storeTranscript stores text content in the blob store and updates the
-// file's content_hash and content_length in the DB.
+// file's hash and size in the DB.
 func (s *Service) storeTranscript(ctx context.Context, fileID, text string) error {
 	hash := models.ContentHash(text)
 	if err := s.blobStore.Put(ctx, hash, strings.NewReader(text), int64(len(text))); err != nil {
 		return fmt.Errorf("store blob: %w", err)
 	}
-	if err := s.db.UpdateFileTranscript(ctx, fileID, hash, len(text)); err != nil {
-		return fmt.Errorf("update transcript: %w", err)
+	if err := s.db.UpdateFileHashAndSize(ctx, fileID, hash, len(text)); err != nil {
+		return fmt.Errorf("update hash and size: %w", err)
 	}
 	return nil
 }
@@ -218,10 +218,10 @@ func (s *Service) ReadContent(ctx context.Context, contentHash string) (string, 
 // ReadFileContent loads content for a file from the blob store.
 // Convenience wrapper that handles nil ContentHash.
 func (s *Service) ReadFileContent(ctx context.Context, f *models.File) (string, error) {
-	if f.ContentHash == nil {
+	if f.Hash == nil {
 		return "", nil
 	}
-	return s.ReadContent(ctx, *f.ContentHash)
+	return s.ReadContent(ctx, *f.Hash)
 }
 
 // NewService creates a new file service.
@@ -259,16 +259,16 @@ func (s *Service) publishFileEvent(eventType string, vaultID string, doc *models
 		return
 	}
 	var contentHash string
-	if doc.ContentHash != nil {
-		contentHash = *doc.ContentHash
+	if doc.Hash != nil {
+		contentHash = *doc.Hash
 	}
 	s.bus.Publish(event.ChangeEvent{
 		Type:    eventType,
 		VaultID: vaultID,
 		Payload: event.DocumentPayload{
-			DocID:       fileID,
-			Path:        doc.Path,
-			ContentHash: contentHash,
+			DocID: fileID,
+			Path:  doc.Path,
+			Hash:  contentHash,
 		},
 	})
 }
@@ -281,9 +281,9 @@ func (s *Service) publishFileDeleteEvent(vaultID, fileID, path, contentHash stri
 		Type:    "file.deleted",
 		VaultID: vaultID,
 		Payload: event.DocumentPayload{
-			DocID:       fileID,
-			Path:        path,
-			ContentHash: contentHash,
+			DocID: fileID,
+			Path:  path,
+			Hash:  contentHash,
 		},
 	})
 }
@@ -298,17 +298,17 @@ func (s *Service) publishFileMoveEvent(vaultID string, doc *models.File, oldPath
 		return
 	}
 	var contentHash string
-	if doc.ContentHash != nil {
-		contentHash = *doc.ContentHash
+	if doc.Hash != nil {
+		contentHash = *doc.Hash
 	}
 	s.bus.Publish(event.ChangeEvent{
 		Type:    "file.moved",
 		VaultID: vaultID,
 		Payload: event.DocumentPayload{
-			DocID:       fileID,
-			Path:        doc.Path,
-			OldPath:     oldPath,
-			ContentHash: contentHash,
+			DocID:   fileID,
+			Path:    doc.Path,
+			OldPath: oldPath,
+			Hash:    contentHash,
 		},
 	})
 }
@@ -398,17 +398,17 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 		hashPtr = &contentHash
 	}
 	dbInput := models.FileInput{
-		VaultID:       input.VaultID,
-		Path:          path,
-		Title:         title,
-		ContentHash:   hashPtr,
-		ContentLength: contentLength,
-		Labels:        labels,
-		DocType:       docType,
-		Metadata:      metadata,
-		MimeType:      input.MimeType,
-		IsFolder:      input.IsFolder,
-		Data:          input.Data, // carried for fileSize() — not stored in DB
+		VaultID:  input.VaultID,
+		Path:     path,
+		Title:    title,
+		Hash:     hashPtr,
+		Size:     contentLength,
+		Labels:   labels,
+		DocType:  docType,
+		Metadata: metadata,
+		MimeType: input.MimeType,
+		IsFolder: input.IsFolder,
+		Data:     input.Data, // carried for fileSize() — not stored in DB
 	}
 
 	return s.postUpsert(ctx, input.VaultID, dbInput, contentHash)
@@ -419,7 +419,7 @@ func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.F
 // the blob was written via PutVerified before this method is called.
 // Unlike Create(), this method does not read or buffer the file data.
 func (s *Service) CreateBinaryFromHash(ctx context.Context, input models.FileInput) (*models.File, error) {
-	if input.ContentHash == nil {
+	if input.Hash == nil {
 		return nil, fmt.Errorf("content hash required")
 	}
 	if input.MimeType == "" {
@@ -430,18 +430,18 @@ func (s *Service) CreateBinaryFromHash(ctx context.Context, input models.FileInp
 	path := models.NormalizePath(input.Path)
 
 	dbInput := models.FileInput{
-		VaultID:     input.VaultID,
-		Path:        path,
-		Title:       title,
-		ContentHash: input.ContentHash,
-		Labels:      input.Labels,
-		DocType:     input.DocType,
-		Metadata:    input.Metadata,
-		MimeType:    input.MimeType,
-		Size:        input.Size,
+		VaultID:  input.VaultID,
+		Path:     path,
+		Title:    title,
+		Hash:     input.Hash,
+		Labels:   input.Labels,
+		DocType:  input.DocType,
+		Metadata: input.Metadata,
+		MimeType: input.MimeType,
+		Size:     input.Size,
 	}
 
-	return s.postUpsert(ctx, input.VaultID, dbInput, *input.ContentHash)
+	return s.postUpsert(ctx, input.VaultID, dbInput, *input.Hash)
 }
 
 // postUpsert handles the shared lifecycle after building a FileInput:
@@ -483,8 +483,8 @@ func (s *Service) postUpsert(ctx context.Context, vaultID string, dbInput models
 // For updates with changed content, outstanding jobs are cancelled first.
 func (s *Service) enqueueJob(ctx context.Context, doc *models.File, created bool, previousFile *models.File) error {
 	contentChanged := created ||
-		(previousFile != nil && (previousFile.ContentHash == nil || doc.ContentHash == nil ||
-			*previousFile.ContentHash != *doc.ContentHash))
+		(previousFile != nil && (previousFile.Hash == nil || doc.Hash == nil ||
+			*previousFile.Hash != *doc.Hash))
 
 	if !contentChanged {
 		return nil
@@ -804,7 +804,7 @@ func (s *Service) EmbedPendingChunksForFile(ctx context.Context, fileID string) 
 		if chunk.IsMultimodal() {
 			mmPending = append(mmPending, multimodalEmbeddingTask{
 				chunkID:  chunkID,
-				dataHash: *chunk.DataHash,
+				dataHash: *chunk.Hash,
 				mimeType: chunk.MimeType,
 				text:     buildEmbeddingContext(chunk, fileTitle, s.embedMaxInputChars),
 			})
@@ -1030,8 +1030,8 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 	}
 
 	var contentHash string
-	if doc.ContentHash != nil {
-		contentHash = *doc.ContentHash
+	if doc.Hash != nil {
+		contentHash = *doc.Hash
 	}
 
 	// Atomic cleanup: wiki links, label edges, chunks, and file record in one transaction.
@@ -1500,7 +1500,7 @@ func (s *Service) mergeTranscriptionParts(ctx context.Context, transcriber stt.T
 func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcriber, f *models.File, fileID string) error {
 	logger := logutil.FromCtx(ctx).With("path", f.Path, "file_id", fileID)
 
-	if f.ContentHash == nil {
+	if f.Hash == nil {
 		return fmt.Errorf("file has no content hash")
 	}
 
@@ -1508,7 +1508,7 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 	var err error
 
 	if local, ok := s.blobStore.(blob.LocalPathStore); ok {
-		blobPath := local.LocalPath(*f.ContentHash)
+		blobPath := local.LocalPath(*f.Hash)
 		if f.Size > stt.MaxWhisperFileSize {
 			parts, splitErr := stt.SplitForTranscriptionFromPath(ctx, blobPath, f.MimeType, stt.MaxWhisperFileSize)
 			if splitErr != nil {
@@ -1523,7 +1523,7 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 			result, err = transcriber.Transcribe(ctx, data, f.MimeType)
 		}
 	} else {
-		rc, getErr := s.blobStore.Get(ctx, *f.ContentHash)
+		rc, getErr := s.blobStore.Get(ctx, *f.Hash)
 		if getErr != nil {
 			return fmt.Errorf("get blob: %w", getErr)
 		}

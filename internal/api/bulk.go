@@ -123,7 +123,7 @@ func (s *Server) processBulkDocument(r *http.Request, path, content, vaultID str
 	}
 
 	if existing != nil {
-		if existing.ContentHash != nil && *existing.ContentHash == hash {
+		if existing.Hash != nil && *existing.Hash == hash {
 			return bulkFileResult{Path: path, Status: "skipped", Reason: "hash_match"}
 		}
 		if !meta.Force {
@@ -165,7 +165,7 @@ func (s *Server) processBulkAsset(r *http.Request, path string, data []byte, vau
 	}
 
 	if existing != nil {
-		if existing.ContentHash != nil && *existing.ContentHash == hash {
+		if existing.Hash != nil && *existing.Hash == hash {
 			return bulkFileResult{Path: path, Status: "skipped", Reason: "hash_match"}
 		}
 		if !meta.Force {
