@@ -184,19 +184,6 @@ func (s *Service) shouldEmbed(ctx context.Context, vaultID, filePath string) boo
 // BlobStore returns the blob store used by this service.
 func (s *Service) BlobStore() blob.Store { return s.blobStore }
 
-// storeTranscript stores text content in the blob store and updates the
-// file's hash and size in the DB.
-func (s *Service) storeTranscript(ctx context.Context, fileID, text string) error {
-	hash := models.ContentHash(text)
-	if err := s.blobStore.Put(ctx, hash, strings.NewReader(text), int64(len(text))); err != nil {
-		return fmt.Errorf("store blob: %w", err)
-	}
-	if err := s.db.UpdateFileHashAndSize(ctx, fileID, hash, len(text)); err != nil {
-		return fmt.Errorf("update hash and size: %w", err)
-	}
-	return nil
-}
-
 // ReadContent loads file content from the blob store by content hash.
 // Returns "" for empty hashes (folders, files with no content).
 func (s *Service) ReadContent(ctx context.Context, contentHash string) (string, error) {
@@ -222,6 +209,27 @@ func (s *Service) ReadFileContent(ctx context.Context, f *models.File) (string, 
 		return "", nil
 	}
 	return s.ReadContent(ctx, *f.Hash)
+}
+
+// ReadTextFromChunks concatenates chunk texts for a file, ordered by position.
+// Used to serve text content for binary files that have been processed by the pipeline.
+// Returns empty string if no chunks exist.
+func (s *Service) ReadTextFromChunks(ctx context.Context, fileID string) (string, error) {
+	chunks, err := s.db.GetChunks(ctx, fileID)
+	if err != nil {
+		return "", fmt.Errorf("read text from chunks: %w", err)
+	}
+	if len(chunks) == 0 {
+		return "", nil
+	}
+	var sb strings.Builder
+	for i, c := range chunks {
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(c.Text)
+	}
+	return sb.String(), nil
 }
 
 // NewService creates a new file service.
@@ -1573,11 +1581,6 @@ func (s *Service) transcribeFile(ctx context.Context, transcriber stt.Transcribe
 		if err := s.db.CreateChunks(ctx, chunkInputs); err != nil {
 			return fmt.Errorf("create chunks: %w", err)
 		}
-	}
-
-	// Store transcript in blob and update DB metadata.
-	if err := s.storeTranscript(ctx, fileID, result.Text); err != nil {
-		return fmt.Errorf("store transcript: %w", err)
 	}
 
 	return nil

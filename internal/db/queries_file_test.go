@@ -915,44 +915,6 @@ func TestListFilesByPrefix(t *testing.T) {
 	}
 }
 
-func TestUpdateFileHashAndSize(t *testing.T) {
-	ctx := context.Background()
-	user := createTestUser(t, ctx)
-	userID := models.MustRecordIDString(user.ID)
-	vault := createTestVault(t, ctx, userID)
-	vaultID := models.MustRecordIDString(vault.ID)
-
-	suffix := fmt.Sprint(time.Now().UnixNano())
-	doc, err := testDB.CreateFile(ctx, models.FileInput{
-		VaultID: vaultID, Path: "/transcript-" + suffix + ".md", Title: "Transcript Test",
-		Size: 8, Labels: []string{},
-	})
-	if err != nil {
-		t.Fatalf("CreateFile failed: %v", err)
-	}
-	docID := models.MustRecordIDString(doc.ID)
-
-	newHash := "abc123hash"
-	newLen := 20
-	if err := testDB.UpdateFileHashAndSize(ctx, docID, newHash, newLen); err != nil {
-		t.Fatalf("UpdateFileHashAndSize failed: %v", err)
-	}
-
-	fetched, err := testDB.GetFileByID(ctx, docID)
-	if err != nil {
-		t.Fatalf("GetFileByID failed: %v", err)
-	}
-	if fetched == nil {
-		t.Fatal("GetFileByID returned nil")
-	}
-	if fetched.Hash == nil || *fetched.Hash != newHash {
-		t.Errorf("Expected hash %q, got %v", newHash, fetched.Hash)
-	}
-	if fetched.Size != newLen {
-		t.Errorf("Expected size %d, got %d", newLen, fetched.Size)
-	}
-}
-
 func TestBatchUpdateFileAccess(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)

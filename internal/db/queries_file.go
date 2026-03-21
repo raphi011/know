@@ -748,21 +748,6 @@ func (c *Client) ListFilesByPrefix(ctx context.Context, vaultID, prefix string) 
 	return allResults(results), nil
 }
 
-// UpdateFileHashAndSize updates a file's hash and size after content has been
-// stored in the blob store (e.g. after transcription or PDF text extraction).
-func (c *Client) UpdateFileHashAndSize(ctx context.Context, fileID string, hash string, size int) error {
-	defer c.logOp(ctx, "file.update_hash_and_size", time.Now())
-	sql := `UPDATE type::record("file", $id) SET hash = $hash, size = $size`
-	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, map[string]any{
-		"id":   bareID("file", fileID),
-		"hash": hash,
-		"size": size,
-	}); err != nil {
-		return fmt.Errorf("update hash and size: %w", err)
-	}
-	return nil
-}
-
 // ---------------------------------------------------------------------------
 // Upsert (unified create-or-update for documents and binary files)
 // ---------------------------------------------------------------------------
