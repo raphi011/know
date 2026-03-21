@@ -450,7 +450,7 @@ components:
     DocumentPayload:
       type: object
       description: Payload for document change events (file.* event types)
-      required: [docId, path, contentHash]
+      required: [docId, path, hash]
       properties:
         docId:
           type: string
@@ -464,7 +464,7 @@ components:
           type: string
           description: Previous path (only present for `file.moved` events)
           example: "/notes/old-name.md"
-        contentHash:
+        hash:
           type: string
           description: SHA-256 content hash of the document body
           example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -499,7 +499,7 @@ components:
         docType:
           type: string
           description: Document type from frontmatter (e.g. `note`, `meeting`, `spec`)
-        contentHash:
+        hash:
           type: [string, "null"]
           description: SHA256 hash of the content (null if not yet computed)
         createdAt:
@@ -765,7 +765,7 @@ components:
           type: string
           description: Document title at the time of this snapshot
           example: "Hello World"
-        contentHash:
+        hash:
           type: string
           description: SHA256 hash used to retrieve content from the blob store
         createdAt:
@@ -861,7 +861,7 @@ components:
           type: integer
           description: File size in bytes
           example: 245760
-        contentHash:
+        hash:
           type: [string, "null"]
           description: SHA256 content hash
         updatedAt:
@@ -945,7 +945,7 @@ components:
           type: string
           description: Vault-relative file path
           example: "/notes/hello.md"
-        contentHash:
+        hash:
           type: [string, "null"]
           description: "Content hash (present for updated files, absent for deleted)"
         updatedAt:
@@ -2227,6 +2227,69 @@ paths:
                     type: integer
 
   # ── Tasks ───────────────────────────────────────────────
+  /vaults/{vault}/bookmarks:
+    get:
+      tags: [Bookmarks]
+      summary: List bookmarks
+      description: Lists the current user's bookmarked files and folders in the vault.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      responses:
+        "200":
+          description: Bookmarked files
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FileEntry"
+                  total:
+                    type: integer
+    put:
+      tags: [Bookmarks]
+      summary: Add bookmark
+      description: Bookmark a file or folder by path. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Vault-relative path to bookmark
+                  example: "/notes/important.md"
+      responses:
+        "204":
+          description: Bookmark added
+    delete:
+      tags: [Bookmarks]
+      summary: Remove bookmark
+      description: Remove a bookmark by file path. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/vault"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Vault-relative path to unbookmark
+      responses:
+        "204":
+          description: Bookmark removed
+
   /vaults/{vault}/tasks:
     get:
       tags: [Tasks]
@@ -2480,7 +2543,7 @@ paths:
         Each `data:` line contains a JSON-encoded `ChangeEvent` object:
 
         ```
-        data: {"type":"file.updated","vaultId":"abc","payload":{"docId":"file:123","path":"/notes/hello.md","contentHash":"e3b0..."}}
+        data: {"type":"file.updated","vaultId":"abc","payload":{"docId":"file:123","path":"/notes/hello.md","hash":"e3b0..."}}
         ```
 
         **Event types:**
