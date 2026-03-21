@@ -120,6 +120,43 @@ func TestPeakAmplitude_Empty(t *testing.T) {
 	}
 }
 
+func TestNormalizePCM(t *testing.T) {
+	// Quiet signal: peak at 328/32768 ≈ 0.01.
+	pcm := int16PCM(328, -200, 100, -328)
+	NormalizePCM(pcm, 0.9)
+
+	// After normalization, peak should be ~0.9.
+	peak := peakAmplitude(pcm)
+	if math.Abs(peak-0.9) > 0.01 {
+		t.Errorf("expected peak ~0.9, got %f", peak)
+	}
+}
+
+func TestNormalizePCM_AlreadyLoud(t *testing.T) {
+	pcm := int16PCM(32767, -32768, 16000)
+	orig := make([]byte, len(pcm))
+	copy(orig, pcm)
+
+	NormalizePCM(pcm, 0.9)
+
+	// Peak is already above 0.9, data should be unchanged.
+	for i := range pcm {
+		if pcm[i] != orig[i] {
+			t.Fatal("expected no change for already-loud signal")
+		}
+	}
+}
+
+func TestNormalizePCM_Silent(t *testing.T) {
+	pcm := int16PCM(0, 0, 0)
+	NormalizePCM(pcm, 0.9) // should not panic or divide by zero
+
+	peak := peakAmplitude(pcm)
+	if peak != 0 {
+		t.Errorf("expected peak 0, got %f", peak)
+	}
+}
+
 func TestPeakAmplitude_QuietSignal(t *testing.T) {
 	pcm := int16PCM(328, -200, 100, -328)
 	amp := peakAmplitude(pcm)

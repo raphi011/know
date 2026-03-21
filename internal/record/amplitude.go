@@ -59,6 +59,30 @@ func ComputeWaveform(pcm []byte, width int) []float64 {
 	return bars
 }
 
+// NormalizePCM applies peak normalization to 16-bit LE PCM data in-place,
+// scaling all samples so the loudest reaches targetPeak (0.0–1.0).
+// Returns immediately if the audio is silent or already loud enough.
+func NormalizePCM(pcm []byte, targetPeak float64) {
+	peak := peakAmplitude(pcm)
+	if peak == 0 || peak >= targetPeak {
+		return
+	}
+
+	gain := targetPeak / peak
+	nSamples := len(pcm) / 2
+	for i := range nSamples {
+		off := i * 2
+		sample := float64(int16(binary.LittleEndian.Uint16(pcm[off:]))) * gain
+		// Clamp to int16 range.
+		if sample > 32767 {
+			sample = 32767
+		} else if sample < -32768 {
+			sample = -32768
+		}
+		binary.LittleEndian.PutUint16(pcm[off:], uint16(int16(sample)))
+	}
+}
+
 // peakAmplitude returns the max absolute sample value, normalized to 0.0–1.0.
 func peakAmplitude(pcm []byte) float64 {
 	nSamples := len(pcm) / 2
