@@ -14,21 +14,18 @@ import (
 type PlayerState int
 
 const (
-	PlayerLoading PlayerState = iota
+	_ PlayerState = iota // reserved (was PlayerLoading)
 	PlayerPlaying
 	PlayerPaused
 	PlayerStopped
 )
 
-// Player manages WAV playback via malgo. Currently reads the full WAV
-// synchronously; designed to support streaming download.
+// Player manages WAV playback via malgo. Reads the full WAV synchronously.
 type Player struct {
 	mu sync.Mutex
 
 	// Audio data.
-	pcmBuf     []byte
-	totalBytes int // expected total PCM bytes from WAV header
-	downloaded bool
+	pcmBuf []byte
 
 	// Playback state.
 	playOffset int // byte offset into pcmBuf
@@ -53,9 +50,12 @@ type Player struct {
 // Returns after parsing — playback can start immediately via Play().
 func NewPlayer(r io.ReadCloser) (*Player, error) {
 	hdr, err := ParseWAVHeader(r)
-	r.Close()
+	closeErr := r.Close()
 	if err != nil {
 		return nil, fmt.Errorf("parse WAV: %w", err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close audio stream: %w", closeErr)
 	}
 
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
@@ -65,8 +65,6 @@ func NewPlayer(r io.ReadCloser) (*Player, error) {
 
 	p := &Player{
 		pcmBuf:        hdr.PCMData,
-		totalBytes:    int(hdr.DataSize),
-		downloaded:    true,
 		state:         PlayerPaused,
 		sampleRate:    hdr.SampleRate,
 		channels:      hdr.Channels,
@@ -115,21 +113,24 @@ func (p *Player) Play() error {
 }
 
 // Pause pauses playback.
-func (p *Player) Pause() {
+func (p *Player) Pause() error {
 	p.mu.Lock()
 	if p.state != PlayerPlaying || p.device == nil {
 		p.mu.Unlock()
-		return
+		return nil
 	}
 	device := p.device
 	p.mu.Unlock()
 
 	// Stop outside the lock — the audio callback acquires mu.
-	device.Stop()
+	if err := device.Stop(); err != nil {
+		return fmt.Errorf("pause playback: %w", err)
+	}
 
 	p.mu.Lock()
 	p.state = PlayerPaused
 	p.mu.Unlock()
+	return nil
 }
 
 // PlayPause toggles between playing and paused.
@@ -139,8 +140,7 @@ func (p *Player) PlayPause() error {
 	p.mu.Unlock()
 
 	if state == PlayerPlaying {
-		p.Pause()
-		return nil
+		return p.Pause()
 	}
 	return p.Play()
 }
@@ -206,21 +206,13 @@ func (p *Player) State() PlayerState {
 	return p.state
 }
 
-// DownloadedRatio returns 0.0–1.0 indicating download progress.
-func (p *Player) DownloadedRatio() float64 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.totalBytes == 0 {
-		return 1
-	}
-	return float64(len(p.pcmBuf)) / float64(p.totalBytes)
-}
-
-// PCMData returns the currently downloaded PCM data.
+// PCMData returns a copy of the PCM data.
 func (p *Player) PCMData() []byte {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.pcmBuf
+	out := make([]byte, len(p.pcmBuf))
+	copy(out, p.pcmBuf)
+	return out
 }
 
 // Close stops playback and releases resources. Safe to call multiple times.
@@ -234,9 +226,10 @@ func (p *Player) Close() {
 	p.mu.Unlock()
 
 	// Stop/uninit outside the lock — the audio callback acquires mu.
-	// Errors are best-effort during cleanup; the resources are freed next.
+	// Errors from Stop are best-effort during cleanup; the device is
+	// uninitialized and freed immediately after regardless.
 	if device != nil {
-		device.Stop()
+		_ = device.Stop() // best-effort; device is uninitialized next
 		device.Uninit()
 	}
 	if ctx != nil {

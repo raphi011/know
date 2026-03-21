@@ -240,15 +240,24 @@ func (m Model) save(pcm []byte) tea.Cmd {
 
 		// Build vault path.
 		filename := fmt.Sprintf("recording-%s.wav", time.Now().Format("2006-01-02-150405"))
-		vaultPath := m.basePath + filename
+		vaultPath := m.basePath
+		if !strings.HasSuffix(vaultPath, "/") {
+			vaultPath += "/"
+		}
+		vaultPath += filename
 
 		// Upload.
 		ctx := context.Background()
-		_, err = m.client.BulkUpload(ctx, m.vaultID, apiclient.BulkMeta{Force: true}, []apiclient.BulkFile{
+		results, err := m.client.BulkUpload(ctx, m.vaultID, apiclient.BulkMeta{Force: true}, []apiclient.BulkFile{
 			{Path: vaultPath, Data: f},
 		})
 		if err != nil {
 			return saveCompleteMsg{err: fmt.Errorf("upload: %w", err)}
+		}
+		for _, r := range results {
+			if r.Status == "error" {
+				return saveCompleteMsg{err: fmt.Errorf("upload %s: %s", r.Path, r.Error)}
+			}
 		}
 
 		return saveCompleteMsg{path: vaultPath}

@@ -201,6 +201,48 @@ func TestTrimSilence_WindowSize(t *testing.T) {
 	}
 }
 
+func TestNormalizePCM_Clipping(t *testing.T) {
+	// Two samples: one at 50% and one at 75% of max.
+	// Normalizing to target 1.0 means gain = 1/0.75 ≈ 1.333.
+	// The 75% sample should hit exactly 32767. The 50% sample scales up.
+	pcm := int16PCM(16384, 24576) // 0.5 and 0.75 of 32768
+	NormalizePCM(pcm, 1.0)
+
+	s0 := int16(binary.LittleEndian.Uint16(pcm[0:]))
+	s1 := int16(binary.LittleEndian.Uint16(pcm[2:]))
+
+	// s1 (the peak) should be clamped to 32767.
+	if s1 != 32767 {
+		t.Errorf("peak sample: expected 32767, got %d", s1)
+	}
+	// s0 should scale proportionally.
+	if s0 < 21000 || s0 > 22000 {
+		t.Errorf("scaled sample: expected ~21845, got %d", s0)
+	}
+}
+
+func TestTrimSilence_NegativeLoudSamples(t *testing.T) {
+	// Loud signal with only negative values.
+	pcm := int16PCM(0, 0, -20000, -15000, 0, 0)
+	trimmed := TrimSilence(pcm, 0.01, 1)
+	if len(trimmed) != 4 { // 2 samples * 2 bytes
+		t.Fatalf("expected 4 bytes, got %d", len(trimmed))
+	}
+}
+
+func TestComputeWaveform_WidthExceedsSamples(t *testing.T) {
+	pcm := int16PCM(16384, 32767)
+	wf := ComputeWaveform(pcm, 10)
+
+	// Should produce at most nSamples bars (2), not 10.
+	if len(wf) > 10 {
+		t.Errorf("expected at most 10 bars, got %d", len(wf))
+	}
+	if len(wf) == 0 {
+		t.Fatal("expected at least 1 bar")
+	}
+}
+
 func TestPeakAmplitude_QuietSignal(t *testing.T) {
 	pcm := int16PCM(328, -200, 100, -328)
 	amp := peakAmplitude(pcm)

@@ -139,7 +139,7 @@ The recording interface shows a real-time waveform visualization using Unicode b
 enter save  esc cancel
 ```
 
-Recordings are saved as WAV files (44100 Hz, 16-bit, mono) and uploaded to the vault at `/recordings/recording-YYYY-MM-DD-HHMMSS.wav`. The server's transcription pipeline processes them automatically.
+Recordings are saved as WAV files (44100 Hz, 16-bit, mono) and uploaded to the vault at the specified path (default `/recordings/recording-YYYY-MM-DD-HHMMSS.wav`). Before upload, leading/trailing silence is automatically trimmed and audio is peak-normalized to 90% for consistent playback volume. The server's transcription pipeline processes them automatically.
 
 ### Dependencies
 
@@ -166,8 +166,13 @@ know browse /recordings/standup-2026-03-20.wav --vault default
 | `space` | Play / pause |
 | `←` | Seek back 5 seconds |
 | `→` | Seek forward 5 seconds |
+| `+` / `-` | Volume up / down |
 | `esc` | Stop playback, return to finder |
 | `q` | Quit |
+
+### Graceful Fallback
+
+If the audio binary is unavailable (e.g. after the transcription pipeline replaces the binary with text) or the audio system fails to initialize, `know browse` falls back to showing the transcript as text with an error message explaining why playback is unavailable.
 
 ### Limitations
 

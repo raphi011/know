@@ -1,6 +1,7 @@
 package record
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/gen2brain/malgo"
@@ -102,7 +103,9 @@ func (r *Recorder) Stop() {
 	defer r.mu.Unlock()
 
 	if r.device != nil && !r.stopped {
-		r.device.Stop()
+		if err := r.device.Stop(); err != nil {
+			slog.Warn("stop capture device", "error", err)
+		}
 		r.device.Uninit()
 		r.device = nil
 		r.stopped = true

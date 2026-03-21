@@ -222,7 +222,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Warn("audio player init failed", "error", msg.err)
 			// Fall back to text viewer if we have a transcript.
 			if msg.transcript != "" {
-				doc := &apiclient.Document{Content: msg.transcript}
+				content := "**Audio playback unavailable:** " + msg.err.Error() + "\n\n---\n\n" + msg.transcript
+				doc := &apiclient.Document{Content: content}
 				m.viewer = newViewer(msg.path, renderContent(m.renderer, doc), m.width, m.height)
 				m.state = stateViewing
 				return m, nil

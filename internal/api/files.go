@@ -41,8 +41,14 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 	var content string
 	if strings.HasPrefix(doc.MimeType, "audio/") {
 		fileID, fErr := models.RecordIDString(doc.ID)
-		if fErr == nil {
-			content, _ = s.app.FileService().ReadTextFromChunks(ctx, fileID)
+		if fErr != nil {
+			logger.Warn("extract file ID for audio transcript", "path", doc.Path, "error", fErr)
+		} else {
+			var chunkErr error
+			content, chunkErr = s.app.FileService().ReadTextFromChunks(ctx, fileID)
+			if chunkErr != nil {
+				logger.Warn("read audio transcript from chunks", "path", doc.Path, "error", chunkErr)
+			}
 		}
 	} else {
 		var err error

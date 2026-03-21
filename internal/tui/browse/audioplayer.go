@@ -74,6 +74,8 @@ func (m audioPlayerModel) Update(msg tea.Msg) (audioPlayerModel, tea.Cmd) {
 		case " ", "space":
 			if err := m.player.PlayPause(); err != nil {
 				m.err = err.Error()
+			} else {
+				m.err = ""
 			}
 			return m, nil
 		case "left":
@@ -113,9 +115,7 @@ func (m audioPlayerModel) View() string {
 	}
 	cursorPos = min(cursorPos, m.maxBars-1)
 
-	downloadedBars := int(m.player.DownloadedRatio() * float64(m.maxBars))
-
-	wf := record.RenderPlaybackWaveform(m.waveform, m.maxBars, cursorPos, downloadedBars)
+	wf := record.RenderPlaybackWaveform(m.waveform, m.maxBars, cursorPos, m.maxBars)
 	b.WriteString("  " + wf + "\n")
 
 	cursorLine := strings.Repeat(" ", cursorPos+2) + "▲"

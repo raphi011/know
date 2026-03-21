@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+	"time"
 )
 
 func TestWriteWAV_Header(t *testing.T) {
@@ -132,6 +133,64 @@ func TestParseWAVHeader_InvalidRIFF(t *testing.T) {
 	_, err := ParseWAVHeader(bytes.NewReader([]byte("not a wav")))
 	if err == nil {
 		t.Error("expected error for invalid WAV")
+	}
+}
+
+func TestWAVHeader_Duration(t *testing.T) {
+	tests := []struct {
+		name     string
+		hdr      WAVHeader
+		expected time.Duration
+	}{
+		{
+			name: "mono 16-bit 44100Hz",
+			hdr: WAVHeader{
+				SampleRate:    44100,
+				Channels:      1,
+				BitsPerSample: 16,
+				DataSize:      88200, // 1 second of audio
+			},
+			expected: time.Second,
+		},
+		{
+			name: "stereo 16-bit 48000Hz",
+			hdr: WAVHeader{
+				SampleRate:    48000,
+				Channels:      2,
+				BitsPerSample: 16,
+				DataSize:      192000, // 1 second
+			},
+			expected: time.Second,
+		},
+		{
+			name:     "zero sample rate",
+			hdr:      WAVHeader{SampleRate: 0, Channels: 1, BitsPerSample: 16, DataSize: 100},
+			expected: 0,
+		},
+		{
+			name:     "zero bits per sample",
+			hdr:      WAVHeader{SampleRate: 44100, Channels: 1, BitsPerSample: 0, DataSize: 100},
+			expected: 0,
+		},
+		{
+			name:     "zero channels",
+			hdr:      WAVHeader{SampleRate: 44100, Channels: 0, BitsPerSample: 16, DataSize: 100},
+			expected: 0,
+		},
+		{
+			name:     "zero data size",
+			hdr:      WAVHeader{SampleRate: 44100, Channels: 1, BitsPerSample: 16, DataSize: 0},
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.hdr.Duration()
+			if got != tt.expected {
+				t.Errorf("Duration() = %v, want %v", got, tt.expected)
+			}
+		})
 	}
 }
 
