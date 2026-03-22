@@ -81,11 +81,10 @@ docsEnabled: false  # disabled in production by default
 mcp:
   enabled: true  # set to false to disable MCP endpoint at /mcp
 
-# Protocol port — separate port for WebDAV + MCP
+# Protocol port — separate port for WebDAV (editors connect directly)
 protocol:
   enabled: true
   port: "4002"
-  # protocolBaseURL: "" # Public URL for protocol port (required for OAuth in production)
 
 # SSH/SFTP server
 ssh:
