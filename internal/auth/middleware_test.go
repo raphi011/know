@@ -229,6 +229,29 @@ func TestMiddlewareMissingHeader(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401, got %d", rec.Code)
 	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != "Bearer" {
+		t.Errorf("WWW-Authenticate = %q, want %q", got, "Bearer")
+	}
+}
+
+func TestMiddlewareWWWAuthenticateWithResourceMetadata(t *testing.T) {
+	handler := Middleware(nil, nil, MiddlewareConfig{
+		ResourceMetadataURL: "https://example.com/.well-known/oauth-protected-resource",
+	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called without auth")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", rec.Code)
+	}
+	want := `Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"`
+	if got := rec.Header().Get("WWW-Authenticate"); got != want {
+		t.Errorf("WWW-Authenticate = %q, want %q", got, want)
+	}
 }
 
 func TestRequireSystemAdmin(t *testing.T) {

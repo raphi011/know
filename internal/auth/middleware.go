@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,7 +15,8 @@ import (
 
 // MiddlewareConfig holds configuration for the auth middleware.
 type MiddlewareConfig struct {
-	TrustXForwardedFor bool
+	TrustXForwardedFor  bool
+	ResourceMetadataURL string // If set, 401 responses include WWW-Authenticate with resource_metadata (RFC 9728)
 }
 
 // NoAuthMiddleware injects an admin AuthContext with access to all vaults,
@@ -36,6 +38,12 @@ func NoAuthMiddleware(next http.Handler) http.Handler {
 
 // Middleware validates Bearer tokens and injects AuthContext.
 func Middleware(dbClient *db.Client, m *metrics.Metrics, mwCfg MiddlewareConfig) func(http.Handler) http.Handler {
+	// Build the WWW-Authenticate header value once (RFC 9728).
+	wwwAuth := "Bearer"
+	if mwCfg.ResourceMetadataURL != "" {
+		wwwAuth = fmt.Sprintf(`Bearer resource_metadata=%q`, mwCfg.ResourceMetadataURL)
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")
@@ -47,6 +55,7 @@ func Middleware(dbClient *db.Client, m *metrics.Metrics, mwCfg MiddlewareConfig)
 					slog.String("ip", ip),
 				)
 				m.RecordAuthEvent(string(event), string(event.Result()))
+				w.Header().Set("WWW-Authenticate", wwwAuth)
 				httputil.WriteProblem(w, http.StatusUnauthorized, "missing authorization header")
 				return
 			}
@@ -65,6 +74,7 @@ func Middleware(dbClient *db.Client, m *metrics.Metrics, mwCfg MiddlewareConfig)
 					slog.String("ip", ip),
 				)
 				m.RecordAuthEvent(string(event), string(event.Result()))
+				w.Header().Set("WWW-Authenticate", wwwAuth)
 				httputil.WriteProblem(w, http.StatusUnauthorized, "invalid token")
 				return
 			}

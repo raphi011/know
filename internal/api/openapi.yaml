@@ -3263,22 +3263,52 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  # ── OAuth AS Facade (protocol port) ─────────────────────
-  # These endpoints are served on the protocol port (default 4002), not /api/v1/.
-  # They implement the OAuth 2.0 Authorization Server metadata and flow so that
-  # MCP clients (e.g. Claude Code) can authenticate via browser login.
-  /.well-known/oauth-authorization-server:
+  # ── OAuth AS Facade (main port) ─────────────────────────
+  # These endpoints are served on the main API port, not /api/v1/.
+  # They implement the OAuth 2.0 Authorization Server metadata, discovery, client
+  # registration, and flow so that MCP clients (e.g. Claude Code) can authenticate
+  # via browser login.
+  /.well-known/oauth-protected-resource:
     get:
       tags: [Auth]
-      summary: OAuth Authorization Server metadata
+      summary: Protected Resource Metadata (RFC 9728)
       description: |
-        Returns OAuth 2.0 Authorization Server metadata per RFC 8414. Used by MCP clients
-        to discover authorization and token endpoints. **Unauthenticated endpoint.**
-        Only available when OIDC is enabled. Served on the protocol port (default 4002).
+        Returns OAuth 2.0 Protected Resource Metadata. MCP clients use this to discover
+        the authorization server for this resource. **Unauthenticated endpoint.**
+        Only available when OIDC is enabled.
       security: []
       servers:
         - url: /
-          description: Protocol port (default 4002)
+          description: Main API port
+      responses:
+        "200":
+          description: Protected Resource Metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resource:
+                    type: string
+                    description: URI of the protected resource (MCP endpoint)
+                  authorization_servers:
+                    type: array
+                    items:
+                      type: string
+                    description: URIs of authorization servers that can issue tokens for this resource
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [Auth]
+      summary: OAuth Authorization Server metadata (RFC 8414)
+      description: |
+        Returns OAuth 2.0 Authorization Server metadata per RFC 8414. Used by MCP clients
+        to discover authorization, token, and registration endpoints. **Unauthenticated endpoint.**
+        Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+          description: Main API port
       responses:
         "200":
           description: OAuth Authorization Server metadata
@@ -3296,6 +3326,9 @@ paths:
                   token_endpoint:
                     type: string
                     description: URL of the token endpoint
+                  registration_endpoint:
+                    type: string
+                    description: URL of the dynamic client registration endpoint (RFC 7591)
                   response_types_supported:
                     type: array
                     items:
@@ -3321,11 +3354,11 @@ paths:
         Starts the OAuth 2.0 Authorization Code flow. Redirects the browser to the
         configured OIDC provider. On successful authentication, the provider redirects
         back to the client with an authorization code. **Unauthenticated endpoint.**
-        Only available when OIDC is enabled. Served on the protocol port (default 4002).
+        Only available when OIDC is enabled.
       security: []
       servers:
         - url: /
-          description: Protocol port (default 4002)
+          description: Main API port
       parameters:
         - name: response_type
           in: query
@@ -3377,11 +3410,11 @@ paths:
         Exchanges an authorization code for a `kh_` API token. Called by MCP clients
         after the user completes browser login. Supports the Authorization Code grant
         with mandatory PKCE verification (code_verifier is required). **Unauthenticated endpoint.**
-        Only available when OIDC is enabled. Served on the protocol port (default 4002).
+        Only available when OIDC is enabled.
       security: []
       servers:
         - url: /
-          description: Protocol port (default 4002)
+          description: Main API port
       requestBody:
         required: true
         content:
@@ -3418,5 +3451,65 @@ paths:
                   token_type:
                     type: string
                     enum: [bearer]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /oauth/register:
+    post:
+      tags: [Auth]
+      summary: Dynamic Client Registration (RFC 7591)
+      description: |
+        Registers a new OAuth client dynamically. MCP clients call this to obtain a
+        client_id before starting the authorization flow. Only loopback redirect URIs
+        are accepted. **Unauthenticated endpoint.**
+        Only available when OIDC is enabled.
+      security: []
+      servers:
+        - url: /
+          description: Main API port
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [redirect_uris]
+              properties:
+                client_name:
+                  type: string
+                  description: Human-readable name of the client
+                redirect_uris:
+                  type: array
+                  items:
+                    type: string
+                  description: Redirect URIs (must be loopback addresses)
+      responses:
+        "201":
+          description: Client registered
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [client_id, redirect_uris]
+                properties:
+                  client_id:
+                    type: string
+                    description: Assigned client identifier (UUID)
+                  client_name:
+                    type: string
+                  redirect_uris:
+                    type: array
+                    items:
+                      type: string
+                  grant_types:
+                    type: array
+                    items:
+                      type: string
+                  response_types:
+                    type: array
+                    items:
+                      type: string
+                  token_endpoint_auth_method:
+                    type: string
         "400":
           $ref: "#/components/responses/BadRequest"
