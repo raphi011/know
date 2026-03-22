@@ -167,16 +167,21 @@ All routes are registered in `internal/api/server.go` (REST) and `cmd/know/cmd_s
 
 ### Feature Docs (`docs/feature-*.md`)
 
-Each major feature has its own documentation file:
+User-facing documentation: setup, usage, configuration, example prompts.
+
 - `docs/feature-agent.md` - Agent chat, TUI, tool approval, SSE streaming
-- `docs/feature-apple-app.md` - iOS/macOS app, quick picker, vault browsing
+- `docs/feature-api-docs.md` - Interactive API reference (Scalar UI)
+- `docs/feature-apple-app.md` - iOS/macOS app, networking, sync strategy
+- `docs/feature-audio-transcription.md` - STT providers, recording, playback, configuration
 - `docs/feature-auth.md` - Token auth, OIDC, device flow, PKCE, CLI login, self-signup
-- `docs/feature-audio-transcription.md` - STT pipeline, Whisper integration, template summarization
-- `docs/feature-ingestion.md` - Document pipeline, import command, frontmatter, wiki-links, versioning
+- `docs/feature-backup.md` - Manifest-based backup/restore, archive format, CLI/API
+- `docs/feature-bookmarks.md` - Bookmark pinning, browse TUI
+- `docs/feature-ingestion.md` - Import command, frontmatter, query blocks, configuration
 - `docs/feature-mcp.md` - MCP server, tools, multi-instance setup, Claude Code/Cursor config
-- `docs/feature-memory.md` - Memory system, decay scoring, consolidation, archiving
+- `docs/feature-memory.md` - Memory system, usage, archive threshold, configuration
 - `docs/feature-nfs.md` - NFS file access, mount instructions for macOS/Linux/Windows
 - `docs/feature-remotes.md` - Multi-server federation, namespace routing
+- `docs/feature-render.md` - Render pipeline, wiki-link resolution, query blocks
 - `docs/feature-search.md` - Hybrid BM25+vector search, RRF fusion, LLM synthesis
 - `docs/feature-ssh-sftp.md` - SSH/SFTP file access, CLI and GUI client setup
 - `docs/feature-tasks.md` - Task extraction from checkboxes, filtering, toggling, API
@@ -184,13 +189,20 @@ Each major feature has its own documentation file:
 - `docs/feature-vaults.md` - Vaults, folders, access control
 - `docs/feature-web-clipping.md` - Web page fetching via Jina Reader, CLI/MCP/API, vault settings
 - `docs/feature-webdav.md` - WebDAV editing, auth, editor support
-- `docs/feature-backup.md` - Manifest-based backup/restore, archive format, CLI/API
-- `docs/feature-render.md` - Render pipeline, wiki-link resolution, query blocks
 
-### Project-Specific Docs (`docs/`)
+### Technical Docs (`docs/tech-*.md`)
 
-- `docs/teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
-- `docs/testing-tui.md` - TUI testing strategy: direct component testing without teatest, state machine testing patterns
+Developer-facing: architecture, algorithms, DB schema, internal design, security properties.
+
+- `docs/tech-api-docs.md` - OpenAPI embedding, Scalar UI architecture
+- `docs/tech-apple-app.md` - Apple app architecture, file structure, build commands, dependencies
+- `docs/tech-audio-transcription.md` - Transcription pipeline flow, component map, design decisions
+- `docs/tech-auth.md` - Auth architecture: tokens, middleware, OIDC, OAuth flows, RBAC, DB schema
+- `docs/tech-ingestion.md` - Pipeline architecture, job handlers, chunking algorithm, wiki-link resolution, search indexing
+- `docs/tech-memory.md` - Decay scoring algorithm, consolidation logic, design rationale
+- `docs/tech-nfs.md` - NFSv3 auth analysis, authentication roadmap, implementation notes
+- `docs/tech-teleport-proxy.md` - Teleport AWS proxy architecture, eino-ext bugs, CA cert handling
+- `docs/tech-testing-tui.md` - TUI testing strategy: direct component testing without teatest
 
 ### Reusable Knowledge
 

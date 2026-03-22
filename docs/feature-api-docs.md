@@ -17,13 +17,9 @@ The raw OpenAPI 3.1 spec is available at `/api/v1/openapi.yaml`.
 - **Dark mode** by default
 - **BearerAuth** pre-selected in the auth section
 
-## Architecture
+## Technical Reference
 
-- **OpenAPI spec**: Hand-written YAML at `internal/api/openapi.yaml`, embedded in the binary via `go:embed`
-- **Scalar UI**: Loaded from CDN (`cdn.jsdelivr.net/npm/@scalar/api-reference`), no bundled JS
-- **Routes**: `GET /` (Scalar UI) and `GET /api/v1/openapi.yaml` (spec) — both unauthenticated
-- **Registration**: `api.RegisterDocs(mux)` in `cmd/know/cmd_serve.go`
-- **Tag groups**: `x-tagGroups` extension in the spec controls sidebar organization
+For architecture details (OpenAPI embedding, Scalar CDN loading, route registration), see [tech-api-docs.md](tech-api-docs.md).
 
 ## Maintaining the Spec
 

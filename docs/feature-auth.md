@@ -369,13 +369,6 @@ When self-signup is enabled (`KNOW_SELF_SIGNUP_ENABLED=true`), new OIDC users ar
 - "Create a new user alice with email alice@company.com"
 - "List all users on the server"
 
-## Reference
+## Technical Reference
 
-- OIDC provider: `internal/oidc/` (provider, device flow, PKCE, user resolution)
-- Auth endpoints: `internal/api/auth.go` (device start/poll, login/callback, token exchange)
-- Admin endpoints: `internal/api/admin.go` (list users, create user)
-- Token management: `internal/api/tokens.go` (list, create, delete, rotate)
-- CLI auth: `cmd/know/cmd_auth.go` (login, status, logout)
-- CLI admin: `cmd/know/cmd_admin.go` (create-user, list-users)
-- Token validation: `internal/auth/` (token format, hashing, context)
-- Config: `internal/config/config.go` (OIDC and token settings)
+For internal architecture details (token validation flow, middleware stack, OIDC provider internals, DB schema, crypto primitives, OAuth state management), see [tech-auth.md](tech-auth.md).
