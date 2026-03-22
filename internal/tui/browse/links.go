@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/raphi011/know/internal/apiclient"
@@ -67,7 +68,7 @@ type linksModel struct {
 	width    int
 	height   int
 
-	query     string
+	input     textinput.Model
 	view      linksView
 	loaded    bool
 	statusErr string
@@ -80,7 +81,18 @@ type linksModel struct {
 }
 
 func newLinksModel(client *apiclient.Client, vaultID string) linksModel {
+	ti := textinput.New()
+	ti.Placeholder = "Search links..."
+	ti.CharLimit = 256
+	ti.Prompt = "/ "
+
+	styles := ti.Styles()
+	styles.Cursor.Blink = false
+	styles.Focused.Prompt = pick.PromptStyle
+	ti.SetStyles(styles)
+
 	return linksModel{
+		input:   ti,
 		client:  client,
 		vaultID: vaultID,
 		view:    linksViewInbox,
@@ -113,13 +125,14 @@ func (l *linksModel) applyFilter() {
 }
 
 func (l *linksModel) refilter() {
-	if l.query == "" {
+	query := l.input.Value()
+	if query == "" {
 		l.matches = make([]fuzzy.Match, len(l.filtered))
 		for i := range l.filtered {
 			l.matches[i] = fuzzy.Match{Index: i}
 		}
 	} else {
-		l.matches = fuzzy.FindFrom(l.query, linkSource(l.filtered))
+		l.matches = fuzzy.FindFrom(query, linkSource(l.filtered))
 	}
 
 	if l.cursor >= len(l.matches) {
@@ -238,7 +251,7 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 				l.confirmDelete = true
 			}
 			return l, nil
-		case "tab":
+		case "v":
 			if l.view == linksViewInbox {
 				l.view = linksViewArchived
 			} else {
@@ -270,23 +283,17 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 			l.cursor = min(l.cursor+l.visibleRows(), max(len(l.matches)-1, 0))
 			l.ensureCursorVisible()
 			return l, nil
-		case "backspace":
-			if len(l.query) > 0 {
-				l.query = l.query[:len(l.query)-1]
-				l.refilter()
-			}
-			return l, nil
-		default:
-			// Single printable characters go to search
-			if len(msg.String()) == 1 && msg.String() >= " " {
-				l.query += msg.String()
-				l.refilter()
-				return l, nil
-			}
 		}
 	}
 
-	return l, nil
+	// Delegate remaining keys to text input for search.
+	prev := l.input.Value()
+	var cmd tea.Cmd
+	l.input, cmd = l.input.Update(msg)
+	if l.input.Value() != prev {
+		l.refilter()
+	}
+	return l, cmd
 }
 
 func (l linksModel) toggleArchive(entry *models.FileEntry) tea.Cmd {
@@ -344,9 +351,8 @@ func (l linksModel) View() string {
 		return b.String()
 	}
 
-	// Search query display
-	b.WriteString(pick.PromptStyle.Render("/ "))
-	b.WriteString(l.query)
+	// Search input
+	b.WriteString(l.input.View())
 	b.WriteString("\n")
 
 	// View indicator + count
@@ -405,7 +411,7 @@ func (l linksModel) View() string {
 	} else if l.statusOK != "" {
 		b.WriteString(pick.CountStyle.Render("  " + l.statusOK))
 	} else {
-		b.WriteString(pick.CountStyle.Render("  enter: view  o: open  a: archive  d: delete  tab: inbox/archived  esc: quit"))
+		b.WriteString(pick.CountStyle.Render("  enter: view  o: open  a: archive  d: delete  v: inbox/archived  esc: quit"))
 	}
 
 	return b.String()

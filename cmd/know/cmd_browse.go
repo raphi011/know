@@ -22,7 +22,6 @@ import (
 var (
 	browseAPI       *apiFlags
 	browseVaultID   *string
-	browseEdit      bool
 	browseViewer    string
 	browseLinks     bool
 	browseBookmarks bool
@@ -31,16 +30,15 @@ var (
 var browseCmd = &cobra.Command{
 	Use:   "browse [path]",
 	Short: "Browse, view, or edit vault documents",
-	Long: `Browse vault documents with fuzzy search, view them, or edit in $EDITOR.
+	Long: `Browse vault documents with fuzzy search and view them in a TUI.
 
 Without a path, launches a fuzzy finder to pick a file.
-With a path, opens the file directly.
+With a path, opens the file directly. Press 'e' in the viewer to edit in $EDITOR.
 
 Output adapts to context: interactive terminal shows a TUI viewer,
 piped output prints raw content to stdout.
 
 Flags:
-  -e, --edit      Open the selected file in $EDITOR and save changes
   --viewer CMD    Pipe content through a viewer command (e.g. bat, glow)
 
 Environment variables:
@@ -56,8 +54,6 @@ Examples:
   know browse | head                       # fuzzy pick → pipe content
   know browse | wc -l                      # fuzzy pick → count lines
   know browse --viewer bat /docs/readme.md # view with bat
-  know browse -e /docs/readme.md           # edit in $EDITOR
-  know browse -e                           # fuzzy pick → edit
   know browse --links                      # browse saved web clips`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runBrowse,
@@ -66,7 +62,6 @@ Examples:
 func init() {
 	browseAPI = addAPIFlags(browseCmd)
 	browseVaultID = addVaultFlag(browseCmd, browseAPI)
-	browseCmd.Flags().BoolVarP(&browseEdit, "edit", "e", false, "open in $EDITOR and save changes")
 	browseCmd.Flags().StringVar(&browseViewer, "viewer", os.Getenv("KNOW_VIEWER"), "viewer command (env: KNOW_VIEWER)")
 	browseCmd.Flags().BoolVarP(&browseLinks, "links", "l", false, "start on the Links tab (saved web clips)")
 	browseCmd.Flags().BoolVarP(&browseBookmarks, "bookmarks", "b", false, "start on the Bookmarks tab")
@@ -85,17 +80,6 @@ func runBrowse(_ *cobra.Command, args []string) error {
 
 // browseWithPath handles the case where a path is given as a positional argument.
 func browseWithPath(ctx context.Context, client *apiclient.Client, path string) error {
-	if browseEdit {
-		if !models.IsTextFile(path) {
-			return fmt.Errorf("browse: %s is not a text file — only .md and .txt files can be edited", path)
-		}
-		doc, err := client.GetDocument(ctx, *browseVaultID, path)
-		if err != nil {
-			return fmt.Errorf("browse: %w", err)
-		}
-		return editAndSave(ctx, client, *browseVaultID, path, doc.Content)
-	}
-
 	doc, err := client.GetDocument(ctx, *browseVaultID, path)
 	if err != nil {
 		return fmt.Errorf("browse: %w", err)
@@ -133,24 +117,11 @@ func browseWithPicker(ctx context.Context, client *apiclient.Client) error {
 		if f.IsDir {
 			continue
 		}
-		if browseEdit && !models.IsTextFile(f.Name) {
-			continue
-		}
 		docs = append(docs, f)
 	}
 
 	if len(docs) == 0 {
-		if browseEdit {
-			return fmt.Errorf("browse: no editable text files found in vault %q", *browseVaultID)
-		}
 		return fmt.Errorf("browse: no documents found in vault %q", *browseVaultID)
-	}
-
-	// --edit: pick → edit in $EDITOR
-	if browseEdit {
-		return pickAndDo(ctx, client, docs, func(path string, doc *apiclient.Document) error {
-			return editAndSave(ctx, client, *browseVaultID, path, doc.Content)
-		})
 	}
 
 	// --viewer: pick → pipe through viewer
@@ -199,30 +170,6 @@ func pickAndDo(ctx context.Context, client *apiclient.Client, docs []models.File
 		return fmt.Errorf("browse: %w", err)
 	}
 	return action(selected, doc)
-}
-
-// editAndSave opens content in $EDITOR and saves changes back to the server.
-func editAndSave(ctx context.Context, client *apiclient.Client, vaultID, path, content string) error {
-	updated, err := openInEditor(content, filepath.Ext(path))
-	if err != nil {
-		return err
-	}
-
-	if updated == content {
-		fmt.Println("no changes")
-		return nil
-	}
-
-	if _, err := client.EditDocument(ctx, apiclient.EditDocumentRequest{
-		VaultName: vaultID,
-		Path:      path,
-		Content:   updated,
-	}); err != nil {
-		return fmt.Errorf("save: %w", err)
-	}
-
-	fmt.Println("saved")
-	return nil
 }
 
 // viewWithCommand pipes content through an external viewer command.
