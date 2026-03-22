@@ -51,7 +51,7 @@ func (t *mcpTools) register(server *mcp.Server) {
 	}
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "search_documents",
+		Name:        tools.ToolSearchDocuments,
 		Description: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets. Use list_labels first to discover labels for filtering.",
 		Annotations: readOnly,
 	}, t.searchDocuments)
@@ -63,25 +63,25 @@ func (t *mcpTools) register(server *mcp.Server) {
 	}, t.getDocument)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_labels",
+		Name:        tools.ToolListLabels,
 		Description: "List all labels used across documents. Useful for discovering available categories before searching.",
 		Annotations: readOnly,
 	}, t.listLabels)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_folders",
+		Name:        tools.ToolListFolders,
 		Description: "List the folder structure. Use to browse and understand vault organization before searching.",
 		Annotations: readOnly,
 	}, t.listFolders)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_folder_contents",
+		Name:        tools.ToolListFolderContents,
 		Description: "List documents and subfolders in a specific folder. Returns immediate children only. Use list_folders first to discover available folders.",
 		Annotations: readOnly,
 	}, t.listFolderContents)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_document_versions",
+		Name:        tools.ToolGetDocumentVersions,
 		Description: "Get version history for a document by path. Returns previous versions with timestamps, sources, and titles.",
 		Annotations: readOnly,
 	}, t.getDocumentVersions)
@@ -92,7 +92,7 @@ func (t *mcpTools) register(server *mcp.Server) {
 	}
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_memory",
+		Name:        tools.ToolCreateMemory,
 		Description: "Create a memory, optionally scoped to a project. Automatically labels with 'memory' (and 'project/{project}' if project is set). For project memories, use a stable identifier (git remote URL or repo folder name). For global memories (e.g. Go patterns, Docker tips), omit project and add descriptive labels for categorization. Always call list_labels first to discover existing labels and reuse them for consistency.",
 		Annotations: writeNonDestructive,
 	}, t.createMemory)
@@ -110,31 +110,31 @@ func (t *mcpTools) register(server *mcp.Server) {
 	}, t.deleteMemory)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_document",
+		Name:        tools.ToolCreateDocument,
 		Description: "Create a new document in the knowledge base. Content should be markdown. Fails if a document already exists at the path.",
 		Annotations: writeNonDestructive,
 	}, t.createDocument)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "edit_document",
+		Name:        tools.ToolEditDocument,
 		Description: "Edit an existing document by replacing its full content. Read the document first with get_document, then pass the complete new content. Optionally pass expected_hash (from get_document) to prevent overwriting concurrent changes.",
 		Annotations: writeIdempotent,
 	}, t.editDocument)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "edit_document_section",
+		Name:        tools.ToolEditDocumentSection,
 		Description: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations. Optionally pass expected_hash to prevent overwriting concurrent changes.",
 		Annotations: writeIdempotent,
 	}, t.editDocumentSection)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_tasks",
+		Name:        tools.ToolListTasks,
 		Description: "List tasks (markdown checkboxes) extracted from documents. Returns tasks grouped by document with status, labels, and due dates. Use list_labels to discover available labels for filtering.",
 		Annotations: readOnly,
 	}, t.listTasks)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "toggle_task",
+		Name:        tools.ToolToggleTask,
 		Description: "Toggle a task's status between open and done. Modifies the source markdown document (changes `- [ ]` to `- [x]` or vice versa). Use list_tasks to find task IDs.",
 		Annotations: writeNonDestructive,
 	}, t.toggleTask)
@@ -157,7 +157,7 @@ func (t *mcpTools) register(server *mcp.Server) {
 		OpenWorldHint:   new(true),
 	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "fetch_webpage",
+		Name:        tools.ToolFetchWebpage,
 		Description: "Fetch a web page and convert it to markdown. Set save=true to persist the page to the vault's web clip folder with proper frontmatter (title, source URL, fetched_at, web-clip label). Without save, returns markdown content only.",
 		Annotations: openWorldWrite,
 	}, t.fetchWebpage)
@@ -197,7 +197,7 @@ func (t *mcpTools) searchDocuments(ctx context.Context, req *mcp.CallToolRequest
 	var sb strings.Builder
 	var failedVaults int
 	for _, ref := range refs {
-		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "search", string(argsJSON))
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolSearch, string(argsJSON))
 		if execErr != nil {
 			logutil.FromCtx(ctx).Warn("search failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
 			failedVaults++
@@ -241,7 +241,7 @@ func (t *mcpTools) getDocument(ctx context.Context, req *mcp.CallToolRequest, in
 	}
 
 	for _, ref := range refs {
-		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "read_document", string(argsJSON))
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolReadDocument, string(argsJSON))
 		if execErr != nil {
 			if isToolLevelError(execErr) {
 				continue // not found in this vault, try next
@@ -270,7 +270,7 @@ func (t *mcpTools) listLabels(ctx context.Context, req *mcp.CallToolRequest, inp
 	for _, ref := range refs {
 		cacheKey := "list_labels:" + ref.Namespace + ":" + ref.VaultID
 		result, err := t.cache.GetOrFetch(cacheKey, func() (string, error) {
-			r, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_labels", "{}")
+			r, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolListLabels, "{}")
 			return r, execErr
 		})
 		if err != nil {
@@ -308,7 +308,7 @@ func (t *mcpTools) listFolders(ctx context.Context, req *mcp.CallToolRequest, in
 	for _, ref := range refs {
 		cacheKey := "list_folders:" + ref.Namespace + ":" + ref.VaultID
 		result, err := t.cache.GetOrFetch(cacheKey, func() (string, error) {
-			r, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_folders", "{}")
+			r, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolListFolders, "{}")
 			return r, execErr
 		})
 		if err != nil {
@@ -350,7 +350,7 @@ func (t *mcpTools) listFolderContents(ctx context.Context, req *mcp.CallToolRequ
 
 	var sb strings.Builder
 	for _, ref := range refs {
-		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_folder_contents", string(argsJSON))
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolListFolderContents, string(argsJSON))
 		if execErr != nil {
 			logutil.FromCtx(ctx).Warn("list folder contents failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
 			continue
@@ -396,7 +396,7 @@ func (t *mcpTools) getDocumentVersions(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	for _, ref := range refs {
-		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "get_document_versions", string(argsJSON))
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolGetDocumentVersions, string(argsJSON))
 		if execErr != nil {
 			if isToolLevelError(execErr) {
 				continue // not found in this vault, try next
@@ -457,7 +457,7 @@ func (t *mcpTools) createMemory(ctx context.Context, req *mcp.CallToolRequest, i
 	if strings.TrimSpace(input.Content) == "" {
 		return errorResult("content is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "create_memory", input.Vault, input)
+	return t.executeWriteTool(ctx, tools.ToolCreateMemory, input.Vault, input)
 }
 
 type retrieveMemoriesInput struct {
@@ -556,7 +556,7 @@ func (t *mcpTools) createDocument(ctx context.Context, req *mcp.CallToolRequest,
 	if strings.TrimSpace(input.Content) == "" {
 		return errorResult("content is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "create_document", input.Vault, input)
+	return t.executeWriteTool(ctx, tools.ToolCreateDocument, input.Vault, input)
 }
 
 type editDocumentInput struct {
@@ -573,7 +573,7 @@ func (t *mcpTools) editDocument(ctx context.Context, req *mcp.CallToolRequest, i
 	if strings.TrimSpace(input.Content) == "" {
 		return errorResult("content is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "edit_document", input.Vault, input)
+	return t.executeWriteTool(ctx, tools.ToolEditDocument, input.Vault, input)
 }
 
 type editDocumentSectionInput struct {
@@ -600,7 +600,7 @@ func (t *mcpTools) editDocumentSection(ctx context.Context, req *mcp.CallToolReq
 	if !slices.Contains(validOps, op) {
 		return errorResult(fmt.Sprintf("unknown operation: %q. Valid operations: %s", op, strings.Join(validOps, ", "))), nil, nil
 	}
-	return t.executeWriteTool(ctx, "edit_document_section", input.Vault, input)
+	return t.executeWriteTool(ctx, tools.ToolEditDocumentSection, input.Vault, input)
 }
 
 // ---------- Task tool handlers ----------
@@ -630,7 +630,7 @@ func (t *mcpTools) listTasks(ctx context.Context, req *mcp.CallToolRequest, inpu
 	var sb strings.Builder
 	var failedVaults int
 	for _, ref := range refs {
-		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, "list_tasks", string(argsJSON))
+		result, _, execErr := ref.Executor.ExecuteTool(ctx, ref.VaultID, tools.ToolListTasks, string(argsJSON))
 		if execErr != nil {
 			logutil.FromCtx(ctx).Warn("list tasks failed", "vault", ref.VaultID, "namespace", ref.Namespace, "error", execErr)
 			failedVaults++
@@ -667,7 +667,7 @@ func (t *mcpTools) toggleTask(ctx context.Context, req *mcp.CallToolRequest, inp
 	if strings.TrimSpace(input.TaskID) == "" {
 		return errorResult("task_id is required"), nil, nil
 	}
-	return t.executeWriteTool(ctx, "toggle_task", input.Vault, input)
+	return t.executeWriteTool(ctx, tools.ToolToggleTask, input.Vault, input)
 }
 
 // ---------- YouTube transcript handler ----------
@@ -715,7 +715,7 @@ func (t *mcpTools) fetchWebpage(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 
 	// Save mode — delegate to the Tier 1 tool via the executor.
-	return t.executeWriteTool(ctx, "fetch_webpage", "", input)
+	return t.executeWriteTool(ctx, tools.ToolFetchWebpage, "", input)
 }
 
 // ---------- helpers ----------

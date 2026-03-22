@@ -44,7 +44,7 @@ func (c *Client) CreateConversation(ctx context.Context, vaultName string) (*api
 // Only fields used by the TUI are included; unknown JSON fields are ignored.
 // Keep in sync with the canonical type when adding new fields.
 type StreamEvent struct {
-	Type              string                `json:"type"` // "text" | "tool_start" | "tool_end" | "interrupted" | "msg_end" | "conv_id" | "error"
+	Type              string                `json:"type"` // agent.Event* constants
 	Content           string                `json:"content,omitempty"`
 	ConvID            string                `json:"convId,omitempty"`
 	Tool              string                `json:"tool,omitempty"`

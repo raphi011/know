@@ -21,7 +21,7 @@ type ListFoldersTool struct {
 
 func (t *ListFoldersTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "list_folders",
+		Name: ToolListFolders,
 		Desc: "List the folder structure of the knowledge base. Optionally filter to immediate children of a parent folder.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"parent": {
@@ -37,7 +37,7 @@ func (t *ListFoldersTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 
 	input, err := parseInput[struct {
 		Parent *string `json:"parent"`
-	}](argumentsInJSON, "list_folders")
+	}](argumentsInJSON, ToolListFolders)
 	if err != nil {
 		return "", err
 	}

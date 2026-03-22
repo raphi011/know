@@ -20,7 +20,7 @@ type ListFolderContentsTool struct {
 
 func (t *ListFolderContentsTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "list_folder_contents",
+		Name: ToolListFolderContents,
 		Desc: "List documents and subfolders in a specific folder. Returns immediate children only.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"folder": {
@@ -37,7 +37,7 @@ func (t *ListFolderContentsTool) InvokableRun(ctx context.Context, argumentsInJS
 
 	input, err := parseInput[struct {
 		Folder string `json:"folder"`
-	}](argumentsInJSON, "list_folder_contents")
+	}](argumentsInJSON, ToolListFolderContents)
 	if err != nil {
 		return "", err
 	}

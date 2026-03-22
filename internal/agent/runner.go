@@ -124,7 +124,7 @@ func (r *Runner) runTask(bgCtx context.Context, convID, userID string, logger *s
 		logger.Warn("failed to set bg_status running", "error", err)
 	}
 
-	buf.Push(StreamEvent{Type: "conv_id", ConvID: convID})
+	buf.Push(StreamEvent{Type: EventConvID, ConvID: convID})
 
 	go func() {
 		defer close(done)
@@ -139,7 +139,7 @@ func (r *Runner) runTask(bgCtx context.Context, convID, userID string, logger *s
 
 		if taskErr != nil {
 			logger.Error("agent task error", "error", taskErr)
-			buf.Push(StreamEvent{Type: "error", Content: "Failed to process request. Please try again."})
+			buf.Push(StreamEvent{Type: EventError, Content: "Failed to process request. Please try again."})
 			if dbErr := r.db.SetConversationBgFailed(context.Background(), convID, taskErr.Error()); dbErr != nil {
 				logger.Warn("failed to set bg_status failed", "error", dbErr)
 			}

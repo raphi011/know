@@ -21,7 +21,7 @@ type EditDocumentSectionTool struct {
 
 func (t *EditDocumentSectionTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "edit_document_section",
+		Name: ToolEditDocumentSection,
 		Desc: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true first to see the section outline. Operations: replace (update existing section content), insert_after/insert_before (add new section relative to target, requires new_heading), delete (remove a section), append (add new section at end, requires new_heading).",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
@@ -74,7 +74,7 @@ func (t *EditDocumentSectionTool) InvokableRun(ctx context.Context, argumentsInJ
 		NewHeading   *string `json:"new_heading"`
 		NewLevel     *int    `json:"new_level"`
 		ExpectedHash *string `json:"expected_hash"`
-	}](argumentsInJSON, "edit_document_section")
+	}](argumentsInJSON, ToolEditDocumentSection)
 	if err != nil {
 		return "", err
 	}

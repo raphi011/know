@@ -21,6 +21,9 @@ import (
 	"github.com/raphi011/know/internal/tools"
 )
 
+// fstringEscaper escapes curly braces to prevent FString interpolation of user-controlled content.
+var fstringEscaper = strings.NewReplacer("{", "{{", "}", "}}")
+
 // --- contextInjectionMiddleware: inject doc refs + text attachments + session values ---
 
 type contextInjectionMiddleware struct {
@@ -71,28 +74,12 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 		}
 	}
 
-	var vaultInstructions string
-	vaultMDFile, err := m.db.GetFileByPath(ctx, m.vaultID, "/VAULT.md")
-	if err != nil {
-		logger.Warn("failed to load VAULT.md", "vault_id", m.vaultID, "error", err)
-	} else if vaultMDFile != nil {
-		content, contentErr := m.fileSvc.ReadFileContent(ctx, vaultMDFile)
-		if contentErr != nil {
-			logger.Warn("failed to read VAULT.md content", "vault_id", m.vaultID, "error", contentErr)
-		} else {
-			vaultInstructions = formatVaultInstructions(content)
-			if len(content) > maxVaultInstructionsBytes {
-				logger.Warn("VAULT.md truncated", "vault_id", m.vaultID, "size_bytes", len(content), "max_bytes", maxVaultInstructionsBytes)
-			}
-		}
-	}
-
 	vals := map[string]any{
 		"FolderTree":        folderTree,
 		"Labels":            labels,
 		"Templates":         templates,
 		"CurrentDate":       time.Now().Format("2006-01-02"),
-		"VaultInstructions": vaultInstructions,
+		"VaultInstructions": m.loadVaultInstructions(ctx),
 	}
 	adk.AddSessionValues(ctx, vals)
 
@@ -103,6 +90,29 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 	}
 
 	return ctx, runCtx, nil
+}
+
+// loadVaultInstructions reads /VAULT.md from the vault and returns formatted instructions
+// for the system prompt. Returns "" if the file doesn't exist or can't be read.
+func (m *contextInjectionMiddleware) loadVaultInstructions(ctx context.Context) string {
+	logger := logutil.FromCtx(ctx)
+	f, err := m.db.GetFileByPath(ctx, m.vaultID, "/VAULT.md")
+	if err != nil {
+		logger.Warn("failed to load VAULT.md", "vault_id", m.vaultID, "error", err)
+		return ""
+	}
+	if f == nil {
+		return ""
+	}
+	content, err := m.fileSvc.ReadFileContent(ctx, f)
+	if err != nil {
+		logger.Warn("failed to read VAULT.md content", "vault_id", m.vaultID, "error", err)
+		return ""
+	}
+	if len(content) > maxVaultInstructionsBytes {
+		logger.Warn("VAULT.md truncated", "vault_id", m.vaultID, "size_bytes", len(content), "max_bytes", maxVaultInstructionsBytes)
+	}
+	return formatVaultInstructions(content)
 }
 
 // formatFolderTree renders a vault's folder structure as a code block, or "" if empty.
@@ -117,8 +127,7 @@ func formatFolderTree(folders []models.File) string {
 		indent := strings.Repeat("  ", depth)
 		sb.WriteString(indent)
 		sb.WriteString("├── ")
-		// Escape curly braces to prevent FString interpolation of user-controlled folder names.
-		sb.WriteString(strings.NewReplacer("{", "{{", "}", "}}").Replace(path.Base(f.Path)))
+		sb.WriteString(fstringEscaper.Replace(path.Base(f.Path)))
 		sb.WriteString("/\n")
 	}
 	sb.WriteString("```")
@@ -133,8 +142,7 @@ func formatLabels(labelCounts []models.LabelCount) string {
 	var sb strings.Builder
 	sb.WriteString("\n\nVault labels:\n")
 	for _, lc := range labelCounts {
-		// Escape curly braces to prevent FString interpolation of user-controlled label names.
-		escaped := strings.NewReplacer("{", "{{", "}", "}}").Replace(lc.Label)
+		escaped := fstringEscaper.Replace(lc.Label)
 		fmt.Fprintf(&sb, "- %s (%d)\n", escaped, lc.Count)
 	}
 	return sb.String()
@@ -147,12 +155,11 @@ func formatTemplates(docs []models.File) string {
 	if len(docs) == 0 {
 		return ""
 	}
-	esc := strings.NewReplacer("{", "{{", "}", "}}")
 	var sb strings.Builder
 	sb.WriteString("\n\nAvailable templates (read with read_document to use):\n")
 	for _, doc := range docs {
-		escaped := esc.Replace(doc.Path)
-		title := esc.Replace(doc.Title)
+		escaped := fstringEscaper.Replace(doc.Path)
+		title := fstringEscaper.Replace(doc.Title)
 		if title != "" {
 			fmt.Fprintf(&sb, "- %s — %s\n", escaped, title)
 		} else {
@@ -179,10 +186,9 @@ func formatVaultInstructions(content string) string {
 		}
 		content = trunc + "\n\n(truncated — VAULT.md exceeds 32 KB limit)"
 	}
-	esc := strings.NewReplacer("{", "{{", "}", "}}")
 	var sb strings.Builder
 	sb.WriteString("\n\n## Vault Instructions (/VAULT.md)\nYou can update this file using edit_document when the user asks you to remember preferences or conventions.\n\n<vault-instructions>\n")
-	sb.WriteString(esc.Replace(content))
+	sb.WriteString(fstringEscaper.Replace(content))
 	sb.WriteString("\n</vault-instructions>")
 	return sb.String()
 }
@@ -201,14 +207,14 @@ func (m *contextInjectionMiddleware) BeforeModelRewriteState(ctx context.Context
 			doc, docErr := m.db.GetFileByPath(ctx, m.vaultID, ref)
 			if docErr != nil {
 				logutil.FromCtx(ctx).Warn("failed to read referenced doc", "path", ref, "error", docErr)
-				m.emit(StreamEvent{Type: "error", Content: fmt.Sprintf("could not read referenced document: %s", ref)})
+				m.emit(StreamEvent{Type: EventError, Content: fmt.Sprintf("could not read referenced document: %s", ref)})
 				continue
 			}
 			if doc != nil {
 				content, contentErr := m.fileSvc.ReadFileContent(ctx, doc)
 				if contentErr != nil {
 					logutil.FromCtx(ctx).Warn("failed to read doc content", "path", ref, "error", contentErr)
-					m.emit(StreamEvent{Type: "error", Content: fmt.Sprintf("could not read document content: %s", ref)})
+					m.emit(StreamEvent{Type: EventError, Content: fmt.Sprintf("could not read document content: %s", ref)})
 					continue
 				}
 				fmt.Fprintf(&refContext, "\n--- Document: %s ---\n%s\n", doc.Path, content)

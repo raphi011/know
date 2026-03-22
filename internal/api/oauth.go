@@ -28,11 +28,11 @@ type OAuthHandler struct {
 	baseURL string
 }
 
-func NewOAuthHandler(authHandler *AuthHandler, dbClient *db.Client, baseURL string) *OAuthHandler {
+func NewOAuthHandler(authHandler *AuthHandler, dbClient *db.Client) *OAuthHandler {
 	return &OAuthHandler{
 		auth:    authHandler,
 		db:      dbClient,
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: strings.TrimRight(authHandler.BaseURL(), "/"),
 	}
 }
 

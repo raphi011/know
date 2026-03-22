@@ -22,7 +22,7 @@ type CreateMemoryTool struct {
 
 func (t *CreateMemoryTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "create_memory",
+		Name: ToolCreateMemory,
 		Desc: "Create a memory, optionally scoped to a project. For project memories, use a stable identifier (git remote URL or repo folder name). For global memories (e.g. Go patterns, Docker tips), omit project and add descriptive labels. Call list_labels first to reuse existing labels.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"title": {
@@ -58,7 +58,7 @@ func (t *CreateMemoryTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		Content string   `json:"content"`
 		Project string   `json:"project"`
 		Labels  []string `json:"labels"`
-	}](argumentsInJSON, "create_memory")
+	}](argumentsInJSON, ToolCreateMemory)
 	if err != nil {
 		return "", err
 	}

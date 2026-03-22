@@ -16,6 +16,38 @@ import (
 	"github.com/raphi011/know/internal/search"
 )
 
+// Canonical tool names. Use these constants instead of string literals.
+const (
+	ToolSearch              = "search"
+	ToolReadDocument        = "read_document"
+	ToolCreateDocument      = "create_document"
+	ToolEditDocument        = "edit_document"
+	ToolEditDocumentSection = "edit_document_section"
+	ToolCreateMemory        = "create_memory"
+	ToolListLabels          = "list_labels"
+	ToolListFolders         = "list_folders"
+	ToolListFolderContents  = "list_folder_contents"
+	ToolGetDocumentVersions = "get_document_versions"
+	ToolListTasks           = "list_tasks"
+	ToolToggleTask          = "toggle_task"
+	ToolFetchWebpage        = "fetch_webpage"
+	ToolSearchDocuments     = "search_documents"
+	ToolWebSearch           = "web_search"
+)
+
+// writeTools is the set of tools that require write approval.
+var writeTools = map[string]bool{
+	ToolCreateDocument:      true,
+	ToolEditDocument:        true,
+	ToolEditDocumentSection: true,
+	ToolCreateMemory:        true,
+}
+
+// IsWriteTool reports whether the named tool requires write approval.
+func IsWriteTool(name string) bool {
+	return writeTools[name]
+}
+
 // ToolExecutor defines the interface for executing tools against a vault.
 // Both the local Executor and the remote proxy implement this.
 type ToolExecutor interface {
@@ -42,24 +74,24 @@ type Executor struct {
 func (e *Executor) initRegistry() {
 	e.once.Do(func() {
 		e.registry = map[string]tool.InvokableTool{
-			"search":                &SearchTool{search: e.Search},
-			"read_document":         &ReadDocumentTool{db: e.DB, fileSvc: e.FileSvc, renderSvc: e.RenderSvc},
-			"list_labels":           &ListLabelsTool{db: e.DB},
-			"list_folders":          &ListFoldersTool{db: e.DB},
-			"list_folder_contents":  &ListFolderContentsTool{db: e.DB},
-			"get_document_versions": &GetDocumentVersionsTool{db: e.DB},
-			"list_tasks":            &ListTasksTool{db: e.DB},
+			ToolSearch:              &SearchTool{search: e.Search},
+			ToolReadDocument:        &ReadDocumentTool{db: e.DB, fileSvc: e.FileSvc, renderSvc: e.RenderSvc},
+			ToolListLabels:          &ListLabelsTool{db: e.DB},
+			ToolListFolders:         &ListFoldersTool{db: e.DB},
+			ToolListFolderContents:  &ListFolderContentsTool{db: e.DB},
+			ToolGetDocumentVersions: &GetDocumentVersionsTool{db: e.DB},
+			ToolListTasks:           &ListTasksTool{db: e.DB},
 		}
 
 		if e.FileSvc != nil {
-			e.registry["create_document"] = &CreateDocumentTool{db: e.DB, docService: e.FileSvc}
-			e.registry["edit_document"] = &EditDocumentTool{db: e.DB, docService: e.FileSvc}
-			e.registry["edit_document_section"] = &EditDocumentSectionTool{db: e.DB, docService: e.FileSvc}
-			e.registry["create_memory"] = &CreateMemoryTool{db: e.DB, docService: e.FileSvc}
-			e.registry["toggle_task"] = &ToggleTaskTool{docService: e.FileSvc}
+			e.registry[ToolCreateDocument] = &CreateDocumentTool{db: e.DB, docService: e.FileSvc}
+			e.registry[ToolEditDocument] = &EditDocumentTool{db: e.DB, docService: e.FileSvc}
+			e.registry[ToolEditDocumentSection] = &EditDocumentSectionTool{db: e.DB, docService: e.FileSvc}
+			e.registry[ToolCreateMemory] = &CreateMemoryTool{db: e.DB, docService: e.FileSvc}
+			e.registry[ToolToggleTask] = &ToggleTaskTool{docService: e.FileSvc}
 		}
 
-		e.registry["fetch_webpage"] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc, model: e.Model}
+		e.registry[ToolFetchWebpage] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc, model: e.Model}
 	})
 }
 

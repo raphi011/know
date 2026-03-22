@@ -24,7 +24,7 @@ type ReadDocumentTool struct {
 
 func (t *ReadDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "read_document",
+		Name: ToolReadDocument,
 		Desc: "Read the full content of a specific document by its path. Set sections=true to include a section outline for use with edit_document_section.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
@@ -46,7 +46,7 @@ func (t *ReadDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	input, err := parseInput[struct {
 		Path     string `json:"path"`
 		Sections bool   `json:"sections"`
-	}](argumentsInJSON, "read_document")
+	}](argumentsInJSON, ToolReadDocument)
 	if err != nil {
 		return "", err
 	}

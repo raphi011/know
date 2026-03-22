@@ -20,7 +20,7 @@ type EditDocumentTool struct {
 
 func (t *EditDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "edit_document",
+		Name: ToolEditDocument,
 		Desc: "Edit an existing document by replacing its full content. Read the document first to get the current content, then modify and pass the complete new content.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
@@ -48,7 +48,7 @@ func (t *EditDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		Path         string  `json:"path"`
 		Content      string  `json:"content"`
 		ExpectedHash *string `json:"expected_hash"`
-	}](argumentsInJSON, "edit_document")
+	}](argumentsInJSON, ToolEditDocument)
 	if err != nil {
 		return "", err
 	}

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"path"
 
@@ -58,9 +57,8 @@ func (s *Server) addBookmark(w http.ResponseWriter, r *http.Request) {
 	userID := ac.UserID
 	logger := logutil.FromCtx(ctx)
 
-	var req bookmarkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
+	req, ok := decodeBody[bookmarkRequest](w, r, 1024)
+	if !ok {
 		return
 	}
 	if req.Path == "" {
@@ -106,9 +104,8 @@ func (s *Server) removeBookmark(w http.ResponseWriter, r *http.Request) {
 	userID := ac.UserID
 	logger := logutil.FromCtx(ctx)
 
-	var req bookmarkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
+	req, ok := decodeBody[bookmarkRequest](w, r, 1024)
+	if !ok {
 		return
 	}
 	if req.Path == "" {

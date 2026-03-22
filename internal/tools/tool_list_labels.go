@@ -18,7 +18,7 @@ type ListLabelsTool struct {
 
 func (t *ListLabelsTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name:        "list_labels",
+		Name:        ToolListLabels,
 		Desc:        "List all labels/categories used across documents in the knowledge base",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
 	}, nil
