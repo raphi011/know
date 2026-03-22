@@ -20,7 +20,7 @@ type CreateDocumentTool struct {
 
 func (t *CreateDocumentTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "create_document",
+		Name: ToolCreateDocument,
 		Desc: "Create a new document in the knowledge base. The content should be markdown. Fails if a document already exists at the given path.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
@@ -43,7 +43,7 @@ func (t *CreateDocumentTool) InvokableRun(ctx context.Context, argumentsInJSON s
 	args, err := parseInput[struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
-	}](argumentsInJSON, "create_document")
+	}](argumentsInJSON, ToolCreateDocument)
 	if err != nil {
 		return "", err
 	}

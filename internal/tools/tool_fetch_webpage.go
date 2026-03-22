@@ -25,7 +25,7 @@ type FetchWebpageTool struct {
 
 func (t *FetchWebpageTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "fetch_webpage",
+		Name: ToolFetchWebpage,
 		Desc: "Fetch a web page and convert it to markdown. Set save=true to persist the page to the vault's web clip folder with proper frontmatter. Without save, returns the markdown content only.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"url": {
@@ -57,7 +57,7 @@ func (t *FetchWebpageTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		Save  bool    `json:"save"`
 		Path  *string `json:"path"`
 		Clean bool    `json:"clean"`
-	}](argumentsInJSON, "fetch_webpage")
+	}](argumentsInJSON, ToolFetchWebpage)
 	if err != nil {
 		return "", err
 	}

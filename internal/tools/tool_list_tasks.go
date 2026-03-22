@@ -19,7 +19,7 @@ type ListTasksTool struct {
 
 func (t *ListTasksTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "list_tasks",
+		Name: ToolListTasks,
 		Desc: "List tasks (markdown checkboxes) extracted from documents. Returns tasks grouped by document with status, labels, and due dates. Use list_labels to discover available labels for filtering.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"status": {
@@ -71,7 +71,7 @@ func (t *ListTasksTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		Path      *string  `json:"path"`
 		Limit     *int     `json:"limit"`
 		Offset    *int     `json:"offset"`
-	}](argumentsInJSON, "list_tasks")
+	}](argumentsInJSON, ToolListTasks)
 	if err != nil {
 		return "", err
 	}

@@ -18,7 +18,7 @@ type WebSearchTool struct {
 
 func (t *WebSearchTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "web_search",
+		Name: tools.ToolWebSearch,
 		Desc: "Search the web for information not found in the knowledge base. Only call this after the user explicitly asks to search the web.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"query": {

@@ -18,7 +18,7 @@ type SearchTool struct {
 
 func (t *SearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "search",
+		Name: ToolSearch,
 		Desc: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"query": {Type: schema.String, Desc: "Search query text", Required: true},
@@ -31,7 +31,7 @@ func (t *SearchTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 
 	input, err := parseInput[struct {
 		Query string `json:"query"`
-	}](argumentsInJSON, "search")
+	}](argumentsInJSON, ToolSearch)
 	if err != nil {
 		return "", err
 	}

@@ -92,16 +92,16 @@ func toolKeyArg(toolName string, input map[string]any) string {
 	// Map tool names to their key argument field.
 	var field string
 	switch toolName {
-	case "read_document", "create_document", "edit_document",
-		"edit_document_section", "get_document_versions":
+	case tools.ToolReadDocument, tools.ToolCreateDocument, tools.ToolEditDocument,
+		tools.ToolEditDocumentSection, tools.ToolGetDocumentVersions:
 		field = "path"
-	case "search_documents", "web_search":
+	case tools.ToolSearchDocuments, tools.ToolWebSearch:
 		field = "query"
-	case "list_folder_contents":
+	case tools.ToolListFolderContents:
 		field = "folder"
-	case "list_folders":
+	case tools.ToolListFolders:
 		field = "parent"
-	case "create_memory":
+	case tools.ToolCreateMemory:
 		field = "title"
 	}
 	if field != "" {
@@ -120,11 +120,11 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 		return ""
 	}
 	switch toolName {
-	case "read_document":
+	case tools.ToolReadDocument:
 		if meta.ContentLength != nil {
 			return fmt.Sprintf("%d chars", *meta.ContentLength)
 		}
-	case "search_documents":
+	case tools.ToolSearchDocuments:
 		var parts []string
 		if meta.ResultCount != nil {
 			parts = append(parts, fmt.Sprintf("%d docs", *meta.ResultCount))
@@ -135,15 +135,15 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 		if len(parts) > 0 {
 			return strings.Join(parts, ", ")
 		}
-	case "list_folder_contents", "list_folders", "list_labels":
+	case tools.ToolListFolderContents, tools.ToolListFolders, tools.ToolListLabels:
 		if meta.ResultCount != nil {
 			return fmt.Sprintf("%d results", *meta.ResultCount)
 		}
-	case "get_document_versions":
+	case tools.ToolGetDocumentVersions:
 		if meta.ResultCount != nil {
 			return fmt.Sprintf("%d versions", *meta.ResultCount)
 		}
-	case "web_search":
+	case tools.ToolWebSearch:
 		if meta.WebResultCount != nil {
 			return fmt.Sprintf("%d results", *meta.WebResultCount)
 		}

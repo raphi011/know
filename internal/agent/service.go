@@ -25,9 +25,20 @@ import (
 	"github.com/raphi011/know/internal/tools"
 )
 
+// Stream event types.
+const (
+	EventText        = "text"
+	EventToolStart   = "tool_start"
+	EventToolEnd     = "tool_end"
+	EventInterrupted = "interrupted"
+	EventMsgEnd      = "msg_end"
+	EventConvID      = "conv_id"
+	EventError       = "error"
+)
+
 // StreamEvent is sent to the client via SSE.
 type StreamEvent struct {
-	Type              string                `json:"type"` // "text" | "tool_start" | "tool_end" | "interrupted" | "msg_start" | "msg_end" | "conv_id" | "error"
+	Type              string                `json:"type"` // Event* constants
 	Content           string                `json:"content,omitempty"`
 	ConvID            string                `json:"convId,omitempty"`
 	MsgID             string                `json:"msgId,omitempty"`
@@ -168,7 +179,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 			return fmt.Errorf("extract conversation ID: %w", err)
 		}
 		req.ConversationID = convID
-		emit(StreamEvent{Type: "conv_id", ConvID: convID})
+		emit(StreamEvent{Type: EventConvID, ConvID: convID})
 	}
 
 	// 2. Store user message
@@ -239,7 +250,7 @@ func (s *Service) finalizeRun(ctx context.Context, convID string, model *llm.Mod
 
 	if err != nil {
 		logutil.FromCtx(ctx).Error("failed to persist agent results", "conversation_id", convID, "error", err)
-		emit(StreamEvent{Type: "error", Content: "warning: response may not be saved to conversation history"})
+		emit(StreamEvent{Type: EventError, Content: "warning: response may not be saved to conversation history"})
 	}
 
 	// If interrupted, skip msg_end — it will be emitted after resume completes
@@ -248,7 +259,7 @@ func (s *Service) finalizeRun(ctx context.Context, convID string, model *llm.Mod
 	}
 
 	emit(StreamEvent{
-		Type:              "msg_end",
+		Type:              EventMsgEnd,
 		MsgID:             assistantMsgID,
 		InputTokens:       result.TokenUsage.InputTokens,
 		OutputTokens:      result.TokenUsage.OutputTokens,
@@ -346,7 +357,7 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 		// Error event — stop processing messages but keep draining for RunCompleteEvent
 		if event.Err != nil {
 			logger.Error("agent error", "error", event.Err)
-			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("generation failed: %v", event.Err)})
+			emit(StreamEvent{Type: EventError, Content: fmt.Sprintf("generation failed: %v", event.Err)})
 			hitError = true
 			continue
 		}
@@ -358,7 +369,7 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 				if ictx.IsRootCause {
 					if req, ok := ictx.Info.(*ApprovalRequest); ok {
 						emit(StreamEvent{
-							Type:        "interrupted",
+							Type:        EventInterrupted,
 							InterruptID: ictx.ID,
 							CallID:      req.CallID,
 							Tool:        req.Tool,
@@ -382,15 +393,15 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 			switch e := event.Output.CustomizedOutput.(type) {
 			case *ToolStartEvent:
 				if !hitError {
-					emit(StreamEvent{Type: "tool_start", CallID: e.CallID, Tool: e.Tool, Input: e.Input})
+					emit(StreamEvent{Type: EventToolStart, CallID: e.CallID, Tool: e.Tool, Input: e.Input})
 				}
 
 			case *ToolEndEvent:
 				if !hitError {
 					if e.Error != "" {
-						emit(StreamEvent{Type: "tool_end", CallID: e.CallID, Tool: e.Tool, Content: e.Error})
+						emit(StreamEvent{Type: EventToolEnd, CallID: e.CallID, Tool: e.Tool, Content: e.Error})
 					} else {
-						emit(StreamEvent{Type: "tool_end", CallID: e.CallID, Tool: e.Tool, Meta: e.Meta})
+						emit(StreamEvent{Type: EventToolEnd, CallID: e.CallID, Tool: e.Tool, Meta: e.Meta})
 					}
 				}
 
@@ -427,18 +438,18 @@ func consumeAgentEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentE
 					}
 					if recvErr != nil {
 						logger.Error("stream recv error", "error", recvErr)
-						emit(StreamEvent{Type: "error", Content: fmt.Sprintf("response was truncated: %v", recvErr)})
+						emit(StreamEvent{Type: EventError, Content: fmt.Sprintf("response was truncated: %v", recvErr)})
 						hitError = true
 						break
 					}
 					if chunk.Content != "" {
 						answer.WriteString(chunk.Content)
-						emit(StreamEvent{Type: "text", Content: chunk.Content})
+						emit(StreamEvent{Type: EventText, Content: chunk.Content})
 					}
 				}
 			} else if mv.Message != nil && mv.Message.Content != "" {
 				answer.WriteString(mv.Message.Content)
-				emit(StreamEvent{Type: "text", Content: mv.Message.Content})
+				emit(StreamEvent{Type: EventText, Content: mv.Message.Content})
 			}
 		}
 	}
@@ -547,15 +558,15 @@ func splitAttachments(attachments []models.ChatAttachment, emit func(StreamEvent
 		case models.AttachmentTypeImage:
 			imageAtts = append(imageAtts, att)
 		default:
-			emit(StreamEvent{Type: "error", Content: fmt.Sprintf("unsupported attachment type %q for %s, skipping", att.Type, att.Path)})
+			emit(StreamEvent{Type: EventError, Content: fmt.Sprintf("unsupported attachment type %q for %s, skipping", att.Type, att.Path)})
 		}
 	}
 	return imageAtts
 }
 
-// isWriteTool returns true for tools that modify documents.
+// isWriteTool returns true for tools that require write approval.
 func isWriteTool(name string) bool {
-	return name == "create_document" || name == "edit_document" || name == "edit_document_section" || name == "create_memory"
+	return tools.IsWriteTool(name)
 }
 
 // buildApprovalRequest computes the diff for a write tool call.
@@ -585,7 +596,7 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 	}
 
 	// Section edits require an existing document
-	if call.Function.Name == "edit_document_section" && doc == nil {
+	if call.Function.Name == tools.ToolEditDocumentSection && doc == nil {
 		return nil, fmt.Errorf("document not found: %s", args.Path)
 	}
 
@@ -605,7 +616,7 @@ func (s *Service) buildApprovalRequest(ctx context.Context, vaultID string, call
 		}
 	}
 
-	if call.Function.Name == "edit_document_section" && doc != nil {
+	if call.Function.Name == tools.ToolEditDocumentSection && doc != nil {
 		edit := parser.BuildSectionEdit(parser.SectionEditArgs{
 			Operation:  args.Operation,
 			Heading:    args.Heading,

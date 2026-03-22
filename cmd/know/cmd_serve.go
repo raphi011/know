@@ -188,6 +188,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("auth rate limiting enabled", "rps", cfg.RateLimitAuthRPS, "burst", cfg.RateLimitAuthBurst)
 	}
 
+	registerAuthRoutes := func(register func(*http.ServeMux, ...func(http.Handler) http.Handler)) {
+		if authRateLimiter != nil {
+			register(mux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
+		} else {
+			register(mux)
+		}
+	}
+
 	// OIDC auth routes (unauthenticated — must be registered before auth middleware)
 	var oidcHandler *api.AuthHandler
 	if cfg.OIDCEnabled {
@@ -209,11 +217,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		if oidcErr != nil {
 			return fmt.Errorf("init oidc handler: %w", oidcErr)
 		}
-		if authRateLimiter != nil {
-			oidcHandler.RegisterRoutes(mux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
-		} else {
-			oidcHandler.RegisterRoutes(mux)
-		}
+		registerAuthRoutes(oidcHandler.RegisterRoutes)
 		slog.Info("OIDC authentication enabled", "provider_type", cfg.OIDCProviderType, "provider_name", oidcProvider.ProviderName())
 	}
 
@@ -221,13 +225,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Registered before auth middleware because OAuth endpoints are unauthenticated.
 	var resourceMetadataURL string
 	if cfg.OIDCEnabled && oidcHandler != nil {
-		oauthHandler := api.NewOAuthHandler(oidcHandler, app.DBClient(), oidcHandler.BaseURL())
+		oauthHandler := api.NewOAuthHandler(oidcHandler, app.DBClient())
 		resourceMetadataURL = oauthHandler.ResourceMetadataURL()
-		if authRateLimiter != nil {
-			oauthHandler.RegisterRoutes(mux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
-		} else {
-			oauthHandler.RegisterRoutes(mux)
-		}
+		registerAuthRoutes(oauthHandler.RegisterRoutes)
 		slog.Info("OAuth MCP auth enabled", "base_url", oidcHandler.BaseURL())
 	}
 

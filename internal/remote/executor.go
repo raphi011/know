@@ -29,27 +29,27 @@ func NewExecutor(client *apiclient.Client, remoteName string) *Executor {
 // ExecuteTool routes a tool call to the appropriate REST API method on the remote server.
 func (e *Executor) ExecuteTool(ctx context.Context, vaultID, toolName, arguments string) (string, *tools.ToolResultMeta, error) {
 	switch toolName {
-	case "search":
+	case tools.ToolSearch:
 		return e.execSearch(ctx, vaultID, arguments)
-	case "read_document":
+	case tools.ToolReadDocument:
 		return e.execReadDocument(ctx, vaultID, arguments)
-	case "list_labels":
+	case tools.ToolListLabels:
 		return e.execListLabels(ctx, vaultID)
-	case "list_folders":
+	case tools.ToolListFolders:
 		return e.execListFolders(ctx, vaultID, arguments)
-	case "list_folder_contents":
+	case tools.ToolListFolderContents:
 		return e.execListFolderContents(ctx, vaultID, arguments)
-	case "create_document":
+	case tools.ToolCreateDocument:
 		return e.execCreateDocument(ctx, vaultID, arguments)
-	case "edit_document":
+	case tools.ToolEditDocument:
 		return e.execEditDocument(ctx, vaultID, arguments)
-	case "edit_document_section":
+	case tools.ToolEditDocumentSection:
 		return "", nil, &tools.ToolError{
 			Message: "edit_document_section is not supported on remote vaults. Use get_document to read the full content, edit locally, then use edit_document to save.",
 		}
-	case "create_memory":
+	case tools.ToolCreateMemory:
 		return e.execCreateMemory(ctx, vaultID, arguments)
-	case "get_document_versions":
+	case tools.ToolGetDocumentVersions:
 		return e.execGetDocumentVersions(ctx, vaultID, arguments)
 	default:
 		return "", nil, fmt.Errorf("unknown tool: %s", toolName)

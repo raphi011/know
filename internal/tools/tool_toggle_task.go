@@ -18,7 +18,7 @@ type ToggleTaskTool struct {
 
 func (t *ToggleTaskTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "toggle_task",
+		Name: ToolToggleTask,
 		Desc: "Toggle a task's status between open and done. This modifies the source markdown document (changes `- [ ]` to `- [x]` or vice versa). Use list_tasks to find task IDs.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"task_id": {
@@ -33,7 +33,7 @@ func (t *ToggleTaskTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 func (t *ToggleTaskTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	input, err := parseInput[struct {
 		TaskID string `json:"task_id"`
-	}](argumentsInJSON, "toggle_task")
+	}](argumentsInJSON, ToolToggleTask)
 	if err != nil {
 		return "", err
 	}

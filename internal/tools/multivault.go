@@ -193,7 +193,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 	}{
 		{
 			info: &schema.ToolInfo{
-				Name: "search",
+				Name: ToolSearch,
 				Desc: "Search documents using full-text and semantic search. Returns titles, paths, scores, and matching snippets. Use list_labels first to discover labels for filtering.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"query":    {Type: schema.String, Desc: "Search query text", Required: true},
@@ -207,7 +207,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name: "read_document",
+				Name: ToolReadDocument,
 				Desc: "Read the full content of a specific document by its path. Set sections=true to include a section outline for use with edit_document_section.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"path":     {Type: schema.String, Desc: "The document path (e.g. /folder/document-name)", Required: true},
@@ -218,7 +218,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name:        "list_labels",
+				Name:        ToolListLabels,
 				Desc:        "List all labels/categories used across documents in all vaults",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{}),
 			},
@@ -226,7 +226,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name: "list_folders",
+				Name: ToolListFolders,
 				Desc: "List the folder structure across all vaults",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"parent": {Type: schema.String, Desc: "Parent folder path to list children of (e.g. /guides/). Lists all folders if omitted."},
@@ -236,7 +236,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name: "list_folder_contents",
+				Name: ToolListFolderContents,
 				Desc: "List documents and subfolders in a specific folder. Returns immediate children only.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"folder": {Type: schema.String, Desc: "Folder path (e.g. /guides/)", Required: true},
@@ -246,7 +246,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name: "get_document_versions",
+				Name: ToolGetDocumentVersions,
 				Desc: "Get version history for a document by path. Returns previous versions with timestamps, sources, and titles.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"path":  {Type: schema.String, Desc: "Document path", Required: true},
@@ -257,7 +257,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 		},
 		{
 			info: &schema.ToolInfo{
-				Name: "list_tasks",
+				Name: ToolListTasks,
 				Desc: "List tasks (markdown checkboxes) extracted from documents. Returns tasks grouped by document with status, labels, and due dates.",
 				ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 					"status":     {Type: schema.String, Desc: "Filter by status: 'open' or 'done'"},
@@ -276,7 +276,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 
 	writeTools := []*schema.ToolInfo{
 		{
-			Name: "create_document",
+			Name: ToolCreateDocument,
 			Desc: "Create a new document in the knowledge base. The content should be markdown. Fails if a document already exists at the given path.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"path":    {Type: schema.String, Desc: "Document path (e.g. /guides/new-guide.md)", Required: true},
@@ -285,7 +285,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 			}),
 		},
 		{
-			Name: "edit_document",
+			Name: ToolEditDocument,
 			Desc: "Edit an existing document by replacing its full content. Read the document first to get the current content, then modify and pass the complete new content.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"path":          {Type: schema.String, Desc: "Document path of the existing document", Required: true},
@@ -295,7 +295,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 			}),
 		},
 		{
-			Name: "edit_document_section",
+			Name: ToolEditDocumentSection,
 			Desc: "Edit a specific section of a document by heading, without sending the full content. Use get_document with sections=true to see available sections. Supports replace, insert_after, insert_before, delete, and append operations.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"path":          {Type: schema.String, Desc: "Document path", Required: true},
@@ -310,7 +310,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 			}),
 		},
 		{
-			Name: "create_memory",
+			Name: ToolCreateMemory,
 			Desc: "Create a memory, optionally scoped to a project. For project memories, use a stable identifier (git remote URL or repo folder name). For global memories, omit project and add descriptive labels. Call list_labels first to reuse existing labels.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"title":   {Type: schema.String, Desc: "Memory title (used for filename)", Required: true},
@@ -321,7 +321,7 @@ func NewMultiVaultTools(resolver VaultResolver, writeResolver WriteVaultResolver
 			}),
 		},
 		{
-			Name: "toggle_task",
+			Name: ToolToggleTask,
 			Desc: "Toggle a task's status between open and done. Modifies the source markdown document. Use list_tasks to find task IDs.",
 			ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 				"task_id": {Type: schema.String, Desc: "The task ID to toggle (from list_tasks output)", Required: true},

@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour"
+	"github.com/raphi011/know/internal/agent"
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/tools"
@@ -425,7 +426,7 @@ func (m *Model) sendMessage() tea.Cmd {
 	startStreamCmd := func() tea.Msg {
 		ch, err := client.Chat(ctx, convID, vaultID, content, attachments, false)
 		if err != nil {
-			return streamEventMsg{event: StreamEvent{Type: "error", Content: err.Error()}, done: true}
+			return streamEventMsg{event: StreamEvent{Type: agent.EventError, Content: err.Error()}, done: true}
 		}
 
 		event, ok := <-ch
@@ -561,7 +562,7 @@ func (m *Model) resubscribeAfterApproval() tea.Cmd {
 	return func() tea.Msg {
 		ch, err := client.SubscribeEvents(ctx, convID)
 		if err != nil {
-			return streamEventMsg{event: StreamEvent{Type: "error", Content: fmt.Sprintf("resubscribe failed: %v", err)}, done: true}
+			return streamEventMsg{event: StreamEvent{Type: agent.EventError, Content: fmt.Sprintf("resubscribe failed: %v", err)}, done: true}
 		}
 
 		event, ok := <-ch
@@ -575,7 +576,7 @@ func (m *Model) resubscribeAfterApproval() tea.Cmd {
 func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	// Handle error events before checking done — when Chat() fails,
 	// the message has both an error and done=true.
-	if msg.event.Type == "error" {
+	if msg.event.Type == agent.EventError {
 		slog.Warn("stream error", "conversationID", m.conversationID, "error", msg.event.Content)
 	}
 
@@ -591,9 +592,9 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.event.Type {
-	case "text":
+	case agent.EventText:
 		m.appendText(msg.event.Content)
-	case "tool_start":
+	case agent.EventToolStart:
 		// Reuse existing part if this tool was already started before approval.
 		if existing := m.findToolPart(msg.event.CallID); existing != nil {
 			existing.Status = ToolRunning
@@ -607,9 +608,9 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				Status:   ToolRunning,
 			})
 		}
-	case "tool_end":
+	case agent.EventToolEnd:
 		m.updateToolStatus(msg.event.CallID, msg.event.Tool, ToolComplete, msg.event.Meta)
-	case "interrupted":
+	case agent.EventInterrupted:
 		pa := pendingApproval{event: msg.event}
 		if m.dialog == nil {
 			dialogHeight := max(m.height/2, 10)
@@ -622,16 +623,16 @@ func (m Model) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.dialog.approvals = append(m.dialog.approvals, pa)
 		}
-	case "conv_id":
+	case agent.EventConvID:
 		m.conversationID = msg.event.ConvID
-	case "error":
+	case agent.EventError:
 		m.streamParts = append(m.streamParts, ContentPart{
 			Type:    PartError,
 			Content: msg.event.Content,
 		})
 		cmd := m.finalizeStream()
 		return m, tea.Batch(cmd, nextCmd)
-	case "msg_end":
+	case agent.EventMsgEnd:
 		m.tokenInput += msg.event.InputTokens
 		m.tokenOutput += msg.event.OutputTokens
 		m.contextWindowMax = msg.event.ContextWindowMax

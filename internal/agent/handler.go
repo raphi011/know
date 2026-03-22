@@ -181,13 +181,13 @@ func (rn *Runner) HandleEvents() http.HandlerFunc {
 
 			switch *conv.BgStatus {
 			case "completed":
-				writeSSE(w, flusher, StreamEvent{Type: "msg_end"})
+				writeSSE(w, flusher, StreamEvent{Type: EventMsgEnd})
 			case "failed":
 				errMsg := "agent failed"
 				if conv.BgError != nil {
 					errMsg = *conv.BgError
 				}
-				writeSSE(w, flusher, StreamEvent{Type: "error", Content: errMsg})
+				writeSSE(w, flusher, StreamEvent{Type: EventError, Content: errMsg})
 			default:
 				// "running" but not in tasks map — race condition or server restart
 				httputil.WriteProblem(w, http.StatusNotFound, "task not available")

@@ -19,7 +19,7 @@ type GetDocumentVersionsTool struct {
 
 func (t *GetDocumentVersionsTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "get_document_versions",
+		Name: ToolGetDocumentVersions,
 		Desc: "Get version history for a document by path. Returns previous versions with timestamps, sources, and titles.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"path": {
@@ -41,7 +41,7 @@ func (t *GetDocumentVersionsTool) InvokableRun(ctx context.Context, argumentsInJ
 	input, err := parseInput[struct {
 		Path  string `json:"path"`
 		Limit *int   `json:"limit"`
-	}](argumentsInJSON, "get_document_versions")
+	}](argumentsInJSON, ToolGetDocumentVersions)
 	if err != nil {
 		return "", err
 	}
