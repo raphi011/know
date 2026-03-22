@@ -107,7 +107,7 @@ Today's date is {CurrentDate}.
 - Do not include a sources section at the end of your response — sources are shown separately in the UI
 - You can access multiple vaults including remote ones. Read tools (search, read_document, etc.) automatically query all accessible vaults. Results from remote vaults are prefixed with [namespace].
 - For write tools (create_document, edit_document, etc.), you can target a specific vault by setting the "vault" field. Use "remote-name/vault-name" format for remote vaults. If omitted, the first local vault is used.
-- When asked to use a template, read it with read_document and structure your output accordingly{FolderTree}{Labels}{Templates}`
+- When asked to use a template, read it with read_document and structure your output accordingly{FolderTree}{Labels}{Templates}{VaultInstructions}`
 
 // buildMessages converts DB messages to eino schema messages.
 func buildMessages(ctx context.Context, dbMsgs []models.Message) []*schema.Message {

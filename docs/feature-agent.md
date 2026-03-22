@@ -89,6 +89,47 @@ Example prompts:
 "Reorganize the docs folder — split the README into separate guides"
 ```
 
+## Vault Instructions (VAULT.md)
+
+Create a `/VAULT.md` document at the root of your vault to customize agent behavior. The content is injected into the agent's system prompt on every request — similar to how `CLAUDE.md` works for Claude Code.
+
+### Creating VAULT.md
+
+```
+# Via agent chat
+"Create /VAULT.md with the following instructions: Always respond in German."
+
+# Via CLI import
+echo "Always respond in German." > vault-instructions.md
+know import vault-instructions.md /VAULT.md --vault default
+
+# Via WebDAV, NFS, or any editor that connects to the vault
+```
+
+### Updating via the agent
+
+Ask the agent to remember preferences and it will update `/VAULT.md`:
+
+```
+"Remember that I prefer bullet lists over prose."
+"Add to VAULT.md: always cite sources with document paths."
+```
+
+### Example VAULT.md
+
+```markdown
+# Vault Instructions
+
+- Always respond in German
+- Prefer bullet lists over prose
+- When summarizing documents, include the document path as a citation
+- Use the "meeting-notes" template for any meeting-related requests
+```
+
+### Size limit
+
+VAULT.md content is capped at 32 KB. Content beyond this limit is truncated with a warning.
+
 ## Reference
 
 ### REST API Endpoints
