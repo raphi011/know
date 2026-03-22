@@ -103,7 +103,7 @@ func NewModelWithDocument(doc *apiclient.Document, client *apiclient.Client, vau
 		noFinder:     true,
 		glamourStyle: glamourStyle,
 		renderer:     r,
-		viewer:       newViewer(doc.Path, renderContent(r, doc), 80, 24),
+		viewer:       newViewer(doc.Path, doc.Content, renderContent(r, doc), 80, 24),
 	}
 }
 
@@ -121,9 +121,14 @@ func renderContent(r *glamour.TermRenderer, doc *apiclient.Document) string {
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.finder.Init()}
-	// Start loading links and bookmarks immediately so they're ready when user switches tabs
-	cmds = append(cmds, m.links.loadLinks(), m.bookmarks.loadBookmarks())
+	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks()}
+	// Focus the input for the initial tab.
+	switch m.activeTab {
+	case TabAllFiles:
+		cmds = append(cmds, m.finder.Init())
+	case TabLinks:
+		cmds = append(cmds, m.links.input.Focus())
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -136,6 +141,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
+		m.links.input.SetWidth(msg.Width - len(m.links.input.Prompt))
 		m.bookmarks.width = msg.Width
 		m.bookmarks.height = contentHeight
 		m.updateRenderer()
@@ -157,25 +163,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Tab switching with 1/2 keys (only in finding state, and only when
+		// Tab switching with 1/2/3 or Tab key (only in finding state, and only when
 		// the links model isn't in a confirmation mode)
 		if m.state == stateFinding && !m.links.confirmDelete {
+			var newTab Tab = -1
 			switch msg.String() {
+			case "tab":
+				newTab = (m.activeTab + 1) % 3
+			case "shift+tab":
+				newTab = (m.activeTab + 2) % 3
 			case "1":
-				if m.activeTab != TabAllFiles {
-					m.activeTab = TabAllFiles
-					return m, m.finder.picker.Input.Focus()
-				}
-				return m, nil
+				newTab = TabAllFiles
 			case "2":
-				if m.activeTab != TabLinks {
-					m.activeTab = TabLinks
-				}
-				return m, nil
+				newTab = TabLinks
 			case "3":
-				if m.activeTab != TabBookmarks {
-					m.activeTab = TabBookmarks
-				}
+				newTab = TabBookmarks
+			}
+			if newTab >= 0 && newTab != m.activeTab {
+				m.activeTab = newTab
+				return m, m.focusActiveTab()
+			} else if newTab >= 0 {
 				return m, nil
 			}
 		}
@@ -206,7 +213,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchAudio(msg.doc)
 		}
 
-		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
+		m.viewer = newViewer(msg.doc.Path, msg.doc.Content, renderContent(m.renderer, msg.doc), m.width, m.height)
 		// Initialize bookmark state from loaded bookmarks.
 		for _, bm := range m.bookmarks.items {
 			if bm.Path == msg.doc.Path {
@@ -224,7 +231,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.transcript != "" {
 				content := "**Audio playback unavailable:** " + msg.err.Error() + "\n\n---\n\n" + msg.transcript
 				doc := &apiclient.Document{Content: content}
-				m.viewer = newViewer(msg.path, renderContent(m.renderer, doc), m.width, m.height)
+				m.viewer = newViewer(msg.path, content, renderContent(m.renderer, doc), m.width, m.height)
 				m.state = stateViewing
 				return m, nil
 			}
@@ -248,10 +255,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.state = stateFinding
-		if m.activeTab == TabAllFiles {
-			return m, m.finder.picker.Input.Focus()
-		}
-		return m, nil
+		return m, m.focusActiveTab()
 
 	case bookmarkToggledMsg:
 		var cmd tea.Cmd
@@ -262,6 +266,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewer.bookmarked = false
 		}
 		return m, cmd
+
+	case editorFinishedMsg:
+		if msg.err != nil {
+			slog.Warn("editor failed", "path", msg.path, "error", msg.err)
+			m.viewer.statusMsg = fmt.Sprintf("Edit failed: %v", msg.err)
+			return m, nil
+		}
+		if !msg.changed {
+			m.viewer.statusMsg = "No changes"
+			return m, nil
+		}
+		// Re-render with updated content.
+		m.viewer = newViewer(msg.path, msg.content, renderContent(m.renderer, &apiclient.Document{Content: msg.content}), m.width, m.height)
+		m.viewer.statusMsg = "Saved"
+		// Restore bookmark state.
+		for _, bm := range m.bookmarks.items {
+			if bm.Path == msg.path {
+				m.viewer.bookmarked = true
+				break
+			}
+		}
+		return m, nil
 	}
 
 	// Async messages must always reach their model regardless of active tab.
@@ -294,9 +320,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	case stateViewing:
-		// Handle bookmark toggle in viewer
-		if keyMsg, ok := msg.(tea.KeyPressMsg); ok && keyMsg.String() == "b" {
-			return m, m.bookmarks.toggleBookmark(m.viewer.path, !m.viewer.bookmarked)
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+			switch keyMsg.String() {
+			case "b":
+				return m, m.bookmarks.toggleBookmark(m.viewer.path, !m.viewer.bookmarked)
+			case "e":
+				if m.viewer.audioPlayer != nil || !models.IsTextFile(m.viewer.path) {
+					break
+				}
+				return m, m.editDocument()
+			}
 		}
 		var cmd tea.Cmd
 		m.viewer, cmd = m.viewer.Update(msg)
@@ -327,6 +360,25 @@ func (m Model) View() tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
+}
+
+// editDocument opens the current document in $EDITOR.
+func (m *Model) editDocument() tea.Cmd {
+	return openInEditor(m.viewer.path, m.viewer.rawContent, m.client, m.vaultID)
+}
+
+// focusActiveTab blurs all inputs then focuses the active tab's input.
+func (m *Model) focusActiveTab() tea.Cmd {
+	m.finder.picker.Input.Blur()
+	m.links.input.Blur()
+	switch m.activeTab {
+	case TabAllFiles:
+		return m.finder.picker.Input.Focus()
+	case TabLinks:
+		return m.links.input.Focus()
+	default:
+		return nil
+	}
 }
 
 func (m *Model) fetchDocument(path string) tea.Cmd {

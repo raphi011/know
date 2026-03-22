@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/record"
 )
 
@@ -16,20 +17,23 @@ type viewerModel struct {
 	viewport    viewport.Model
 	audioPlayer *audioPlayerModel
 	path        string
+	rawContent  string // original content for editing
 	width       int
 	height      int
 	bookmarked  bool
+	statusMsg   string
 }
 
-func newViewer(path, renderedContent string, width, height int) viewerModel {
+func newViewer(path, rawContent, renderedContent string, width, height int) viewerModel {
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(max(height-2, 1)))
 	vp.SetContent(renderedContent)
 
 	return viewerModel{
-		viewport: vp,
-		path:     path,
-		width:    width,
-		height:   height,
+		viewport:   vp,
+		path:       path,
+		rawContent: rawContent,
+		width:      width,
+		height:     height,
 	}
 }
 
@@ -86,7 +90,15 @@ func (v viewerModel) View() string {
 		if v.bookmarked {
 			bookmarkHint = "b: unbookmark"
 		}
-		footer := footerBarStyle.Render(fmt.Sprintf("  %.0f%%  %s  esc: back  q: quit", pct*100, bookmarkHint))
+		editHint := "  e: edit"
+		if v.audioPlayer != nil || !models.IsTextFile(v.path) {
+			editHint = ""
+		}
+		parts := fmt.Sprintf("%.0f%%%s  %s  esc: back  q: quit", pct*100, editHint, bookmarkHint)
+		if v.statusMsg != "" {
+			parts = v.statusMsg + "  —  " + parts
+		}
+		footer := footerBarStyle.Render("  " + parts)
 		b.WriteString(footer)
 	}
 

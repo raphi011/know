@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -206,6 +207,27 @@ func streamToStdout(events <-chan tui.StreamEvent) error {
 		}
 	}
 	return fmt.Errorf("agent: stream ended unexpectedly")
+}
+
+// editAndSave opens content in $EDITOR and saves changes back to the server.
+func editAndSave(ctx context.Context, client *apiclient.Client, vaultID, path, content string) error {
+	updated, err := openInEditor(content, filepath.Ext(path))
+	if err != nil {
+		return err
+	}
+	if updated == content {
+		fmt.Println("no changes")
+		return nil
+	}
+	if _, err := client.EditDocument(ctx, apiclient.EditDocumentRequest{
+		VaultName: vaultID,
+		Path:      path,
+		Content:   updated,
+	}); err != nil {
+		return fmt.Errorf("save: %w", err)
+	}
+	fmt.Println("saved")
+	return nil
 }
 
 // openInEditor writes content to a temp file, opens $EDITOR, and returns the edited content.
