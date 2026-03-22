@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
@@ -70,11 +71,28 @@ func (m *contextInjectionMiddleware) BeforeAgent(ctx context.Context, runCtx *ad
 		}
 	}
 
+	var vaultInstructions string
+	vaultMDFile, err := m.db.GetFileByPath(ctx, m.vaultID, "/VAULT.md")
+	if err != nil {
+		logger.Warn("failed to load VAULT.md", "vault_id", m.vaultID, "error", err)
+	} else if vaultMDFile != nil {
+		content, contentErr := m.fileSvc.ReadFileContent(ctx, vaultMDFile)
+		if contentErr != nil {
+			logger.Warn("failed to read VAULT.md content", "vault_id", m.vaultID, "error", contentErr)
+		} else {
+			vaultInstructions = formatVaultInstructions(content)
+			if len(content) > maxVaultInstructionsBytes {
+				logger.Warn("VAULT.md truncated", "vault_id", m.vaultID, "size_bytes", len(content), "max_bytes", maxVaultInstructionsBytes)
+			}
+		}
+	}
+
 	vals := map[string]any{
-		"FolderTree":  folderTree,
-		"Labels":      labels,
-		"Templates":   templates,
-		"CurrentDate": time.Now().Format("2006-01-02"),
+		"FolderTree":        folderTree,
+		"Labels":            labels,
+		"Templates":         templates,
+		"CurrentDate":       time.Now().Format("2006-01-02"),
+		"VaultInstructions": vaultInstructions,
 	}
 	adk.AddSessionValues(ctx, vals)
 
@@ -141,6 +159,31 @@ func formatTemplates(docs []models.File) string {
 			fmt.Fprintf(&sb, "- %s\n", escaped)
 		}
 	}
+	return sb.String()
+}
+
+const maxVaultInstructionsBytes = 32 * 1024
+
+// formatVaultInstructions wraps VAULT.md content in a labeled section for the
+// system prompt, or returns "" if content is empty. Escapes curly braces to
+// prevent FString interpolation and truncates at 32 KB.
+func formatVaultInstructions(content string) string {
+	if content == "" {
+		return ""
+	}
+	if len(content) > maxVaultInstructionsBytes {
+		// Truncate at a valid UTF-8 boundary to avoid garbled trailing runes.
+		trunc := content[:maxVaultInstructionsBytes]
+		for !utf8.ValidString(trunc) {
+			trunc = trunc[:len(trunc)-1]
+		}
+		content = trunc + "\n\n(truncated — VAULT.md exceeds 32 KB limit)"
+	}
+	esc := strings.NewReplacer("{", "{{", "}", "}}")
+	var sb strings.Builder
+	sb.WriteString("\n\n## Vault Instructions (/VAULT.md)\nYou can update this file using edit_document when the user asks you to remember preferences or conventions.\n\n<vault-instructions>\n")
+	sb.WriteString(esc.Replace(content))
+	sb.WriteString("\n</vault-instructions>")
 	return sb.String()
 }
 
