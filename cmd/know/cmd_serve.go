@@ -217,6 +217,18 @@ func runServe(_ *cobra.Command, _ []string) error {
 		slog.Info("OIDC authentication enabled", "provider_type", cfg.OIDCProviderType, "provider_name", oidcProvider.ProviderName())
 	}
 
+	// OAuth AS facade for MCP auth (lets Claude Code authenticate via browser).
+	// Registered before auth middleware because OAuth endpoints are unauthenticated.
+	if cfg.OIDCEnabled && oidcHandler != nil {
+		oauthHandler := api.NewOAuthHandler(oidcHandler, oidcHandler.BaseURL())
+		if authRateLimiter != nil {
+			oauthHandler.RegisterRoutes(mux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
+		} else {
+			oauthHandler.RegisterRoutes(mux)
+		}
+		slog.Info("OAuth MCP auth enabled", "base_url", oidcHandler.BaseURL())
+	}
+
 	// Periodic cleanup: expired tokens (always) and device codes (when OIDC enabled)
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
@@ -259,6 +271,28 @@ func runServe(_ *cobra.Command, _ []string) error {
 	apiServer := api.NewServer(app)
 	apiServer.Register(mux, authMw, app.AgentRunner())
 
+	// MCP endpoint for Model Context Protocol (on main port, behind auth)
+	if cfg.MCPEnabled {
+		mcpHandler := mcptools.NewHandler(
+			&tools.Executor{
+				DB:        app.DBClient(),
+				Search:    app.SearchService(),
+				FileSvc:   app.FileService(),
+				RenderSvc: app.RenderService(),
+				Jina:      app.JinaClient(),
+			},
+			app.DBClient(),
+			app.FileService(),
+			app.VaultService(),
+			app.RemoteService(),
+			app.MemoryService(),
+			app.ApifyClient(),
+			app.JinaClient(),
+		)
+		mux.Handle("/mcp", authMw(mcpHandler))
+		slog.Info("MCP endpoint enabled", "path", "/mcp")
+	}
+
 	// API documentation (Scalar UI at /, spec at /api/v1/openapi.yaml)
 	if cfg.DocsEnabled {
 		api.RegisterDocs(mux)
@@ -270,45 +304,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Uses the apiServer's vault scope middleware for consistent vault resolution.
 	mux.Handle("GET /api/v1/vaults/{vault}/events", authMw(apiServer.VaultScopeHandler(event.HandleEvents(app.EventBus()))))
 
-	// Protocol server (WebDAV + MCP) — separate port, own auth
+	// WebDAV server — separate port (editors connect directly)
 	var protoSrv *http.Server
 	{
 		protoMux := http.NewServeMux()
 
-		// MCP endpoint for Model Context Protocol
-		if cfg.MCPEnabled {
-			mcpHandler := mcptools.NewHandler(
-				&tools.Executor{
-					DB:        app.DBClient(),
-					Search:    app.SearchService(),
-					FileSvc:   app.FileService(),
-					RenderSvc: app.RenderService(),
-					Jina:      app.JinaClient(),
-				},
-				app.DBClient(),
-				app.FileService(),
-				app.VaultService(),
-				app.RemoteService(),
-				app.MemoryService(),
-				app.ApifyClient(),
-				app.JinaClient(),
-			)
-			protoMux.Handle("/mcp", authMw(mcpHandler))
-			slog.Info("MCP endpoint enabled", "port", cfg.ProtocolPort, "path", "/mcp")
-		}
-
-		// OAuth AS facade for MCP auth (lets Claude Code authenticate via browser)
-		if cfg.OIDCEnabled && oidcHandler != nil {
-			oauthHandler := api.NewOAuthHandler(oidcHandler, cfg.ProtocolBaseURL)
-			if authRateLimiter != nil {
-				oauthHandler.RegisterRoutes(protoMux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
-			} else {
-				oauthHandler.RegisterRoutes(protoMux)
-			}
-			slog.Info("OAuth MCP auth enabled", "base_url", cfg.ProtocolBaseURL)
-		}
-
-		// WebDAV endpoint for document editing with any editor
 		var davHandler http.Handler = knowdav.NewHandler(
 			serverCtx,
 			"/dav/",
@@ -351,7 +351,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 				slog.Error("protocol server error", "error", err)
 			}
 		}()
-		slog.Info("protocol server started (WebDAV + MCP)", "port", cfg.ProtocolPort)
+		slog.Info("WebDAV server started", "port", cfg.ProtocolPort)
 	}
 
 	// SSH/SFTP server (optional)
@@ -466,11 +466,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 	slog.Info("cancelling background goroutines")
 	serverCancel()
 
-	// 3. Protocol server shutdown (WebDAV + MCP)
+	// 3. WebDAV server shutdown
 	if protoSrv != nil {
-		slog.Info("protocol: shutting down")
+		slog.Info("webdav: shutting down")
 		if err := protoSrv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("protocol: shutdown error", "error", err)
+			slog.Error("webdav: shutdown error", "error", err)
 		}
 	}
 

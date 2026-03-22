@@ -231,22 +231,22 @@ The CLI resolves tokens in this order:
 
 ### OAuth MCP Authentication
 
-When OIDC is enabled, Know exposes an OAuth 2.0 Authorization Server facade on the protocol port. This lets Claude Code and other MCP clients authenticate via browser login without manual token configuration.
+When OIDC is enabled, Know exposes an OAuth 2.0 Authorization Server facade on the main API port. This lets Claude Code and other MCP clients authenticate via browser login without manual token configuration.
 
-**Endpoints** (on protocol port, default 4002):
+**Endpoints** (on main port, default 8484):
 - `GET /.well-known/oauth-authorization-server` — OAuth metadata (RFC 8414)
 - `GET /oauth/authorize` — Starts the auth flow (redirects to OIDC provider)
 - `POST /oauth/token` — Exchanges authorization code for `kh_` token
 
 **Setup:**
 ```bash
-claude mcp add --transport http --client-id know-mcp know http://localhost:4002/mcp
+claude mcp add --transport http --client-id know-mcp know http://localhost:8484/mcp
 ```
 
 Then in Claude Code, run `/mcp` and select "Authenticate" — a browser window opens, you log in with your OIDC provider, and the token is issued and stored automatically by the MCP client.
 
 **Configuration:**
-- `KNOW_PROTOCOL_BASE_URL` — Public URL of the protocol port (required in production, e.g. `https://know.example.com:4002`)
+- The OAuth base URL is derived from the OIDC redirect URL — no separate configuration needed
 - Requires `KNOW_OIDC_ENABLED=true` and a configured OIDC provider
 
 ## Native App Login (PKCE)

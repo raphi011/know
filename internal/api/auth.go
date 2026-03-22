@@ -54,6 +54,9 @@ func NewAuthHandler(provider oidc.Provider, dbClient *db.Client, selfSignup bool
 	}, nil
 }
 
+// BaseURL returns the scheme+host derived from the redirect URL (e.g. "https://know.example.com").
+func (h *AuthHandler) BaseURL() string { return h.baseURL }
+
 // RegisterRoutes registers unauthenticated OIDC auth routes.
 // If mw is non-nil, each route is wrapped with the middleware (e.g. rate limiting).
 func (h *AuthHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handler) http.Handler) {
