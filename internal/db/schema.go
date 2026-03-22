@@ -433,6 +433,18 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_oauth_auth_code ON oauth_auth_code FIELDS code UNIQUE;
 
     -- ==========================================================================
+    -- OAUTH_CLIENT TABLE (dynamically registered OAuth clients, RFC 7591)
+    -- ==========================================================================
+    DEFINE TABLE IF NOT EXISTS oauth_client SCHEMAFULL;
+
+    DEFINE FIELD IF NOT EXISTS client_id     ON oauth_client TYPE string;
+    DEFINE FIELD IF NOT EXISTS client_name   ON oauth_client TYPE string;
+    DEFINE FIELD IF NOT EXISTS redirect_uris ON oauth_client TYPE array<string>;
+    DEFINE FIELD IF NOT EXISTS created_at    ON oauth_client TYPE datetime DEFAULT time::now();
+
+    DEFINE INDEX IF NOT EXISTS idx_oauth_client_id ON oauth_client FIELDS client_id UNIQUE;
+
+    -- ==========================================================================
     -- BOOKMARK TABLE (user-scoped file/folder pins)
     -- ==========================================================================
     DEFINE TABLE IF NOT EXISTS bookmark SCHEMAFULL;

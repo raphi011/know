@@ -5,12 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/oidc"
@@ -20,14 +24,21 @@ const oauthAuthCodeExpiry = 60 * time.Second
 
 type OAuthHandler struct {
 	auth    *AuthHandler
+	db      *db.Client
 	baseURL string
 }
 
-func NewOAuthHandler(authHandler *AuthHandler, baseURL string) *OAuthHandler {
+func NewOAuthHandler(authHandler *AuthHandler, dbClient *db.Client, baseURL string) *OAuthHandler {
 	return &OAuthHandler{
 		auth:    authHandler,
+		db:      dbClient,
 		baseURL: strings.TrimRight(baseURL, "/"),
 	}
+}
+
+// ResourceMetadataURL returns the URL of the Protected Resource Metadata document (RFC 9728).
+func (h *OAuthHandler) ResourceMetadataURL() string {
+	return h.baseURL + "/.well-known/oauth-protected-resource"
 }
 
 func (h *OAuthHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handler) http.Handler) {
@@ -39,8 +50,10 @@ func (h *OAuthHandler) RegisterRoutes(mux *http.ServeMux, mw ...func(http.Handle
 		return hdlr
 	}
 	mux.Handle("GET /.well-known/oauth-authorization-server", wrap(h.handleMetadata))
+	mux.Handle("GET /.well-known/oauth-protected-resource", wrap(h.handleResourceMetadata))
 	mux.Handle("GET /oauth/authorize", wrap(h.handleAuthorize))
 	mux.Handle("POST /oauth/token", wrap(h.handleToken))
+	mux.Handle("POST /oauth/register", wrap(h.handleRegister))
 }
 
 func (h *OAuthHandler) handleMetadata(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +61,7 @@ func (h *OAuthHandler) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		"issuer":                                h.baseURL,
 		"authorization_endpoint":                h.baseURL + "/oauth/authorize",
 		"token_endpoint":                        h.baseURL + "/oauth/token",
+		"registration_endpoint":                 h.baseURL + "/oauth/register",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code"},
 		"code_challenge_methods_supported":      []string{"S256"},
@@ -55,21 +69,49 @@ func (h *OAuthHandler) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleResourceMetadata serves OAuth 2.0 Protected Resource Metadata (RFC 9728).
+// MCP clients use this to discover the authorization server for this resource.
+func (h *OAuthHandler) handleResourceMetadata(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resource":              h.baseURL + "/mcp",
+		"authorization_servers": []string{h.baseURL},
+	})
+}
+
 func (h *OAuthHandler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
 	q := r.URL.Query()
 
+	clientID := q.Get("client_id")
 	redirectURI := q.Get("redirect_uri")
 	codeChallenge := q.Get("code_challenge")
 	codeChallengeMethod := q.Get("code_challenge_method")
 	state := q.Get("state")
 	responseType := q.Get("response_type")
 
+	if clientID == "" {
+		httputil.WriteProblem(w, http.StatusBadRequest, "client_id is required")
+		return
+	}
+
+	client, err := h.db.GetOAuthClient(ctx, clientID)
+	if err != nil {
+		logger.Error("look up oauth client", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if client == nil {
+		httputil.WriteProblem(w, http.StatusBadRequest, "unknown client_id")
+		return
+	}
+
 	if redirectURI == "" {
 		httputil.WriteProblem(w, http.StatusBadRequest, "redirect_uri is required")
 		return
 	}
-	if !isLoopbackRedirectURI(redirectURI) {
-		httputil.WriteProblem(w, http.StatusBadRequest, "redirect_uri must be a loopback address (localhost, 127.0.0.1, or [::1])")
+	if !isRegisteredRedirectURI(redirectURI, client.RedirectURIs) {
+		httputil.WriteProblem(w, http.StatusBadRequest, "redirect_uri does not match any registered redirect URI for this client")
 		return
 	}
 
@@ -159,6 +201,77 @@ func (h *OAuthHandler) handleToken(w http.ResponseWriter, r *http.Request) {
 		"access_token": rawToken,
 		"token_type":   "bearer",
 	})
+}
+
+// handleRegister implements RFC 7591 Dynamic Client Registration.
+// Accepts client metadata and returns a client_id for use in the OAuth flow.
+func (h *OAuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	logger := logutil.FromCtx(ctx)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64 KB limit
+
+	var req struct {
+		ClientName   string   `json:"client_name"`
+		RedirectURIs []string `json:"redirect_uris"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Debug("decode register request", "error", err)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "malformed request body")
+		return
+	}
+
+	if len(req.RedirectURIs) == 0 {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "redirect_uris is required")
+		return
+	}
+	for _, uri := range req.RedirectURIs {
+		if !isLoopbackRedirectURI(uri) {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri",
+				fmt.Sprintf("redirect_uri %q must be a loopback address (localhost, 127.0.0.1, or [::1])", uri))
+			return
+		}
+	}
+
+	clientID := uuid.New().String()
+
+	if err := h.db.CreateOAuthClient(ctx, clientID, req.ClientName, req.RedirectURIs); err != nil {
+		logger.Error("create oauth client", "error", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "internal error")
+		return
+	}
+
+	logger.Info("oauth client registered", "client_id", clientID, "client_name", req.ClientName)
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"client_id":                  clientID,
+		"client_name":                req.ClientName,
+		"redirect_uris":              req.RedirectURIs,
+		"grant_types":                []string{"authorization_code"},
+		"response_types":             []string{"code"},
+		"token_endpoint_auth_method": "none",
+	})
+}
+
+// isRegisteredRedirectURI checks if the redirect URI matches one of the client's
+// registered URIs. Per RFC 7591, the port is ignored for loopback URIs since
+// native clients bind to ephemeral ports.
+func isRegisteredRedirectURI(rawURI string, registered []string) bool {
+	u, err := url.Parse(rawURI)
+	if err != nil {
+		return false
+	}
+	for _, reg := range registered {
+		ru, err := url.Parse(reg)
+		if err != nil {
+			continue
+		}
+		// Compare scheme, host (without port), and path.
+		if u.Scheme == ru.Scheme && u.Hostname() == ru.Hostname() && u.Path == ru.Path {
+			return true
+		}
+	}
+	return false
 }
 
 func isLoopbackRedirectURI(rawURI string) bool {

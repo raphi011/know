@@ -22,13 +22,13 @@ know serve
 If the server has OIDC enabled, Claude Code can authenticate directly via browser login:
 
 ```bash
-# Add with OAuth support
-claude mcp add --transport http --client-id know-mcp know http://localhost:8484/mcp
+# Add with OAuth support (client registers automatically via RFC 7591)
+claude mcp add --transport http know http://localhost:8484/mcp
 
 # Then authenticate via /mcp in Claude Code
 ```
 
-This uses the OAuth 2.0 Authorization Code + PKCE flow. The server proxies authentication to the configured OIDC provider and issues a `kh_` API token that Claude Code stores in the system keychain.
+Claude Code automatically discovers OAuth endpoints via Protected Resource Metadata (RFC 9728), registers as a client via Dynamic Client Registration (RFC 7591), and uses the Authorization Code + PKCE flow. The server proxies authentication to the configured OIDC provider and issues a `kh_` API token that Claude Code stores in the system keychain.
 
 For servers without OIDC, use bearer token authentication:
 ```bash

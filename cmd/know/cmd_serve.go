@@ -219,8 +219,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// OAuth AS facade for MCP auth (lets Claude Code authenticate via browser).
 	// Registered before auth middleware because OAuth endpoints are unauthenticated.
+	var resourceMetadataURL string
 	if cfg.OIDCEnabled && oidcHandler != nil {
-		oauthHandler := api.NewOAuthHandler(oidcHandler, oidcHandler.BaseURL())
+		oauthHandler := api.NewOAuthHandler(oidcHandler, app.DBClient(), oidcHandler.BaseURL())
+		resourceMetadataURL = oauthHandler.ResourceMetadataURL()
 		if authRateLimiter != nil {
 			oauthHandler.RegisterRoutes(mux, authRateLimiter.Middleware(cfg.TrustXForwardedFor))
 		} else {
@@ -263,7 +265,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 		authMw = auth.NoAuthMiddleware
 	} else {
 		authMw = auth.Middleware(app.DBClient(), app.Metrics(), auth.MiddlewareConfig{
-			TrustXForwardedFor: cfg.TrustXForwardedFor,
+			TrustXForwardedFor:  cfg.TrustXForwardedFor,
+			ResourceMetadataURL: resourceMetadataURL,
 		})
 	}
 
