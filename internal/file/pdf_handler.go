@@ -58,16 +58,6 @@ func PDFHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			logger.Warn("failed to extract vault id after pdf processing", "file_id", fileID, "error", err)
 		}
 
-		// Enqueue embed job if any embedder is configured and folder allows embedding.
-		if (svc.getEmbedder() != nil || svc.getMultimodalEmbedder() != nil) && (vaultID == "" || svc.shouldEmbed(ctx, vaultID, doc.Path)) {
-			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
-				return fmt.Errorf("create embed job for %s: %w", doc.Path, err)
-			}
-			if bus != nil {
-				bus.Publish(event.ChangeEvent{Type: "job.created"})
-			}
-		}
-
 		if vaultID != "" {
 			svc.publishFileEvent("file.processed", vaultID, doc)
 		}

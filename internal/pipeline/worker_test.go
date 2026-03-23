@@ -54,10 +54,11 @@ func (m *mockJobStore) FailJob(ctx context.Context, jobID, errMsg string) error 
 
 func newTestWorker(store jobStore) *Worker {
 	return &Worker{
-		db:       store,
-		handlers: make(map[string]Handler),
-		interval: 1 * time.Second,
-		batch:    10,
+		db:          store,
+		handlers:    make(map[string]Handler),
+		interval:    1 * time.Second,
+		batch:       10,
+		concurrency: 5,
 	}
 }
 
@@ -146,14 +147,17 @@ func TestWorker_HandleFailure_FailAtMax(t *testing.T) {
 // TestWorker_NewWorker_Panics verifies constructor panics on invalid arguments.
 func TestWorker_NewWorker_Panics(t *testing.T) {
 	tests := []struct {
-		name     string
-		interval time.Duration
-		batch    int
+		name        string
+		interval    time.Duration
+		batch       int
+		concurrency int
 	}{
-		{"zero interval", 0, 1},
-		{"negative interval", -1, 1},
-		{"zero batch", 1 * time.Second, 0},
-		{"negative batch", 1 * time.Second, -1},
+		{"zero interval", 0, 1, 1},
+		{"negative interval", -1, 1, 1},
+		{"zero batch", 1 * time.Second, 0, 1},
+		{"negative batch", 1 * time.Second, -1, 1},
+		{"zero concurrency", 1 * time.Second, 1, 0},
+		{"negative concurrency", 1 * time.Second, 1, -1},
 	}
 
 	for _, tt := range tests {
@@ -163,7 +167,91 @@ func TestWorker_NewWorker_Panics(t *testing.T) {
 					t.Fatal("expected panic but did not panic")
 				}
 			}()
-			NewWorker(nil, nil, tt.interval, tt.batch, nil)
+			NewWorker(nil, nil, tt.interval, tt.batch, tt.concurrency, nil)
 		})
+	}
+}
+
+// TestWorker_ConcurrentProcessing verifies that jobs are processed concurrently.
+func TestWorker_ConcurrentProcessing(t *testing.T) {
+	var running atomic.Int32
+	var maxRunning atomic.Int32
+
+	store := &mockJobStore{
+		claimFn: func(_ context.Context, _ int) ([]models.PipelineJob, error) {
+			return []models.PipelineJob{
+				{ID: surrealmodels.RecordID{Table: "pipeline_job", ID: "j1"}, Type: "parse"},
+				{ID: surrealmodels.RecordID{Table: "pipeline_job", ID: "j2"}, Type: "parse"},
+				{ID: surrealmodels.RecordID{Table: "pipeline_job", ID: "j3"}, Type: "parse"},
+			}, nil
+		},
+	}
+
+	w := &Worker{
+		db:          store,
+		handlers:    make(map[string]Handler),
+		interval:    1 * time.Second,
+		batch:       10,
+		concurrency: 3,
+	}
+
+	w.Register("parse", func(_ context.Context, _ models.PipelineJob) error {
+		cur := running.Add(1)
+		// Track max concurrent handlers running.
+		for {
+			old := maxRunning.Load()
+			if cur <= old || maxRunning.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		running.Add(-1)
+		return nil
+	})
+
+	w.tick(context.Background())
+
+	if max := maxRunning.Load(); max < 2 {
+		t.Errorf("expected concurrent execution (max running >= 2), got %d", max)
+	}
+}
+
+// TestWorker_PanicRecovery verifies that a panicking handler does not crash the worker.
+func TestWorker_PanicRecovery(t *testing.T) {
+	var completed atomic.Int32
+
+	store := &mockJobStore{
+		claimFn: func(_ context.Context, _ int) ([]models.PipelineJob, error) {
+			return []models.PipelineJob{
+				{ID: surrealmodels.RecordID{Table: "pipeline_job", ID: "panic1"}, Type: "bad"},
+				{ID: surrealmodels.RecordID{Table: "pipeline_job", ID: "ok1"}, Type: "good"},
+			}, nil
+		},
+		completeFn: func(_ context.Context, _ string) error {
+			completed.Add(1)
+			return nil
+		},
+	}
+
+	w := &Worker{
+		db:          store,
+		handlers:    make(map[string]Handler),
+		interval:    1 * time.Second,
+		batch:       10,
+		concurrency: 2,
+	}
+
+	w.Register("bad", func(_ context.Context, _ models.PipelineJob) error {
+		panic("test panic")
+	})
+	w.Register("good", func(_ context.Context, _ models.PipelineJob) error {
+		return nil
+	})
+
+	// tick should not panic even though one handler panics.
+	w.tick(context.Background())
+
+	if c := completed.Load(); c < 1 {
+		t.Errorf("expected at least 1 completed job (the good one), got %d", c)
 	}
 }

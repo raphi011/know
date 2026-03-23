@@ -114,8 +114,13 @@ type Config struct {
 	NFSPort    string // KNOW_NFS_PORT (default: "2049")
 
 	// Pipeline worker settings
-	PipelineWorkerInterval int // seconds between worker ticks (KNOW_PIPELINE_WORKER_INTERVAL, default: 5)
-	PipelineWorkerBatch    int // max jobs per tick (KNOW_PIPELINE_WORKER_BATCH, default: 10)
+	PipelineWorkerInterval    int // seconds between worker ticks (KNOW_PIPELINE_WORKER_INTERVAL, default: 5)
+	PipelineWorkerBatch       int // max jobs per tick (KNOW_PIPELINE_WORKER_BATCH, default: 10)
+	PipelineWorkerConcurrency int // max concurrent jobs per tick (KNOW_PIPELINE_WORKER_CONCURRENCY, default: 5)
+
+	// Embed worker settings
+	EmbedWorkerInterval int // seconds between embed worker ticks (KNOW_EMBED_WORKER_INTERVAL, default: 5)
+	EmbedWorkerBatch    int // max chunks per embed tick (KNOW_EMBED_WORKER_BATCH, default: 100)
 
 	// Chunking settings
 	ChunkThreshold  int // only chunk if content exceeds this length (default: 6000)
@@ -322,8 +327,13 @@ func Load() Config {
 		NFSPort:           getEnv("KNOW_NFS_PORT", "2049"),
 
 		// Pipeline worker
-		PipelineWorkerInterval: getEnvInt("KNOW_PIPELINE_WORKER_INTERVAL", 5),
-		PipelineWorkerBatch:    getEnvInt("KNOW_PIPELINE_WORKER_BATCH", 10),
+		PipelineWorkerInterval:    getEnvInt("KNOW_PIPELINE_WORKER_INTERVAL", 5),
+		PipelineWorkerBatch:       getEnvInt("KNOW_PIPELINE_WORKER_BATCH", 10),
+		PipelineWorkerConcurrency: getEnvInt("KNOW_PIPELINE_WORKER_CONCURRENCY", 5),
+
+		// Embed worker
+		EmbedWorkerInterval: getEnvInt("KNOW_EMBED_WORKER_INTERVAL", 5),
+		EmbedWorkerBatch:    getEnvInt("KNOW_EMBED_WORKER_BATCH", 100),
 
 		// Chunking
 		ChunkThreshold:  getEnvInt("KNOW_CHUNK_THRESHOLD", 6000),

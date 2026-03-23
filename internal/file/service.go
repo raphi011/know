@@ -627,16 +627,7 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 		return fmt.Errorf("cancel parse job: %w", err)
 	}
 
-	// 7. Enqueue embed job for new chunks (mirrors ParseHandler behaviour).
-	if !models.IsAudioFile(doc.Path) && s.getEmbedder() != nil && s.shouldEmbed(ctx, vaultID, doc.Path) {
-		if err := s.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
-			logutil.FromCtx(ctx).Warn("failed to enqueue embed job after sync process", "path", doc.Path, "error", err)
-		} else if s.bus != nil {
-			s.bus.Publish(event.ChangeEvent{Type: "job.created"})
-		}
-	}
-
-	// 8. Publish processed event
+	// 7. Publish processed event (embed worker picks up unembedded chunks automatically)
 	s.publishFileEvent("file.processed", vaultID, doc)
 
 	return nil
@@ -674,7 +665,7 @@ type embeddingTask struct {
 
 // storeEmbeddings stores pre-computed embeddings one-by-one.
 // Returns the number of successfully stored embeddings.
-// Failures are logged; the job retry mechanism handles re-running the embed job.
+// Failures are logged; the embed worker will retry on the next tick.
 func (s *Service) storeEmbeddings(ctx context.Context, updates []db.ChunkEmbeddingUpdate) int {
 	logger := logutil.FromCtx(ctx)
 	stored := 0

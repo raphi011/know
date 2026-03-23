@@ -106,6 +106,7 @@ func main() {
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(taskCmd)
 	rootCmd.AddCommand(browseCmd)
+	jobCmd.AddCommand(reprocessCmd)
 	rootCmd.AddCommand(jobCmd)
 	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(backupCmd)
