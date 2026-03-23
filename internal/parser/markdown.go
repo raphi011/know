@@ -655,14 +655,35 @@ func codeBlockContent(source []byte, n *ast.CodeBlock) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// blockLines extracts all text lines from a generic block node.
+// blockLines extracts all text lines from a block node.
+// For leaf blocks (Paragraph, etc.) it reads .Lines() directly.
+// For container blocks (List, Blockquote, etc.) whose .Lines() is empty,
+// it walks all descendant leaf nodes and collects their lines.
 func blockLines(source []byte, node ast.Node) string {
-	var sb strings.Builder
 	lines := node.Lines()
-	for i := range lines.Len() {
-		line := lines.At(i)
-		sb.Write(line.Value(source))
+	if lines.Len() > 0 {
+		var sb strings.Builder
+		for i := range lines.Len() {
+			line := lines.At(i)
+			sb.Write(line.Value(source))
+		}
+		return strings.TrimRight(sb.String(), "\n")
 	}
+
+	// Container node: collect lines from all descendant block leaves.
+	// Inline nodes (Text, CodeSpan, etc.) panic on .Lines(), so skip them.
+	var sb strings.Builder
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) { //nolint:errcheck // walker never returns an error
+		if !entering || n.Type() == ast.TypeInline {
+			return ast.WalkContinue, nil
+		}
+		childLines := n.Lines()
+		for i := range childLines.Len() {
+			line := childLines.At(i)
+			sb.Write(line.Value(source))
+		}
+		return ast.WalkContinue, nil
+	})
 	return strings.TrimRight(sb.String(), "\n")
 }
 
