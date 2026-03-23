@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/cloudwego/eino/components/tool"
@@ -754,7 +755,11 @@ func createBlobStore(cfg config.Config) (blob.Store, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load AWS config: %w", err)
 		}
-		opts := []func(*s3.Options){}
+		opts := []func(*s3.Options){
+			func(o *s3.Options) {
+				o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
+			},
+		}
 		if cfg.BlobS3Endpoint != "" {
 			opts = append(opts, func(o *s3.Options) {
 				o.BaseEndpoint = &cfg.BlobS3Endpoint

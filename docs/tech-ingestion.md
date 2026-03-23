@@ -261,6 +261,7 @@ The chunker splits markdown content into embedding-sized pieces using semantic b
 | Code block limit | min(8000, MaxSize) | Atomic code block ceiling |
 
 **Key behaviors**:
+- **Headings included in content**: the heading line (e.g. `## Setup`) is prepended to the section's content so heading terms appear in FTS-indexed chunks
 - **No cross-heading merging**: each heading section becomes its own chunk, preserving semantic boundaries
 - **Code blocks are atomic**: code-dominated sections stay as one chunk up to 8000 chars (or MaxSize if embedding model has smaller input)
 - **Contextual prefix**: before embedding, each chunk gets `File: {title}\nSection: {heading path}\n\n` prepended for retrieval context
@@ -302,7 +303,7 @@ Ingestion produces two complementary search indexes on the `chunk` table:
 ### BM25 Fulltext Index
 
 - Index: `idx_chunk_text_ft` on `chunk.text`
-- Analyzer: `know_analyzer` — class tokenizer, lowercase filter, ASCII normalization, Snowball English stemmer
+- Analyzer: `know_analyzer` — camel tokenizer (splits camelCase at case boundaries), lowercase filter, ASCII normalization, Snowball English stemmer
 - Always available, even without an embedder configured
 
 ### HNSW Vector Index
