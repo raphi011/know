@@ -701,3 +701,127 @@ func TestParseMarkdown_ExternalLinks_Empty(t *testing.T) {
 		t.Errorf("expected nil external links, got %v", doc.ExternalLinks)
 	}
 }
+
+func TestParseMarkdown_ListContentInSections(t *testing.T) {
+	content := `# Title
+
+## Section One
+
+- First item
+- Second item
+- Third item
+
+## Section Two
+
+Some paragraph text.
+
+- Item A
+- Item B
+`
+
+	doc := ParseMarkdown(content)
+
+	// Find sections by path instead of brittle indices.
+	findSection := func(substr string) *Section {
+		for i := range doc.Sections {
+			if strings.Contains(doc.Sections[i].Path, substr) {
+				return &doc.Sections[i]
+			}
+		}
+		return nil
+	}
+
+	// Section with only list items must have non-empty content.
+	sec1 := findSection("Section One")
+	if sec1 == nil {
+		t.Fatal("Section One not found")
+	}
+	if sec1.Content == "" {
+		t.Error("section with list items has empty Content")
+	}
+	if !strings.Contains(sec1.Content, "First item") {
+		t.Errorf("section content missing list item, got %q", sec1.Content)
+	}
+	if !strings.Contains(sec1.Content, "Third item") {
+		t.Errorf("section content missing last list item, got %q", sec1.Content)
+	}
+
+	// Section with paragraph + list must include both.
+	sec2 := findSection("Section Two")
+	if sec2 == nil {
+		t.Fatal("Section Two not found")
+	}
+	if !strings.Contains(sec2.Content, "paragraph text") {
+		t.Errorf("section content missing paragraph, got %q", sec2.Content)
+	}
+	if !strings.Contains(sec2.Content, "Item A") {
+		t.Errorf("section content missing list item, got %q", sec2.Content)
+	}
+}
+
+func TestParseMarkdown_NestedListContentInSections(t *testing.T) {
+	content := `## Config
+
+- Option A
+  - Sub-option 1
+  - Sub-option 2
+- Option B
+`
+
+	doc := ParseMarkdown(content)
+
+	// Find the Config section.
+	var configSection *Section
+	for i := range doc.Sections {
+		if strings.Contains(doc.Sections[i].Path, "Config") {
+			configSection = &doc.Sections[i]
+			break
+		}
+	}
+	if configSection == nil {
+		t.Fatal("Config section not found")
+	}
+	if configSection.Content == "" {
+		t.Fatal("Config section has empty Content")
+	}
+	if !strings.Contains(configSection.Content, "Option A") {
+		t.Errorf("missing top-level list item, got %q", configSection.Content)
+	}
+	if !strings.Contains(configSection.Content, "Sub-option 1") {
+		t.Errorf("missing nested list item, got %q", configSection.Content)
+	}
+}
+
+func TestParseMarkdown_BlockquoteContentInSections(t *testing.T) {
+	content := `## Quote Section
+
+> Some quoted text
+> spanning multiple lines
+
+## After Quote
+
+Regular paragraph.
+`
+
+	doc := ParseMarkdown(content)
+
+	var quoteSection *Section
+	for i := range doc.Sections {
+		if strings.Contains(doc.Sections[i].Path, "Quote Section") {
+			quoteSection = &doc.Sections[i]
+			break
+		}
+	}
+	if quoteSection == nil {
+		t.Fatal("Quote Section not found")
+	}
+	if quoteSection.Content == "" {
+		t.Fatal("blockquote section has empty Content")
+	}
+	if !strings.Contains(quoteSection.Content, "Some quoted text") {
+		t.Errorf("missing blockquote text, got %q", quoteSection.Content)
+	}
+	if !strings.Contains(quoteSection.Content, "spanning multiple lines") {
+		t.Errorf("missing second blockquote line, got %q", quoteSection.Content)
+	}
+}

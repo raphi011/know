@@ -11,12 +11,16 @@ import (
 type Tab int
 
 const (
-	// TabAllFiles is the default tab showing all vault documents.
-	TabAllFiles Tab = iota
+	// TabSearch is the default tab for full-text search.
+	TabSearch Tab = iota
+	// TabAllFiles shows all vault documents with fuzzy filtering.
+	TabAllFiles
 	// TabLinks shows saved web clips.
 	TabLinks
 	// TabBookmarks shows user-bookmarked files and folders.
 	TabBookmarks
+
+	tabCount // sentinel — must be last
 )
 
 var (
@@ -36,6 +40,7 @@ func renderTabs(active Tab, linkCount, bookmarkCount int) string {
 		tab   Tab
 		label string
 	}{
+		{TabSearch, "Search"},
 		{TabAllFiles, "All Files"},
 		{TabLinks, fmt.Sprintf("Links (%d)", linkCount)},
 		{TabBookmarks, fmt.Sprintf("Bookmarks (%d)", bookmarkCount)},

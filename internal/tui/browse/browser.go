@@ -36,10 +36,11 @@ type audioReadyMsg struct {
 	err        error
 }
 
-// Model is the root browser model composing a finder, links list, bookmarks, and viewer.
+// Model is the root browser model composing a search, finder, links list, bookmarks, and viewer.
 type Model struct {
 	state     viewState
 	activeTab Tab
+	search    searchModel
 	finder    finderModel
 	links     linksModel
 	bookmarks bookmarksModel
@@ -75,13 +76,14 @@ func initGlamour(isDark bool) (string, *glamour.TermRenderer) {
 // startTab selects which tab to show initially.
 func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry, isDark bool, startTab ...Tab) Model {
 	glamourStyle, r := initGlamour(isDark)
-	initial := TabAllFiles
+	initial := TabSearch
 	if len(startTab) > 0 {
 		initial = startTab[0]
 	}
 	return Model{
 		state:        stateFinding,
 		activeTab:    initial,
+		search:       newSearchModel(client, vaultID),
 		finder:       newFinder(files),
 		links:        newLinksModel(client, vaultID),
 		bookmarks:    newBookmarksModel(client, vaultID),
@@ -121,9 +123,14 @@ func renderContent(r *glamour.TermRenderer, doc *apiclient.Document) string {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.noFinder {
+		return nil
+	}
 	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks()}
 	// Focus the input for the initial tab.
 	switch m.activeTab {
+	case TabSearch:
+		cmds = append(cmds, m.search.input.Focus())
 	case TabAllFiles:
 		cmds = append(cmds, m.finder.Init())
 	case TabLinks:
@@ -138,6 +145,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		contentHeight := msg.Height - 1 // reserve 1 line for tab bar
+		m.search.width = msg.Width
+		m.search.height = contentHeight
+		m.search.input.SetWidth(msg.Width - len(m.search.input.Prompt))
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
@@ -163,21 +173,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Tab switching with 1/2/3 or Tab key (only in finding state, and only when
+		// Tab switching with Tab/Shift+Tab (only in finding state, and only when
 		// the links model isn't in a confirmation mode)
 		if m.state == stateFinding && !m.links.confirmDelete {
 			var newTab Tab = -1
 			switch msg.String() {
 			case "tab":
-				newTab = (m.activeTab + 1) % 3
+				newTab = (m.activeTab + 1) % tabCount
 			case "shift+tab":
-				newTab = (m.activeTab + 2) % 3
-			case "1":
-				newTab = TabAllFiles
-			case "2":
-				newTab = TabLinks
-			case "3":
-				newTab = TabBookmarks
+				newTab = (m.activeTab + tabCount - 1) % tabCount
 			}
 			if newTab >= 0 && newTab != m.activeTab {
 				m.activeTab = newTab
@@ -195,6 +199,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Warn("document fetch failed", "error", msg.err)
 			errMsg := fmt.Sprintf("Failed to open: %v", msg.err)
 			switch m.activeTab {
+			case TabSearch:
+				m.search.statusErr = errMsg
 			case TabAllFiles:
 				m.finder.statusErr = errMsg
 			case TabLinks:
@@ -204,6 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		m.search.statusErr = ""
 		m.finder.statusErr = ""
 		m.links.statusErr = ""
 		m.bookmarks.statusErr = ""
@@ -292,6 +299,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Async messages must always reach their model regardless of active tab.
 	switch msg.(type) {
+	case searchResultsMsg, searchDebounceMsg:
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(msg)
+		return m, cmd
 	case linksLoadedMsg, linkArchivedMsg, linkDeletedMsg:
 		var cmd tea.Cmd
 		m.links, cmd = m.links.Update(msg)
@@ -306,6 +317,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateFinding:
 		switch m.activeTab {
+		case TabSearch:
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Update(msg)
+			return m, cmd
 		case TabAllFiles:
 			var cmd tea.Cmd
 			m.finder, cmd = m.finder.Update(msg)
@@ -346,6 +361,8 @@ func (m Model) View() tea.View {
 	case stateFinding:
 		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items))
 		switch m.activeTab {
+		case TabSearch:
+			content = tabBar + "\n" + m.search.View()
 		case TabAllFiles:
 			content = tabBar + "\n" + m.finder.View()
 		case TabLinks:
@@ -369,9 +386,12 @@ func (m *Model) editDocument() tea.Cmd {
 
 // focusActiveTab blurs all inputs then focuses the active tab's input.
 func (m *Model) focusActiveTab() tea.Cmd {
+	m.search.input.Blur()
 	m.finder.picker.Input.Blur()
 	m.links.input.Blur()
 	switch m.activeTab {
+	case TabSearch:
+		return m.search.input.Focus()
 	case TabAllFiles:
 		return m.finder.picker.Input.Focus()
 	case TabLinks:

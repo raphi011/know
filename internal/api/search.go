@@ -32,14 +32,17 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 		labels = strings.Split(l, ",")
 	}
 
+	bm25Only := r.URL.Query().Get("bm25_only") == "true"
+
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
 	results, err := s.app.SearchService().Search(ctx, search.SearchInput{
-		VaultID: vaultID,
-		Query:   query,
-		Labels:  labels,
-		Limit:   limit,
+		VaultID:  vaultID,
+		Query:    query,
+		Labels:   labels,
+		Limit:    limit,
+		BM25Only: bm25Only,
 	})
 	if err != nil {
 		httputil.WriteProblem(w, http.StatusInternalServerError, "search failed")

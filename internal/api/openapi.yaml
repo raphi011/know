@@ -2056,6 +2056,12 @@ paths:
           schema:
             type: string
           description: Comma-separated label filter
+        - name: bm25_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: When true, use BM25 keyword search only (skip vector search)
       responses:
         "200":
           description: Search results
