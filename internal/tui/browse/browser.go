@@ -80,10 +80,14 @@ func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry
 	if len(startTab) > 0 {
 		initial = startTab[0]
 	}
+	search := newSearchModel(client, vaultID)
+	if initial == TabSearch {
+		search.input.Focus()
+	}
 	return Model{
 		state:        stateFinding,
 		activeTab:    initial,
-		search:       newSearchModel(client, vaultID),
+		search:       search,
 		finder:       newFinder(files),
 		links:        newLinksModel(client, vaultID),
 		bookmarks:    newBookmarksModel(client, vaultID),

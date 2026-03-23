@@ -10,7 +10,7 @@ func SchemaSQL(dimension int) string {
     -- ANALYZER (shared across fulltext indexes)
     -- ==========================================================================
     DEFINE ANALYZER IF NOT EXISTS know_analyzer
-        TOKENIZERS class
+        TOKENIZERS camel
         FILTERS lowercase, ascii, snowball(english);
 
     -- ==========================================================================
