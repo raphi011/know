@@ -1286,3 +1286,24 @@ func (c *Client) IsPathNoEmbed(ctx context.Context, vaultID, filePath string) (b
 	rows := allResults(results)
 	return len(rows) > 0 && rows[0].Total > 0, nil
 }
+
+// ClearFileHashes sets hash = NONE for all files, optionally filtered by vault.
+// Returns the number of updated files.
+func (c *Client) ClearFileHashes(ctx context.Context, vaultID string) (int, error) {
+	defer c.logOp(ctx, "file.clear_hashes", time.Now())
+	var sql string
+	vars := map[string]any{}
+
+	if vaultID != "" {
+		sql = `UPDATE file SET hash = NONE WHERE vault = type::record("vault", $vault_id) AND is_folder = false RETURN AFTER`
+		vars["vault_id"] = bareID("vault", vaultID)
+	} else {
+		sql = `UPDATE file SET hash = NONE WHERE is_folder = false RETURN AFTER`
+	}
+
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return 0, fmt.Errorf("clear file hashes: %w", err)
+	}
+	return countResults(results), nil
+}

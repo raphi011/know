@@ -1,12 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/raphi011/know/internal/event"
 	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
@@ -80,6 +82,86 @@ func (s *Server) getJobStatus(w http.ResponseWriter, r *http.Request) {
 		Durations:    durations,
 		Active:       active,
 		RecentFailed: recentFailed,
+	})
+}
+
+type reprocessRequest struct {
+	Vault string `json:"vault"` // optional vault ID filter
+}
+
+type reprocessResponse struct {
+	HashesCleared int `json:"hashes_cleared"`
+	JobsCancelled int `json:"jobs_cancelled"`
+	JobsEnqueued  int `json:"jobs_enqueued"`
+}
+
+func (s *Server) reprocessJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	db := s.app.DBClient()
+	logger := logutil.FromCtx(ctx)
+
+	var req reprocessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteProblem(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Validate vault exists if specified.
+	if req.Vault != "" {
+		vault, err := db.GetVault(ctx, req.Vault)
+		if err != nil {
+			logger.Error("reprocess: get vault", "vault", req.Vault, "error", err)
+			httputil.WriteProblem(w, http.StatusInternalServerError, "failed to look up vault")
+			return
+		}
+		if vault == nil {
+			httputil.WriteProblem(w, http.StatusNotFound, fmt.Sprintf("vault %q not found", req.Vault))
+			return
+		}
+	}
+
+	// 1. Cancel pending/running jobs.
+	cancelled, err := db.CancelPendingJobs(ctx, req.Vault)
+	if err != nil {
+		logger.Error("reprocess: cancel pending jobs", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to cancel pending jobs")
+		return
+	}
+
+	// 2. Delete chunks.
+	if err := db.DeleteChunksByVault(ctx, req.Vault); err != nil {
+		logger.Error("reprocess: delete chunks", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to delete chunks")
+		return
+	}
+
+	// 3. Clear file hashes.
+	cleared, err := db.ClearFileHashes(ctx, req.Vault)
+	if err != nil {
+		logger.Error("reprocess: clear file hashes", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to clear file hashes")
+		return
+	}
+
+	// 4. Enqueue fresh jobs.
+	enqueued, err := db.EnqueueReprocessJobs(ctx, req.Vault)
+	if err != nil {
+		logger.Error("reprocess: enqueue jobs", "error", err)
+		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to enqueue reprocess jobs")
+		return
+	}
+
+	// 5. Wake pipeline worker.
+	if bus := s.app.EventBus(); bus != nil {
+		bus.Publish(event.ChangeEvent{Type: "job.created"})
+	}
+
+	logger.Info("reprocess complete", "vault", req.Vault, "cancelled", cancelled, "cleared", cleared, "enqueued", enqueued)
+
+	writeJSON(w, http.StatusOK, reprocessResponse{
+		JobsCancelled: cancelled,
+		HashesCleared: cleared,
+		JobsEnqueued:  enqueued,
 	})
 }
 

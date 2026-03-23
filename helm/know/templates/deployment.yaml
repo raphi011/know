@@ -254,6 +254,19 @@ spec:
             - name: KNOW_PIPELINE_WORKER_BATCH
               value: {{ .Values.pipeline.workerBatch | quote }}
             {{- end }}
+            {{- if .Values.pipeline.workerConcurrency }}
+            - name: KNOW_PIPELINE_WORKER_CONCURRENCY
+              value: {{ .Values.pipeline.workerConcurrency | quote }}
+            {{- end }}
+            # Embed worker
+            {{- if .Values.embedWorker.interval }}
+            - name: KNOW_EMBED_WORKER_INTERVAL
+              value: {{ .Values.embedWorker.interval | quote }}
+            {{- end }}
+            {{- if .Values.embedWorker.batch }}
+            - name: KNOW_EMBED_WORKER_BATCH
+              value: {{ .Values.embedWorker.batch | quote }}
+            {{- end }}
             # Chunking
             {{- if .Values.chunking.threshold }}
             - name: KNOW_CHUNK_THRESHOLD

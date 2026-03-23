@@ -81,16 +81,6 @@ func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return fmt.Errorf("sync labels for %s: %w", doc.Path, err)
 		}
 
-		// Enqueue embed job so new chunks get embeddings.
-		if svc.getEmbedder() != nil && svc.shouldEmbed(ctx, vaultID, doc.Path) {
-			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
-				return fmt.Errorf("create embed job for %s: %w", doc.Path, err)
-			}
-			if bus != nil {
-				bus.Publish(event.ChangeEvent{Type: "job.created"})
-			}
-		}
-
 		svc.publishFileEvent("file.processed", vaultID, doc)
 		return nil
 	}
@@ -127,15 +117,6 @@ func TranscribeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 		vaultID, err := models.RecordIDString(doc.Vault)
 		if err != nil {
 			logutil.FromCtx(ctx).Warn("failed to extract vault id after transcription", "file_id", fileID, "error", err)
-		}
-
-		if svc.getEmbedder() != nil && (vaultID == "" || svc.shouldEmbed(ctx, vaultID, doc.Path)) {
-			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
-				return fmt.Errorf("create embed job after transcription: %w", err)
-			}
-			if bus != nil {
-				bus.Publish(event.ChangeEvent{Type: "job.created"})
-			}
 		}
 
 		// Enqueue summarize job if LLM is available — the handler checks
@@ -253,55 +234,7 @@ func SummarizeHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 			return fmt.Errorf("sync summary chunks: %w", err)
 		}
 
-		// Enqueue embed job so new chunks get embeddings.
-		if svc.getEmbedder() != nil && svc.shouldEmbed(ctx, vaultID, doc.Path) {
-			if err := svc.db.CreateJob(ctx, fileID, "embed", 0); err != nil {
-				return fmt.Errorf("create embed job after summarization: %w", err)
-			}
-			if bus != nil {
-				bus.Publish(event.ChangeEvent{Type: "job.created"})
-			}
-		}
-
 		svc.publishFileEvent("file.processed", vaultID, doc)
-		return nil
-	}
-}
-
-// EmbedHandler returns a pipeline.Handler that embeds all un-embedded chunks
-// belonging to the job's file. This is the terminal step — no further job is created.
-func EmbedHandler(svc *Service) pipeline.Handler {
-	return func(ctx context.Context, job models.PipelineJob) error {
-		fileID, err := models.RecordIDString(job.File)
-		if err != nil {
-			return fmt.Errorf("extract file id: %w", err)
-		}
-
-		// Check if the file's folder has embeddings disabled (handles race
-		// where folder was marked no_embed after the embed job was enqueued).
-		doc, err := svc.db.GetFileByID(ctx, fileID)
-		if err != nil {
-			return fmt.Errorf("get file: %w", err)
-		}
-		if doc == nil {
-			return nil
-		}
-		vaultID, vErr := models.RecordIDString(doc.Vault)
-		if vErr != nil {
-			logutil.FromCtx(ctx).Warn("failed to extract vault id in embed handler", "file_id", fileID, "error", vErr)
-		}
-		if vErr == nil && !svc.shouldEmbed(ctx, vaultID, doc.Path) {
-			logutil.FromCtx(ctx).Debug("skipping embedding, folder has no_embed", "file_id", fileID, "path", doc.Path)
-			return nil
-		}
-
-		n, err := svc.EmbedPendingChunksForFile(ctx, fileID)
-		if err != nil {
-			return fmt.Errorf("embed chunks: %w", err)
-		}
-		if n > 0 {
-			logutil.FromCtx(ctx).Info("embed handler: embedded chunks", "file_id", fileID, "count", n)
-		}
 		return nil
 	}
 }

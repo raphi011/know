@@ -134,6 +134,7 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 
 	// --- Jobs (pipeline status) ---
 	mux.Handle("GET /api/v1/jobs", g(s.getJobStatus))
+	mux.Handle("POST /api/v1/jobs/reprocess", g(s.reprocessJobs))
 
 	// --- Config ---
 	mux.Handle("GET /api/v1/config", g(s.getConfig))

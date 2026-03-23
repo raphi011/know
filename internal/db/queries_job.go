@@ -176,3 +176,69 @@ func (c *Client) ReconcileStaleRunningJobs(ctx context.Context) (int, error) {
 	}
 	return countResults(results), nil
 }
+
+// CancelPendingJobs cancels all pending/running jobs, optionally filtered by vault.
+// Returns the number of cancelled jobs.
+func (c *Client) CancelPendingJobs(ctx context.Context, vaultID string) (int, error) {
+	defer c.logOp(ctx, "pipeline_job.cancel_pending", time.Now())
+	var sql string
+	vars := map[string]any{}
+
+	if vaultID != "" {
+		sql = `UPDATE pipeline_job SET status = 'cancelled', completed_at = time::now()
+			WHERE status IN ['pending', 'running']
+			  AND file.vault = type::record("vault", $vault_id)
+			RETURN AFTER`
+		vars["vault_id"] = bareID("vault", vaultID)
+	} else {
+		sql = `UPDATE pipeline_job SET status = 'cancelled', completed_at = time::now()
+			WHERE status IN ['pending', 'running']
+			RETURN AFTER`
+	}
+
+	results, err := surrealdb.Query[[]models.PipelineJob](ctx, c.DB(), sql, vars)
+	if err != nil {
+		return 0, fmt.Errorf("cancel pending jobs: %w", err)
+	}
+	return countResults(results), nil
+}
+
+// EnqueueReprocessJobs creates parse/pdf/transcribe jobs for all files,
+// optionally filtered by vault. Returns the number of jobs created.
+func (c *Client) EnqueueReprocessJobs(ctx context.Context, vaultID string) (int, error) {
+	defer c.logOp(ctx, "pipeline_job.enqueue_reprocess", time.Now())
+
+	vaultFilter := ""
+	vars := map[string]any{}
+	if vaultID != "" {
+		vaultFilter = ` AND vault = type::record("vault", $vault_id)`
+		vars["vault_id"] = bareID("vault", vaultID)
+	}
+
+	// Insert jobs in three batches by file type to avoid nested IF syntax issues.
+	// SAFETY: jobType and mimeWhere are hardcoded literals, never from user input.
+	total := 0
+	queries := []struct {
+		jobType   string
+		mimeWhere string
+	}{
+		{"transcribe", `string::starts_with(mime_type, "audio/")`},
+		{"pdf", `mime_type = "application/pdf"`},
+		{"parse", `!string::starts_with(mime_type, "audio/") AND mime_type != "application/pdf"`},
+	}
+
+	for _, q := range queries {
+		sql := fmt.Sprintf(`INSERT INTO pipeline_job (
+			SELECT id AS file, "%s" AS type, "pending" AS status, 0 AS priority
+			FROM file WHERE is_folder = false AND %s%s
+		)`, q.jobType, q.mimeWhere, vaultFilter)
+
+		results, err := surrealdb.Query[[]models.PipelineJob](ctx, c.DB(), sql, vars)
+		if err != nil {
+			return total, fmt.Errorf("enqueue reprocess %s jobs: %w", q.jobType, err)
+		}
+		total += countResults(results)
+	}
+
+	return total, nil
+}

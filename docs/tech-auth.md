@@ -7,17 +7,17 @@ Technical reference for Know's authentication and authorization system. For user
 Know authenticates all API requests via `kh_`-prefixed bearer tokens. Tokens are issued either directly (bootstrap, API) or through OIDC login flows (device flow, OAuth PKCE). Authorization is vault-scoped: each token inherits its user's vault memberships and roles.
 
 ```
-                         ┌──────────────────────┐
-                         │   OIDC Provider       │
+                         ┌────────────────────────┐
+                         │   OIDC Provider        │
                          │ (GitHub, Google, etc.) │
-                         └──────────┬───────────┘
+                         └──────────┬─────────────┘
                                     │ ExchangeCode
                                     ▼
-┌─────────────┐    ┌──────────────────────────────────┐
-│ Claude Code  │    │         Auth Endpoints            │
-│ Cursor, CLI  │───▶│  /auth/* (device, PKCE)           │
-│ Native Apps  │    │  /oauth/* (DCR, authorize, token) │
-└──────┬──────┘    └──────────────┬───────────────────┘
+┌──────────────┐    ┌────────────────────────────────────┐
+│ Claude Code  │    │         Auth Endpoints             │
+│ Cursor, CLI  │───▶│  /auth/* (device, PKCE)            │
+│ Native Apps  │    │  /oauth/* (DCR, authorize, token)  │
+└──────┬───────┘    └──────────────┬─────────────────────┘
        │                          │ FindOrCreateUser
        │                          │ GenerateToken
        │                          ▼
@@ -28,15 +28,15 @@ Know authenticates all API requests via `kh_`-prefixed bearer tokens. Tokens are
        │ Authorization: Bearer  │
        ▼                        ▼
 ┌──────────────────────────────────────────────────────────┐
-│                    Auth Middleware                         │
-│  Bearer token → SHA256 → DB lookup → expiry check         │
-│  → user lookup → vault memberships → AuthContext           │
+│                    Auth Middleware                       │
+│  Bearer token → SHA256 → DB lookup → expiry check        │
+│  → user lookup → vault memberships → AuthContext         │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                   Vault Scope Middleware                   │
-│  vault name → DB lookup → CheckVaultRole → WithVaultID    │
+│                   Vault Scope Middleware                 │
+│  vault name → DB lookup → CheckVaultRole → WithVaultID   │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
@@ -324,8 +324,8 @@ CLI                          Server                      OIDC Provider
  │                             │  → redirect to provider      │
  │                             │─────────────────────────────▶│
  │                             │                              │
- │                             │  GET /auth/callback           │
- │                             │  state = user_code.sig        │
+ │                             │  GET /auth/callback          │
+ │                             │  state = user_code.sig       │
  │                             │◀─────────────────────────────│
  │                             │                              │
  │                             │  ExchangeCode → UserInfo     │
@@ -372,7 +372,7 @@ MCP Client                   Server                      OIDC Provider
  │  {issuer, endpoints, ...}   │                              │
  │◀────────────────────────────│                              │
  │                             │                              │
- │  POST /oauth/register       │     (RFC 7591 DCR)          │
+ │  POST /oauth/register       │     (RFC 7591 DCR)           │
  │  {client_name, redirect_uris}                              │
  │────────────────────────────▶│                              │
  │  {client_id}                │                              │
@@ -391,11 +391,11 @@ MCP Client                   Server                      OIDC Provider
  │                             │  Redirect to provider        │
  │                             │─────────────────────────────▶│
  │                             │                              │
- │                             │  GET /auth/callback           │
- │                             │  state = oauth:payload.sig    │
+ │                             │  GET /auth/callback          │
+ │                             │  state = oauth:payload.sig   │
  │                             │◀─────────────────────────────│
  │                             │                              │
- │                             │  VerifyOAuthState             │
+ │                             │  VerifyOAuthState            │
  │                             │  ExchangeCode → UserInfo     │
  │                             │  FindOrCreateUser            │
  │                             │  GenerateToken → kh_...      │
@@ -407,9 +407,9 @@ MCP Client                   Server                      OIDC Provider
  │                             │    &state=client_state       │
  │                             │                              │
  │  POST /oauth/token          │                              │
- │  grant_type=authorization_code                             │
+ │  grant_type=authorization_code                              
  │  code=auth_code             │                              │
- │  code_verifier=...          │                              │
+ │  code_verifier=...          │                                 │
  │────────────────────────────▶│                              │
  │                             │  ConsumeOAuthAuthCode (atomic)│
  │                             │  Verify PKCE:                │

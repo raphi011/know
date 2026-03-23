@@ -103,8 +103,14 @@ metrics:
 
 # Pipeline worker
 pipeline:
-  workerInterval: ""  # seconds between worker ticks (default: 5)
-  workerBatch: ""     # max jobs per tick (default: 10)
+  workerInterval: ""     # seconds between worker ticks (default: 5)
+  workerBatch: ""        # max jobs per tick (default: 10)
+  workerConcurrency: ""  # max concurrent jobs per tick (default: 5)
+
+# Embed worker
+embedWorker:
+  interval: ""  # seconds between embed worker ticks (default: 5)
+  batch: ""     # max chunks per embed tick (default: 100)
 
 # Chunking
 chunking:

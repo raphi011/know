@@ -132,6 +132,19 @@ func (c *Client) GetUnembeddedChunks(ctx context.Context, fileID string) ([]mode
 	return allResults(results), nil
 }
 
+// GetUnembeddedChunksBatch returns up to limit chunks across all files that have no embedding yet.
+func (c *Client) GetUnembeddedChunksBatch(ctx context.Context, limit int) ([]models.Chunk, error) {
+	defer c.logOp(ctx, "chunk.get_unembedded_batch", time.Now())
+	sql := `SELECT * FROM chunk WHERE embedding IS NONE ORDER BY created_at ASC LIMIT $limit`
+	results, err := surrealdb.Query[[]models.Chunk](ctx, c.DB(), sql, map[string]any{
+		"limit": limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get unembedded chunks batch: %w", err)
+	}
+	return allResults(results), nil
+}
+
 func (c *Client) DeleteChunks(ctx context.Context, fileID string) error {
 	defer c.logOp(ctx, "chunk.delete", time.Now())
 	sql := `DELETE FROM chunk WHERE file = type::record("file", $file_id)`
@@ -139,6 +152,26 @@ func (c *Client) DeleteChunks(ctx context.Context, fileID string) error {
 		"file_id": fileID,
 	}); err != nil {
 		return fmt.Errorf("delete chunks: %w", err)
+	}
+	return nil
+}
+
+// DeleteChunksByVault deletes all chunks for files in the given vault.
+// If vaultID is empty, deletes all chunks across all vaults.
+func (c *Client) DeleteChunksByVault(ctx context.Context, vaultID string) error {
+	defer c.logOp(ctx, "chunk.delete_by_vault", time.Now())
+	var sql string
+	vars := map[string]any{}
+
+	if vaultID != "" {
+		sql = `DELETE FROM chunk WHERE file.vault = type::record("vault", $vault_id)`
+		vars["vault_id"] = bareID("vault", vaultID)
+	} else {
+		sql = `DELETE FROM chunk`
+	}
+
+	if _, err := surrealdb.Query[any](ctx, c.DB(), sql, vars); err != nil {
+		return fmt.Errorf("delete chunks by vault: %w", err)
 	}
 	return nil
 }

@@ -690,3 +690,178 @@ func TestReconcileStaleRunningJobs(t *testing.T) {
 		t.Error("reconciled job should be claimable again")
 	}
 }
+
+func TestCancelPendingJobs(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultA := createTestVault(t, ctx, userID)
+	vaultAID := models.MustRecordIDString(vaultA.ID)
+	vaultB := createTestVault(t, ctx, userID)
+	vaultBID := models.MustRecordIDString(vaultB.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+
+	fileA1, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultAID, Path: "/cancel-a1-" + suffix + ".md", Title: "A1",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile A1 failed: %v", err)
+	}
+	fileA2, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultAID, Path: "/cancel-a2-" + suffix + ".md", Title: "A2",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile A2 failed: %v", err)
+	}
+	fileB1, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultBID, Path: "/cancel-b1-" + suffix + ".md", Title: "B1",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile B1 failed: %v", err)
+	}
+
+	fileA1ID := models.MustRecordIDString(fileA1.ID)
+	fileA2ID := models.MustRecordIDString(fileA2.ID)
+	fileB1ID := models.MustRecordIDString(fileB1.ID)
+
+	if err := testDB.CreateJob(ctx, fileA1ID, "parse", 10); err != nil {
+		t.Fatalf("CreateJob A1 failed: %v", err)
+	}
+	if err := testDB.CreateJob(ctx, fileA2ID, "parse", 10); err != nil {
+		t.Fatalf("CreateJob A2 failed: %v", err)
+	}
+	if err := testDB.CreateJob(ctx, fileB1ID, "parse", 10); err != nil {
+		t.Fatalf("CreateJob B1 failed: %v", err)
+	}
+
+	// Cancel only vault A jobs
+	cancelled, err := testDB.CancelPendingJobs(ctx, vaultAID)
+	if err != nil {
+		t.Fatalf("CancelPendingJobs failed: %v", err)
+	}
+	if cancelled != 2 {
+		t.Errorf("expected 2 cancelled, got %d", cancelled)
+	}
+
+	// Vault B job should still be claimable
+	jobs, err := testDB.ClaimJobs(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimJobs failed: %v", err)
+	}
+	var foundB bool
+	for _, j := range jobs {
+		if models.MustRecordIDString(j.File) == fileB1ID {
+			foundB = true
+		}
+	}
+	if !foundB {
+		t.Error("vault B job should still be claimable after cancelling vault A")
+	}
+}
+
+func TestCancelPendingJobs_AllVaults(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/cancel-all-" + suffix + ".md", Title: "All",
+		Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	if err := testDB.CreateJob(ctx, fileID, "parse", 10); err != nil {
+		t.Fatalf("CreateJob failed: %v", err)
+	}
+
+	// Cancel with empty vaultID (all vaults)
+	cancelled, err := testDB.CancelPendingJobs(ctx, "")
+	if err != nil {
+		t.Fatalf("CancelPendingJobs (all) failed: %v", err)
+	}
+	if cancelled < 1 {
+		t.Errorf("expected at least 1 cancelled, got %d", cancelled)
+	}
+}
+
+func TestEnqueueReprocessJobs(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+
+	_, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID:  vaultID,
+		Path:     "/reprocess-" + suffix + ".md",
+		Title:    "Markdown",
+		Content:  "# Hello",
+		Labels:   []string{},
+		MimeType: "text/markdown",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile (md) failed: %v", err)
+	}
+
+	_, err = testDB.CreateFile(ctx, models.FileInput{
+		VaultID:  vaultID,
+		Path:     "/reprocess-" + suffix + ".pdf",
+		Title:    "PDF",
+		Content:  "",
+		Labels:   []string{},
+		MimeType: "application/pdf",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile (pdf) failed: %v", err)
+	}
+
+	_, err = testDB.CreateFile(ctx, models.FileInput{
+		VaultID:  vaultID,
+		Path:     "/reprocess-" + suffix + ".mp3",
+		Title:    "Audio",
+		Content:  "",
+		Labels:   []string{},
+		MimeType: "audio/mpeg",
+	})
+	if err != nil {
+		t.Fatalf("CreateFile (mp3) failed: %v", err)
+	}
+
+	count, err := testDB.EnqueueReprocessJobs(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("EnqueueReprocessJobs failed: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected 3 enqueued jobs, got %d", count)
+	}
+
+	// Claim all jobs and verify types
+	jobs, err := testDB.ClaimJobs(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimJobs failed: %v", err)
+	}
+
+	typeSet := map[string]bool{}
+	for _, j := range jobs {
+		typeSet[j.Type] = true
+	}
+	for _, expected := range []string{"parse", "pdf", "transcribe"} {
+		if !typeSet[expected] {
+			t.Errorf("expected job type %q in claimed jobs", expected)
+		}
+	}
+}

@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/raphi011/know/internal/db"
@@ -24,33 +26,38 @@ type jobStore interface {
 }
 
 // Worker claims jobs from the pipeline_job table and dispatches them to
-// registered handlers by job type. A single Worker goroutine replaces the
-// three separate processing/embedding/transcription workers.
+// registered handlers by job type. Jobs within a batch are processed
+// concurrently up to the configured concurrency limit.
 type Worker struct {
-	db       jobStore
-	handlers map[string]Handler
-	bus      *event.Bus
-	metrics  *metrics.Metrics
-	interval time.Duration
-	batch    int
+	db          jobStore
+	handlers    map[string]Handler
+	bus         *event.Bus
+	metrics     *metrics.Metrics
+	interval    time.Duration
+	batch       int
+	concurrency int
 }
 
 // NewWorker creates a new PipelineWorker.
-// Panics if interval <= 0 or batch <= 0 (programmer errors).
-func NewWorker(dbClient *db.Client, bus *event.Bus, interval time.Duration, batch int, m *metrics.Metrics) *Worker {
+// Panics if interval <= 0, batch <= 0, or concurrency <= 0 (programmer errors).
+func NewWorker(dbClient *db.Client, bus *event.Bus, interval time.Duration, batch, concurrency int, m *metrics.Metrics) *Worker {
 	if interval <= 0 {
 		panic("pipeline.Worker: interval must be positive")
 	}
 	if batch <= 0 {
 		panic("pipeline.Worker: batch must be positive")
 	}
+	if concurrency <= 0 {
+		panic("pipeline.Worker: concurrency must be positive")
+	}
 	return &Worker{
-		db:       dbClient,
-		handlers: make(map[string]Handler),
-		bus:      bus,
-		metrics:  m,
-		interval: interval,
-		batch:    batch,
+		db:          dbClient,
+		handlers:    make(map[string]Handler),
+		bus:         bus,
+		metrics:     m,
+		interval:    interval,
+		batch:       batch,
+		concurrency: concurrency,
 	}
 }
 
@@ -79,42 +86,63 @@ func (w *Worker) tick(ctx context.Context) {
 		return
 	}
 
-	logger := logutil.FromCtx(ctx)
+	sem := make(chan struct{}, w.concurrency)
+	var wg sync.WaitGroup
+
 	for _, job := range jobs {
 		if ctx.Err() != nil {
-			return
+			break
 		}
 
-		jobID, err := models.RecordIDString(job.ID)
-		if err != nil {
-			logger.Warn("pipeline worker: failed to extract job ID", "error", err)
-			continue
-		}
+		wg.Add(1)
+		sem <- struct{}{} // acquire semaphore slot
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }() // release semaphore slot
+			defer func() {
+				if r := recover(); r != nil {
+					logutil.FromCtx(ctx).Error("pipeline worker: handler panicked", "job_type", job.Type, "panic", fmt.Sprint(r))
+				}
+			}()
+			w.processJob(ctx, job)
+		}()
+	}
 
-		handler, ok := w.handlers[job.Type]
-		if !ok {
-			logger.Warn("pipeline worker: no handler for job type, skipping", "type", job.Type, "job_id", jobID)
-			if err := w.db.CompleteJob(ctx, jobID); err != nil {
-				logger.Error("pipeline worker: complete unhandled job", "job_id", jobID, "error", err)
-			}
-			continue
-		}
+	wg.Wait()
+}
 
-		start := time.Now()
-		if err := handler(ctx, job); err != nil {
-			w.handleFailure(ctx, job, jobID, err)
-			if w.metrics != nil {
-				w.metrics.RecordPipelineJob(job.Type, "failed", time.Since(start))
-			}
-			continue
-		}
+func (w *Worker) processJob(ctx context.Context, job models.PipelineJob) {
+	logger := logutil.FromCtx(ctx)
 
+	jobID, err := models.RecordIDString(job.ID)
+	if err != nil {
+		logger.Warn("pipeline worker: failed to extract job ID", "error", err)
+		return
+	}
+
+	handler, ok := w.handlers[job.Type]
+	if !ok {
+		logger.Warn("pipeline worker: no handler for job type, skipping", "type", job.Type, "job_id", jobID)
 		if err := w.db.CompleteJob(ctx, jobID); err != nil {
-			logger.Error("pipeline worker: complete job", "job_id", jobID, "type", job.Type, "error", err)
+			logger.Error("pipeline worker: complete unhandled job", "job_id", jobID, "error", err)
 		}
+		return
+	}
+
+	start := time.Now()
+	if err := handler(ctx, job); err != nil {
+		w.handleFailure(ctx, job, jobID, err)
 		if w.metrics != nil {
-			w.metrics.RecordPipelineJob(job.Type, "completed", time.Since(start))
+			w.metrics.RecordPipelineJob(job.Type, "failed", time.Since(start))
 		}
+		return
+	}
+
+	if err := w.db.CompleteJob(ctx, jobID); err != nil {
+		logger.Error("pipeline worker: complete job", "job_id", jobID, "type", job.Type, "error", err)
+	}
+	if w.metrics != nil {
+		w.metrics.RecordPipelineJob(job.Type, "completed", time.Since(start))
 	}
 }
 

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -559,5 +560,126 @@ func TestBatchUpdateChunkEmbeddings(t *testing.T) {
 		if len(ch.Embedding) != 384 {
 			t.Errorf("Expected embedding length 384, got %d for chunk %v", len(ch.Embedding), ch.Text)
 		}
+	}
+}
+
+func TestGetUnembeddedChunksBatch(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	doc, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/unembed-" + suffix + ".md",
+		Title:   "Unembed Test",
+		Content: "content",
+		Labels:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	docID := models.MustRecordIDString(doc.ID)
+
+	err = testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docID, Text: "no embed 1", Position: 0, Labels: []string{}},
+		{FileID: docID, Text: "no embed 2", Position: 1, Labels: []string{}},
+		{FileID: docID, Text: "has embed", Position: 2, Labels: []string{}, Embedding: dummyEmbedding()},
+	})
+	if err != nil {
+		t.Fatalf("CreateChunks failed: %v", err)
+	}
+
+	// Should return at least 2 unembedded chunks
+	chunks, err := testDB.GetUnembeddedChunksBatch(ctx, 10)
+	if err != nil {
+		t.Fatalf("GetUnembeddedChunksBatch(10) failed: %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Errorf("expected at least 2 unembedded chunks, got %d", len(chunks))
+	}
+
+	// Limit should be respected
+	limited, err := testDB.GetUnembeddedChunksBatch(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetUnembeddedChunksBatch(1) failed: %v", err)
+	}
+	if len(limited) != 1 {
+		t.Errorf("expected exactly 1 chunk with limit=1, got %d", len(limited))
+	}
+}
+
+func TestDeleteChunksByVault(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+
+	vaultA := createTestVault(t, ctx, userID)
+	vaultAID := models.MustRecordIDString(vaultA.ID)
+	vaultB := createTestVault(t, ctx, userID)
+	vaultBID := models.MustRecordIDString(vaultB.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+
+	docA, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultAID,
+		Path:    "/delchunk-a-" + suffix + ".md",
+		Title:   "A",
+		Content: "content",
+		Labels:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile A failed: %v", err)
+	}
+	docAID := models.MustRecordIDString(docA.ID)
+
+	docB, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultBID,
+		Path:    "/delchunk-b-" + suffix + ".md",
+		Title:   "B",
+		Content: "content",
+		Labels:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile B failed: %v", err)
+	}
+	docBID := models.MustRecordIDString(docB.ID)
+
+	err = testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docAID, Text: "chunk A", Position: 0, Labels: []string{}, Embedding: dummyEmbedding()},
+	})
+	if err != nil {
+		t.Fatalf("CreateChunks A failed: %v", err)
+	}
+	err = testDB.CreateChunks(ctx, []models.ChunkInput{
+		{FileID: docBID, Text: "chunk B", Position: 0, Labels: []string{}, Embedding: dummyEmbedding()},
+	})
+	if err != nil {
+		t.Fatalf("CreateChunks B failed: %v", err)
+	}
+
+	// Delete vault A chunks
+	if err := testDB.DeleteChunksByVault(ctx, vaultAID); err != nil {
+		t.Fatalf("DeleteChunksByVault failed: %v", err)
+	}
+
+	// Vault A should have 0 chunks
+	chunksA, err := testDB.GetChunks(ctx, docAID)
+	if err != nil {
+		t.Fatalf("GetChunks A failed: %v", err)
+	}
+	if len(chunksA) != 0 {
+		t.Errorf("expected 0 chunks for vault A, got %d", len(chunksA))
+	}
+
+	// Vault B should still have chunks
+	chunksB, err := testDB.GetChunks(ctx, docBID)
+	if err != nil {
+		t.Fatalf("GetChunks B failed: %v", err)
+	}
+	if len(chunksB) != 1 {
+		t.Errorf("expected 1 chunk for vault B, got %d", len(chunksB))
 	}
 }

@@ -101,6 +101,8 @@ type App struct {
 	bus                  *event.Bus
 	pipelineWorkerCancel context.CancelFunc // guarded by mu
 	pipelineWorkerDone   chan struct{}      // guarded by mu
+	embedWorkerCancel    context.CancelFunc // guarded by mu
+	embedWorkerDone      chan struct{}      // guarded by mu
 	serverConfig         ServerConfig       // guarded by mu
 }
 
@@ -254,9 +256,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	popplerOK := pipeline.CheckPoppler() == nil
 
-	// pipelineWorkerDone defaults to a closed channel so <-pipelineWorkerDone is a no-op in Close
+	// pipelineWorkerDone/embedWorkerDone default to closed channels so <-done is a no-op in Close
 	pipelineWorkerDone := make(chan struct{})
 	close(pipelineWorkerDone)
+	embedWorkerDone := make(chan struct{})
+	close(embedWorkerDone)
 
 	searchSvc := search.NewService(dbClient, embedder)
 	remoteSvc := remote.NewService(dbClient)
@@ -301,6 +305,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		jinaClient:         jinaClient,
 		bus:                bus,
 		pipelineWorkerDone: pipelineWorkerDone,
+		embedWorkerDone:    embedWorkerDone,
 		serverConfig: ServerConfig{
 			Version:                 cfg.Version,
 			Commit:                  cfg.Commit,
@@ -456,6 +461,9 @@ func (a *App) Close(ctx context.Context) error {
 	pipelineCancel := a.pipelineWorkerCancel
 	pipelineDone := a.pipelineWorkerDone
 	a.pipelineWorkerCancel = nil
+	embedCancel := a.embedWorkerCancel
+	embedDone := a.embedWorkerDone
+	a.embedWorkerCancel = nil
 	a.mu.Unlock()
 
 	var errs []error
@@ -468,6 +476,16 @@ func (a *App) Close(ctx context.Context) error {
 		case <-ctx.Done():
 			logger.Warn("pipeline worker did not stop in time")
 			errs = append(errs, fmt.Errorf("pipeline worker: %w", ctx.Err()))
+		}
+	}
+	if embedCancel != nil {
+		logger.Info("stopping embed worker")
+		embedCancel()
+		select {
+		case <-embedDone:
+		case <-ctx.Done():
+			logger.Warn("embed worker did not stop in time")
+			errs = append(errs, fmt.Errorf("embed worker: %w", ctx.Err()))
 		}
 	}
 	if a.agentRunner != nil {
@@ -725,15 +743,45 @@ func (a *App) startPipelineWorker(cfg config.Config) {
 	a.mu.Unlock()
 
 	interval := time.Duration(cfg.PipelineWorkerInterval) * time.Second
-	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch, a.metrics)
+	w := pipeline.NewWorker(a.db, a.bus, interval, cfg.PipelineWorkerBatch, cfg.PipelineWorkerConcurrency, a.metrics)
 	w.Register("parse", file.ParseHandler(a.fileService, a.bus))
 	w.Register("transcribe", file.TranscribeHandler(a.fileService, a.bus))
 	w.Register("pdf", file.PDFHandler(a.fileService, a.bus))
 	w.Register("summarize", file.SummarizeHandler(a.fileService, a.bus))
-	w.Register("embed", file.EmbedHandler(a.fileService))
 	go func() {
 		defer close(done)
 		w.Run(workerCtx)
+	}()
+
+	a.startEmbedWorker(cfg)
+}
+
+// startEmbedWorker starts the background embed worker that sweeps for
+// unembedded chunks across all files and embeds them in batches.
+func (a *App) startEmbedWorker(cfg config.Config) {
+	a.mu.Lock()
+
+	if a.embedWorkerCancel != nil {
+		cancel := a.embedWorkerCancel
+		done := a.embedWorkerDone
+		a.embedWorkerCancel = nil
+		a.mu.Unlock()
+		cancel()
+		<-done
+		a.mu.Lock()
+	}
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	a.embedWorkerCancel = workerCancel
+	done := make(chan struct{})
+	a.embedWorkerDone = done
+	a.mu.Unlock()
+
+	embedInterval := time.Duration(cfg.EmbedWorkerInterval) * time.Second
+	ew := file.NewEmbedWorker(a.fileService, a.db, a.bus, embedInterval, cfg.EmbedWorkerBatch, a.metrics)
+	go func() {
+		defer close(done)
+		ew.Run(workerCtx)
 	}()
 }
 

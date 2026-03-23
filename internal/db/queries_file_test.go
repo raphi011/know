@@ -1600,3 +1600,52 @@ func TestUpdateFileLabels(t *testing.T) {
 		t.Errorf("Expected empty labels, got %v", updated.Labels)
 	}
 }
+
+func TestClearFileHashes(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	hash := "somehash123"
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID,
+		Path:    "/clearhash-" + suffix + ".md",
+		Title:   "Clear Hash",
+		Content: "content",
+		Labels:  []string{},
+		Hash:    &hash,
+	})
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	// Verify hash is set
+	fetched, err := testDB.GetFileByID(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileByID (before) failed: %v", err)
+	}
+	if fetched.Hash == nil {
+		t.Fatal("expected hash to be set before ClearFileHashes")
+	}
+
+	cleared, err := testDB.ClearFileHashes(ctx, vaultID)
+	if err != nil {
+		t.Fatalf("ClearFileHashes failed: %v", err)
+	}
+	if cleared < 1 {
+		t.Errorf("expected at least 1 cleared, got %d", cleared)
+	}
+
+	// Hash should now be nil
+	fetched, err = testDB.GetFileByID(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileByID (after) failed: %v", err)
+	}
+	if fetched.Hash != nil {
+		t.Errorf("expected hash to be nil after ClearFileHashes, got %q", *fetched.Hash)
+	}
+}

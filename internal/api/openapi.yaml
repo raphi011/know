@@ -2996,6 +2996,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/JobStatusResponse"
 
+  /jobs/reprocess:
+    post:
+      tags: [Jobs]
+      summary: Force reprocess all files
+      description: |
+        Deletes all chunks, clears file content hashes, cancels pending jobs,
+        and enqueues fresh parse/pdf/transcribe jobs for every file.
+        The embed worker will automatically embed new chunks after processing.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vault:
+                  type: string
+                  description: Optional vault ID to filter reprocessing
+      responses:
+        "200":
+          description: Reprocess result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs_cancelled:
+                    type: integer
+                  hashes_cleared:
+                    type: integer
+                  jobs_enqueued:
+                    type: integer
+
   # ── Config ──────────────────────────────────────────────
   /config:
     get:

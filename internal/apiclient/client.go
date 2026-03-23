@@ -778,6 +778,27 @@ func (c *Client) GetJobStatus(ctx context.Context, since string) (*JobStatusResp
 	return &resp, nil
 }
 
+// ReprocessRequest is the request body for POST /api/v1/jobs/reprocess.
+type ReprocessRequest struct {
+	Vault string `json:"vault,omitempty"`
+}
+
+// ReprocessResponse is the response from POST /api/v1/jobs/reprocess.
+type ReprocessResponse struct {
+	JobsCancelled int `json:"jobs_cancelled"`
+	HashesCleared int `json:"hashes_cleared"`
+	JobsEnqueued  int `json:"jobs_enqueued"`
+}
+
+// Reprocess triggers a full reprocess of all files, optionally filtered by vault.
+func (c *Client) Reprocess(ctx context.Context, req ReprocessRequest) (*ReprocessResponse, error) {
+	var resp ReprocessResponse
+	if err := c.Post(ctx, "/api/v1/jobs/reprocess", req, &resp); err != nil {
+		return nil, fmt.Errorf("reprocess: %w", err)
+	}
+	return &resp, nil
+}
+
 // VaultInfo holds comprehensive stats about a vault.
 type VaultInfo struct {
 	Name        string    `json:"name"`
