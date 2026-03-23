@@ -285,6 +285,9 @@ func (w *astWalker) visitHeading(n *ast.Heading) {
 		Start:   startLine,
 	}
 
+	// Include the heading line in section content so it appears in FTS-indexed chunks.
+	w.appendSectionContent(blockLines(w.source, n))
+
 	// Update task heading stack
 	for len(w.headingStack) > 0 && w.headingStack[len(w.headingStack)-1].level >= level {
 		w.headingStack = w.headingStack[:len(w.headingStack)-1]
