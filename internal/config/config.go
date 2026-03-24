@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/raphi011/know/internal/parser"
 )
@@ -71,10 +70,6 @@ type Config struct {
 	AnthropicAPIKey string
 	GoogleAIAPIKey  string
 	TavilyAPIKey    string
-
-	// Logging
-	LogFile  string
-	LogLevel slog.Level
 
 	// Auth settings
 	TokenMaxLifetimeDays int     // KNOW_TOKEN_MAX_LIFETIME_DAYS (default: 90, 0 = no limit)
@@ -290,10 +285,6 @@ func Load() Config {
 		GoogleAIAPIKey:  getEnv("GOOGLE_AI_API_KEY", ""),
 		TavilyAPIKey:    getEnv("TAVILY_API_KEY", ""),
 
-		// Logging
-		LogFile:  getEnv("KNOW_LOG_FILE", ""),
-		LogLevel: parseLogLevel(getEnv("KNOW_LOG_LEVEL", "INFO")),
-
 		// Auth settings
 		TokenMaxLifetimeDays: getEnvInt("KNOW_TOKEN_MAX_LIFETIME_DAYS", 90),
 		TrustXForwardedFor:   getEnvBool("KNOW_TRUST_X_FORWARDED_FOR", false),
@@ -407,19 +398,4 @@ func getEnvBool(key string, defaultVal bool) bool {
 		return b
 	}
 	return defaultVal
-}
-
-func parseLogLevel(s string) slog.Level {
-	switch strings.ToUpper(s) {
-	case "DEBUG":
-		return slog.LevelDebug
-	case "INFO":
-		return slog.LevelInfo
-	case "WARN", "WARNING":
-		return slog.LevelWarn
-	case "ERROR":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }

@@ -202,6 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fileSelectedMsg:
+		slog.Debug("file selected", "path", msg.path, "tab", m.activeTab)
 		return m, m.fetchDocument(msg.path)
 
 	case documentFetchedMsg:
@@ -233,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchAudio(msg.doc)
 		}
 
+		slog.Debug("document fetched", "path", msg.doc.Path, "content_len", len(msg.doc.Content), "mime", msg.doc.MimeType)
 		m.viewer = newViewer(msg.doc.Path, msg.doc.Content, renderContent(m.renderer, msg.doc), m.width, m.height)
 		// Initialize bookmark state from loaded bookmarks.
 		for _, bm := range m.bookmarks.items {

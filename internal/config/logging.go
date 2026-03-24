@@ -9,38 +9,61 @@ import (
 	slogmulti "github.com/samber/slog-multi"
 )
 
-// SetupLogger creates a dual-output logger: text to stderr, JSON to file.
-// Both handlers share the given LevelVar so level changes apply to both.
-// Returns the logger, a cleanup function to close the file, and any error.
-func SetupLogger(logFile string, levelVar *slog.LevelVar) (*slog.Logger, func() error, error) {
-	// Stderr handler (text for readability)
-	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: levelVar,
-	})
+// LogFormat represents a validated log output format.
+type LogFormat string
 
-	// No log file configured — stderr only (container-friendly)
+const (
+	LogFormatText LogFormat = "text"
+	LogFormatJSON LogFormat = "json"
+)
+
+// ParseLogFormat validates a format string. Returns an error for unknown values.
+func ParseLogFormat(s string) (LogFormat, error) {
+	switch s {
+	case "text", "":
+		return LogFormatText, nil
+	case "json":
+		return LogFormatJSON, nil
+	default:
+		return "", fmt.Errorf("unknown log format %q (valid: text, json)", s)
+	}
+}
+
+// newHandler creates a slog handler for the given writer and format.
+func newHandler(w io.Writer, levelVar *slog.LevelVar, format LogFormat) slog.Handler {
+	opts := &slog.HandlerOptions{Level: levelVar}
+	if format == LogFormatJSON {
+		return slog.NewJSONHandler(w, opts)
+	}
+	return slog.NewTextHandler(w, opts)
+}
+
+// SetupLogger creates a logger that respects the given format.
+//
+//   - No log file: single handler to stderr in the chosen format.
+//   - Log file set: fanout to stderr (always text) + file (chosen format).
+//
+// The LevelVar is shared so level changes apply to all handlers.
+// Returns the logger, a cleanup function to close the file, and any error.
+func SetupLogger(logFile string, levelVar *slog.LevelVar, format LogFormat) (*slog.Logger, func() error, error) {
+	noop := func() error { return nil }
+
 	if logFile == "" {
-		return slog.New(stderrHandler), func() error { return nil }, nil
+		return slog.New(newHandler(os.Stderr, levelVar, format)), noop, nil
 	}
 
 	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open log file %s: %w", logFile, err)
+		return nil, noop, fmt.Errorf("open log file %s: %w", logFile, err)
 	}
 
-	// File handler (JSON for machine parsing)
-	fileHandler := slog.NewJSONHandler(file, &slog.HandlerOptions{
-		Level: levelVar,
-	})
+	cleanup := func() error { return file.Close() }
 
-	// Fanout to both handlers
-	logger := slog.New(slogmulti.Fanout(stderrHandler, fileHandler))
+	// Stderr always uses text for readability; file uses chosen format.
+	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: levelVar})
+	fileHandler := newHandler(file, levelVar, format)
 
-	cleanup := func() error {
-		return file.Close()
-	}
-
-	return logger, cleanup, nil
+	return slog.New(slogmulti.Fanout(stderrHandler, fileHandler)), cleanup, nil
 }
 
 // SetupLoggerWithWriters creates a logger with custom writers (for testing).

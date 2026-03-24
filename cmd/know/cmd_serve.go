@@ -34,7 +34,6 @@ var (
 	serveNFS         bool
 	serveNFSPort     int
 	serveMetricsPort string
-	serveLogLevel    string
 )
 
 var serveCmd = &cobra.Command{
@@ -48,7 +47,7 @@ Flags override the corresponding env vars.
 Examples:
   know serve
   know serve --port 8080
-  know serve --no-auth --log-level debug
+  know --log-level debug serve --no-auth
   know serve --ssh --ssh-port 2222`,
 	RunE: runServe,
 }
@@ -61,30 +60,9 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveNFS, "nfs", envOrDefaultBool("KNOW_NFS_ENABLED", false), "enable NFS server (localhost only)")
 	serveCmd.Flags().IntVar(&serveNFSPort, "nfs-port", envOrDefaultInt("KNOW_NFS_PORT", 2049), "NFS server port")
 	serveCmd.Flags().StringVar(&serveMetricsPort, "metrics-port", envOrDefault("KNOW_METRICS_PORT", ""), "Prometheus metrics port (default: disabled)")
-	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", envOrDefault("KNOW_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
 }
 
 func runServe(_ *cobra.Command, _ []string) error {
-	// Initialize logging with dynamic level
-	var levelVar slog.LevelVar
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(serveLogLevel)); err != nil {
-		return fmt.Errorf("invalid log level %q: %w", serveLogLevel, err)
-	}
-	levelVar.Set(level)
-
-	logFile := os.Getenv("KNOW_LOG_FILE")
-	logger, logCleanup, err := config.SetupLogger(logFile, &levelVar)
-	if err != nil {
-		return fmt.Errorf("setup logger: %w", err)
-	}
-	defer func() {
-		if err := logCleanup(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to close log file: %v\n", err)
-		}
-	}()
-	slog.SetDefault(logger)
-
 	port := fmt.Sprintf("%d", servePort)
 
 	// Load configuration and apply flag overrides
@@ -162,9 +140,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 					var parsed slog.Level
 					if err := parsed.UnmarshalText([]byte(newLevel)); err != nil {
 						slog.Warn("invalid KNOW_LOG_LEVEL after reload", "value", newLevel, "error", err)
-					} else if parsed != levelVar.Level() {
-						old := levelVar.Level()
-						levelVar.Set(parsed)
+					} else if parsed != globalLevelVar.Level() {
+						old := globalLevelVar.Level()
+						globalLevelVar.Set(parsed)
 						slog.Info("log level changed", "old", old, "new", parsed)
 					}
 				}
