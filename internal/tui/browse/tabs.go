@@ -19,6 +19,8 @@ const (
 	TabLinks
 	// TabBookmarks shows user-bookmarked files and folders.
 	TabBookmarks
+	// TabTags shows all labels with file counts.
+	TabTags
 
 	tabCount // sentinel — must be last
 )
@@ -35,7 +37,7 @@ var (
 				Padding(0, 1)
 )
 
-func renderTabs(active Tab, linkCount, bookmarkCount int) string {
+func renderTabs(active Tab, linkCount, bookmarkCount, tagCount int) string {
 	tabs := []struct {
 		tab   Tab
 		label string
@@ -44,6 +46,7 @@ func renderTabs(active Tab, linkCount, bookmarkCount int) string {
 		{TabAllFiles, "All Files"},
 		{TabLinks, fmt.Sprintf("Links (%d)", linkCount)},
 		{TabBookmarks, fmt.Sprintf("Bookmarks (%d)", bookmarkCount)},
+		{TabTags, fmt.Sprintf("Tags (%d)", tagCount)},
 	}
 
 	var parts []string

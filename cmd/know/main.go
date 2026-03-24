@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/config"
 	"github.com/raphi011/know/internal/keychain"
 	"github.com/spf13/cobra"
 )
@@ -31,9 +32,19 @@ var rootCmd = &cobra.Command{
 // globalAPI holds the root-level --api-url and --token flags used by all REST commands.
 var globalAPI apiFlags
 
+// Logging flags and state shared across all commands.
+var (
+	globalLogLevel  string
+	globalLogFormat string
+	globalLogFile   string
+	globalLogClean  func() error  // set by PersistentPreRunE, called in main()
+	globalLevelVar  slog.LevelVar // shared so commands can read/change level dynamically
+)
+
 func init() {
 	pf := rootCmd.PersistentFlags()
 
+	// API flags
 	defaultURL := envOrDefault("KNOW_SERVER_URL", "http://localhost:4001")
 	defaultToken := os.Getenv("KNOW_TOKEN")
 
@@ -45,6 +56,32 @@ func init() {
 	if err := rootCmd.RegisterFlagCompletionFunc("token", noFileCompletions); err != nil {
 		panic(fmt.Sprintf("register token completion: %v", err))
 	}
+
+	// Logging flags
+	pf.StringVar(&globalLogLevel, "log-level", envOrDefault("KNOW_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
+	pf.StringVar(&globalLogFormat, "log-format", envOrDefault("KNOW_LOG_FORMAT", "text"), "log format (text, json)")
+	pf.StringVar(&globalLogFile, "log-file", os.Getenv("KNOW_LOG_FILE"), "log file path (logs to stderr when empty)")
+
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		var level slog.Level
+		if err := level.UnmarshalText([]byte(globalLogLevel)); err != nil {
+			return fmt.Errorf("invalid log level %q: %w", globalLogLevel, err)
+		}
+		globalLevelVar.Set(level)
+
+		format, err := config.ParseLogFormat(globalLogFormat)
+		if err != nil {
+			return err
+		}
+
+		logger, cleanup, err := config.SetupLogger(globalLogFile, &globalLevelVar, format)
+		if err != nil {
+			return fmt.Errorf("setup logger: %w", err)
+		}
+		globalLogClean = cleanup
+		slog.SetDefault(logger)
+		return nil
+	}
 }
 
 type apiFlags struct {
@@ -54,22 +91,27 @@ type apiFlags struct {
 
 // newClient creates an API client, falling back to the system keychain
 // for token and URL when not provided via flags or environment variables.
+// Reads from the struct but does not mutate it — keychain values are used
+// as local overrides only.
 func (f *apiFlags) newClient() *apiclient.Client {
-	if f.Token == "" {
-		if token, err := keychain.GetToken(); err == nil {
-			f.Token = token
+	token := f.Token
+	url := f.URL
+
+	if token == "" {
+		if t, err := keychain.GetToken(); err == nil {
+			token = t
 		} else if !keychain.IsNotFound(err) {
 			fmt.Fprintf(os.Stderr, "Warning: could not read keychain: %v\n", err)
 		}
 	}
-	if f.URL == "http://localhost:4001" {
-		if url, err := keychain.GetAPIURL(); err == nil && url != "" {
-			f.URL = url
+	if url == "http://localhost:4001" {
+		if u, err := keychain.GetAPIURL(); err == nil && u != "" {
+			url = u
 		} else if err != nil && !keychain.IsNotFound(err) {
 			fmt.Fprintf(os.Stderr, "Warning: could not read server URL from keychain: %v\n", err)
 		}
 	}
-	return apiclient.New(f.URL, f.Token)
+	return apiclient.New(url, token)
 }
 
 func addVaultFlag(cmd *cobra.Command) *string {
@@ -90,6 +132,15 @@ var versionCmd = &cobra.Command{
 }
 
 func main() {
+	defer func() {
+		if globalLogClean == nil {
+			return
+		}
+		if err := globalLogClean(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close log file: %v\n", err)
+		}
+	}()
+
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(mvCmd)
 	rootCmd.AddCommand(infoCmd)
