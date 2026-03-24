@@ -489,7 +489,7 @@ components:
           example: "Hello World"
         content:
           type: string
-          description: Full markdown content including frontmatter
+          description: "Markdown content. Frontmatter is stripped unless raw=true."
         labels:
           type: array
           items:
@@ -1713,8 +1713,9 @@ paths:
             type: boolean
             default: false
           description: >
-            Return raw markdown without enrichment (no wiki-link resolution
-            or query block execution). Use when content will be edited.
+            Return raw markdown without enrichment (no frontmatter stripping,
+            wiki-link resolution, or query block execution). Use when content
+            will be edited.
       responses:
         "200":
           description: Document with content and resolved wiki-links

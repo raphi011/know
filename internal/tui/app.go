@@ -12,7 +12,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 	"github.com/raphi011/know/internal/agent"
 	"github.com/raphi011/know/internal/api"
 	"github.com/raphi011/know/internal/models"

@@ -497,7 +497,7 @@ func TestParseMarkdown_FrontmatterViaGoldmarkMeta(t *testing.T) {
 
 func TestParseMarkdown_UnclosedFrontmatter(t *testing.T) {
 	// Content starts with --- but has no closing --- delimiter.
-	// contentAfterFrontmatter strips the opening "---\n" to prevent
+	// ContentAfterFrontmatter strips the opening "---\n" to prevent
 	// the frontmatter parser from consuming the entire document as a YAML block.
 	content := "---\ntitle: Broken\n\n# Real Heading\n\n- [ ] a task"
 
