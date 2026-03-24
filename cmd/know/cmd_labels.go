@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	labelsAPI     *apiFlags
 	labelsVaultID *string
 	labelsCounts  bool
 )
@@ -29,13 +28,12 @@ Examples:
 }
 
 func init() {
-	labelsAPI = addAPIFlags(labelsCmd)
-	labelsVaultID = addVaultFlag(labelsCmd, labelsAPI)
+	labelsVaultID = addVaultFlag(labelsCmd)
 	labelsCmd.Flags().BoolVar(&labelsCounts, "count", false, "show document count per label")
 }
 
 func runLabels(_ *cobra.Command, _ []string) error {
-	client := labelsAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	if labelsCounts {

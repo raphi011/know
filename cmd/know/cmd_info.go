@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	infoAPI  *apiFlags
 	infoJSON bool
 )
 
@@ -21,7 +20,6 @@ var infoCmd = &cobra.Command{
 }
 
 func init() {
-	infoAPI = addAPIFlags(infoCmd)
 	infoCmd.Flags().BoolVar(&infoJSON, "json", false, "output as JSON")
 }
 
@@ -61,7 +59,7 @@ type serverInfo struct {
 }
 
 func runInfo(_ *cobra.Command, _ []string) error {
-	client := infoAPI.newClient()
+	client := globalAPI.newClient()
 
 	var cfg serverInfo
 	if err := client.Get(context.Background(), "/api/v1/config", &cfg); err != nil {
@@ -86,7 +84,7 @@ func runInfo(_ *cobra.Command, _ []string) error {
 			{"Server Commit", cfg.Commit},
 		},
 		{
-			{"Server URL", infoAPI.URL},
+			{"Server URL", globalAPI.URL},
 			{"SurrealDB URL", cfg.SurrealDBURL},
 			{"Auth Enabled", strconv.FormatBool(cfg.AuthEnabled)},
 		},

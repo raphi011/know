@@ -10,10 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	agentAPI     *apiFlags
-	agentVaultID *string
-)
+var agentVaultID *string
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
@@ -35,8 +32,7 @@ Examples:
 }
 
 func init() {
-	agentAPI = addAPIFlags(agentCmd)
-	agentVaultID = addVaultFlag(agentCmd, agentAPI)
+	agentVaultID = addVaultFlag(agentCmd)
 }
 
 func runAgent(_ *cobra.Command, _ []string) error {
@@ -50,7 +46,7 @@ func runAgent(_ *cobra.Command, _ []string) error {
 	// would clear all previous terminal output in inline mode.
 	fmt.Println(tui.Banner())
 
-	client := tui.NewClient(agentAPI.URL, agentAPI.Token)
+	client := tui.NewClient(globalAPI.URL, globalAPI.Token)
 	model := tui.NewModel(client, *agentVaultID, isDark)
 	defer model.Close()
 

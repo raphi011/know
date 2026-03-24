@@ -12,7 +12,6 @@ import (
 )
 
 var (
-	vaultSettingsAPI     *apiFlags
 	vaultSettingsVaultID *string
 	vaultSettingsJSON    bool
 	vaultSettingsSet     []string
@@ -50,11 +49,10 @@ Environment variables:
 }
 
 func init() {
-	vaultSettingsAPI = addAPIFlags(vaultSettingsCmd)
-	vaultSettingsVaultID = addVaultFlag(vaultSettingsCmd, vaultSettingsAPI)
+	vaultSettingsVaultID = addVaultFlag(vaultSettingsCmd)
 	vaultSettingsCmd.Flags().BoolVar(&vaultSettingsJSON, "json", false, "output as JSON")
 	vaultSettingsCmd.Flags().StringArrayVar(&vaultSettingsSet, "set", nil, "set a setting (key=value, repeatable)")
-	vaultSettingsCmd.ValidArgsFunction = completeVaultNames(vaultSettingsAPI)
+	vaultSettingsCmd.ValidArgsFunction = completeVaultNames()
 
 	vaultCmd.AddCommand(vaultSettingsCmd)
 }
@@ -65,7 +63,7 @@ func runVaultSettings(_ *cobra.Command, args []string) error {
 		vaultName = args[0]
 	}
 
-	client := vaultSettingsAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	if len(vaultSettingsSet) > 0 {

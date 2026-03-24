@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	noteRecordAPI     *apiFlags
 	noteRecordVaultID *string
 	noteRecordPath    string
 )
@@ -33,8 +32,7 @@ Environment variables:
 }
 
 func init() {
-	noteRecordAPI = addAPIFlags(noteRecordCmd)
-	noteRecordVaultID = addVaultFlag(noteRecordCmd, noteRecordAPI)
+	noteRecordVaultID = addVaultFlag(noteRecordCmd)
 	noteRecordCmd.Flags().StringVar(&noteRecordPath, "path", "/recordings/", "vault folder for recordings")
 }
 
@@ -55,7 +53,7 @@ func runNoteRecord(_ *cobra.Command, _ []string) error {
 	}
 	defer rec.Close()
 
-	client := noteRecordAPI.newClient()
+	client := globalAPI.newClient()
 	model := record.NewModel(rec, client, *noteRecordVaultID, path)
 
 	p := tea.NewProgram(model)

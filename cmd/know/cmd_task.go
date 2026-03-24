@@ -12,7 +12,6 @@ import (
 )
 
 var (
-	taskAPI       *apiFlags
 	taskVaultID   *string
 	taskLabels    string
 	taskStatus    string
@@ -48,15 +47,14 @@ Examples:
 }
 
 func init() {
-	taskAPI = addAPIFlags(taskCmd)
-	taskVaultID = addVaultFlag(taskCmd, taskAPI)
+	taskVaultID = addVaultFlag(taskCmd)
 	taskCmd.Flags().StringVar(&taskLabels, "labels", "", "filter by labels (comma-separated)")
 	taskCmd.Flags().StringVar(&taskStatus, "status", "open", "filter by status: open, done, all")
 	taskCmd.Flags().StringVar(&taskDueBefore, "due-before", "", "only tasks due on or before this date (YYYY-MM-DD)")
 	taskCmd.Flags().StringVar(&taskDueAfter, "due-after", "", "only tasks due on or after this date (YYYY-MM-DD)")
 	taskCmd.Flags().StringVar(&taskPath, "path", "", "filter by document path or folder (path ending with / matches folder prefix)")
 
-	if err := taskCmd.RegisterFlagCompletionFunc("labels", completeLabelNames(taskAPI, taskVaultID)); err != nil {
+	if err := taskCmd.RegisterFlagCompletionFunc("labels", completeLabelNames(taskVaultID)); err != nil {
 		panic(fmt.Sprintf("register labels completion: %v", err))
 	}
 	if err := taskCmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -70,13 +68,13 @@ func init() {
 	if err := taskCmd.RegisterFlagCompletionFunc("due-after", noFileCompletions); err != nil {
 		panic(fmt.Sprintf("register due-after completion: %v", err))
 	}
-	if err := taskCmd.RegisterFlagCompletionFunc("path", completeVaultPaths(taskAPI, taskVaultID, pathFilterAll)); err != nil {
+	if err := taskCmd.RegisterFlagCompletionFunc("path", completeVaultPaths(taskVaultID, pathFilterAll)); err != nil {
 		panic(fmt.Sprintf("register path completion: %v", err))
 	}
 }
 
 func runTask(_ *cobra.Command, _ []string) error {
-	client := taskAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	filter := apiclient.TaskFilter{

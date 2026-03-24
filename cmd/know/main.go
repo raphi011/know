@@ -1,6 +1,5 @@
 // Package main provides the CLI for Know.
-// Most commands communicate with the server via REST API;
-// db commands connect directly to SurrealDB.
+// Most commands communicate with the server via REST API.
 package main
 
 import (
@@ -29,26 +28,28 @@ var rootCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
-type apiFlags struct {
-	URL   string
-	Token string
-}
+// globalAPI holds the root-level --api-url and --token flags used by all REST commands.
+var globalAPI apiFlags
 
-func addAPIFlags(cmd *cobra.Command) *apiFlags {
-	f := &apiFlags{}
+func init() {
+	pf := rootCmd.PersistentFlags()
 
 	defaultURL := envOrDefault("KNOW_SERVER_URL", "http://localhost:4001")
 	defaultToken := os.Getenv("KNOW_TOKEN")
 
-	cmd.Flags().StringVar(&f.URL, "api-url", defaultURL, "REST API base URL")
-	cmd.Flags().StringVar(&f.Token, "token", defaultToken, "API bearer token")
-	if err := cmd.RegisterFlagCompletionFunc("api-url", noFileCompletions); err != nil {
+	pf.StringVar(&globalAPI.URL, "api-url", defaultURL, "REST API base URL")
+	pf.StringVar(&globalAPI.Token, "token", defaultToken, "API bearer token")
+	if err := rootCmd.RegisterFlagCompletionFunc("api-url", noFileCompletions); err != nil {
 		panic(fmt.Sprintf("register api-url completion: %v", err))
 	}
-	if err := cmd.RegisterFlagCompletionFunc("token", noFileCompletions); err != nil {
+	if err := rootCmd.RegisterFlagCompletionFunc("token", noFileCompletions); err != nil {
 		panic(fmt.Sprintf("register token completion: %v", err))
 	}
-	return f
+}
+
+type apiFlags struct {
+	URL   string
+	Token string
 }
 
 // newClient creates an API client, falling back to the system keychain
@@ -71,10 +72,10 @@ func (f *apiFlags) newClient() *apiclient.Client {
 	return apiclient.New(f.URL, f.Token)
 }
 
-func addVaultFlag(cmd *cobra.Command, af *apiFlags) *string {
+func addVaultFlag(cmd *cobra.Command) *string {
 	v := new(string)
 	cmd.Flags().StringVar(v, "vault", envOrDefault("KNOW_VAULT", "default"), "vault name (env: KNOW_VAULT)")
-	if err := cmd.RegisterFlagCompletionFunc("vault", completeVaultNames(af)); err != nil {
+	if err := cmd.RegisterFlagCompletionFunc("vault", completeVaultNames()); err != nil {
 		panic(fmt.Sprintf("register vault completion: %v", err))
 	}
 	return v
@@ -92,7 +93,6 @@ func main() {
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(mvCmd)
 	rootCmd.AddCommand(infoCmd)
-	rootCmd.AddCommand(dbCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(agentCmd)
 	rootCmd.AddCommand(serveCmd)
@@ -114,6 +114,7 @@ func main() {
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(adminCmd)
+	rootCmd.AddCommand(devCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

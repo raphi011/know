@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	exportAPI     *apiFlags
 	exportVaultID *string
 	exportOutput  string
 )
@@ -27,8 +26,7 @@ Examples:
 }
 
 func init() {
-	exportAPI = addAPIFlags(exportCmd)
-	exportVaultID = addVaultFlag(exportCmd, exportAPI)
+	exportVaultID = addVaultFlag(exportCmd)
 	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output file path (default: know-export-{vault}.tar.gz)")
 }
 
@@ -38,7 +36,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 		exportOutput = fmt.Sprintf("know-export-%s.tar.gz", bareVault)
 	}
 
-	client := exportAPI.newClient()
+	client := globalAPI.newClient()
 
 	n, err := client.DownloadExport(cmd.Context(), *exportVaultID, exportOutput)
 	if err != nil {

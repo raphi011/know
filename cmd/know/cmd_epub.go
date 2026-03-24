@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	epubAPI     *apiFlags
 	epubVaultID *string
 	epubPath    string
 	epubTitle   string
@@ -30,8 +29,7 @@ Examples:
 }
 
 func init() {
-	epubAPI = addAPIFlags(epubCmd)
-	epubVaultID = addVaultFlag(epubCmd, epubAPI)
+	epubVaultID = addVaultFlag(epubCmd)
 	epubCmd.Flags().StringVar(&epubPath, "path", "", "document or folder path to export (required)")
 	epubCmd.Flags().StringVar(&epubTitle, "title", "", "EPUB title (default: auto-detected from document/folder)")
 	epubCmd.Flags().StringVar(&epubAuthor, "author", "", "EPUB author (default: Know)")
@@ -52,7 +50,7 @@ func runEpub(cmd *cobra.Command, args []string) error {
 		epubOutput = name + ".epub"
 	}
 
-	client := epubAPI.newClient()
+	client := globalAPI.newClient()
 
 	n, err := client.DownloadExportEPUB(cmd.Context(), *epubVaultID, epubPath, epubTitle, epubAuthor, epubOutput)
 	if err != nil {

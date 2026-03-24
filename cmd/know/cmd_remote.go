@@ -38,11 +38,9 @@ var remoteRemoveCmd = &cobra.Command{
 	RunE:  runRemoteRemove,
 }
 
-var remoteAPIFlags *apiFlags
 var remoteToken string
 
 func init() {
-	remoteAPIFlags = addAPIFlags(remoteCmd)
 	remoteAddCmd.Flags().StringVar(&remoteToken, "token", os.Getenv("KNOW_REMOTE_TOKEN"), "API token for the remote server")
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteAddCmd)
@@ -56,7 +54,7 @@ type remoteListResponse struct {
 }
 
 func runRemoteList(_ *cobra.Command, _ []string) error {
-	client := remoteAPIFlags.newClient()
+	client := globalAPI.newClient()
 
 	var resp httputil.ListResponse[remoteListResponse]
 	if err := client.Get(context.Background(), "/api/v1/remotes", &resp); err != nil {
@@ -85,7 +83,7 @@ func runRemoteAdd(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("--token or KNOW_REMOTE_TOKEN required")
 	}
 
-	client := remoteAPIFlags.newClient()
+	client := globalAPI.newClient()
 
 	body := map[string]string{
 		"name":  name,
@@ -104,7 +102,7 @@ func runRemoteAdd(_ *cobra.Command, args []string) error {
 
 func runRemoteRemove(_ *cobra.Command, args []string) error {
 	name := args[0]
-	client := remoteAPIFlags.newClient()
+	client := globalAPI.newClient()
 
 	if err := client.Delete(context.Background(), "/api/remotes/"+name); err != nil {
 		return fmt.Errorf("remove remote: %w", err)

@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	mvAPI     *apiFlags
 	mvVaultID *string
 	mvDryRun  bool
 )
@@ -31,14 +30,13 @@ Examples:
 }
 
 func init() {
-	mvAPI = addAPIFlags(mvCmd)
-	mvVaultID = addVaultFlag(mvCmd, mvAPI)
+	mvVaultID = addVaultFlag(mvCmd)
 	mvCmd.Flags().BoolVar(&mvDryRun, "dry-run", false, "show what would be moved without changes")
 	mvCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) >= 2 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		return completeVaultPaths(mvAPI, mvVaultID, pathFilterAll)(cmd, args, toComplete)
+		return completeVaultPaths(mvVaultID, pathFilterAll)(cmd, args, toComplete)
 	}
 }
 
@@ -53,7 +51,7 @@ func runMv(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("destination path must start with /: %s", destination)
 	}
 
-	client := mvAPI.newClient()
+	client := globalAPI.newClient()
 	result, err := client.Move(context.Background(), *mvVaultID, source, destination, mvDryRun)
 	if err != nil {
 		return fmt.Errorf("mv: %w", err)
