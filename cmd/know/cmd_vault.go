@@ -7,10 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	vaultInfoAPI     *apiFlags
-	vaultInfoVaultID *string
-)
+var vaultInfoVaultID *string
 
 var vaultCmd = &cobra.Command{
 	Use:   "vault [name]",
@@ -32,9 +29,8 @@ Examples:
 }
 
 func init() {
-	vaultInfoAPI = addAPIFlags(vaultCmd)
-	vaultInfoVaultID = addVaultFlag(vaultCmd, vaultInfoAPI)
-	vaultCmd.ValidArgsFunction = completeVaultNames(vaultInfoAPI)
+	vaultInfoVaultID = addVaultFlag(vaultCmd)
+	vaultCmd.ValidArgsFunction = completeVaultNames()
 }
 
 func runVault(_ *cobra.Command, args []string) error {
@@ -43,7 +39,7 @@ func runVault(_ *cobra.Command, args []string) error {
 		vaultName = args[0]
 	}
 
-	client := vaultInfoAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	info, err := client.GetVaultInfo(ctx, vaultName)

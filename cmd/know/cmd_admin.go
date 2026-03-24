@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	adminAPI *apiFlags
-)
-
 var adminCmd = &cobra.Command{
 	Use:   "admin",
 	Short: "System administration commands (requires system admin token)",
@@ -42,8 +38,6 @@ Examples:
 }
 
 func init() {
-	adminAPI = addAPIFlags(adminCmd)
-
 	f := adminCreateUserCmd.Flags()
 	f.String("name", "", "user name (required)")
 	f.String("email", "", "user email (required)")
@@ -62,7 +56,7 @@ func runAdminCreateUser(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	email, _ := cmd.Flags().GetString("email")
 
-	client := adminAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	resp, err := client.AdminCreateUser(ctx, name, email)
@@ -81,7 +75,7 @@ func runAdminCreateUser(cmd *cobra.Command, _ []string) error {
 }
 
 func runAdminListUsers(_ *cobra.Command, _ []string) error {
-	client := adminAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	users, err := client.AdminListUsers(ctx)

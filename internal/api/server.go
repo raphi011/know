@@ -136,6 +136,9 @@ func (s *Server) Register(mux *http.ServeMux, authMw func(http.Handler) http.Han
 	mux.Handle("GET /api/v1/jobs", g(s.getJobStatus))
 	mux.Handle("POST /api/v1/jobs/reprocess", g(s.reprocessJobs))
 
+	// --- Dev (development tools, system admin only) ---
+	mux.Handle("POST /api/v1/dev/reset-db", g(s.resetDB))
+
 	// --- Config ---
 	mux.Handle("GET /api/v1/config", g(s.getConfig))
 }

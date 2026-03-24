@@ -24,9 +24,9 @@ Use `just` for all build and test commands:
 just build           # Single binary (CLI + server)
 
 # Run
-just bootstrap       # Wipe DB + create user/vault/token (requires running DB)
-just dev             # Build and start dev server (requires running DB)
+just dev             # Build and start dev server (auto-seeds empty DB)
 just run serve       # Build and run server
+just reset-db        # Reset DB schema via server (preserves identity data)
 
 # Test
 just test            # Run Go tests
@@ -213,7 +213,7 @@ Best practices, framework gotchas, and library references have been moved to the
 ### Project Structure
 
 ```
-cmd/know/            # Single binary: CLI (import, info, agent, job, db seed, db wipe) + server (serve)
+cmd/know/            # Single binary: CLI (import, info, agent, dev) + server (serve)
 internal/
 ├── agent/              # Agent orchestration (tool execution, conversation management)
 ├── api/                # REST API handlers (conversations, vaults, documents, config)
@@ -263,7 +263,7 @@ internal/
 - **Wiki-link resolution**: exact path match first, then title match (shortest path wins)
 - **CLI uses REST API**: `import`/`info`/`agent` commands communicate via REST
 - **`serve` connects directly to DB**: starts the HTTP server (REST API, WebDAV, MCP, SSH)
-- **`db` commands connect directly to DB**: `db seed` bootstraps schema + user/vault/token, `db wipe` clears all data
+- **Auto-bootstrap**: server auto-seeds an empty DB on startup (creates admin user, default vault, membership, and API token)
 
 ### Running
 
@@ -271,10 +271,7 @@ internal/
 # 1. Start SurrealDB (Docker) or use launchd — configure SURREALDB_URL in .env
 just db-up
 
-# 2. Bootstrap (wipe + create user/vault/token from justfile defaults)
-just bootstrap
-
-# 3. Start server with live-reload
+# 2. Start server with live-reload (auto-seeds empty DB on first start)
 just dev
 
 # 4. Import documents (KNOW_TOKEN is set by justfile)

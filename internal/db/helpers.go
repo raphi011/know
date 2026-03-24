@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/surrealdb/surrealdb.go"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -23,6 +24,14 @@ func optionalString(s *string) any {
 		return surrealmodels.None
 	}
 	return *s
+}
+
+// optionalTime returns models.None for nil pointers, otherwise returns the time value.
+func optionalTime(t *time.Time) any {
+	if t == nil {
+		return surrealmodels.None
+	}
+	return *t
 }
 
 // optionalObject returns models.None for nil maps, otherwise returns the map.

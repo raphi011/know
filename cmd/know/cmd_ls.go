@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	lsAPI       *apiFlags
 	lsVaultID   *string
 	lsRecursive bool
 )
@@ -33,10 +32,9 @@ Examples:
 }
 
 func init() {
-	lsAPI = addAPIFlags(lsCmd)
-	lsVaultID = addVaultFlag(lsCmd, lsAPI)
+	lsVaultID = addVaultFlag(lsCmd)
 	lsCmd.Flags().BoolVarP(&lsRecursive, "recursive", "R", false, "list files recursively")
-	lsCmd.ValidArgsFunction = completeVaultPaths(lsAPI, lsVaultID, pathFilterFolders)
+	lsCmd.ValidArgsFunction = completeVaultPaths(lsVaultID, pathFilterFolders)
 }
 
 func runLs(_ *cobra.Command, args []string) error {
@@ -45,7 +43,7 @@ func runLs(_ *cobra.Command, args []string) error {
 		path = args[0]
 	}
 
-	client := lsAPI.newClient()
+	client := globalAPI.newClient()
 	entries, err := client.ListFiles(context.Background(), *lsVaultID, path, lsRecursive)
 	if err != nil {
 		return fmt.Errorf("ls: %w", err)

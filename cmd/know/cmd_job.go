@@ -12,7 +12,6 @@ import (
 )
 
 var (
-	jobAPI   *apiFlags
 	jobSince string
 	jobJSON  bool
 )
@@ -34,7 +33,6 @@ Examples:
 }
 
 func init() {
-	jobAPI = addAPIFlags(jobCmd)
 	jobCmd.Flags().StringVar(&jobSince, "since", "24h", "time window for stats (e.g. 1h, 24h, 7d)")
 	jobCmd.Flags().BoolVar(&jobJSON, "json", false, "output as JSON")
 	if err := jobCmd.RegisterFlagCompletionFunc("since", noFileCompletions); err != nil {
@@ -43,7 +41,7 @@ func init() {
 }
 
 func runJob(_ *cobra.Command, _ []string) error {
-	client := jobAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	resp, err := client.GetJobStatus(ctx, jobSince)

@@ -132,12 +132,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 
-	// In no-auth mode, auto-bootstrap the default user/vault if the DB is empty.
-	// This allows the server to self-provision when running as a launchd service.
-	if cfg.NoAuth {
-		if err := seedIfEmpty(ctx, dbClient); err != nil {
-			slog.Error("auto-bootstrap failed, no-auth mode may not work correctly — check DB connectivity", "error", err)
-		}
+	// Auto-bootstrap: create admin user, default vault, membership, and token
+	// if the database is empty. This allows first-time setup without a separate
+	// seed command.
+	if err := seedIfEmpty(ctx, dbClient, cfg); err != nil {
+		slog.Error("auto-bootstrap failed — check DB connectivity", "error", err)
 	}
 
 	blobStore, err := createBlobStore(cfg)
@@ -821,11 +820,11 @@ func createBlobStore(cfg config.Config) (blob.Store, error) {
 	}
 }
 
-// seedIfEmpty checks each bootstrap resource (user, vault, membership)
+// seedIfEmpty checks each bootstrap resource (user, vault, membership, token)
 // independently and creates any that are missing. This allows the server to
-// self-bootstrap against an empty database (e.g. when running as a launchd
-// service) and to recover from a partial previous bootstrap.
-func seedIfEmpty(ctx context.Context, dbClient *db.Client) error {
+// self-bootstrap against an empty database on first startup and to recover
+// from a partial previous bootstrap.
+func seedIfEmpty(ctx context.Context, dbClient *db.Client, cfg config.Config) error {
 	// 1. Ensure admin user exists
 	user, err := dbClient.GetUser(ctx, "admin")
 	if err != nil {
@@ -894,8 +893,44 @@ func seedIfEmpty(ctx context.Context, dbClient *db.Client) error {
 		}
 	}
 
+	// 4. Ensure API token exists (only when auth is enabled)
+	if !cfg.NoAuth {
+		tokens, err := dbClient.ListTokens(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("check tokens: %w", err)
+		}
+		if len(tokens) == 0 {
+			rawToken, tokenHash, tokenErr := bootstrapToken()
+			if tokenErr != nil {
+				return fmt.Errorf("bootstrap token: %w", tokenErr)
+			}
+
+			expiry := time.Now().Add(time.Duration(cfg.TokenMaxLifetimeDays) * 24 * time.Hour)
+			if _, err := dbClient.CreateToken(ctx, userID, tokenHash, "bootstrap", expiry); err != nil {
+				return fmt.Errorf("create bootstrap token: %w", err)
+			}
+
+			slog.Info("auto-bootstrap: created API token — save this, it will not be shown again",
+				"token", rawToken, "user", userID, "vault", vaultID)
+		}
+	}
+
 	slog.Info("auto-bootstrap complete", "user", userID, "vault", vaultID)
 	return nil
+}
+
+// bootstrapToken returns a raw token and its hash. If KNOW_BOOTSTRAP_TOKEN is
+// set, it uses that value (useful for reproducible local dev); otherwise it
+// generates a new random token.
+func bootstrapToken() (raw, hash string, err error) {
+	if envToken := os.Getenv("KNOW_BOOTSTRAP_TOKEN"); envToken != "" {
+		hash, err = auth.UseToken(envToken)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid KNOW_BOOTSTRAP_TOKEN: %w", err)
+		}
+		return envToken, hash, nil
+	}
+	return auth.GenerateToken()
 }
 
 // buildAgentTools creates multi-vault tool wrappers for the agent service.

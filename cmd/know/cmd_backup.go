@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	backupAPI     *apiFlags
 	backupVaultID *string
 	backupOutput  string
 )
@@ -31,8 +30,7 @@ Examples:
 }
 
 func init() {
-	backupAPI = addAPIFlags(backupCmd)
-	backupVaultID = addVaultFlag(backupCmd, backupAPI)
+	backupVaultID = addVaultFlag(backupCmd)
 	backupCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "output file path (default: know-backup-{vault}.tar.gz)")
 }
 
@@ -42,7 +40,7 @@ func runBackup(cmd *cobra.Command, args []string) error {
 		backupOutput = fmt.Sprintf("know-backup-%s.tar.gz", bareVault)
 	}
 
-	client := backupAPI.newClient()
+	client := globalAPI.newClient()
 
 	n, err := client.DownloadBackup(cmd.Context(), *backupVaultID, backupOutput)
 	if err != nil {

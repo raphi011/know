@@ -6,10 +6,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	restoreAPI *apiFlags
-)
-
 var restoreCmd = &cobra.Command{
 	Use:   "restore <archive>",
 	Short: "Restore a vault from a backup archive",
@@ -24,14 +20,10 @@ Examples:
 	RunE: runRestore,
 }
 
-func init() {
-	restoreAPI = addAPIFlags(restoreCmd)
-}
-
 func runRestore(cmd *cobra.Command, args []string) error {
 	archivePath := args[0]
 
-	client := restoreAPI.newClient()
+	client := globalAPI.newClient()
 
 	if err := client.RestoreBackup(cmd.Context(), archivePath); err != nil {
 		return fmt.Errorf("restore: %w", err)

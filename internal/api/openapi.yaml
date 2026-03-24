@@ -6,7 +6,7 @@ info:
 
     ## Quick Start
 
-    1. **Get a token** — run `know db seed` to bootstrap the database and receive a `kh_…` API token, or use the [OIDC device flow](#tag/Auth) for browser-based login.
+    1. **Get a token** — start the server against an empty database and it will auto-bootstrap, logging a `kh_…` API token. Or use the [OIDC device flow](#tag/Auth) for browser-based login.
     2. **Authenticate** — pass the token as a Bearer header:
        ```
        Authorization: Bearer kh_abc123…
@@ -123,7 +123,7 @@ tags:
   - name: Admin
     description: |
       System administration endpoints. Create and list users, each with their own private vault.
-      Requires system admin privileges (set during `know db seed`).
+      Requires system admin privileges (granted during auto-bootstrap).
   - name: Remotes
     description: |
       Multi-server federation for distributed knowledge bases. Register remote Know servers to make
@@ -151,14 +151,14 @@ x-tagGroups:
   - name: Automation & Sync
     tags: [Tasks, Events, Changes, Jobs]
   - name: Administration
-    tags: [Admin, Remotes, Config]
+    tags: [Admin, Remotes, Config, Dev]
 
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
-      description: "Token from `know db seed`. Format: `kh_...`"
+      description: "API token from server auto-bootstrap or OIDC login. Format: `kh_...`"
 
   parameters:
     vault:
@@ -2900,6 +2900,48 @@ paths:
                 $ref: "#/components/schemas/ProblemDetail"
         "409":
           description: Conflict (user with this email already exists)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+
+  # ── Dev ────────────────────────────────────────────────
+  /dev/reset-db:
+    post:
+      tags: [Dev]
+      summary: Reset database schema
+      description: |
+        Drops all tables and re-applies the schema while preserving
+        users, vaults, vault memberships, and API tokens.
+        System admin only. Destroys all documents, conversations, etc.
+      operationId: devResetDB
+      responses:
+        "200":
+          description: Reset complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preserved:
+                    type: object
+                    properties:
+                      users:
+                        type: integer
+                      vaults:
+                        type: integer
+                      vault_members:
+                        type: integer
+                      tokens:
+                        type: integer
+        "403":
+          description: Forbidden — system admin required
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "500":
+          description: Internal server error (snapshot, reset, or restore failed)
           content:
             application/problem+json:
               schema:

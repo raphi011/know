@@ -36,10 +36,8 @@ export KNOW_SERVER_URL := "http://localhost:4001"
 export KNOW_DAV_DEBUG_LOG := env_var_or_default("KNOW_DAV_DEBUG_LOG", "/tmp/dav-debug.log")
 export KNOW_BLOB_DIR := "./tmp-assets"
 
-# Bootstrap / CLI defaults (hardcoded to local dev — ignore shell env)
+# CLI defaults (hardcoded to local dev — ignore shell env)
 export KNOW_BOOTSTRAP_TOKEN := "kh_0000000000000000000000000000000000000000000000000000000000000000"
-export KNOW_BOOTSTRAP_VAULT_ID := "default"
-export KNOW_BOOTSTRAP_VAULT_NAME := "default"
 export KNOW_TOKEN := "kh_0000000000000000000000000000000000000000000000000000000000000000"
 
 # Build directories
@@ -90,10 +88,9 @@ dev *args: build
 know *args: build
     "{{build_dir}}/{{binary}}" agent --api-url {{KNOW_SERVER_URL}} "$@"
 
-# Bootstrap DB (wipe + create user/vault/token from env vars)
-bootstrap: build
-    {{build_dir}}/{{binary}} db wipe
-    {{build_dir}}/{{binary}} db seed
+# Reset DB schema via server (preserves users/vaults/tokens, requires running server)
+reset-db: build
+    {{build_dir}}/{{binary}} dev reset-db --api-url {{KNOW_SERVER_URL}} --yes
 
 # Start SurrealDB
 db-up:

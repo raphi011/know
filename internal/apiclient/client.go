@@ -990,6 +990,15 @@ func (c *Client) downloadToFile(ctx context.Context, apiPath, outputPath string)
 	return n, nil
 }
 
+// DevResetDB resets the database schema while preserving identity data (system admin only).
+func (c *Client) DevResetDB(ctx context.Context) (*models.DevResetDBResponse, error) {
+	var resp models.DevResetDBResponse
+	if err := c.Post(ctx, "/api/v1/dev/reset-db", nil, &resp); err != nil {
+		return nil, fmt.Errorf("reset db: %w", err)
+	}
+	return &resp, nil
+}
+
 // handleResponse executes the request and processes the response.
 func (c *Client) handleResponse(req *http.Request, target any) error {
 	resp, err := c.http.Do(req)

@@ -18,7 +18,6 @@ import (
 )
 
 var (
-	noteAPI     *apiFlags
 	noteVaultID *string
 	noteDate    string
 	noteEdit    bool
@@ -45,8 +44,7 @@ Environment variables:
 }
 
 func init() {
-	noteAPI = addAPIFlags(noteCmd)
-	noteVaultID = addVaultFlag(noteCmd, noteAPI)
+	noteVaultID = addVaultFlag(noteCmd)
 	noteCmd.Flags().StringVarP(&noteDate, "date", "d", "", "target date in YYYY-MM-DD format (default: today)")
 	noteCmd.Flags().BoolVarP(&noteEdit, "edit", "e", false, "open daily note in $EDITOR")
 	noteCmd.AddCommand(noteRecordCmd)
@@ -63,7 +61,7 @@ func runNote(_ *cobra.Command, args []string) error {
 	}
 
 	ctx := context.Background()
-	client := noteAPI.newClient()
+	client := globalAPI.newClient()
 
 	// Fetch folder paths from vault settings.
 	settings, err := client.GetVaultSettings(ctx, *noteVaultID)
@@ -100,7 +98,7 @@ func runNote(_ *cobra.Command, args []string) error {
 
 	case prompt != "" && !noteEdit:
 		// Mode B: agent oneshot.
-		agentClient := tui.NewClient(noteAPI.URL, noteAPI.Token)
+		agentClient := tui.NewClient(globalAPI.URL, globalAPI.Token)
 		return agentAppend(ctx, agentClient, docPath, prompt)
 
 	case prompt == "" && noteEdit:
@@ -109,7 +107,7 @@ func runNote(_ *cobra.Command, args []string) error {
 
 	default:
 		// Mode D: agent draft then editor.
-		agentClient := tui.NewClient(noteAPI.URL, noteAPI.Token)
+		agentClient := tui.NewClient(globalAPI.URL, globalAPI.Token)
 		if err := agentAppend(ctx, agentClient, docPath, prompt); err != nil {
 			return err
 		}

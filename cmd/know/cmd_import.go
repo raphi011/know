@@ -22,7 +22,6 @@ import (
 )
 
 var (
-	importAPI       *apiFlags
 	importVaultID   string
 	importLabels    []string
 	importDryRun    bool
@@ -68,7 +67,6 @@ Examples:
 }
 
 func init() {
-	importAPI = addAPIFlags(importCmd)
 	// import requires an explicit vault (no default) unlike other commands that use addVaultFlag.
 	importCmd.Flags().StringVar(&importVaultID, "vault", "", "vault ID (required)")
 	importCmd.Flags().StringSliceVarP(&importLabels, "labels", "l", nil, "labels to include in document path metadata")
@@ -80,7 +78,7 @@ func init() {
 	if err := importCmd.MarkFlagRequired("vault"); err != nil {
 		panic(fmt.Sprintf("mark vault flag required: %v", err))
 	}
-	if err := importCmd.RegisterFlagCompletionFunc("vault", completeVaultNames(importAPI)); err != nil {
+	if err := importCmd.RegisterFlagCompletionFunc("vault", completeVaultNames()); err != nil {
 		panic(fmt.Sprintf("register vault completion: %v", err))
 	}
 	importCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -90,7 +88,7 @@ func init() {
 			return nil, cobra.ShellCompDirectiveDefault
 		case 1:
 			// Second arg is vault path
-			return completeVaultPaths(importAPI, &importVaultID, pathFilterFolders)(cmd, args, toComplete)
+			return completeVaultPaths(&importVaultID, pathFilterFolders)(cmd, args, toComplete)
 		default:
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -268,7 +266,7 @@ func importWithManifest(ctx context.Context, mappings []fileMapping, localErrors
 		return nil
 	}
 
-	client := importAPI.newClient()
+	client := globalAPI.newClient()
 
 	// Normalize all target paths before sending to the server, so that
 	// manifest lookups match the paths stored in the DB (which are also normalized).

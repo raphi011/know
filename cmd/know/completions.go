@@ -25,12 +25,12 @@ func noFileCompletions(_ *cobra.Command, _ []string, _ string) ([]string, cobra.
 }
 
 // completeLabelNames returns a completion function that lists label names from the REST API.
-func completeLabelNames(af *apiFlags, vaultFlag *string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func completeLabelNames(vaultFlag *string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if vaultFlag == nil || *vaultFlag == "" {
 			return nil, noFileComp
 		}
-		client := af.newClient()
+		client := globalAPI.newClient()
 		labels, err := client.ListLabels(context.Background(), *vaultFlag)
 		if err != nil {
 			cobra.CompDebugln(fmt.Sprintf("failed to list labels: %v", err), true)
@@ -41,9 +41,9 @@ func completeLabelNames(af *apiFlags, vaultFlag *string) func(*cobra.Command, []
 }
 
 // completeVaultNames returns a completion function that lists vault names from the REST API.
-func completeVaultNames(af *apiFlags) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func completeVaultNames() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		client := af.newClient()
+		client := globalAPI.newClient()
 		vaults, err := client.ListVaults(context.Background())
 		if err != nil {
 			cobra.CompDebugln(fmt.Sprintf("failed to list vaults: %v", err), true)
@@ -60,7 +60,7 @@ func completeVaultNames(af *apiFlags) func(*cobra.Command, []string, string) ([]
 // completeVaultPaths returns a completion function that lists vault paths from the REST API.
 // It parses the typed prefix to determine the parent directory, calls GET /api/ls,
 // and filters results based on the pathFilter.
-func completeVaultPaths(af *apiFlags, vaultFlag *string, filter pathFilter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func completeVaultPaths(vaultFlag *string, filter pathFilter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		directive := noFileComp | cobra.ShellCompDirectiveNoSpace
 
@@ -82,7 +82,7 @@ func completeVaultPaths(af *apiFlags, vaultFlag *string, filter pathFilter) func
 			prefix = path.Base(toComplete)
 		}
 
-		client := af.newClient()
+		client := globalAPI.newClient()
 		entries, err := client.ListFiles(context.Background(), *vaultFlag, parentDir, false)
 		if err != nil {
 			cobra.CompDebugln(fmt.Sprintf("failed to list vault paths: %v", err), true)

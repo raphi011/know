@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	rmAPI       *apiFlags
 	rmVaultID   *string
 	rmRecursive bool
 	rmDryRun    bool
@@ -35,17 +34,16 @@ Examples:
 }
 
 func init() {
-	rmAPI = addAPIFlags(rmCmd)
-	rmVaultID = addVaultFlag(rmCmd, rmAPI)
+	rmVaultID = addVaultFlag(rmCmd)
 	rmCmd.Flags().BoolVarP(&rmRecursive, "recursive", "r", false, "recursively delete folder contents")
 	rmCmd.Flags().BoolVar(&rmDryRun, "dry-run", false, "show what would be deleted without deleting")
-	rmCmd.ValidArgsFunction = completeVaultPaths(rmAPI, rmVaultID, pathFilterAll)
+	rmCmd.ValidArgsFunction = completeVaultPaths(rmVaultID, pathFilterAll)
 }
 
 func runRm(_ *cobra.Command, args []string) error {
 	path := args[0]
 
-	client := rmAPI.newClient()
+	client := globalAPI.newClient()
 	result, err := client.DeleteDocuments(context.Background(), *rmVaultID, path, rmRecursive, rmDryRun)
 	if err != nil {
 		return fmt.Errorf("rm: %w", err)

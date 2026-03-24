@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	reprocessAPI   *apiFlags
 	reprocessVault string
 	reprocessYes   bool
 )
@@ -31,7 +30,6 @@ Examples:
 }
 
 func init() {
-	reprocessAPI = addAPIFlags(reprocessCmd)
 	reprocessCmd.Flags().StringVar(&reprocessVault, "vault", "", "only reprocess files in this vault")
 	reprocessCmd.Flags().BoolVarP(&reprocessYes, "yes", "y", false, "skip confirmation prompt")
 	if err := reprocessCmd.RegisterFlagCompletionFunc("vault", noFileCompletions); err != nil {
@@ -53,7 +51,7 @@ func runReprocess(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	client := reprocessAPI.newClient()
+	client := globalAPI.newClient()
 	ctx := context.Background()
 
 	resp, err := client.Reprocess(ctx, apiclient.ReprocessRequest{

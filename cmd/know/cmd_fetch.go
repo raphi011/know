@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	fetchAPI     *apiFlags
 	fetchVaultID *string
 	fetchPath    string
 	fetchClean   bool
@@ -33,8 +32,7 @@ Examples:
 }
 
 func init() {
-	fetchAPI = addAPIFlags(fetchCmd)
-	fetchVaultID = addVaultFlag(fetchCmd, fetchAPI)
+	fetchVaultID = addVaultFlag(fetchCmd)
 	fetchCmd.Flags().StringVar(&fetchPath, "path", "", "custom vault path (default: auto-derived from page title)")
 	fetchCmd.Flags().BoolVar(&fetchClean, "clean", false, "clean up markdown formatting with LLM")
 }
@@ -42,7 +40,7 @@ func init() {
 func runFetch(cmd *cobra.Command, args []string) error {
 	url := args[0]
 
-	client := fetchAPI.newClient()
+	client := globalAPI.newClient()
 
 	req := apiclient.FetchWebpageRequest{
 		URL:       url,

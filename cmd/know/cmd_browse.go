@@ -20,7 +20,6 @@ import (
 )
 
 var (
-	browseAPI       *apiFlags
 	browseVaultID   *string
 	browseViewer    string
 	browseLinks     bool
@@ -60,17 +59,16 @@ Examples:
 }
 
 func init() {
-	browseAPI = addAPIFlags(browseCmd)
-	browseVaultID = addVaultFlag(browseCmd, browseAPI)
+	browseVaultID = addVaultFlag(browseCmd)
 	browseCmd.Flags().StringVar(&browseViewer, "viewer", os.Getenv("KNOW_VIEWER"), "viewer command (env: KNOW_VIEWER)")
 	browseCmd.Flags().BoolVarP(&browseLinks, "links", "l", false, "start on the Links tab (saved web clips)")
 	browseCmd.Flags().BoolVarP(&browseBookmarks, "bookmarks", "b", false, "start on the Bookmarks tab")
-	browseCmd.ValidArgsFunction = completeVaultPaths(browseAPI, browseVaultID, pathFilterFiles)
+	browseCmd.ValidArgsFunction = completeVaultPaths(browseVaultID, pathFilterFiles)
 }
 
 func runBrowse(_ *cobra.Command, args []string) error {
 	ctx := context.Background()
-	client := browseAPI.newClient()
+	client := globalAPI.newClient()
 
 	if len(args) > 0 {
 		return browseWithPath(ctx, client, args[0])
