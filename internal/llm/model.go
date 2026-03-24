@@ -542,33 +542,3 @@ func (m *Model) GenerateWithSystemStreamMultiTurn(
 
 	return nil
 }
-
-// ExtractEntitiesAndRelations extracts entities and relations from text (GraphRAG-style).
-func (m *Model) ExtractEntitiesAndRelations(ctx context.Context, text string, existingEntities []string) (string, error) {
-	entitiesStr := ""
-	if len(existingEntities) > 0 {
-		entitiesStr = fmt.Sprintf("\nExisting entities that may be referenced:\n%s", existingEntities)
-	}
-
-	systemPrompt := `You are a Knowledge Graph Specialist. Extract entities and relations from the given text.
-
-Entity types: person, service, concept, project, task, document
-
-Output format (one per line):
-ENTITY|name|type|description
-RELATION|source|target|relation_type|description
-
-Guidelines:
-- Extract all meaningful entities with brief descriptions
-- Identify relationships between entities
-- Use lowercase entity names with hyphens (e.g., "john-doe", "auth-service")
-- For relation types use: works_on, owns, depends_on, references, mentions, relates_to`
-
-	userPrompt := fmt.Sprintf(`Content:
-%s
-%s
-
-Extracted entities and relations:`, text, entitiesStr)
-
-	return m.GenerateWithSystem(ctx, systemPrompt, userPrompt)
-}

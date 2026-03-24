@@ -34,9 +34,9 @@ require (
 	github.com/tmc/langchaingo v0.1.14
 	github.com/vincent-petithory/dataurl v1.0.0
 	github.com/willscott/go-nfs v0.0.3
-	github.com/yuin/goldmark v1.7.16
-	github.com/yuin/goldmark-meta v1.1.0
+	github.com/yuin/goldmark v1.8.0
 	github.com/zalando/go-keyring v0.2.6
+	go.abhg.dev/goldmark/frontmatter v0.3.0
 	go.abhg.dev/goldmark/wikilink v0.6.0
 	go.yaml.in/yaml/v2 v2.4.4
 	golang.org/x/crypto v0.49.0
@@ -48,6 +48,7 @@ require (
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
+	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.20 // indirect
@@ -65,7 +66,6 @@ require (
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

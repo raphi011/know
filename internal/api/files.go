@@ -22,6 +22,7 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	raw := r.URL.Query().Get("raw") == "true"
 	ctx := r.Context()
 	logger := logutil.FromCtx(ctx)
 
@@ -68,7 +69,7 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Enhance content and get resolved wiki-links in one pass.
-	if renderSvc := s.app.RenderService(); renderSvc != nil {
+	if renderSvc := s.app.RenderService(); !raw && renderSvc != nil {
 		enhanced, wikiLinks, enhErr := renderSvc.Enhance(ctx, vaultID, fileID, content)
 		if enhErr != nil {
 			logger.Warn("render enhance failed, serving raw content", "error", enhErr)

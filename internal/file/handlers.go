@@ -13,7 +13,7 @@ import (
 )
 
 // ParseHandler returns a pipeline.Handler that runs the full text-file processing
-// pipeline for a file: chunking, wiki-links, dangling link resolution, relations,
+// pipeline for a file: chunking, wiki-links, dangling link resolution,
 // tasks, external links, and label sync. On success it enqueues an "embed" job so
 // the embedding worker can pick up the freshly created chunks.
 func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
@@ -67,9 +67,6 @@ func ParseHandler(svc *Service, bus *event.Bus) pipeline.Handler {
 		}
 		if err := svc.handleStemAmbiguity(ctx, vaultID, doc.Stem); err != nil {
 			return fmt.Errorf("handle stem ambiguity for %s: %w", doc.Path, err)
-		}
-		if err := svc.processRelatesTo(ctx, fileID, vaultID, parsed.Frontmatter); err != nil {
-			return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
 		}
 		if err := svc.syncTasks(ctx, fileID, vaultID, parsed.Tasks); err != nil {
 			return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)

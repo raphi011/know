@@ -32,6 +32,33 @@ func TestParseSections_BasicHeadings(t *testing.T) {
 	}
 }
 
+func TestParseSections_StartLineNumbers(t *testing.T) {
+	content := "# Title\n\nIntro.\n\n## Second\n\nBody.\n\n### Third\n\nMore."
+	// Line numbers (1-indexed):
+	// 1: # Title
+	// 5: ## Second
+	// 9: ### Third
+
+	sections := parseSectionsHelper(t, content)
+
+	want := map[string]int{
+		"Title":  1,
+		"Second": 5,
+		"Third":  9,
+	}
+	for _, s := range sections {
+		if expected, ok := want[s.Heading]; ok {
+			if s.Start != expected {
+				t.Errorf("section %q: expected Start=%d, got %d", s.Heading, expected, s.Start)
+			}
+			delete(want, s.Heading)
+		}
+	}
+	for heading := range want {
+		t.Errorf("section %q not found in parsed sections", heading)
+	}
+}
+
 func TestParseSections_CodeFenceWithHash(t *testing.T) {
 	// This is the critical bug fix: # inside code fences should NOT create sections
 	content := "## Setup\n\nInstructions here.\n\n```bash\n# This is a comment\necho hello\n# Another comment\n```\n\n## Next\n\nMore content."
@@ -471,7 +498,7 @@ func TestParseMarkdown_FrontmatterViaGoldmarkMeta(t *testing.T) {
 func TestParseMarkdown_UnclosedFrontmatter(t *testing.T) {
 	// Content starts with --- but has no closing --- delimiter.
 	// contentAfterFrontmatter strips the opening "---\n" to prevent
-	// goldmark-meta from consuming the entire document as a YAML block.
+	// the frontmatter parser from consuming the entire document as a YAML block.
 	content := "---\ntitle: Broken\n\n# Real Heading\n\n- [ ] a task"
 
 	doc := ParseMarkdown(content)

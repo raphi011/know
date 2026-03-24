@@ -28,6 +28,13 @@ type documentFetchedMsg struct {
 	err error
 }
 
+// editReadyMsg is sent when raw document content has been fetched for editing.
+type editReadyMsg struct {
+	path    string
+	content string
+	err     error
+}
+
 // audioReadyMsg is the result of an async audio asset fetch.
 type audioReadyMsg struct {
 	path       string
@@ -111,7 +118,7 @@ func NewModelWithDocument(doc *apiclient.Document, client *apiclient.Client, vau
 		noFinder:     true,
 		glamourStyle: glamourStyle,
 		renderer:     r,
-		viewer:       newViewer(doc.Path, doc.Content, renderContent(r, doc), 80, 24),
+		viewer:       newViewer(doc.Path, renderContent(r, doc), 80, 24),
 	}
 }
 
@@ -235,7 +242,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		slog.Debug("document fetched", "path", msg.doc.Path, "content_len", len(msg.doc.Content), "mime", msg.doc.MimeType)
-		m.viewer = newViewer(msg.doc.Path, msg.doc.Content, renderContent(m.renderer, msg.doc), m.width, m.height)
+		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
 		// Initialize bookmark state from loaded bookmarks.
 		for _, bm := range m.bookmarks.items {
 			if bm.Path == msg.doc.Path {
@@ -253,7 +260,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.transcript != "" {
 				content := "**Audio playback unavailable:** " + msg.err.Error() + "\n\n---\n\n" + msg.transcript
 				doc := &apiclient.Document{Content: content}
-				m.viewer = newViewer(msg.path, content, renderContent(m.renderer, doc), m.width, m.height)
+				m.viewer = newViewer(msg.path, renderContent(m.renderer, doc), m.width, m.height)
 				m.state = stateViewing
 				return m, nil
 			}
@@ -297,6 +304,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
+	case editReadyMsg:
+		if msg.err != nil {
+			slog.Warn("edit failed", "path", msg.path, "error", msg.err)
+			m.viewer.statusMsg = fmt.Sprintf("Edit failed: %v", msg.err)
+			return m, nil
+		}
+		return m, openInEditor(msg.path, msg.content, m.client, m.vaultID)
+
 	case editorFinishedMsg:
 		if msg.err != nil {
 			slog.Warn("editor failed", "path", msg.path, "error", msg.err)
@@ -308,7 +323,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Re-render with updated content.
-		m.viewer = newViewer(msg.path, msg.content, renderContent(m.renderer, &apiclient.Document{Content: msg.content}), m.width, m.height)
+		m.viewer = newViewer(msg.path, renderContent(m.renderer, &apiclient.Document{Content: msg.content}), m.width, m.height)
 		m.viewer.statusMsg = "Saved"
 		// Restore bookmark state.
 		for _, bm := range m.bookmarks.items {
@@ -412,9 +427,19 @@ func (m Model) View() tea.View {
 	return v
 }
 
-// editDocument opens the current document in $EDITOR.
+// editDocument fetches the raw document content (without wiki-link resolution
+// or query block execution) and opens it in $EDITOR.
 func (m *Model) editDocument() tea.Cmd {
-	return openInEditor(m.viewer.path, m.viewer.rawContent, m.client, m.vaultID)
+	path := m.viewer.path
+	client := m.client
+	vaultID := m.vaultID
+	return func() tea.Msg {
+		doc, err := client.GetRawDocument(context.Background(), vaultID, path)
+		if err != nil {
+			return editReadyMsg{path: path, err: fmt.Errorf("edit: %w", err)}
+		}
+		return editReadyMsg{path: path, content: doc.Content}
+	}
 }
 
 // focusActiveTab blurs all inputs then focuses the active tab's input.

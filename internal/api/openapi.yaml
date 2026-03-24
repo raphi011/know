@@ -1707,6 +1707,14 @@ paths:
           schema:
             type: string
           description: Document path (e.g. `/notes/hello.md`)
+        - name: raw
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: >
+            Return raw markdown without enrichment (no wiki-link resolution
+            or query block execution). Use when content will be edited.
       responses:
         "200":
           description: Document with content and resolved wiki-links

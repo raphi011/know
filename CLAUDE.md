@@ -142,6 +142,8 @@ The server exposes a REST API at `/api/` for CLI and TUI communication, and agen
 
 **IMPORTANT**: When adding, modifying, or removing REST API endpoints, always update the OpenAPI spec at `internal/api/openapi.yaml` to keep it in sync. This includes changes to routes, request/response schemas, query parameters, and error responses. The spec powers the interactive API docs served at `/`.
 
+**IMPORTANT**: When reading document content that will be edited or round-tripped back to the server, always use raw mode (`?raw=true` / `GetRawDocument`). The default enriched response resolves `[[wiki-links]]` and executes query blocks — saving enriched content back would destroy the original source syntax.
+
 All routes are registered in `internal/api/server.go` (REST) and `cmd/know/cmd_serve.go` (agent). Key resource groups:
 
 - **Vaults**: list, info, settings (get/patch)

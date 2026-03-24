@@ -141,31 +141,55 @@ func main() {
 		}
 	}()
 
-	rootCmd.AddCommand(importCmd)
-	rootCmd.AddCommand(mvCmd)
-	rootCmd.AddCommand(infoCmd)
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(agentCmd)
-	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(labelsCmd)
-	rootCmd.AddCommand(exportCmd)
-	rootCmd.AddCommand(epubCmd)
-	rootCmd.AddCommand(lsCmd)
-	rootCmd.AddCommand(noteCmd)
-	rootCmd.AddCommand(rmCmd)
-	rootCmd.AddCommand(vaultCmd)
-	rootCmd.AddCommand(remoteCmd)
-	rootCmd.AddCommand(taskCmd)
-	rootCmd.AddCommand(browseCmd)
+	// Command groups for help output.
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "documents", Title: "Document Commands:"},
+		&cobra.Group{ID: "interactive", Title: "Interactive Commands:"},
+		&cobra.Group{ID: "data", Title: "Import & Export Commands:"},
+		&cobra.Group{ID: "server", Title: "Server Commands:"},
+		&cobra.Group{ID: "auth", Title: "Auth & Admin Commands:"},
+	)
+
+	// Documents
+	lsCmd.GroupID = "documents"
+	mvCmd.GroupID = "documents"
+	rmCmd.GroupID = "documents"
+	noteCmd.GroupID = "documents"
+	fetchCmd.GroupID = "documents"
+	labelsCmd.GroupID = "documents"
+	rootCmd.AddCommand(lsCmd, mvCmd, rmCmd, noteCmd, fetchCmd, labelsCmd)
+
+	// Interactive
+	agentCmd.GroupID = "interactive"
+	browseCmd.GroupID = "interactive"
+	taskCmd.GroupID = "interactive"
+	rootCmd.AddCommand(agentCmd, browseCmd, taskCmd)
+
+	// Import & Export
+	importCmd.GroupID = "data"
+	exportCmd.GroupID = "data"
+	epubCmd.GroupID = "data"
+	backupCmd.GroupID = "data"
+	restoreCmd.GroupID = "data"
+	rootCmd.AddCommand(importCmd, exportCmd, epubCmd, backupCmd, restoreCmd)
+
+	// Server
+	serveCmd.GroupID = "server"
+	vaultCmd.GroupID = "server"
+	remoteCmd.GroupID = "server"
+	infoCmd.GroupID = "server"
+	jobCmd.GroupID = "server"
 	jobCmd.AddCommand(reprocessCmd)
-	rootCmd.AddCommand(jobCmd)
-	rootCmd.AddCommand(fetchCmd)
-	rootCmd.AddCommand(backupCmd)
-	rootCmd.AddCommand(restoreCmd)
-	rootCmd.AddCommand(completionCmd)
-	rootCmd.AddCommand(authCmd)
-	rootCmd.AddCommand(adminCmd)
-	rootCmd.AddCommand(devCmd)
+	rootCmd.AddCommand(serveCmd, vaultCmd, remoteCmd, infoCmd, jobCmd)
+
+	// Auth & Admin
+	authCmd.GroupID = "auth"
+	adminCmd.GroupID = "auth"
+	devCmd.GroupID = "auth"
+	rootCmd.AddCommand(authCmd, adminCmd, devCmd)
+
+	// Ungrouped
+	rootCmd.AddCommand(versionCmd, completionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -618,12 +618,24 @@ type Document struct {
 	MimeType string  `json:"mimeType,omitempty"`
 }
 
-// GetDocument fetches a document by vault and path.
+// GetDocument fetches a document by vault and path. The returned content is
+// enriched (wiki-links resolved, query blocks executed).
 func (c *Client) GetDocument(ctx context.Context, vaultName, path string) (*Document, error) {
 	q := url.Values{"path": {path}}
 	var doc Document
 	if err := c.Get(ctx, vaultPath(vaultName, "/documents")+"?"+q.Encode(), &doc); err != nil {
 		return nil, fmt.Errorf("get document: %w", err)
+	}
+	return &doc, nil
+}
+
+// GetRawDocument fetches a document with raw markdown content (no wiki-link
+// resolution or query block execution). Use this when content will be edited.
+func (c *Client) GetRawDocument(ctx context.Context, vaultName, path string) (*Document, error) {
+	q := url.Values{"path": {path}, "raw": {"true"}}
+	var doc Document
+	if err := c.Get(ctx, vaultPath(vaultName, "/documents")+"?"+q.Encode(), &doc); err != nil {
+		return nil, fmt.Errorf("get raw document: %w", err)
 	}
 	return &doc, nil
 }

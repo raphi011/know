@@ -42,7 +42,7 @@ func allTables() []string {
 		"pipeline_job", "agent_checkpoint", "remote", "task",
 		"file_tombstone", "search_query", "message", "conversation",
 		"vault_member", "api_token", "has_label", "label",
-		"file_relation", "external_link", "wiki_link", "chunk",
+		"external_link", "wiki_link", "chunk",
 		"file_version", "file", "vault", "user",
 	}
 }
