@@ -1,6 +1,6 @@
 # Document Ingestion Pipeline
 
-The ingestion pipeline handles importing, parsing, embedding, and indexing documents into know vaults. It processes markdown, PDFs, and audio files through an async job-based pipeline that extracts metadata, resolves relations, generates vector embeddings, and builds search indexes.
+The ingestion pipeline handles importing, parsing, embedding, and indexing documents into know vaults. It processes markdown, PDFs, and audio files through an async job-based pipeline that extracts metadata, resolves wiki-links, generates vector embeddings, and builds search indexes.
 
 ## Technical Reference
 
@@ -17,9 +17,6 @@ title: Auth Service
 labels: [work, infrastructure]
 summary: Handles authentication and tokens
 verified: true
-relates_to:
-  - user-service
-  - john-doe
 ---
 ```
 
@@ -30,9 +27,8 @@ Frontmatter fields:
 | `title` | string | Document title (overrides filename) |
 | `labels` | string[] | Classification labels |
 | `type` | string | Document type (filters in search/API) |
-| `summary` | string | Brief description |
-| `verified` | bool | Content verification flag |
-| `relates_to` | string[] | Paths/stems of related documents |
+
+Any other frontmatter keys (e.g. `summary`, `verified`) are stored as generic metadata on the document.
 
 ## Query Blocks
 

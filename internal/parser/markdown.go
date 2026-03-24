@@ -86,7 +86,7 @@ func ParseMarkdown(content string) *MarkdownDoc {
 	// discarded because content has already been stripped of frontmatter.
 	root, source, _ := parseAST(doc.Content)
 
-	// Parse frontmatter from the original content using goldmark-meta.
+	// Parse frontmatter from the original content.
 	if strings.HasPrefix(content, "---\n") {
 		_, _, fm := parseAST(content)
 		if fm != nil {
@@ -127,15 +127,15 @@ func ParseMarkdown(content string) *MarkdownDoc {
 
 // contentAfterFrontmatter strips the YAML frontmatter block from content.
 // If the opening --- has no matching closing ---, the opener is stripped to
-// prevent goldmark-meta from consuming the entire document as a YAML block.
+// prevent the frontmatter parser from consuming the entire document as a YAML block.
 func contentAfterFrontmatter(content string) string {
 	if !strings.HasPrefix(content, "---\n") {
 		return content
 	}
 	endIdx := strings.Index(content[4:], "\n---")
 	if endIdx <= 0 {
-		// Unclosed frontmatter: strip the opening "---\n" so goldmark-meta
-		// doesn't greedily consume all content as an invalid YAML block.
+		// Unclosed frontmatter: strip the opening "---\n" so the frontmatter
+		// parser doesn't greedily consume all content as an invalid YAML block.
 		slog.Debug("content starts with --- but no closing frontmatter delimiter found")
 		return content[4:]
 	}
@@ -274,8 +274,8 @@ func (w *astWalker) visitHeading(n *ast.Heading) {
 	w.currentLevels = append(w.currentLevels, level)
 
 	var startLine int
-	if lines := n.Lines(); lines.Len() > 0 {
-		startLine = lineNumber(w.source, lines.At(0).Start)
+	if pos := n.Pos(); pos >= 0 {
+		startLine = lineNumber(w.source, pos)
 	}
 
 	w.currentSection = &Section{
@@ -330,12 +330,12 @@ func (w *astWalker) visitList(n *ast.List) {
 }
 
 func (w *astWalker) extractTask(listItem *ast.ListItem, checkbox *east.TaskCheckBox) {
-	// Get the line number from the list item
+	// Get the line number from the list item.
 	var lineNum int
 	if lines := listItem.Lines(); lines.Len() > 0 {
 		lineNum = lineNumber(w.source, lines.At(0).Start)
 	} else if listItem.ChildCount() > 0 {
-		// ListItem may not have direct lines; check first child (paragraph)
+		// ListItem may not have direct lines; check first child (paragraph).
 		firstChild := listItem.FirstChild()
 		if lines := firstChild.Lines(); lines.Len() > 0 {
 			lineNum = lineNumber(w.source, lines.At(0).Start)
@@ -405,7 +405,7 @@ func (w *astWalker) visitFencedCodeBlock(n *ast.FencedCodeBlock) {
 			rawQuery.Write(line.Value(w.source))
 		}
 
-		// Compute byte offset of the opening ``` in source
+		// Compute byte offset of the opening ``` in source.
 		var offset int
 		if lines.Len() > 0 {
 			// The fence line starts before the first content line.

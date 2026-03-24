@@ -74,7 +74,7 @@ func SchemaSQL(dimension int) string {
     DEFINE INDEX IF NOT EXISTS idx_file_vault_folder  ON file FIELDS vault, is_folder;
     DEFINE INDEX IF NOT EXISTS idx_file_vault_stem    ON file FIELDS vault, stem;
 
-    -- Cascade delete chunks, versions, wiki_links, relations, tasks, labels
+    -- Cascade delete chunks, versions, wiki_links, tasks, labels
     -- when a non-folder file is deleted.
     DEFINE EVENT IF NOT EXISTS cascade_delete_file_chunks ON file
     WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
@@ -92,11 +92,6 @@ func SchemaSQL(dimension int) string {
         DELETE FROM wiki_link WHERE from_file = $before.id;
         -- Incoming links: unresolve (preserve the dangling reference)
         UPDATE wiki_link SET to_file = NONE WHERE to_file = $before.id
-    };
-
-    DEFINE EVENT IF NOT EXISTS cascade_delete_file_relations ON file
-    WHEN $event = "DELETE" AND $before.is_folder = false ASYNC RETRY 3 THEN {
-        DELETE FROM file_relation WHERE in = $before.id OR out = $before.id
     };
 
     DEFINE EVENT IF NOT EXISTS cascade_delete_file_tasks ON file
@@ -188,17 +183,6 @@ func SchemaSQL(dimension int) string {
 
     DEFINE INDEX IF NOT EXISTS idx_external_link_from_file  ON external_link FIELDS from_file;
     DEFINE INDEX IF NOT EXISTS idx_external_link_vault_host ON external_link FIELDS vault, hostname;
-
-    -- ==========================================================================
-    -- FILE_RELATION TABLE (RELATION: file -> file)
-    -- ==========================================================================
-    DEFINE TABLE IF NOT EXISTS file_relation SCHEMAFULL TYPE RELATION FROM file TO file;
-
-    DEFINE FIELD IF NOT EXISTS rel_type   ON file_relation TYPE string;
-    DEFINE FIELD IF NOT EXISTS source     ON file_relation TYPE string DEFAULT "manual";
-    DEFINE FIELD IF NOT EXISTS created_at ON file_relation TYPE datetime DEFAULT time::now();
-
-    DEFINE INDEX IF NOT EXISTS idx_file_relation_unique ON file_relation FIELDS in, out, rel_type UNIQUE;
 
     -- ==========================================================================
     -- LABEL TABLE

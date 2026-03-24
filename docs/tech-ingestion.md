@@ -172,11 +172,10 @@ Processes markdown files through the full text pipeline:
 4. **processWikiLinks()** — resolve `[[links]]` to target files (see [Wiki-Link Resolution](#wiki-link-resolution))
 5. **resolveDanglingForFile()** — find and resolve other files' dangling links that now point to this file
 6. **handleStemAmbiguity()** — detect when multiple files share a stem, un-resolve ambiguous links
-7. **processRelatesTo()** — create graph edges from frontmatter `relates_to` entries
-8. **syncTasks()** — extract `- [ ]` / `- [x]` checkboxes into the task table with due dates, labels, heading context
-9. **processExternalLinks()** — store extracted URLs with hostname and link text
-10. **SyncFileLabels()** — sync all labels (inline + frontmatter) to the label table
-11. **Enqueue `embed` job** (if embedder configured)
+7. **syncTasks()** — extract `- [ ]` / `- [x]` checkboxes into the task table with due dates, labels, heading context
+8. **processExternalLinks()** — store extracted URLs with hostname and link text
+9. **SyncFileLabels()** — sync all labels (inline + frontmatter) to the label table
+10. **Enqueue `embed` job** (if embedder configured)
 
 ### PDF Handler
 

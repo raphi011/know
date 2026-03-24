@@ -285,7 +285,7 @@ func (c *Client) WipeData(ctx context.Context) error {
 
 	// Delete all records from each table
 	// Order matters due to foreign key references
-	tables := []string{"doc_relation", "wiki_link", "chunk", "document", "template", "device_code", "vault_member", "api_token", "remote", "vault", "user"}
+	tables := []string{"wiki_link", "chunk", "document", "template", "device_code", "vault_member", "api_token", "remote", "vault", "user"}
 
 	for _, table := range tables {
 		query := fmt.Sprintf("DELETE %s", table)

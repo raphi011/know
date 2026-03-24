@@ -322,7 +322,7 @@ func (s *Service) publishFileMoveEvent(vaultID string, doc *models.File, oldPath
 }
 
 // Create stores a file with fast-path parsing and defers heavy processing
-// (chunks, wiki-links, relations) to the async ProcessingWorker.
+// (chunks, wiki-links, tasks) to the async ProcessingWorker.
 func (s *Service) Create(ctx context.Context, input models.FileInput) (*models.File, error) {
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("validate input: %w", err)
@@ -541,7 +541,7 @@ func (s *Service) enqueueJob(ctx context.Context, doc *models.File, created bool
 }
 
 // ProcessFile runs the full processing pipeline for a file synchronously:
-// chunks, wiki-links, dangling link resolution, relations, tasks, and external links.
+// chunks, wiki-links, dangling link resolution, tasks, and external links.
 // Used by ProcessAllPending for tests and CLI commands. The async path uses ParseHandler.
 func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 	fileID, err := models.RecordIDString(doc.ID)
@@ -598,12 +598,7 @@ func (s *Service) ProcessFile(ctx context.Context, doc *models.File) error {
 			return fmt.Errorf("handle stem ambiguity for %s: %w", doc.Path, err)
 		}
 
-		// 4. Process explicit relates_to from frontmatter
-		if err := s.processRelatesTo(ctx, fileID, vaultID, parsed.Frontmatter); err != nil {
-			return fmt.Errorf("process relates_to for %s: %w", doc.Path, err)
-		}
-
-		// 5.5. Sync tasks (extract checkboxes, diff with DB)
+		// 4. Sync tasks (extract checkboxes, diff with DB)
 		if err := s.syncTasks(ctx, fileID, vaultID, parsed.Tasks); err != nil {
 			return fmt.Errorf("sync tasks for %s: %w", doc.Path, err)
 		}
@@ -1064,7 +1059,7 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 // Returns the number of deleted files. The prefix is normalized and ensured
 // to end with "/" to avoid matching paths like "/guides-extra" when deleting "/guides".
 //
-// Cleanup of chunks, wiki-links, and relations relies on SurrealDB's async cascade
+// Cleanup of chunks and wiki-links relies on SurrealDB's async cascade
 // events, so associated data is eventually consistent after a bulk delete.
 func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
 	prefix := models.NormalizePath(pathPrefix)
@@ -1092,7 +1087,6 @@ func (s *Service) DeleteByPrefix(ctx context.Context, vaultID, pathPrefix string
 // Both prefixes are normalized and ensured to end with "/" to avoid partial matches.
 //
 // Recomputes stems and incoming wiki-link raw_targets for all moved files.
-// Does not update doc_relations referencing the old paths.
 func (s *Service) MoveByPrefix(ctx context.Context, vaultID, oldPrefix, newPrefix string) (int, error) {
 	oldNorm := models.NormalizePath(oldPrefix)
 	if !strings.HasSuffix(oldNorm, "/") {
@@ -1422,57 +1416,6 @@ func (s *Service) syncChunks(ctx context.Context, fileID string, parsed *parser.
 	return nil
 }
 
-func (s *Service) processRelatesTo(ctx context.Context, fileID, vaultID string, frontmatter map[string]any) error {
-	// Delete existing frontmatter-derived relations before recreating
-	if err := s.db.DeleteRelationsBySource(ctx, fileID, string(models.RelSourceFrontmatter)); err != nil {
-		return fmt.Errorf("delete old frontmatter relations: %w", err)
-	}
-
-	relatesTo, ok := frontmatter["relates_to"]
-	if !ok {
-		return nil
-	}
-
-	var targets []string
-	switch v := relatesTo.(type) {
-	case []any:
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				targets = append(targets, s)
-			}
-		}
-	case string:
-		targets = []string{v}
-	}
-
-	var inputs []models.FileRelationInput
-	for _, target := range targets {
-		resolved, err := s.resolver.Resolve(ctx, vaultID, target)
-		if err != nil {
-			return fmt.Errorf("resolve relates_to target %q: %w", target, err)
-		}
-		if resolved == nil {
-			logutil.FromCtx(ctx).Info("relates_to target not found", "target", target)
-			continue
-		}
-		toFileID, err := models.RecordIDString(resolved.ID)
-		if err != nil {
-			return fmt.Errorf("extract resolved file id for %q: %w", target, err)
-		}
-		inputs = append(inputs, models.FileRelationInput{
-			FromFileID: fileID,
-			ToFileID:   toFileID,
-			RelType:    string(models.RelRelatesTo),
-			Source:     string(models.RelSourceFrontmatter),
-		})
-	}
-	if err := s.db.BatchCreateRelations(ctx, inputs); err != nil {
-		return fmt.Errorf("create relates_to relations: %w", err)
-	}
-
-	return nil
-}
-
 func (s *Service) mergeTranscriptionParts(ctx context.Context, transcriber stt.Transcriber, parts []stt.SplitPart, mimeType string) (*stt.Result, error) {
 	var allSegments []stt.Segment
 	var fullText strings.Builder
@@ -1591,7 +1534,7 @@ func filenameTitle(path string) string {
 func extractMetadata(fm map[string]any) map[string]any {
 	standard := map[string]bool{
 		"title": true, "name": true, "labels": true, "tags": true,
-		"type": true, "relates_to": true, "description": true,
+		"type": true,
 	}
 
 	metadata := make(map[string]any)

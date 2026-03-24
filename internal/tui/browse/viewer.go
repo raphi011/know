@@ -17,23 +17,21 @@ type viewerModel struct {
 	viewport    viewport.Model
 	audioPlayer *audioPlayerModel
 	path        string
-	rawContent  string // original content for editing
 	width       int
 	height      int
 	bookmarked  bool
 	statusMsg   string
 }
 
-func newViewer(path, rawContent, renderedContent string, width, height int) viewerModel {
+func newViewer(path, renderedContent string, width, height int) viewerModel {
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(max(height-2, 1)))
 	vp.SetContent(renderedContent)
 
 	return viewerModel{
-		viewport:   vp,
-		path:       path,
-		rawContent: rawContent,
-		width:      width,
-		height:     height,
+		viewport: vp,
+		path:     path,
+		width:    width,
+		height:   height,
 	}
 }
 
