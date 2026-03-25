@@ -37,9 +37,8 @@ func init() {
 
 func runAgent(_ *cobra.Command, _ []string) error {
 	// Detect dark/light background BEFORE bubbletea starts, so we don't race
-	// with its TerminalReader on the TTY fd. glamour.WithAutoStyle() calls
-	// termenv.HasDarkBackground() which does a direct TTY read — unsafe once
-	// bubbletea is running.
+	// with its TerminalReader on the TTY fd. lipgloss.HasDarkBackground() does
+	// a direct TTY read — unsafe once bubbletea is running.
 	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 
 	// Print banner before bubbletea starts — tea.Println inside the program

@@ -11,6 +11,7 @@ import (
 	"github.com/raphi011/know/internal/httputil"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/parser"
 )
 
 func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +60,11 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 			logger.Error("read document content", "error", err)
 			return
 		}
+	}
+
+	// Strip frontmatter for markdown display — Glamour renders it as ugly plain text.
+	if !raw && strings.HasSuffix(doc.Path, ".md") {
+		content = parser.ContentAfterFrontmatter(content)
 	}
 
 	fileID, err := models.RecordIDString(doc.ID)

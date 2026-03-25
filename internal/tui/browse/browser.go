@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 	"github.com/raphi011/know/internal/apiclient"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/record"

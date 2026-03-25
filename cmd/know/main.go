@@ -46,10 +46,9 @@ func init() {
 
 	// API flags
 	defaultURL := envOrDefault("KNOW_SERVER_URL", "http://localhost:4001")
-	defaultToken := os.Getenv("KNOW_TOKEN")
 
-	pf.StringVar(&globalAPI.URL, "api-url", defaultURL, "REST API base URL")
-	pf.StringVar(&globalAPI.Token, "token", defaultToken, "API bearer token")
+	pf.StringVar(&globalAPI.URL, "api-url", defaultURL, "REST API base URL (env: KNOW_SERVER_URL)")
+	pf.StringVar(&globalAPI.Token, "token", "", "API bearer token (env: KNOW_TOKEN)")
 	if err := rootCmd.RegisterFlagCompletionFunc("api-url", noFileCompletions); err != nil {
 		panic(fmt.Sprintf("register api-url completion: %v", err))
 	}
@@ -63,6 +62,13 @@ func init() {
 	pf.StringVar(&globalLogFile, "log-file", os.Getenv("KNOW_LOG_FILE"), "log file path (logs to stderr when empty)")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Resolve KNOW_TOKEN at runtime (not in flag default) to keep it out of --help.
+		if !cmd.Flags().Changed("token") {
+			if t := os.Getenv("KNOW_TOKEN"); t != "" {
+				globalAPI.Token = t
+			}
+		}
+
 		var level slog.Level
 		if err := level.UnmarshalText([]byte(globalLogLevel)); err != nil {
 			return fmt.Errorf("invalid log level %q: %w", globalLogLevel, err)

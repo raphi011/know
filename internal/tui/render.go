@@ -8,8 +8,8 @@ import (
 	imgcolor "image/color"
 
 	"charm.land/bubbles/v2/viewport"
+	"charm.land/glamour/v2"
 	lipgloss "charm.land/lipgloss/v2"
-	"github.com/charmbracelet/glamour"
 	"github.com/raphi011/know/internal/diff"
 	"github.com/raphi011/know/internal/tools"
 )

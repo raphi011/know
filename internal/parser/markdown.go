@@ -80,7 +80,7 @@ func ParseMarkdown(content string) *MarkdownDoc {
 	// Extract frontmatter first, then parse the content-after-frontmatter.
 	// This ensures all AST line numbers are relative to doc.Content, which is
 	// what reconstruct.go expects when splitting doc.Content into lines.
-	doc.Content = contentAfterFrontmatter(content)
+	doc.Content = ContentAfterFrontmatter(content)
 
 	// Parse content-after-frontmatter into AST. The frontmatter return is
 	// discarded because content has already been stripped of frontmatter.
@@ -125,10 +125,11 @@ func ParseMarkdown(content string) *MarkdownDoc {
 	return doc
 }
 
-// contentAfterFrontmatter strips the YAML frontmatter block from content.
-// If the opening --- has no matching closing ---, the opener is stripped to
-// prevent the frontmatter parser from consuming the entire document as a YAML block.
-func contentAfterFrontmatter(content string) string {
+// ContentAfterFrontmatter strips the YAML frontmatter block from content.
+// If the opening --- has no matching closing --- (or the frontmatter block is
+// empty), the opener is stripped to prevent the frontmatter parser from
+// consuming the entire document as a YAML block.
+func ContentAfterFrontmatter(content string) string {
 	if !strings.HasPrefix(content, "---\n") {
 		return content
 	}
@@ -136,7 +137,7 @@ func contentAfterFrontmatter(content string) string {
 	if endIdx <= 0 {
 		// Unclosed frontmatter: strip the opening "---\n" so the frontmatter
 		// parser doesn't greedily consume all content as an invalid YAML block.
-		slog.Debug("content starts with --- but no closing frontmatter delimiter found")
+		slog.Debug("stripping unclosed/empty frontmatter opener")
 		return content[4:]
 	}
 	return strings.TrimPrefix(content[4+endIdx+4:], "\n")
