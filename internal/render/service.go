@@ -6,6 +6,7 @@ package render
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -103,19 +104,24 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 	}
 	queryBlocks := parser.ExtractQueryBlocks(content)
 	for _, qb := range queryBlocks {
-		if qb.Error != "" {
-			continue // parse error, leave block as-is
-		}
+		var rendered string
 
-		rendered, err := s.executeQueryBlock(ctx, vaultID, qb)
-		if err != nil {
-			logger.Warn("render: query block execution failed", "error", err)
-			continue
+		if qb.Error != "" {
+			logger.Warn("render: query block parse error", "error", qb.Error)
+			rendered = fmt.Sprintf("**Query error:** %s\n", qb.Error)
+		} else {
+			var err error
+			rendered, err = s.executeQueryBlock(ctx, vaultID, qb)
+			if err != nil {
+				logger.Warn("render: query block execution failed", "error", err)
+				rendered = fmt.Sprintf("**Query error:** %s\n", err)
+			}
 		}
 
 		// Find the end of the fenced code block (closing ```).
 		blockEnd := findFencedBlockEnd(content, qb.Index)
 		if blockEnd < 0 {
+			logger.Warn("render: unclosed fenced code block", "offset", qb.Index)
 			continue
 		}
 
@@ -152,6 +158,13 @@ func applyReplacements(content string, replacements []replacement) string {
 // executeQueryBlock runs a parsed query block against the DB and renders
 // results as markdown.
 func (s *Service) executeQueryBlock(ctx context.Context, vaultID string, qb parser.QueryBlock) (string, error) {
+	if qb.Format == parser.FormatTask {
+		return s.executeTaskQuery(ctx, vaultID, qb)
+	}
+	return s.executeFileQuery(ctx, vaultID, qb)
+}
+
+func (s *Service) executeFileQuery(ctx context.Context, vaultID string, qb parser.QueryBlock) (string, error) {
 	filter := db.ListFilesFilter{
 		VaultID: vaultID,
 		Limit:   qb.Limit,
@@ -166,7 +179,6 @@ func (s *Service) executeQueryBlock(ctx context.Context, vaultID string, qb pars
 		filter.Folder = &folder
 	}
 
-	// Apply WHERE conditions.
 	for _, cond := range qb.Conditions {
 		switch {
 		case cond.Field == "labels" && cond.Op == parser.OpContain:
@@ -175,9 +187,9 @@ func (s *Service) executeQueryBlock(ctx context.Context, vaultID string, qb pars
 			filter.DocType = &cond.Value
 		case cond.Field == "mime_type" && cond.Op == parser.OpEqual:
 			filter.MimeType = &cond.Value
+		default:
+			return "", fmt.Errorf("unsupported condition: %s %s %q", cond.Field, cond.Op, cond.Value)
 		}
-		// Other conditions (CONTAINS on arbitrary fields) are not supported
-		// by ListFilesFilter — we'd need post-filtering. Skip for now.
 	}
 
 	isNotFolder := false
@@ -193,43 +205,111 @@ func (s *Service) executeQueryBlock(ctx context.Context, vaultID string, qb pars
 	}
 
 	if qb.Format == parser.FormatTable {
-		return renderTable(files, qb.ShowFields), nil
+		return renderTable(files, qb.Fields, qb.WithoutID), nil
 	}
-	return renderList(files, qb.ShowFields), nil
+	return renderList(files, qb.Fields, qb.WithoutID), nil
+}
+
+func (s *Service) executeTaskQuery(ctx context.Context, vaultID string, qb parser.QueryBlock) (string, error) {
+	filter := db.TaskFilter{
+		VaultID: vaultID,
+		Limit:   qb.Limit,
+	}
+
+	if qb.Folder != nil {
+		filter.Folder = qb.Folder
+	}
+
+	for _, cond := range qb.Conditions {
+		switch {
+		case cond.Field == "status" && cond.Op == parser.OpEqual:
+			status := models.TaskStatus(cond.Value)
+			filter.Status = &status
+		case cond.Field == "labels" && cond.Op == parser.OpContain:
+			filter.Labels = append(filter.Labels, cond.Value)
+		case cond.Field == "due_before" && cond.Op == parser.OpEqual:
+			filter.DueBefore = &cond.Value
+		case cond.Field == "due_after" && cond.Op == parser.OpEqual:
+			filter.DueAfter = &cond.Value
+		default:
+			return "", fmt.Errorf("unsupported task condition: %s %s %q", cond.Field, cond.Op, cond.Value)
+		}
+	}
+
+	tasks, err := s.db.ListTasks(ctx, filter)
+	if err != nil {
+		return "", fmt.Errorf("execute task query: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		return "*No results*\n", nil
+	}
+
+	return renderTaskList(tasks, qb.WithoutID), nil
 }
 
 // renderList renders files as a markdown bullet list.
-// Uses the first two SHOW fields as link text and URL (defaulting to title+path).
-func renderList(files []models.File, showFields []string) string {
-	textField := "title"
-	linkField := "path"
-	if len(showFields) >= 1 {
-		textField = showFields[0]
-	}
-	if len(showFields) >= 2 {
-		linkField = showFields[1]
-	}
-
+func renderList(files []models.File, fields []parser.ShowField, withoutID bool) string {
 	var sb strings.Builder
 	for _, f := range files {
-		text := fileFieldValue(&f, textField)
-		link := fileFieldValue(&f, linkField)
-		sb.WriteString(fmt.Sprintf("- [%s](%s)\n", text, link))
+		if withoutID {
+			// Plain text, no link.
+			text := "title"
+			if len(fields) >= 1 {
+				text = fields[0].Name
+			}
+			sb.WriteString(fmt.Sprintf("- %s\n", fileFieldValue(&f, text)))
+		} else {
+			// Link format: - [title](path)
+			textField := "title"
+			if len(fields) >= 1 {
+				textField = fields[0].Name
+			}
+			text := fileFieldValue(&f, textField)
+			link := fileFieldValue(&f, "path")
+			sb.WriteString(fmt.Sprintf("- [%s](%s)\n", text, link))
+
+			// Extra field shown after the link if provided.
+			if len(fields) >= 2 {
+				extra := fileFieldValue(&f, fields[1].Name)
+				if extra != "" {
+					sb.WriteString(fmt.Sprintf("  %s\n", extra))
+				}
+			}
+		}
 	}
 	return sb.String()
 }
 
 // renderTable renders files as a markdown table.
-func renderTable(files []models.File, showFields []string) string {
+func renderTable(files []models.File, fields []parser.ShowField, withoutID bool) string {
+	// Default fields if none specified.
+	if len(fields) == 0 {
+		fields = []parser.ShowField{
+			{Name: "title"},
+			{Name: "path"},
+		}
+	}
+
 	var sb strings.Builder
 
-	// Header
+	// Header: auto-prepend File column unless WITHOUT ID.
 	sb.WriteString("|")
-	for _, field := range showFields {
-		sb.WriteString(fmt.Sprintf(" %s |", field))
+	if !withoutID {
+		sb.WriteString(" File |")
+	}
+	for _, field := range fields {
+		header := field.Name
+		if field.Alias != "" {
+			header = field.Alias
+		}
+		sb.WriteString(fmt.Sprintf(" %s |", header))
 	}
 	sb.WriteString("\n|")
-	for range showFields {
+	if !withoutID {
+		sb.WriteString("---|")
+	}
+	for range fields {
 		sb.WriteString("---|")
 	}
 	sb.WriteString("\n")
@@ -237,9 +317,45 @@ func renderTable(files []models.File, showFields []string) string {
 	// Rows
 	for _, f := range files {
 		sb.WriteString("|")
-		for _, field := range showFields {
-			sb.WriteString(fmt.Sprintf(" %s |", fileFieldValue(&f, field)))
+		if !withoutID {
+			sb.WriteString(fmt.Sprintf(" [%s](%s) |", f.Title, f.Path))
 		}
+		for _, field := range fields {
+			sb.WriteString(fmt.Sprintf(" %s |", fileFieldValue(&f, field.Name)))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// renderTaskList renders tasks as markdown checkboxes with embedded task IDs
+// as HTML comments for programmatic toggling.
+func renderTaskList(tasks []models.TaskWithDoc, withoutID bool) string {
+	var sb strings.Builder
+	for _, t := range tasks {
+		checkbox := "[ ]"
+		if t.Status == models.TaskStatusDone {
+			checkbox = "[x]"
+		}
+
+		sb.WriteString(fmt.Sprintf("- %s %s", checkbox, t.Text))
+
+		if t.DueDate != nil {
+			sb.WriteString(fmt.Sprintf(" (due: %s)", *t.DueDate))
+		}
+
+		if !withoutID {
+			sb.WriteString(fmt.Sprintf(" — *%s*", t.DocPath))
+		}
+
+		if taskID, err := models.RecordIDString(t.ID); err != nil {
+			// Zero-value RecordID is expected for tasks without a persisted ID.
+			// Non-zero IDs that fail extraction indicate a bug in ID handling.
+			slog.Debug("render: failed to extract task ID", "error", err)
+		} else if taskID != "" {
+			sb.WriteString(fmt.Sprintf("<!-- task:%s -->", taskID))
+		}
+
 		sb.WriteString("\n")
 	}
 	return sb.String()
@@ -282,7 +398,7 @@ func queryBlockOrderBy(qb parser.QueryBlock) db.FileOrderBy {
 		if qb.SortDesc {
 			return db.OrderByCreatedAtDesc
 		}
-		return db.OrderByPathAsc // no created_at ASC, fallback
+		return db.OrderByPathAsc // DB only supports created_at DESC; ASC falls back to path ordering
 	default:
 		return db.OrderByPathAsc
 	}

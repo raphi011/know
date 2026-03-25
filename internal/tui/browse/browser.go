@@ -52,6 +52,7 @@ type Model struct {
 	links     linksModel
 	bookmarks bookmarksModel
 	tags      tagsModel
+	tasks     tasksModel
 	viewer    viewerModel
 	client    *apiclient.Client
 	vaultID   string
@@ -89,9 +90,6 @@ func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry
 		initial = startTab[0]
 	}
 	search := newSearchModel(client, vaultID)
-	if initial == TabSearch {
-		search.input.Focus()
-	}
 	return Model{
 		state:        stateFinding,
 		activeTab:    initial,
@@ -100,6 +98,7 @@ func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry
 		links:        newLinksModel(client, vaultID),
 		bookmarks:    newBookmarksModel(client, vaultID),
 		tags:         newTagsModel(client, vaultID),
+		tasks:        newTasksModel(client, vaultID),
 		client:       client,
 		vaultID:      vaultID,
 		glamourStyle: glamourStyle,
@@ -139,17 +138,29 @@ func (m Model) Init() tea.Cmd {
 	if m.noFinder {
 		return nil
 	}
-	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks(), m.tags.loadTags()}
+	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks(), m.tags.loadTags(), m.tasks.loadTasks()}
 	// Focus the input for the initial tab.
 	switch m.activeTab {
 	case TabSearch:
-		cmds = append(cmds, m.search.input.Focus())
+		var cmd tea.Cmd
+		m.search.filterBar, cmd = m.search.filterBar.Focus()
+		cmds = append(cmds, cmd)
 	case TabAllFiles:
 		cmds = append(cmds, m.finder.Init())
 	case TabLinks:
-		cmds = append(cmds, m.links.input.Focus())
+		var cmd tea.Cmd
+		m.links.filterBar, cmd = m.links.filterBar.Focus()
+		cmds = append(cmds, cmd)
+	case TabBookmarks:
+		var cmd tea.Cmd
+		m.bookmarks.filterBar, cmd = m.bookmarks.filterBar.Focus()
+		cmds = append(cmds, cmd)
 	case TabTags:
 		cmds = append(cmds, m.tags.tagPicker.Input.Focus())
+	case TabTasks:
+		var cmd tea.Cmd
+		m.tasks.filterBar, cmd = m.tasks.filterBar.Focus()
+		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
 }
@@ -162,15 +173,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		contentHeight := msg.Height - 1 // reserve 1 line for tab bar
 		m.search.width = msg.Width
 		m.search.height = contentHeight
-		m.search.input.SetWidth(msg.Width - len(m.search.input.Prompt))
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
-		m.links.input.SetWidth(msg.Width - len(m.links.input.Prompt))
 		m.bookmarks.width = msg.Width
 		m.bookmarks.height = contentHeight
 		m.tags.tagPicker.SetSize(msg.Width, contentHeight)
 		m.tags.filePicker.SetSize(msg.Width, contentHeight)
+		m.tasks.width = msg.Width
+		m.tasks.height = contentHeight
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
@@ -227,6 +238,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bookmarks.statusErr = errMsg
 			case TabTags:
 				m.tags.statusErr = errMsg
+			case TabTasks:
+				m.tasks.statusErr = errMsg
 			}
 			return m, nil
 		}
@@ -235,6 +248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.links.statusErr = ""
 		m.bookmarks.statusErr = ""
 		m.tags.statusErr = ""
+		m.tasks.statusErr = ""
 
 		// Audio files: fetch binary asset for playback.
 		if strings.HasPrefix(msg.doc.MimeType, "audio/") && strings.HasSuffix(msg.doc.Path, ".wav") {
@@ -244,7 +258,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Debug("document fetched", "path", msg.doc.Path, "content_len", len(msg.doc.Content), "mime", msg.doc.MimeType)
 		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
 		// Initialize bookmark state from loaded bookmarks.
-		for _, bm := range m.bookmarks.items {
+		for _, bm := range m.bookmarks.allItems {
 			if bm.Path == msg.doc.Path {
 				m.viewer.bookmarked = true
 				break
@@ -276,6 +290,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bookmarks.statusErr = errMsg
 			case TabTags:
 				m.tags.statusErr = errMsg
+			case TabTasks:
+				m.tasks.statusErr = errMsg
 			}
 			return m, nil
 		}
@@ -326,7 +342,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewer = newViewer(msg.path, renderContent(m.renderer, &apiclient.Document{Content: msg.content}), m.width, m.height)
 		m.viewer.statusMsg = "Saved"
 		// Restore bookmark state.
-		for _, bm := range m.bookmarks.items {
+		for _, bm := range m.bookmarks.allItems {
 			if bm.Path == msg.path {
 				m.viewer.bookmarked = true
 				break
@@ -352,6 +368,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tagsLoadedMsg, tagFilesLoadedMsg:
 		var cmd tea.Cmd
 		m.tags, cmd = m.tags.Update(msg)
+		return m, cmd
+	case tasksLoadedMsg, taskToggledMsg:
+		var cmd tea.Cmd
+		m.tasks, cmd = m.tasks.Update(msg)
 		return m, cmd
 	}
 
@@ -379,6 +399,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.tags, cmd = m.tags.Update(msg)
 			return m, cmd
+		case TabTasks:
+			var cmd tea.Cmd
+			m.tasks, cmd = m.tasks.Update(msg)
+			return m, cmd
 		}
 	case stateViewing:
 		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
@@ -405,7 +429,7 @@ func (m Model) View() tea.View {
 
 	switch m.state {
 	case stateFinding:
-		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items), len(m.tags.tags))
+		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.allItems), len(m.tags.tags), len(m.tasks.allTasks))
 		switch m.activeTab {
 		case TabSearch:
 			content = tabBar + "\n" + m.search.View()
@@ -417,6 +441,8 @@ func (m Model) View() tea.View {
 			content = tabBar + "\n" + m.bookmarks.View()
 		case TabTags:
 			content = tabBar + "\n" + m.tags.View()
+		case TabTasks:
+			content = tabBar + "\n" + m.tasks.View()
 		}
 	case stateViewing:
 		content = m.viewer.View()
@@ -444,23 +470,37 @@ func (m *Model) editDocument() tea.Cmd {
 
 // focusActiveTab blurs all inputs then focuses the active tab's input.
 func (m *Model) focusActiveTab() tea.Cmd {
-	m.search.input.Blur()
+	m.search.filterBar = m.search.filterBar.Blur()
 	m.finder.picker.Input.Blur()
-	m.links.input.Blur()
+	m.links.filterBar = m.links.filterBar.Blur()
+	m.bookmarks.filterBar = m.bookmarks.filterBar.Blur()
 	m.tags.tagPicker.Input.Blur()
 	m.tags.filePicker.Input.Blur()
+	m.tasks.filterBar = m.tasks.filterBar.Blur()
 	switch m.activeTab {
 	case TabSearch:
-		return m.search.input.Focus()
+		var cmd tea.Cmd
+		m.search.filterBar, cmd = m.search.filterBar.Focus()
+		return cmd
 	case TabAllFiles:
 		return m.finder.picker.Input.Focus()
 	case TabLinks:
-		return m.links.input.Focus()
+		var cmd tea.Cmd
+		m.links.filterBar, cmd = m.links.filterBar.Focus()
+		return cmd
+	case TabBookmarks:
+		var cmd tea.Cmd
+		m.bookmarks.filterBar, cmd = m.bookmarks.filterBar.Focus()
+		return cmd
 	case TabTags:
 		if m.tags.state == tagStateFiles {
 			return m.tags.filePicker.Input.Focus()
 		}
 		return m.tags.tagPicker.Input.Focus()
+	case TabTasks:
+		var cmd tea.Cmd
+		m.tasks.filterBar, cmd = m.tasks.filterBar.Focus()
+		return cmd
 	default:
 		return nil
 	}

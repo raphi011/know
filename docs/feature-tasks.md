@@ -122,6 +122,49 @@ know task --labels work --due-before 2026-03-20 --path /projects/
 | `--path` | Document path (exact) or folder prefix (ending with `/`) |
 | `--vault` | Vault name (default from `KNOW_VAULT` env) |
 
+## Browse: Tasks Tab
+
+The `know browse` TUI includes a Tasks tab with inline filtering, toggling, and two view modes.
+
+### Filter syntax
+
+Type directly into the filter bar to combine structured filters with free-text search:
+
+```
+status:open label:backend due:week deploy
+```
+
+| Filter | Values | Description |
+|--------|--------|-------------|
+| `status:` | `open`, `done` | Filter by task status |
+| `label:` | any label name | Filter by label (repeatable: `label:go label:rust`) |
+| `due:` | `today`, `week`, `overdue` | Filter by due date range |
+| `from:` | path prefix | Filter by source document path |
+
+Free text (anything not matching a filter key) fuzzy-matches against task text and document path.
+
+Structured filters (`status:`, `label:`, `due:`, `from:`) trigger an API re-fetch. Free-text changes apply locally for instant feedback.
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `up` / `k` | Move cursor up |
+| `down` / `j` | Move cursor down |
+| `pgup` / `pgdown` | Scroll by page |
+| `space` | Toggle task status (open ↔ done) |
+| `enter` | Open source document |
+| `g` | Toggle grouped/flat view |
+| Text input | Filter bar |
+
+### Flat view (default)
+
+Shows all tasks in a single list sorted by status (open first), due date (overdue first, ascending), then document path. Each row shows checkbox, task text, labels, due date, and source filename.
+
+### Grouped view
+
+Press `g` to group tasks by source document. Document paths appear as bold headers, tasks are indented below. Useful for seeing which documents have the most outstanding work.
+
 ## Example Prompts
 
 - "Show me all my open tasks"
@@ -131,6 +174,17 @@ know task --labels work --due-before 2026-03-20 --path /projects/
 - "Mark the PR review task as done"
 - "What did I complete today?"
 - "Show overdue tasks"
+
+### Browse TUI examples
+
+In `know browse`, switch to the Tasks tab and type:
+
+- `status:open` — all open tasks
+- `status:open due:overdue` — overdue tasks only
+- `label:work due:week` — work tasks due within 7 days
+- `from:/daily/ status:open` — open tasks from daily notes
+- `status:open deploy` — open tasks matching "deploy"
+- `label:backend label:urgent` — tasks with both labels
 
 ## Future Ideas
 

@@ -3,6 +3,7 @@ package browse
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,19 +27,26 @@ type bookmarkToggledMsg struct {
 }
 
 type bookmarksModel struct {
-	items     []models.FileEntry
+	allItems  []models.FileEntry
+	filtered  []models.FileEntry
 	cursor    int
 	offset    int
 	width     int
 	height    int
 	loaded    bool
 	statusErr string
+	filterBar FilterBar
 	client    *apiclient.Client
 	vaultID   string
 }
 
 func newBookmarksModel(client *apiclient.Client, vaultID string) bookmarksModel {
 	return bookmarksModel{
+		filterBar: NewFilterBar(FilterBarConfig{
+			SupportedKeys: []string{"label"},
+			Placeholder:   "Filter bookmarks...",
+			Hints:         "label:<name>",
+		}),
 		client:  client,
 		vaultID: vaultID,
 	}
@@ -56,6 +64,43 @@ func (b bookmarksModel) loadBookmarks() tea.Cmd {
 	}
 }
 
+// applyFilter filters allItems by label filter and fuzzy text match on title/path,
+// storing results in filtered.
+func (b *bookmarksModel) applyFilter() {
+	result := b.filterBar.Result()
+	labels := result.FilterAll("label")
+	query := strings.ToLower(result.Query)
+
+	filtered := make([]models.FileEntry, 0, len(b.allItems))
+	for _, item := range b.allItems {
+		// Label filter: all specified labels must be present.
+		if len(labels) > 0 {
+			matched := true
+			for _, label := range labels {
+				if !slices.Contains(item.Labels, label) {
+					matched = false
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		// Text match on title or path.
+		if query != "" {
+			titleLower := strings.ToLower(item.Title)
+			pathLower := strings.ToLower(item.Path)
+			if !strings.Contains(titleLower, query) && !strings.Contains(pathLower, query) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	b.filtered = filtered
+	b.cursor = 0
+	b.offset = 0
+}
+
 func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case bookmarksLoadedMsg:
@@ -64,10 +109,9 @@ func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 			b.statusErr = fmt.Sprintf("Failed to load bookmarks: %v", msg.err)
 			return b, nil
 		}
-		b.items = msg.bookmarks
+		b.allItems = msg.bookmarks
 		b.statusErr = ""
-		b.cursor = 0
-		b.offset = 0
+		b.applyFilter()
 		return b, nil
 
 	case bookmarkToggledMsg:
@@ -88,28 +132,42 @@ func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 					b.offset = b.cursor
 				}
 			}
+			return b, nil
 		case "down", "j":
-			if b.cursor < len(b.items)-1 {
+			if b.cursor < len(b.filtered)-1 {
 				b.cursor++
 				visible := b.visibleRows()
 				if b.cursor >= b.offset+visible {
 					b.offset = b.cursor - visible + 1
 				}
 			}
+			return b, nil
 		case "enter":
-			if len(b.items) > 0 && b.cursor < len(b.items) {
+			if len(b.filtered) > 0 && b.cursor < len(b.filtered) {
 				return b, func() tea.Msg {
-					return fileSelectedMsg{path: b.items[b.cursor].Path}
+					return fileSelectedMsg{path: b.filtered[b.cursor].Path}
 				}
 			}
+			return b, nil
 		case "d":
 			// Remove bookmark
-			if len(b.items) > 0 && b.cursor < len(b.items) {
-				return b, b.toggleBookmark(b.items[b.cursor].Path, false)
+			if len(b.filtered) > 0 && b.cursor < len(b.filtered) {
+				return b, b.toggleBookmark(b.filtered[b.cursor].Path, false)
 			}
+			return b, nil
+		case "esc":
+			return b, tea.Quit
 		}
 	}
-	return b, nil
+
+	// Delegate remaining messages to filterBar.
+	prev := b.filterBar.Value()
+	var cmd tea.Cmd
+	b.filterBar, cmd = b.filterBar.Update(msg)
+	if b.filterBar.Value() != prev {
+		b.applyFilter()
+	}
+	return b, cmd
 }
 
 func (b bookmarksModel) toggleBookmark(path string, add bool) tea.Cmd {
@@ -127,11 +185,14 @@ func (b bookmarksModel) toggleBookmark(path string, add bool) tea.Cmd {
 }
 
 func (b bookmarksModel) visibleRows() int {
-	return max(b.height-3, 1) // header + status + padding
+	return max(b.height-b.filterBar.HeightLines()-3, 1) // filterbar + header + status + padding
 }
 
 func (b bookmarksModel) View() string {
 	var sb strings.Builder
+
+	sb.WriteString(b.filterBar.View())
+	sb.WriteString("\n")
 
 	if !b.loaded {
 		sb.WriteString("  Loading bookmarks...")
@@ -144,21 +205,29 @@ func (b bookmarksModel) View() string {
 	}
 
 	// Header
-	countStr := fmt.Sprintf("%d bookmarks", len(b.items))
+	countStr := fmt.Sprintf("%d bookmarks", len(b.filtered))
+	if len(b.filtered) != len(b.allItems) {
+		countStr = fmt.Sprintf("%d of %d bookmarks", len(b.filtered), len(b.allItems))
+	}
 	sb.WriteString(lipgloss.NewStyle().Foreground(pick.MutedColor).Render(countStr))
 	sb.WriteString("\n")
 
-	if len(b.items) == 0 {
+	if len(b.filtered) == 0 && len(b.allItems) == 0 {
 		sb.WriteString("\n  No bookmarks yet. Use ")
 		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("b"))
 		sb.WriteString(" while viewing a document to bookmark it.")
 		return sb.String()
 	}
 
+	if len(b.filtered) == 0 {
+		sb.WriteString("\n  No bookmarks match the filter.")
+		return sb.String()
+	}
+
 	visible := b.visibleRows()
-	end := min(b.offset+visible, len(b.items))
+	end := min(b.offset+visible, len(b.filtered))
 	for i := b.offset; i < end; i++ {
-		item := b.items[i]
+		item := b.filtered[i]
 		line := item.Path
 		if item.Title != "" {
 			line = item.Title + "  " + lipgloss.NewStyle().Foreground(pick.MutedColor).Render(item.Path)

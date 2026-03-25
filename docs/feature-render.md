@@ -37,12 +37,13 @@ Check [Alpha Project](/projects/alpha.md) too.
 
 ## Query Blocks
 
-Fenced code blocks with the `know` language tag execute queries against the vault's file index and render results inline.
+Fenced code blocks with the `know` language tag execute queries against the vault's file index and render results inline. Queries must start with a format keyword: `LIST`, `TABLE`, or `TASK`.
 
-### List Format (default)
+### LIST Format
 
 ````markdown
 ```know
+LIST
 FROM /daily
 WHERE labels CONTAIN "meeting"
 SORT updated_at DESC
@@ -56,29 +57,91 @@ Renders as:
 - [Retro Q1](/daily/retro-q1.md)
 ```
 
-### Table Format
+LIST with an extra field:
+````markdown
+```know
+LIST labels
+FROM /projects
+```
+````
+
+LIST WITHOUT ID (plain text, no links):
+````markdown
+```know
+LIST WITHOUT ID title
+FROM /projects
+```
+````
+
+### TABLE Format
 
 ````markdown
 ```know
+TABLE title, labels AS "Tags", mime_type
 FROM /projects
-SHOW title, path, labels
-FORMAT table
 LIMIT 10
 ```
 ````
 
-Renders as a markdown table with the specified columns.
+Renders as a markdown table. A "File" column with `[title](path)` is auto-prepended unless `WITHOUT ID` is used.
+
+TABLE WITHOUT ID (no auto file column):
+````markdown
+```know
+TABLE WITHOUT ID title AS "Name", labels AS "Tags"
+FROM /projects
+```
+````
+
+### TASK Format
+
+````markdown
+```know
+TASK
+WHERE status = "open"
+LIMIT 20
+```
+````
+
+Renders as markdown checkboxes:
+```markdown
+- [ ] Review PR for auth module — */daily/2025-03-24.md*
+- [x] Update deployment docs — */ops/runbook.md*
+- [ ] Fix search ranking (due: 2025-03-28) — */bugs/search.md*
+```
+
+TASK with filters:
+````markdown
+```know
+TASK
+FROM /daily
+WHERE labels CONTAIN "urgent"
+WHERE status = "open"
+```
+````
 
 ### Supported Query Syntax
 
+All queries must start with a format keyword:
+
+- `LIST [field]` — bullet list of links, optional extra field per item
+- `TABLE [field1, field2 AS "Alias", ...]` — markdown table with columns
+- `TASK` — checkbox list of tasks
+
+Modifiers:
+- `WITHOUT ID` — suppress the auto file link (LIST: plain text; TABLE: no File column; TASK: no doc path)
+- `field AS "Alias"` — custom column header (TABLE only)
+
+Clauses (order-independent, after format keyword):
 - `FROM /folder` — filter by folder prefix
 - `WHERE labels CONTAIN "value"` — filter by label
 - `WHERE doc_type = "value"` — filter by document type
 - `WHERE mime_type = "value"` — filter by MIME type
-- `SORT field ASC|DESC` — sort by `updated_at`, `created_at`, or `path`
-- `LIMIT n` — max results (default varies)
-- `SHOW field1, field2, ...` — columns for list/table output
-- `FORMAT list|table` — output format (default: list)
+- `WHERE status = "open"` — filter tasks by status (TASK only)
+- `WHERE due_before = "YYYY-MM-DD"` — tasks due before date (TASK only)
+- `WHERE due_after = "YYYY-MM-DD"` — tasks due after date (TASK only)
+- `SORT field ASC|DESC` — sort by `updated_at`, `created_at`, or `path` (LIST/TABLE only)
+- `LIMIT n` — max results (default: 50)
 
 Both ` ``` ` and `~~~` fence styles are supported.
 

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/raphi011/know/internal/apiclient"
@@ -33,7 +32,7 @@ type searchModel struct {
 	width   int
 	height  int
 
-	input       textinput.Model
+	filterBar   FilterBar
 	searching   bool
 	statusErr   string
 	debounceSeq int
@@ -49,18 +48,12 @@ var (
 )
 
 func newSearchModel(client *apiclient.Client, vaultID string) searchModel {
-	ti := textinput.New()
-	ti.Placeholder = "Search documents..."
-	ti.CharLimit = 256
-	ti.Prompt = "/ "
-
-	styles := ti.Styles()
-	styles.Cursor.Blink = false
-	styles.Focused.Prompt = pick.PromptStyle
-	ti.SetStyles(styles)
-
 	return searchModel{
-		input:   ti,
+		filterBar: NewFilterBar(FilterBarConfig{
+			SupportedKeys: []string{"label"},
+			Placeholder:   "Search documents...",
+			Hints:         "label:<name>",
+		}),
 		client:  client,
 		vaultID: vaultID,
 	}
@@ -69,7 +62,7 @@ func newSearchModel(client *apiclient.Client, vaultID string) searchModel {
 func (s searchModel) doSearch() tea.Cmd {
 	client := s.client
 	vaultID := s.vaultID
-	query := s.input.Value()
+	query := s.filterBar.Result().Query
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -89,10 +82,10 @@ func (s *searchModel) ensureCursorVisible() {
 }
 
 func (s searchModel) visibleRows() int {
-	// input (1) + count line (1) + footer (1) = 3 lines overhead
+	// filterbar + count line (1) + footer (1) = overhead
 	// Each result takes 2 lines (path+title, snippet).
-	rows := max((s.height-3)/2, 1)
-	return rows
+	overhead := s.filterBar.HeightLines() + 2
+	return max((s.height-overhead)/2, 1)
 }
 
 func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
@@ -100,7 +93,7 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	case searchResultsMsg:
 		s.searching = false
 		// Discard stale responses from superseded queries.
-		if msg.query != s.input.Value() {
+		if msg.query != s.filterBar.Result().Query {
 			return s, nil
 		}
 		if msg.err != nil {
@@ -119,7 +112,7 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 		if msg.seq != s.debounceSeq {
 			return s, nil // stale tick
 		}
-		query := s.input.Value()
+		query := s.filterBar.Result().Query
 		if query == "" {
 			return s, nil
 		}
@@ -139,7 +132,7 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 				}
 			}
 			// Otherwise trigger immediate search if we have a query.
-			if s.input.Value() != "" {
+			if s.filterBar.Result().Query != "" {
 				s.debounceSeq++ // cancel pending debounce
 				s.searching = true
 				return s, s.doSearch()
@@ -170,14 +163,14 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 		}
 	}
 
-	// Delegate remaining keys to text input.
-	prev := s.input.Value()
+	// Delegate remaining keys to filterBar.
+	prev := s.filterBar.Value()
 	var cmd tea.Cmd
-	s.input, cmd = s.input.Update(msg)
+	s.filterBar, cmd = s.filterBar.Update(msg)
 
-	if s.input.Value() != prev {
+	if s.filterBar.Value() != prev {
 		// Input changed — clear results if query is now empty, otherwise debounce.
-		if s.input.Value() == "" {
+		if s.filterBar.Result().Query == "" {
 			s.results = nil
 			s.lastQuery = ""
 			s.searching = false
@@ -197,13 +190,13 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 func (s searchModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(s.input.View())
+	b.WriteString(s.filterBar.View())
 	b.WriteString("\n")
 
 	// Count / status line
 	if s.searching {
 		b.WriteString(pick.CountStyle.Render("  Searching..."))
-	} else if s.input.Value() == "" {
+	} else if s.filterBar.Result().Query == "" {
 		b.WriteString(pick.CountStyle.Render("  Type to search documents"))
 	} else if len(s.results) == 0 {
 		b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  No results for %q", s.lastQuery)))

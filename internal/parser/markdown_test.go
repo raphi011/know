@@ -450,7 +450,7 @@ func TestParseMarkdown_MentionInsideCodeBlock(t *testing.T) {
 }
 
 func TestParseMarkdown_QueryBlockViaAST(t *testing.T) {
-	content := "# Doc\n\n```know\nFROM /daily\nWHERE labels CONTAIN \"work\"\n```\n\nSome text.\n\n```python\nprint('hello')\n```"
+	content := "# Doc\n\n```know\nLIST\nFROM /daily\nWHERE labels CONTAIN \"work\"\n```\n\nSome text.\n\n```python\nprint('hello')\n```"
 
 	doc := ParseMarkdown(content)
 
@@ -531,8 +531,8 @@ func TestParseMarkdown_ClosedFrontmatterPreservesStructure(t *testing.T) {
 }
 
 func TestParseMarkdown_QueryBlockAtDocumentStart(t *testing.T) {
-	// Fenced code block at byte 0 — tests findFenceStart edge case.
-	content := "```know\nFROM /daily\n```\n\nSome text."
+	// Fenced code block at byte 0 — tests Pos() at document start.
+	content := "```know\nLIST FROM /daily\n```\n\nSome text."
 
 	doc := ParseMarkdown(content)
 
@@ -545,7 +545,7 @@ func TestParseMarkdown_QueryBlockAtDocumentStart(t *testing.T) {
 }
 
 func TestParseMarkdown_MultipleQueryBlocks(t *testing.T) {
-	content := "# Doc\n\n```know\nFROM /daily\n```\n\nMiddle text.\n\n```know\nFROM /work\nWHERE labels CONTAIN \"urgent\"\n```"
+	content := "# Doc\n\n```know\nLIST FROM /daily\n```\n\nMiddle text.\n\n```know\nLIST FROM /work\nWHERE labels CONTAIN \"urgent\"\n```"
 
 	doc := ParseMarkdown(content)
 

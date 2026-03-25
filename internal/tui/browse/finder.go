@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"slices"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/tui/pick"
@@ -16,12 +18,19 @@ type fileSelectedMsg struct {
 
 type finderModel struct {
 	picker    pick.Model
+	allFiles  []models.FileEntry // original unfiltered list
+	supported map[string]bool
 	statusErr string
 }
 
 func newFinder(files []models.FileEntry) finderModel {
 	return finderModel{
-		picker: pick.NewModel(files),
+		picker:   pick.NewModel(files),
+		allFiles: files,
+		supported: map[string]bool{
+			"label": true,
+			"from":  true,
+		},
 	}
 }
 
@@ -53,8 +62,51 @@ func (f finderModel) Update(msg tea.Msg) (finderModel, tea.Cmd) {
 	f.picker = updated.(pick.Model)
 	if f.picker.Input.Value() != prev {
 		f.statusErr = ""
+		f.applyFilters()
 	}
 	return f, cmd
+}
+
+// applyFilters pre-filters allFiles based on structured filter tokens in the
+// picker input, then updates picker.AllFiles and re-runs fuzzy matching.
+func (f *finderModel) applyFilters() {
+	result := parseFilterInput(f.picker.Input.Value(), f.supported)
+
+	if len(result.Filters) == 0 {
+		f.picker.AllFiles = f.allFiles
+		f.picker.Refilter()
+		return
+	}
+
+	var filtered []models.FileEntry
+	for _, file := range f.allFiles {
+		if f.matchesFilters(file, result) {
+			filtered = append(filtered, file)
+		}
+	}
+	f.picker.AllFiles = filtered
+	f.picker.Refilter()
+}
+
+// matchesFilters returns true if a file satisfies all structured filters.
+func (f *finderModel) matchesFilters(file models.FileEntry, result FilterResult) bool {
+	// from: filter by path prefix
+	if from := result.Filter("from"); from != "" {
+		if !strings.HasPrefix(file.Path, from) {
+			return false
+		}
+	}
+
+	// label: filter by label — all specified labels must be present
+	if labels := result.FilterAll("label"); len(labels) > 0 {
+		for _, label := range labels {
+			if !slices.Contains(file.Labels, label) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func (f finderModel) View() string {
