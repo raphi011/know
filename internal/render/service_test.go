@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/raphi011/know/internal/models"
+	"github.com/raphi011/know/internal/parser"
 )
 
 func TestFindFencedBlockEnd(t *testing.T) {
@@ -105,7 +106,7 @@ func TestRenderList(t *testing.T) {
 		modelFiles = append(modelFiles, models.File{Title: f.title, Path: f.path})
 	}
 
-	result := renderList(modelFiles, []string{"title", "path"})
+	result := renderList(modelFiles, nil, false)
 	if !strings.Contains(result, "[My Note](/notes/my-note.md)") {
 		t.Errorf("expected link to My Note, got: %s", result)
 	}
@@ -119,7 +120,12 @@ func TestRenderTable(t *testing.T) {
 		{Title: "A", Path: "/a.md", MimeType: "text/markdown"},
 	}
 
-	result := renderTable(modelFiles, []string{"title", "path", "mime_type"})
+	fields := []parser.ShowField{
+		{Name: "title"},
+		{Name: "path"},
+		{Name: "mime_type"},
+	}
+	result := renderTable(modelFiles, fields, true)
 	if !strings.Contains(result, "| title |") {
 		t.Errorf("expected header row, got: %s", result)
 	}

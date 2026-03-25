@@ -32,19 +32,19 @@ Any other frontmatter keys (e.g. `summary`, `verified`) are stored as generic me
 
 ## Query Blocks
 
-Documents can embed live queries using an inline DSL inside `know` code blocks:
+Documents can embed live queries using an inline DSL inside `know` code blocks. Queries must start with a format keyword (`LIST`, `TABLE`, or `TASK`):
 
 ````markdown
 ```know
+TABLE title, summary AS "Summary"
 FROM /projects
 WHERE labels CONTAINS "active"
-SHOW title, summary
 SORT title ASC
 LIMIT 10
 ```
 ````
 
-Output format depends on the number of `SHOW` fields: 1-2 fields render as a list, 3+ fields render as a table.
+See [Query Blocks in feature-render.md](feature-render.md#query-blocks) for full syntax reference.
 
 ## Graceful Degradation
 

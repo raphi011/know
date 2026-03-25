@@ -5,7 +5,7 @@ import (
 )
 
 func TestExtractQueryBlocks_SingleBlock(t *testing.T) {
-	content := "# My Doc\n\nSome text.\n\n```know\nFROM /projects\nWHERE labels CONTAIN \"go\"\nSHOW title, labels, updated_at\nSORT updated_at DESC\nLIMIT 10\n```\n\nMore text."
+	content := "# My Doc\n\nSome text.\n\n```know\nTABLE title, labels, updated_at\nFROM /projects\nWHERE labels CONTAIN \"go\"\nSORT updated_at DESC\nLIMIT 10\n```\n\nMore text."
 
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
@@ -13,6 +13,7 @@ func TestExtractQueryBlocks_SingleBlock(t *testing.T) {
 	}
 
 	b := blocks[0]
+	assertNoError(t, b)
 	if b.Folder == nil || *b.Folder != "/projects" {
 		t.Errorf("folder = %v, want /projects", b.Folder)
 	}
@@ -22,10 +23,10 @@ func TestExtractQueryBlocks_SingleBlock(t *testing.T) {
 	if b.Conditions[0].Field != "labels" || b.Conditions[0].Op != OpContain || b.Conditions[0].Value != "go" {
 		t.Errorf("condition = %+v", b.Conditions[0])
 	}
-	if len(b.ShowFields) != 3 || b.ShowFields[0] != "title" {
-		t.Errorf("show = %v", b.ShowFields)
+	if len(b.Fields) != 3 || b.Fields[0].Name != "title" {
+		t.Errorf("fields = %v", b.Fields)
 	}
-	if b.SortField != "updated_at" || b.SortDesc != true {
+	if b.SortField != "updated_at" || !b.SortDesc {
 		t.Errorf("sort = %s desc=%v", b.SortField, b.SortDesc)
 	}
 	if b.Limit != 10 {
@@ -42,7 +43,7 @@ func TestExtractQueryBlocks_NoBlocks(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_MultipleBlocks(t *testing.T) {
-	content := "```know\nFROM /a\n```\n\ntext\n\n```know\nWHERE type = \"note\"\nSHOW title, path, labels\n```"
+	content := "```know\nLIST FROM /a\n```\n\ntext\n\n```know\nTABLE title, path, labels\nWHERE doc_type = \"note\"\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
@@ -56,17 +57,16 @@ func TestExtractQueryBlocks_MultipleBlocks(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_DefaultValues(t *testing.T) {
-	content := "```know\nFROM /docs\n```"
+	content := "```know\nLIST FROM /docs\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
 	b := blocks[0]
-	// Defaults: SHOW title,path; SORT title ASC; LIMIT 50
-	if len(b.ShowFields) != 2 || b.ShowFields[0] != "title" || b.ShowFields[1] != "path" {
-		t.Errorf("default show = %v, want [title path]", b.ShowFields)
+	if len(b.Fields) != 0 {
+		t.Errorf("default fields = %v, want empty", b.Fields)
 	}
-	if b.SortField != "title" || b.SortDesc != false {
+	if b.SortField != "title" || b.SortDesc {
 		t.Errorf("default sort = %s desc=%v", b.SortField, b.SortDesc)
 	}
 	if b.Limit != 50 {
@@ -75,7 +75,7 @@ func TestExtractQueryBlocks_DefaultValues(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_WhereConditions(t *testing.T) {
-	content := "```know\nWHERE labels CONTAIN \"go\"\nWHERE type = \"note\"\nWHERE title CONTAINS \"setup\"\n```"
+	content := "```know\nLIST\nWHERE labels CONTAIN \"go\"\nWHERE doc_type = \"note\"\nWHERE title CONTAINS \"setup\"\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
@@ -101,9 +101,9 @@ func TestExtractQueryBlocks_FormatDetection(t *testing.T) {
 		content string
 		want    QueryFormat
 	}{
-		{"no SHOW = list", "```know\nFROM /a\n```", FormatList},
-		{"2 fields = list", "```know\nSHOW title, path\n```", FormatList},
-		{"3+ fields = table", "```know\nSHOW title, path, labels\n```", FormatTable},
+		{"LIST format", "```know\nLIST FROM /a\n```", FormatList},
+		{"TABLE format", "```know\nTABLE title, path\n```", FormatTable},
+		{"TASK format", "```know\nTASK\n```", FormatTask},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,12 +130,11 @@ func TestExtractQueryBlocks_MalformedBlock(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_IndexTracking(t *testing.T) {
-	content := "prefix\n\n```know\nFROM /a\n```"
+	content := "prefix\n\n```know\nLIST FROM /a\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	// Index should be byte offset of the opening ```
 	expected := len("prefix\n\n")
 	if blocks[0].Index != expected {
 		t.Errorf("index = %d, want %d", blocks[0].Index, expected)
