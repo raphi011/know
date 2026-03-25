@@ -64,22 +64,7 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 	// Use the parser's extracted tasks to find the matching line. This avoids
 	// hash mismatches between AST-derived text (used at extraction time) and
 	// raw line text (which retains markdown syntax like [[wiki-links]]).
-	// When multiple tasks share the same ContentHash (identical text), prefer
-	// the one closest to the recorded line number.
-	toggleLine := -1
-	bestDist := int(^uint(0) >> 1) // max int
-	for _, pt := range parsed.Tasks {
-		if pt.ContentHash == task.ContentHash {
-			dist := pt.LineNumber - task.LineNumber
-			if dist < 0 {
-				dist = -dist
-			}
-			if dist < bestDist {
-				bestDist = dist
-				toggleLine = pt.LineNumber
-			}
-		}
-	}
+	toggleLine := findToggleLine(parsed.Tasks, task.ContentHash, task.LineNumber)
 
 	if toggleLine <= 0 || toggleLine > len(lines) {
 		return nil, fmt.Errorf("could not find checkbox for task %s in file %s", taskID, doc.Path)
@@ -89,7 +74,11 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 	if toggleLine != task.LineNumber {
 		logger.Info("toggle: task line drifted", "expected", task.LineNumber, "found", toggleLine, "task_id", taskID)
 	}
-	lines[idx] = flipCheckbox(lines[idx])
+	newLine := flipCheckbox(lines[idx])
+	if newLine == lines[idx] {
+		return nil, fmt.Errorf("line %d in file %s is not a checkbox", toggleLine, doc.Path)
+	}
+	lines[idx] = newLine
 
 	// Reconstruct full content: contentBody is always a suffix of rawContent.
 	newBody := strings.Join(lines, "\n")
@@ -121,6 +110,28 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 		return nil, fmt.Errorf("task %s not found after toggle — file may have been concurrently modified", taskID)
 	}
 	return updated, nil
+}
+
+// findToggleLine returns the 1-based line number of the task to toggle.
+// When multiple tasks share the same ContentHash (identical text), it picks
+// the one closest to expectedLine. Returns -1 if no match is found.
+func findToggleLine(tasks []parser.ExtractedTask, contentHash string, expectedLine int) int {
+	best := -1
+	bestDist := int(^uint(0) >> 1) // max int
+	for _, pt := range tasks {
+		if pt.ContentHash != contentHash {
+			continue
+		}
+		dist := pt.LineNumber - expectedLine
+		if dist < 0 {
+			dist = -dist
+		}
+		if dist < bestDist {
+			bestDist = dist
+			best = pt.LineNumber
+		}
+	}
+	return best
 }
 
 // flipCheckbox flips `- [ ]` to `- [x]` or vice versa.

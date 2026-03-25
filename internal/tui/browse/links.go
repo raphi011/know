@@ -421,13 +421,8 @@ func (l linksModel) View() string {
 		m := l.matches[i]
 		entry := l.filtered[m.Index]
 
-		prefix := "  "
 		selected := i == l.cursor && listFocused
-		if selected {
-			prefix = pick.SelectedStyle.Render("> ")
-		} else if i == l.cursor {
-			prefix = pick.CursorDimStyle.Render("> ")
-		}
+		prefix := pick.CursorPrefix(i == l.cursor, listFocused)
 
 		// Title or path
 		title := entry.Title

@@ -35,3 +35,14 @@ var (
 	CursorDimStyle = lipgloss.NewStyle().
 			Foreground(MutedColor)
 )
+
+// CursorPrefix returns a styled cursor prefix based on selection and focus state.
+func CursorPrefix(selected, focused bool) string {
+	if selected && focused {
+		return SelectedStyle.Render("> ")
+	}
+	if selected {
+		return CursorDimStyle.Render("> ")
+	}
+	return "  "
+}

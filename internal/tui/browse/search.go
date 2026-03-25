@@ -262,6 +262,8 @@ func (s searchModel) View() string {
 	// for the current input, not during the debounce period.
 	if !s.hasSearchInput() {
 		b.WriteString(pick.CountStyle.Render("  Type to search documents"))
+	} else if s.searching {
+		b.WriteString(pick.CountStyle.Render("  Searching..."))
 	} else if len(s.results) > 0 {
 		b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d results", len(s.results))))
 	} else if s.searched {
@@ -276,13 +278,8 @@ func (s searchModel) View() string {
 	for i := s.offset; i < end; i++ {
 		result := s.results[i]
 
-		prefix := "  "
 		selected := i == s.cursor && listFocused
-		if selected {
-			prefix = pick.SelectedStyle.Render("> ")
-		} else if i == s.cursor {
-			prefix = pick.CursorDimStyle.Render("> ")
-		}
+		prefix := pick.CursorPrefix(i == s.cursor, listFocused)
 
 		// Line 1: path
 		path := result.Path

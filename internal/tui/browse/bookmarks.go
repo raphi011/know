@@ -257,12 +257,7 @@ func (b bookmarksModel) View() string {
 	for i := b.offset; i < end; i++ {
 		item := b.filtered[i]
 
-		prefix := "  "
-		if i == b.cursor && listFocused {
-			prefix = pick.SelectedStyle.Render("> ")
-		} else if i == b.cursor {
-			prefix = pick.CursorDimStyle.Render("> ")
-		}
+		prefix := pick.CursorPrefix(i == b.cursor, listFocused)
 
 		if item.Title != "" {
 			title := item.Title

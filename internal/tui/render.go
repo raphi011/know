@@ -16,6 +16,12 @@ import (
 
 const maxTextWidth = 120
 
+// textWidth computes the effective text column width given a terminal width.
+// Reserves 4 columns for padding and clamps to [20, maxTextWidth].
+func textWidth(termWidth int) int {
+	return max(min(termWidth-4, maxTextWidth), 20)
+}
+
 // PartType distinguishes the kind of content in a streaming response.
 type PartType int
 
@@ -155,7 +161,7 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 // Inserts a blank line when transitioning from tool calls to text.
 // width is the terminal width used to cap line length.
 func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []ContentPart, width int) {
-	w := max(min(width-4, maxTextWidth), 20)
+	w := textWidth(width)
 	prevType := PartType(-1)
 	for _, p := range parts {
 		switch p.Type {
@@ -193,7 +199,7 @@ func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, widt
 // renderUserMessage renders a user message with role label and optional attachment indicators.
 // width is the terminal width used to cap line length.
 func renderUserMessage(content string, attachments []Attachment, width int) string {
-	w := max(min(width-4, maxTextWidth), 20)
+	w := textWidth(width)
 	var sb strings.Builder
 	sb.WriteString("\n")
 	sb.WriteString(userRoleStyle.Render("you"))

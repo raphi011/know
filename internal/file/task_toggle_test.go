@@ -2,7 +2,94 @@ package file
 
 import (
 	"testing"
+
+	"github.com/raphi011/know/internal/parser"
 )
+
+func TestFindToggleLine(t *testing.T) {
+	tests := []struct {
+		name         string
+		tasks        []parser.ExtractedTask
+		contentHash  string
+		expectedLine int
+		want         int
+	}{
+		{
+			name: "exact match at expected line",
+			tasks: []parser.ExtractedTask{
+				{ContentHash: "abc", LineNumber: 5},
+			},
+			contentHash:  "abc",
+			expectedLine: 5,
+			want:         5,
+		},
+		{
+			name: "single match at drifted line",
+			tasks: []parser.ExtractedTask{
+				{ContentHash: "abc", LineNumber: 8},
+			},
+			contentHash:  "abc",
+			expectedLine: 5,
+			want:         8,
+		},
+		{
+			name: "multiple matches picks nearest",
+			tasks: []parser.ExtractedTask{
+				{ContentHash: "abc", LineNumber: 2},
+				{ContentHash: "abc", LineNumber: 10},
+				{ContentHash: "abc", LineNumber: 6},
+			},
+			contentHash:  "abc",
+			expectedLine: 5,
+			want:         6,
+		},
+		{
+			name: "no matches returns -1",
+			tasks: []parser.ExtractedTask{
+				{ContentHash: "xyz", LineNumber: 5},
+			},
+			contentHash:  "abc",
+			expectedLine: 5,
+			want:         -1,
+		},
+		{
+			name:         "empty tasks returns -1",
+			tasks:        nil,
+			contentHash:  "abc",
+			expectedLine: 1,
+			want:         -1,
+		},
+		{
+			name: "equidistant picks first encountered",
+			tasks: []parser.ExtractedTask{
+				{ContentHash: "abc", LineNumber: 3},
+				{ContentHash: "abc", LineNumber: 7},
+			},
+			contentHash:  "abc",
+			expectedLine: 5,
+			want:         3, // dist=2 for both, first wins
+		},
+		{
+			name: "ignores non-matching hashes",
+			tasks: []parser.ExtractedTask{
+				{ContentHash: "other", LineNumber: 5},
+				{ContentHash: "abc", LineNumber: 10},
+			},
+			contentHash:  "abc",
+			expectedLine: 5,
+			want:         10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findToggleLine(tt.tasks, tt.contentHash, tt.expectedLine)
+			if got != tt.want {
+				t.Errorf("findToggleLine() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestFlipCheckbox(t *testing.T) {
 	tests := []struct {

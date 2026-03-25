@@ -446,12 +446,7 @@ func (t tasksModel) viewGrouped(sb *strings.Builder, visible int) {
 			sb.WriteString("  " + lipgloss.NewStyle().Bold(true).Render(row.docPath))
 		} else {
 			selected := row.taskIdx == t.cursor
-			prefix := "    "
-			if selected && listFocused {
-				prefix = "  " + pick.SelectedStyle.Render("> ")
-			} else if selected {
-				prefix = "  " + pick.CursorDimStyle.Render("> ")
-			}
+			prefix := "  " + pick.CursorPrefix(selected, listFocused)
 			sb.WriteString(prefix + renderTaskRow(row.task, selected))
 		}
 		sb.WriteString("\n")
@@ -514,12 +509,7 @@ func (t tasksModel) View() string {
 			task := t.filtered[i]
 			selected := i == t.cursor
 
-			cursor := "  "
-			if selected && listFocused {
-				cursor = pick.SelectedStyle.Render("> ")
-			} else if selected {
-				cursor = pick.CursorDimStyle.Render("> ")
-			}
+			cursor := pick.CursorPrefix(selected, listFocused)
 
 			// Doc path (filename only)
 			docName := ""
