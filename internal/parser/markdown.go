@@ -330,16 +330,11 @@ func (w *astWalker) visitList(n *ast.List) {
 }
 
 func (w *astWalker) extractTask(listItem *ast.ListItem, checkbox *east.TaskCheckBox) {
-	// Get the line number from the list item.
+	// Get the line number from the list item's position (goldmark v1.8.1+ sets
+	// Pos() correctly on all block nodes including list items).
 	var lineNum int
-	if lines := listItem.Lines(); lines.Len() > 0 {
-		lineNum = lineNumber(w.source, lines.At(0).Start)
-	} else if listItem.ChildCount() > 0 {
-		// ListItem may not have direct lines; check first child (paragraph).
-		firstChild := listItem.FirstChild()
-		if lines := firstChild.Lines(); lines.Len() > 0 {
-			lineNum = lineNumber(w.source, lines.At(0).Start)
-		}
+	if pos := listItem.Pos(); pos >= 0 {
+		lineNum = lineNumber(w.source, pos)
 	}
 
 	// Reconstruct the raw line from source
@@ -405,14 +400,9 @@ func (w *astWalker) visitFencedCodeBlock(n *ast.FencedCodeBlock) {
 			rawQuery.Write(line.Value(w.source))
 		}
 
-		// Compute byte offset of the opening ``` in source.
-		var offset int
-		if lines.Len() > 0 {
-			// The fence line starts before the first content line.
-			// Walk backwards from the first line's start to find the fence.
-			firstLineStart := lines.At(0).Start
-			offset = findFenceStart(w.source, firstLineStart)
-		}
+		// Byte offset of the opening ``` fence (goldmark v1.8.1+ sets Pos()
+		// correctly on fenced code blocks).
+		offset := n.Pos()
 
 		block := parseQueryBlock(rawQuery.String())
 		block.Index = offset
@@ -539,24 +529,6 @@ func extractRawLine(source []byte, lineNum int) string {
 		end++
 	}
 	return string(source[start:end])
-}
-
-// findFenceStart walks backwards from a content line to find the opening ``` offset.
-func findFenceStart(source []byte, contentStart int) int {
-	// Go back to find the start of the fence line (```know\n)
-	i := contentStart - 1
-	// Skip past the \n
-	for i >= 0 && source[i] == '\n' {
-		i--
-	}
-	// Find the start of that line
-	for i > 0 && source[i-1] != '\n' {
-		i--
-	}
-	if i < 0 {
-		i = 0
-	}
-	return i
 }
 
 // extractMentions finds @mentions in text content.

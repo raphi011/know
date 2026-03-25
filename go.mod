@@ -34,7 +34,7 @@ require (
 	github.com/tmc/langchaingo v0.1.14
 	github.com/vincent-petithory/dataurl v1.0.0
 	github.com/willscott/go-nfs v0.0.3
-	github.com/yuin/goldmark v1.8.0
+	github.com/yuin/goldmark v1.8.2
 	github.com/zalando/go-keyring v0.2.6
 	go.abhg.dev/goldmark/frontmatter v0.3.0
 	go.abhg.dev/goldmark/wikilink v0.6.0

@@ -531,7 +531,7 @@ func TestParseMarkdown_ClosedFrontmatterPreservesStructure(t *testing.T) {
 }
 
 func TestParseMarkdown_QueryBlockAtDocumentStart(t *testing.T) {
-	// Fenced code block at byte 0 — tests findFenceStart edge case.
+	// Fenced code block at byte 0 — tests Pos() at document start.
 	content := "```know\nLIST FROM /daily\n```\n\nSome text."
 
 	doc := ParseMarkdown(content)
