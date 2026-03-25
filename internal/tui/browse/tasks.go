@@ -3,6 +3,7 @@ package browse
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path"
 	"slices"
 	"strings"
@@ -59,7 +60,7 @@ func newTasksModel(client *apiclient.Client, vaultID string) tasksModel {
 func (t tasksModel) loadTasks() tea.Cmd {
 	client := t.client
 	vaultID := t.vaultID
-	filter := t.buildFilter()
+	filter, _ := t.buildFilter()
 	return func() tea.Msg {
 		resp, err := client.ListTasks(context.Background(), vaultID, filter)
 		if err != nil {
@@ -70,9 +71,11 @@ func (t tasksModel) loadTasks() tea.Cmd {
 }
 
 // buildFilter maps the current FilterBar result to an apiclient.TaskFilter.
-func (t tasksModel) buildFilter() apiclient.TaskFilter {
+// Returns an error message if an unrecognized filter value is used.
+func (t tasksModel) buildFilter() (apiclient.TaskFilter, string) {
 	r := t.filterBar.Result()
 	f := apiclient.TaskFilter{}
+	var filterErr string
 	if v := r.Filter("status"); v != "" {
 		f.Status = v
 	}
@@ -91,10 +94,12 @@ func (t tasksModel) buildFilter() apiclient.TaskFilter {
 			f.DueBefore = now.AddDate(0, 0, 7).Format("2006-01-02")
 		case "overdue":
 			f.DueBefore = today
+		default:
+			filterErr = fmt.Sprintf("Unknown due:%s (use today, week, or overdue)", v)
 		}
 	}
 	f.Labels = r.FilterAll("label")
-	return f
+	return f, filterErr
 }
 
 // applyFilter applies fuzzy text matching and re-sorts filtered tasks.
@@ -248,10 +253,13 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 		}
 
 		// Delegate remaining keys to filterBar.
-		prevFilter := t.buildFilter()
+		prevFilter, _ := t.buildFilter()
 		var cmd tea.Cmd
 		t.filterBar, cmd = t.filterBar.Update(msg)
-		newFilter := t.buildFilter()
+		newFilter, filterErr := t.buildFilter()
+
+		// Show filter validation errors.
+		t.statusErr = filterErr
 
 		// If structured filters changed, re-fetch from API.
 		if !filtersEqual(prevFilter, newFilter) {
@@ -266,6 +274,7 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 }
 
 // filtersEqual compares two TaskFilter structs for equality (ignores query text).
+// NOTE: update this function when adding new fields to TaskFilter.
 func filtersEqual(a, b apiclient.TaskFilter) bool {
 	if a.Status != b.Status || a.Path != b.Path || a.DueAfter != b.DueAfter || a.DueBefore != b.DueBefore {
 		return false
@@ -285,6 +294,7 @@ func filtersEqual(a, b apiclient.TaskFilter) bool {
 func isOverdue(dueDate string) bool {
 	t, err := time.Parse("2006-01-02", dueDate)
 	if err != nil {
+		slog.Debug("invalid due date format", "due_date", dueDate, "error", err)
 		return false
 	}
 	return t.Before(time.Now().Truncate(24 * time.Hour))
@@ -294,6 +304,7 @@ func isOverdue(dueDate string) bool {
 func isDueSoon(dueDate string) bool {
 	t, err := time.Parse("2006-01-02", dueDate)
 	if err != nil {
+		slog.Debug("invalid due date format", "due_date", dueDate, "error", err)
 		return false
 	}
 	return t.Before(time.Now().AddDate(0, 0, 7).Truncate(24 * time.Hour))
@@ -351,6 +362,8 @@ var (
 )
 
 // taskRow represents a single visual row in the grouped tasks view.
+// When isHeader is true, only docPath is valid (task is nil).
+// When isHeader is false, only task and taskIdx are valid (docPath is unused).
 type taskRow struct {
 	isHeader bool
 	docPath  string

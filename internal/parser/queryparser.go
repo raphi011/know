@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type queryParser struct {
@@ -26,7 +27,7 @@ func (p *queryParser) advance() {
 
 func (p *queryParser) expect(typ tokenType) (token, error) {
 	if p.cur.typ != typ {
-		return p.cur, fmt.Errorf("expected %s, got %q", tokenName(typ), p.cur.val)
+		return p.cur, fmt.Errorf("expected %s, got %q", typ, p.cur.val)
 	}
 	tok := p.cur
 	p.advance()
@@ -223,7 +224,7 @@ func (p *queryParser) parseWhere(block *QueryBlock) error {
 	if p.cur.typ != tokIDENT {
 		return fmt.Errorf("expected field name after WHERE, got %q", p.cur.val)
 	}
-	field := p.cur.val
+	field := strings.ToLower(p.cur.val)
 	p.advance()
 
 	var cond Condition
@@ -256,7 +257,7 @@ func (p *queryParser) parseSort(block *QueryBlock) error {
 	if p.cur.typ != tokIDENT {
 		return fmt.Errorf("expected field name after SORT, got %q", p.cur.val)
 	}
-	block.SortField = p.cur.val
+	block.SortField = strings.ToLower(p.cur.val)
 	p.advance()
 
 	switch p.cur.typ {
@@ -287,8 +288,8 @@ func (p *queryParser) parseLimit(block *QueryBlock) error {
 	return nil
 }
 
-func tokenName(typ tokenType) string {
-	switch typ {
+func (t tokenType) String() string {
+	switch t {
 	case tokInvalid:
 		return "INVALID"
 	case tokLIST:

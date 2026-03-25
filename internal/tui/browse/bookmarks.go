@@ -3,6 +3,7 @@ package browse
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -67,14 +68,23 @@ func (b bookmarksModel) loadBookmarks() tea.Cmd {
 // storing results in filtered.
 func (b *bookmarksModel) applyFilter() {
 	result := b.filterBar.Result()
-	labelFilter := result.Filter("label")
+	labels := result.FilterAll("label")
 	query := strings.ToLower(result.Query)
 
 	filtered := make([]models.FileEntry, 0, len(b.allItems))
 	for _, item := range b.allItems {
-		// Label filter: skip items whose path doesn't contain the label token.
-		if labelFilter != "" && !strings.Contains(strings.ToLower(item.Path), strings.ToLower(labelFilter)) {
-			continue
+		// Label filter: all specified labels must be present.
+		if len(labels) > 0 {
+			matched := true
+			for _, label := range labels {
+				if !slices.Contains(item.Labels, label) {
+					matched = false
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
 		// Text match on title or path.
 		if query != "" {

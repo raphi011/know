@@ -6,6 +6,7 @@ import (
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 
+	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 )
@@ -245,6 +246,32 @@ func TestRenderTaskList_WithoutID(t *testing.T) {
 	}
 	if !strings.Contains(result, "<!-- task:t1 -->") {
 		t.Errorf("expected task ID comment even with withoutID=true, got: %s", result)
+	}
+}
+
+func TestQueryBlockOrderBy(t *testing.T) {
+	tests := []struct {
+		name      string
+		sortField string
+		sortDesc  bool
+		want      db.FileOrderBy
+	}{
+		{"default path", "path", false, db.OrderByPathAsc},
+		{"updated_at desc", "updated_at", true, db.OrderByUpdatedAtDesc},
+		{"updated_at asc", "updated_at", false, db.OrderByUpdatedAtAsc},
+		{"created_at desc", "created_at", true, db.OrderByCreatedAtDesc},
+		{"created_at asc falls back to path", "created_at", false, db.OrderByPathAsc},
+		{"unknown field", "title", false, db.OrderByPathAsc},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			qb := parser.QueryBlock{SortField: tt.sortField, SortDesc: tt.sortDesc}
+			got := queryBlockOrderBy(qb)
+			if got != tt.want {
+				t.Errorf("queryBlockOrderBy() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

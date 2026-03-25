@@ -6,6 +6,7 @@ package render
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -103,15 +104,18 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 	}
 	queryBlocks := parser.ExtractQueryBlocks(content)
 	for _, qb := range queryBlocks {
-		if qb.Error != "" {
-			logger.Info("render: query block parse error", "error", qb.Error)
-			continue
-		}
+		var rendered string
 
-		rendered, err := s.executeQueryBlock(ctx, vaultID, qb)
-		if err != nil {
-			logger.Warn("render: query block execution failed", "error", err)
-			continue
+		if qb.Error != "" {
+			logger.Warn("render: query block parse error", "error", qb.Error)
+			rendered = fmt.Sprintf("**Query error:** %s\n", qb.Error)
+		} else {
+			var err error
+			rendered, err = s.executeQueryBlock(ctx, vaultID, qb)
+			if err != nil {
+				logger.Warn("render: query block execution failed", "error", err)
+				rendered = fmt.Sprintf("**Query error:** %s\n", err)
+			}
 		}
 
 		// Find the end of the fenced code block (closing ```).
@@ -344,7 +348,11 @@ func renderTaskList(tasks []models.TaskWithDoc, withoutID bool) string {
 			sb.WriteString(fmt.Sprintf(" — *%s*", t.DocPath))
 		}
 
-		if taskID, err := models.RecordIDString(t.ID); err == nil && taskID != "" {
+		if taskID, err := models.RecordIDString(t.ID); err != nil {
+			// Zero-value RecordID is expected for tasks without a persisted ID.
+			// Non-zero IDs that fail extraction indicate a bug in ID handling.
+			slog.Debug("render: failed to extract task ID", "error", err)
+		} else if taskID != "" {
 			sb.WriteString(fmt.Sprintf("<!-- task:%s -->", taskID))
 		}
 

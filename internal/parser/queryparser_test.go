@@ -126,6 +126,7 @@ func TestParseQueryBlock_Errors(t *testing.T) {
 		{"duplicate SORT", "LIST SORT title SORT path"},
 		{"duplicate LIMIT", "LIST LIMIT 5 LIMIT 10"},
 		{"unexpected token", "LIST FROM /a GARBAGE"},
+		{"LIMIT zero", "LIST LIMIT 0"},
 		{"unterminated string", `LIST WHERE title = "hello`},
 	}
 	for _, tt := range tests {
