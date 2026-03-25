@@ -52,6 +52,7 @@ type Model struct {
 	links     linksModel
 	bookmarks bookmarksModel
 	tags      tagsModel
+	tasks     tasksModel
 	viewer    viewerModel
 	client    *apiclient.Client
 	vaultID   string
@@ -100,6 +101,7 @@ func NewModel(client *apiclient.Client, vaultID string, files []models.FileEntry
 		links:        newLinksModel(client, vaultID),
 		bookmarks:    newBookmarksModel(client, vaultID),
 		tags:         newTagsModel(client, vaultID),
+		tasks:        newTasksModel(client, vaultID),
 		client:       client,
 		vaultID:      vaultID,
 		glamourStyle: glamourStyle,
@@ -139,7 +141,7 @@ func (m Model) Init() tea.Cmd {
 	if m.noFinder {
 		return nil
 	}
-	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks(), m.tags.loadTags()}
+	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks(), m.tags.loadTags(), m.tasks.loadTasks()}
 	// Focus the input for the initial tab.
 	switch m.activeTab {
 	case TabSearch:
@@ -150,6 +152,10 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, m.links.input.Focus())
 	case TabTags:
 		cmds = append(cmds, m.tags.tagPicker.Input.Focus())
+	case TabTasks:
+		var cmd tea.Cmd
+		m.tasks.filterBar, cmd = m.tasks.filterBar.Focus()
+		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
 }
@@ -171,6 +177,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.bookmarks.height = contentHeight
 		m.tags.tagPicker.SetSize(msg.Width, contentHeight)
 		m.tags.filePicker.SetSize(msg.Width, contentHeight)
+		m.tasks.width = msg.Width
+		m.tasks.height = contentHeight
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
@@ -227,6 +235,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bookmarks.statusErr = errMsg
 			case TabTags:
 				m.tags.statusErr = errMsg
+			case TabTasks:
+				m.tasks.statusErr = errMsg
 			}
 			return m, nil
 		}
@@ -235,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.links.statusErr = ""
 		m.bookmarks.statusErr = ""
 		m.tags.statusErr = ""
+		m.tasks.statusErr = ""
 
 		// Audio files: fetch binary asset for playback.
 		if strings.HasPrefix(msg.doc.MimeType, "audio/") && strings.HasSuffix(msg.doc.Path, ".wav") {
@@ -276,6 +287,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bookmarks.statusErr = errMsg
 			case TabTags:
 				m.tags.statusErr = errMsg
+			case TabTasks:
+				m.tasks.statusErr = errMsg
 			}
 			return m, nil
 		}
@@ -353,6 +366,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.tags, cmd = m.tags.Update(msg)
 		return m, cmd
+	case tasksLoadedMsg, taskToggledMsg:
+		var cmd tea.Cmd
+		m.tasks, cmd = m.tasks.Update(msg)
+		return m, cmd
 	}
 
 	// Route to active sub-model
@@ -378,6 +395,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case TabTags:
 			var cmd tea.Cmd
 			m.tags, cmd = m.tags.Update(msg)
+			return m, cmd
+		case TabTasks:
+			var cmd tea.Cmd
+			m.tasks, cmd = m.tasks.Update(msg)
 			return m, cmd
 		}
 	case stateViewing:
@@ -405,7 +426,7 @@ func (m Model) View() tea.View {
 
 	switch m.state {
 	case stateFinding:
-		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items), len(m.tags.tags), 0)
+		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items), len(m.tags.tags), len(m.tasks.allTasks))
 		switch m.activeTab {
 		case TabSearch:
 			content = tabBar + "\n" + m.search.View()
@@ -417,6 +438,8 @@ func (m Model) View() tea.View {
 			content = tabBar + "\n" + m.bookmarks.View()
 		case TabTags:
 			content = tabBar + "\n" + m.tags.View()
+		case TabTasks:
+			content = tabBar + "\n" + m.tasks.View()
 		}
 	case stateViewing:
 		content = m.viewer.View()
@@ -449,6 +472,7 @@ func (m *Model) focusActiveTab() tea.Cmd {
 	m.links.input.Blur()
 	m.tags.tagPicker.Input.Blur()
 	m.tags.filePicker.Input.Blur()
+	m.tasks.filterBar = m.tasks.filterBar.Blur()
 	switch m.activeTab {
 	case TabSearch:
 		return m.search.input.Focus()
@@ -461,6 +485,10 @@ func (m *Model) focusActiveTab() tea.Cmd {
 			return m.tags.filePicker.Input.Focus()
 		}
 		return m.tags.tagPicker.Input.Focus()
+	case TabTasks:
+		var cmd tea.Cmd
+		m.tasks.filterBar, cmd = m.tasks.filterBar.Focus()
+		return cmd
 	default:
 		return nil
 	}
