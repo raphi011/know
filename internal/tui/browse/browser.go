@@ -173,15 +173,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		contentHeight := msg.Height - 1 // reserve 1 line for tab bar
 		m.search.width = msg.Width
 		m.search.height = contentHeight
+		m.search.filterBar.SetWidth(msg.Width)
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
+		m.links.filterBar.SetWidth(msg.Width)
 		m.bookmarks.width = msg.Width
 		m.bookmarks.height = contentHeight
+		m.bookmarks.filterBar.SetWidth(msg.Width)
 		m.tags.tagPicker.SetSize(msg.Width, contentHeight)
 		m.tags.filePicker.SetSize(msg.Width, contentHeight)
 		m.tasks.width = msg.Width
 		m.tasks.height = contentHeight
+		m.tasks.filterBar.SetWidth(msg.Width)
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
