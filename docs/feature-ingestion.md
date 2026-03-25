@@ -38,8 +38,8 @@ Documents can embed live queries using an inline DSL inside `know` code blocks. 
 ```know
 TABLE title, summary AS "Summary"
 FROM /projects
-WHERE labels CONTAINS "active"
-SORT title ASC
+WHERE labels CONTAIN "active"
+SORT updated_at DESC
 LIMIT 10
 ```
 ````

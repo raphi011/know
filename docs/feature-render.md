@@ -99,7 +99,6 @@ FROM /projects
 ```know
 TASK
 WHERE status = "open"
-SORT due_date ASC
 LIMIT 20
 ```
 ````
@@ -141,7 +140,7 @@ Clauses (order-independent, after format keyword):
 - `WHERE status = "open"` — filter tasks by status (TASK only)
 - `WHERE due_before = "YYYY-MM-DD"` — tasks due before date (TASK only)
 - `WHERE due_after = "YYYY-MM-DD"` — tasks due after date (TASK only)
-- `SORT field ASC|DESC` — sort by `updated_at`, `created_at`, `due_date`, or `path`
+- `SORT field ASC|DESC` — sort by `updated_at`, `created_at`, or `path` (LIST/TABLE only)
 - `LIMIT n` — max results (default: 50)
 
 Both ` ``` ` and `~~~` fence styles are supported.
