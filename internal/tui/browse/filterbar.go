@@ -109,6 +109,11 @@ func (f FilterBar) View() string {
 	return s
 }
 
+// SetWidth sets the width of the underlying text input.
+func (f *FilterBar) SetWidth(width int) {
+	f.input.SetWidth(width - len(f.input.Prompt))
+}
+
 // HeightLines returns the number of lines the filter bar occupies.
 func (f FilterBar) HeightLines() int {
 	if f.config.Hints != "" {
