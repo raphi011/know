@@ -519,8 +519,11 @@ type ChunkMatch struct {
 
 // SearchDocuments searches documents on the remote server.
 // When bm25Only is true, only BM25 keyword search is used (no vector search).
-func (c *Client) SearchDocuments(ctx context.Context, vaultName, query string, limit int, bm25Only bool) ([]SearchResult, error) {
+func (c *Client) SearchDocuments(ctx context.Context, vaultName, query string, labels []string, limit int, bm25Only bool) ([]SearchResult, error) {
 	q := url.Values{"query": {query}}
+	if len(labels) > 0 {
+		q.Set("labels", strings.Join(labels, ","))
+	}
 	if limit > 0 {
 		q.Set("limit", fmt.Sprintf("%d", limit))
 	}

@@ -230,7 +230,7 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 		l.statusErr = ""
 		l.statusOK = ""
 
-		// Delete confirmation mode
+		// Delete confirmation mode takes priority over everything.
 		if l.confirmDelete {
 			switch msg.String() {
 			case "y":
@@ -246,7 +246,38 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 			}
 		}
 
+		if l.filterBar.Focused() {
+			// Input mode: filter bar gets all keys except navigation out.
+			switch msg.String() {
+			case "down":
+				l.filterBar = l.filterBar.Blur()
+				return l, nil
+			case "enter":
+				return l, nil
+			case "esc":
+				if l.filterBar.Value() != "" {
+					l.filterBar = l.filterBar.SetValue("")
+					l.applyFilter()
+					return l, nil
+				}
+				return l, tea.Quit
+			}
+			// All other keys → filter bar.
+			prev := l.filterBar.Value()
+			var cmd tea.Cmd
+			l.filterBar, cmd = l.filterBar.Update(msg)
+			if l.filterBar.Value() != prev {
+				l.applyFilter()
+			}
+			return l, cmd
+		}
+
+		// List mode: hotkeys work here.
 		switch msg.String() {
+		case "/":
+			var cmd tea.Cmd
+			l.filterBar, cmd = l.filterBar.Focus()
+			return l, cmd
 		case "enter":
 			entry := l.selectedEntry()
 			if entry != nil {
@@ -293,6 +324,10 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 			if l.cursor > 0 {
 				l.cursor--
 				l.ensureCursorVisible()
+			} else {
+				var cmd tea.Cmd
+				l.filterBar, cmd = l.filterBar.Focus()
+				return l, cmd
 			}
 			return l, nil
 		case "down":
@@ -312,14 +347,7 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 		}
 	}
 
-	// Delegate remaining keys to filter bar for search.
-	prev := l.filterBar.Value()
-	var cmd tea.Cmd
-	l.filterBar, cmd = l.filterBar.Update(msg)
-	if l.filterBar.Value() != prev {
-		l.applyFilter()
-	}
-	return l, cmd
+	return l, nil
 }
 
 func (l linksModel) toggleArchive(entry *models.FileEntry) tea.Cmd {
@@ -385,6 +413,7 @@ func (l linksModel) View() string {
 	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d/%d links", len(l.matches), len(l.filtered))))
 	b.WriteString("\n")
 
+	listFocused := !l.filterBar.Focused()
 	visible := l.visibleRows()
 	end := min(l.offset+visible, len(l.matches))
 
@@ -392,19 +421,18 @@ func (l linksModel) View() string {
 		m := l.matches[i]
 		entry := l.filtered[m.Index]
 
-		prefix := "  "
-		style := pick.NormalStyle
-		if i == l.cursor {
-			prefix = "> "
-			style = pick.SelectedStyle
-		}
+		selected := i == l.cursor && listFocused
+		prefix := pick.CursorPrefix(i == l.cursor, listFocused)
 
 		// Title or path
 		title := entry.Title
 		if title == "" {
 			title = entry.Path
 		}
-		line := style.Render(title)
+		if selected {
+			title = pick.SelectedStyle.Render(title)
+		}
+		line := title
 
 		// Source URL (dimmed)
 		if entry.Source != "" {

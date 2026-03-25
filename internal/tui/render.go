@@ -16,6 +16,12 @@ import (
 
 const maxTextWidth = 120
 
+// textWidth computes the effective text column width given a terminal width.
+// Reserves 4 columns for padding and clamps to [20, maxTextWidth].
+func textWidth(termWidth int) int {
+	return max(min(termWidth-4, maxTextWidth), 20)
+}
+
 // PartType distinguishes the kind of content in a streaming response.
 type PartType int
 
@@ -153,7 +159,9 @@ func toolDetail(toolName string, meta *tools.ToolResultMeta) string {
 
 // renderParts renders a sequence of content parts (text, tool calls, errors).
 // Inserts a blank line when transitioning from tool calls to text.
-func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []ContentPart) {
+// width is the terminal width used to cap line length.
+func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []ContentPart, width int) {
+	w := textWidth(width)
 	prevType := PartType(-1)
 	for _, p := range parts {
 		switch p.Type {
@@ -162,7 +170,7 @@ func renderParts(sb *strings.Builder, renderer *glamour.TermRenderer, parts []Co
 				sb.WriteString("\n")
 			}
 			rendered := renderMarkdown(renderer, p.Content)
-			sb.WriteString(assistantMsgStyle.MaxWidth(maxTextWidth).Render(rendered))
+			sb.WriteString(assistantMsgStyle.MaxWidth(w).Render(rendered))
 		case PartToolCall:
 			sb.WriteString(renderToolStatus(p))
 			sb.WriteString("\n")
@@ -184,17 +192,19 @@ func renderStreamParts(renderer *glamour.TermRenderer, parts []ContentPart, widt
 	var sb strings.Builder
 	sb.WriteString(assistantRoleStyle.Render("assistant"))
 	sb.WriteString("\n")
-	renderParts(&sb, renderer, parts)
+	renderParts(&sb, renderer, parts, width)
 	return sb.String()
 }
 
 // renderUserMessage renders a user message with role label and optional attachment indicators.
-func renderUserMessage(content string, attachments []Attachment) string {
+// width is the terminal width used to cap line length.
+func renderUserMessage(content string, attachments []Attachment, width int) string {
+	w := textWidth(width)
 	var sb strings.Builder
 	sb.WriteString("\n")
 	sb.WriteString(userRoleStyle.Render("you"))
 	sb.WriteString("\n")
-	sb.WriteString(userMsgStyle.MaxWidth(maxTextWidth).Render(content))
+	sb.WriteString(userMsgStyle.Width(w).Render(content))
 	sb.WriteString("\n")
 
 	for _, att := range attachments {
@@ -213,7 +223,8 @@ func renderUserMessage(content string, attachments []Attachment) string {
 
 // renderAssistantMessage renders a finalized assistant response for scrollback output.
 // It walks the stream parts in order, rendering text and tool statuses interleaved.
-func renderAssistantMessage(renderer *glamour.TermRenderer, parts []ContentPart) string {
+// width is the terminal width used to cap line length.
+func renderAssistantMessage(renderer *glamour.TermRenderer, parts []ContentPart, width int) string {
 	if len(parts) == 0 {
 		return ""
 	}
@@ -221,7 +232,7 @@ func renderAssistantMessage(renderer *glamour.TermRenderer, parts []ContentPart)
 	var sb strings.Builder
 	sb.WriteString(assistantRoleStyle.Render("assistant"))
 	sb.WriteString("\n")
-	renderParts(&sb, renderer, parts)
+	renderParts(&sb, renderer, parts, width)
 	return sb.String()
 }
 

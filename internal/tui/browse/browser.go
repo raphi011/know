@@ -57,6 +57,7 @@ type Model struct {
 	client    *apiclient.Client
 	vaultID   string
 	noFinder  bool // true when opened with a direct path (skip finder on Escape)
+	termReady bool // true after first WindowSizeMsg
 	width     int
 	height    int
 
@@ -138,31 +139,10 @@ func (m Model) Init() tea.Cmd {
 	if m.noFinder {
 		return nil
 	}
-	cmds := []tea.Cmd{m.links.loadLinks(), m.bookmarks.loadBookmarks(), m.tags.loadTags(), m.tasks.loadTasks()}
-	// Focus the input for the initial tab.
-	switch m.activeTab {
-	case TabSearch:
-		var cmd tea.Cmd
-		m.search.filterBar, cmd = m.search.filterBar.Focus()
-		cmds = append(cmds, cmd)
-	case TabAllFiles:
-		cmds = append(cmds, m.finder.Init())
-	case TabLinks:
-		var cmd tea.Cmd
-		m.links.filterBar, cmd = m.links.filterBar.Focus()
-		cmds = append(cmds, cmd)
-	case TabBookmarks:
-		var cmd tea.Cmd
-		m.bookmarks.filterBar, cmd = m.bookmarks.filterBar.Focus()
-		cmds = append(cmds, cmd)
-	case TabTags:
-		cmds = append(cmds, m.tags.tagPicker.Input.Focus())
-	case TabTasks:
-		var cmd tea.Cmd
-		m.tasks.filterBar, cmd = m.tasks.filterBar.Focus()
-		cmds = append(cmds, cmd)
-	}
-	return tea.Batch(cmds...)
+	// Note: Focus is deferred to the first WindowSizeMsg in Update() because
+	// Init() in bubbletea v2 returns only tea.Cmd — model state changes
+	// (like textarea Focus()) are discarded since Init has a value receiver.
+	return tea.Batch(m.links.loadLinks(), m.bookmarks.loadBookmarks(), m.tags.loadTags(), m.tasks.loadTasks())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -173,15 +153,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		contentHeight := msg.Height - 1 // reserve 1 line for tab bar
 		m.search.width = msg.Width
 		m.search.height = contentHeight
+		m.search.filterBar.SetWidth(msg.Width)
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
+		m.links.filterBar.SetWidth(msg.Width)
 		m.bookmarks.width = msg.Width
 		m.bookmarks.height = contentHeight
+		m.bookmarks.filterBar.SetWidth(msg.Width)
 		m.tags.tagPicker.SetSize(msg.Width, contentHeight)
 		m.tags.filePicker.SetSize(msg.Width, contentHeight)
 		m.tasks.width = msg.Width
 		m.tasks.height = contentHeight
+		m.tasks.filterBar.SetWidth(msg.Width)
 		m.updateRenderer()
 		if m.state == stateViewing {
 			m.viewer.width = msg.Width
@@ -192,6 +176,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewer.viewport.SetWidth(msg.Width)
 				m.viewer.viewport.SetHeight(max(msg.Height-2, 1))
 			}
+		}
+		// Focus the active tab's input on the first WindowSizeMsg.
+		// Init() returns only tea.Cmd in bubbletea v2, so Focus() state
+		// changes made there are discarded. We defer focus to here.
+		if !m.termReady {
+			m.termReady = true
+			return m, m.focusActiveTab()
 		}
 		return m, nil
 

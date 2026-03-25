@@ -124,13 +124,48 @@ func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 		return b, b.loadBookmarks()
 
 	case tea.KeyPressMsg:
+		if b.filterBar.Focused() {
+			// Input mode: filter bar gets all keys except navigation out.
+			switch msg.String() {
+			case "down":
+				b.filterBar = b.filterBar.Blur()
+				return b, nil
+			case "enter":
+				return b, nil
+			case "esc":
+				if b.filterBar.Value() != "" {
+					b.filterBar = b.filterBar.SetValue("")
+					b.applyFilter()
+					return b, nil
+				}
+				return b, tea.Quit
+			}
+			// All other keys → filter bar.
+			prev := b.filterBar.Value()
+			var cmd tea.Cmd
+			b.filterBar, cmd = b.filterBar.Update(msg)
+			if b.filterBar.Value() != prev {
+				b.applyFilter()
+			}
+			return b, cmd
+		}
+
+		// List mode: hotkeys work here.
 		switch msg.String() {
+		case "/":
+			var cmd tea.Cmd
+			b.filterBar, cmd = b.filterBar.Focus()
+			return b, cmd
 		case "up", "k":
 			if b.cursor > 0 {
 				b.cursor--
 				if b.cursor < b.offset {
 					b.offset = b.cursor
 				}
+			} else {
+				var cmd tea.Cmd
+				b.filterBar, cmd = b.filterBar.Focus()
+				return b, cmd
 			}
 			return b, nil
 		case "down", "j":
@@ -150,7 +185,6 @@ func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 			}
 			return b, nil
 		case "d":
-			// Remove bookmark
 			if len(b.filtered) > 0 && b.cursor < len(b.filtered) {
 				return b, b.toggleBookmark(b.filtered[b.cursor].Path, false)
 			}
@@ -160,14 +194,7 @@ func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 		}
 	}
 
-	// Delegate remaining messages to filterBar.
-	prev := b.filterBar.Value()
-	var cmd tea.Cmd
-	b.filterBar, cmd = b.filterBar.Update(msg)
-	if b.filterBar.Value() != prev {
-		b.applyFilter()
-	}
-	return b, cmd
+	return b, nil
 }
 
 func (b bookmarksModel) toggleBookmark(path string, add bool) tea.Cmd {
@@ -224,19 +251,26 @@ func (b bookmarksModel) View() string {
 		return sb.String()
 	}
 
+	listFocused := !b.filterBar.Focused()
 	visible := b.visibleRows()
 	end := min(b.offset+visible, len(b.filtered))
 	for i := b.offset; i < end; i++ {
 		item := b.filtered[i]
-		line := item.Path
-		if item.Title != "" {
-			line = item.Title + "  " + lipgloss.NewStyle().Foreground(pick.MutedColor).Render(item.Path)
-		}
 
-		if i == b.cursor {
-			sb.WriteString(lipgloss.NewStyle().Foreground(pick.PrimaryColor).Bold(true).Render("> " + line))
+		prefix := pick.CursorPrefix(i == b.cursor, listFocused)
+
+		if item.Title != "" {
+			title := item.Title
+			if i == b.cursor && listFocused {
+				title = pick.SelectedStyle.Render(title)
+			}
+			sb.WriteString(prefix + title + "  " + lipgloss.NewStyle().Foreground(pick.MutedColor).Render(item.Path))
 		} else {
-			sb.WriteString("  " + line)
+			path := item.Path
+			if i == b.cursor && listFocused {
+				path = pick.SelectedStyle.Render(path)
+			}
+			sb.WriteString(prefix + path)
 		}
 		sb.WriteString("\n")
 	}

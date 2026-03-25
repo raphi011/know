@@ -206,11 +206,50 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 		t.statusErr = ""
 		t.statusOK = ""
 
+		if t.filterBar.Focused() {
+			// Input mode: filter bar gets all keys except navigation out.
+			switch msg.String() {
+			case "down":
+				t.filterBar = t.filterBar.Blur()
+				return t, nil
+			case "enter":
+				// No special action in filter bar for tasks.
+				return t, nil
+			case "esc":
+				if t.filterBar.Value() != "" {
+					t.filterBar = t.filterBar.SetValue("")
+					t.applyFilter()
+					return t, t.loadTasks()
+				}
+				return t, tea.Quit
+			}
+			// All other keys → filter bar.
+			prevFilter, _ := t.buildFilter()
+			var cmd tea.Cmd
+			t.filterBar, cmd = t.filterBar.Update(msg)
+			newFilter, filterErr := t.buildFilter()
+			t.statusErr = filterErr
+			if !filtersEqual(prevFilter, newFilter) {
+				return t, t.loadTasks()
+			}
+			t.applyFilter()
+			return t, cmd
+		}
+
+		// List mode: hotkeys work here.
 		switch msg.String() {
+		case "/":
+			var cmd tea.Cmd
+			t.filterBar, cmd = t.filterBar.Focus()
+			return t, cmd
 		case "up", "k":
 			if t.cursor > 0 {
 				t.cursor--
 				t.ensureCursorVisible()
+			} else {
+				var cmd tea.Cmd
+				t.filterBar, cmd = t.filterBar.Focus()
+				return t, cmd
 			}
 			return t, nil
 		case "down", "j":
@@ -251,23 +290,6 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 		case "esc":
 			return t, tea.Quit
 		}
-
-		// Delegate remaining keys to filterBar.
-		prevFilter, _ := t.buildFilter()
-		var cmd tea.Cmd
-		t.filterBar, cmd = t.filterBar.Update(msg)
-		newFilter, filterErr := t.buildFilter()
-
-		// Show filter validation errors.
-		t.statusErr = filterErr
-
-		// If structured filters changed, re-fetch from API.
-		if !filtersEqual(prevFilter, newFilter) {
-			return t, t.loadTasks()
-		}
-		// If only query text changed, apply locally.
-		t.applyFilter()
-		return t, cmd
 	}
 
 	return t, nil
@@ -415,6 +437,7 @@ func (t tasksModel) viewGrouped(sb *strings.Builder, visible int) {
 		rowOffset = 0
 	}
 
+	listFocused := !t.filterBar.Focused()
 	end := min(rowOffset+visible, len(rows))
 	rendered := 0
 	for i := rowOffset; i < end; i++ {
@@ -423,10 +446,7 @@ func (t tasksModel) viewGrouped(sb *strings.Builder, visible int) {
 			sb.WriteString("  " + lipgloss.NewStyle().Bold(true).Render(row.docPath))
 		} else {
 			selected := row.taskIdx == t.cursor
-			prefix := "    "
-			if selected {
-				prefix = "  > "
-			}
+			prefix := "  " + pick.CursorPrefix(selected, listFocused)
 			sb.WriteString(prefix + renderTaskRow(row.task, selected))
 		}
 		sb.WriteString("\n")
@@ -483,15 +503,13 @@ func (t tasksModel) View() string {
 	if t.grouped {
 		t.viewGrouped(&sb, visible)
 	} else {
+		listFocused := !t.filterBar.Focused()
 		end := min(t.offset+visible, len(t.filtered))
 		for i := t.offset; i < end; i++ {
 			task := t.filtered[i]
 			selected := i == t.cursor
 
-			cursor := "  "
-			if selected {
-				cursor = "> "
-			}
+			cursor := pick.CursorPrefix(selected, listFocused)
 
 			// Doc path (filename only)
 			docName := ""

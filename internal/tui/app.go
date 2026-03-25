@@ -9,7 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
@@ -58,7 +58,7 @@ type Model struct {
 	conversationID string
 
 	// Input
-	input    textinput.Model
+	input    textarea.Model
 	fileList FileList
 	spinner  spinner.Model
 
@@ -115,10 +115,18 @@ type approvalSentMsg struct {
 func NewModel(client *Client, vaultID string, isDark bool) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
 	ti.Prompt = inputPromptStyle.Render("> ")
+	ti.ShowLineNumbers = false
+	ti.SetHeight(1)
+	ti.MaxHeight = 10
+
+	// Enter sends message; shift+enter inserts newline.
+	km := ti.KeyMap
+	km.InsertNewline.SetKeys("shift+enter")
+	ti.KeyMap = km
 
 	styles := ti.Styles()
 	styles.Cursor.Blink = false
@@ -168,7 +176,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateRenderer()
-		m.input.SetWidth(msg.Width - 4)
+		m.input.SetWidth(max(msg.Width-4, 1))
 		if !m.termReady {
 			m.termReady = true
 			return m, m.tryFocus()
@@ -317,8 +325,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Up arrow with files attached → focus file list
-	if msg.String() == "up" && m.fileList.Len() > 0 {
+	// Up arrow on first line with files attached → focus file list
+	if msg.String() == "up" && m.fileList.Len() > 0 && m.input.Line() == 0 {
 		m.input.Blur()
 		m.fileList.Focus()
 		return m, nil
@@ -328,6 +336,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, keys.Escape) {
 		if m.input.Value() != "" {
 			m.input.SetValue("")
+			m.input.SetHeight(1)
 		}
 		return m, nil
 	}
@@ -338,13 +347,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.sendMessage()
 	}
 
-	// Pass to text input
+	// Pass to textarea
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.resizeInput()
 	return m, cmd
 }
 
-// handlePaste adds file paths to the file list or delegates to textinput for normal text.
+// handlePaste adds file paths to the file list or delegates to textarea for normal text.
 func (m Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	content := strings.TrimSpace(msg.Content)
 
@@ -355,9 +365,10 @@ func (m Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Normal paste — delegate to textinput
+	// Normal paste — delegate to textarea
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.resizeInput()
 	return m, cmd
 }
 
@@ -413,6 +424,7 @@ func (m *Model) sendMessage() tea.Cmd {
 	}
 
 	m.input.SetValue("")
+	m.input.SetHeight(1)
 	m.streaming = true
 	m.streamParts = nil
 
@@ -422,6 +434,7 @@ func (m *Model) sendMessage() tea.Cmd {
 	vaultID := m.vaultID
 	attachments := chatAttachments
 	resolved := files
+	width := m.width
 
 	startStreamCmd := func() tea.Msg {
 		ch, err := client.Chat(ctx, convID, vaultID, content, attachments, false)
@@ -439,7 +452,7 @@ func (m *Model) sendMessage() tea.Cmd {
 
 	// Print user message to scrollback, then start streaming + spinner
 	return tea.Sequence(
-		tea.Println(renderUserMessage(content, resolved)),
+		tea.Println(renderUserMessage(content, resolved, width)),
 		tea.Batch(startStreamCmd, m.spinner.Tick),
 	)
 }
@@ -700,7 +713,7 @@ func (m *Model) finalizeStream() tea.Cmd {
 	}
 	m.streaming = false
 
-	rendered := renderAssistantMessage(m.renderer, m.streamParts)
+	rendered := renderAssistantMessage(m.renderer, m.streamParts, m.width)
 	m.streamParts = nil
 
 	// Dialog is cleared when the user approves/rejects all pending approvals.
@@ -718,6 +731,12 @@ func (m *Model) tryFocus() tea.Cmd {
 		return m.input.Focus()
 	}
 	return nil
+}
+
+// resizeInput adjusts the textarea height to match its content (1..MaxHeight).
+func (m *Model) resizeInput() {
+	h := min(max(m.input.LineCount(), 1), m.input.MaxHeight)
+	m.input.SetHeight(h)
 }
 
 // updateRenderer recreates the glamour renderer when terminal width changes.

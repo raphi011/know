@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
 	"github.com/raphi011/know/internal/tools"
 )
 
@@ -18,7 +18,7 @@ func testModel() Model {
 		termReady: true,
 		width:     80,
 		height:    24,
-		input:     textinput.New(),
+		input:     textarea.New(),
 		ctx:       context.Background(),
 		cancel:    func() {},
 	}

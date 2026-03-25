@@ -60,46 +60,25 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 	parsed := parser.ParseMarkdown(rawContent)
 	contentBody := parsed.Content
 	lines := strings.Split(contentBody, "\n")
-	toggled := false
 
-	// Primary: try the recorded line number.
-	if task.LineNumber > 0 && task.LineNumber <= len(lines) {
-		idx := task.LineNumber - 1
-		if isMatchingCheckbox(lines[idx], task.ContentHash) {
-			lines[idx] = toggleLine(lines[idx])
-			toggled = true
-		}
-	}
+	// Use the parser's extracted tasks to find the matching line. This avoids
+	// hash mismatches between AST-derived text (used at extraction time) and
+	// raw line text (which retains markdown syntax like [[wiki-links]]).
+	toggleLine := findToggleLine(parsed.Tasks, task.ContentHash, task.LineNumber)
 
-	// Fallback: scan nearby lines (±5). LineNumber is 1-based, so idx = LineNumber-1; start at idx-5 = LineNumber-6.
-	if !toggled {
-		start := max(0, task.LineNumber-6)
-		end := min(len(lines), task.LineNumber+5)
-		for i := start; i < end; i++ {
-			if isMatchingCheckbox(lines[i], task.ContentHash) {
-				lines[i] = toggleLine(lines[i])
-				toggled = true
-				logger.Info("toggle: task not at expected line, found nearby", "expected", task.LineNumber, "found", i+1, "task_id", taskID)
-				break
-			}
-		}
-	}
-
-	// Last resort: full file scan.
-	if !toggled {
-		for i := range lines {
-			if isMatchingCheckbox(lines[i], task.ContentHash) {
-				lines[i] = toggleLine(lines[i])
-				toggled = true
-				logger.Warn("toggle: task not found near expected line, required full file scan", "expected", task.LineNumber, "found", i+1, "task_id", taskID)
-				break
-			}
-		}
-	}
-
-	if !toggled {
+	if toggleLine <= 0 || toggleLine > len(lines) {
 		return nil, fmt.Errorf("could not find checkbox for task %s in file %s", taskID, doc.Path)
 	}
+
+	idx := toggleLine - 1
+	if toggleLine != task.LineNumber {
+		logger.Info("toggle: task line drifted", "expected", task.LineNumber, "found", toggleLine, "task_id", taskID)
+	}
+	newLine := flipCheckbox(lines[idx])
+	if newLine == lines[idx] {
+		return nil, fmt.Errorf("line %d in file %s is not a checkbox", toggleLine, doc.Path)
+	}
+	lines[idx] = newLine
 
 	// Reconstruct full content: contentBody is always a suffix of rawContent.
 	newBody := strings.Join(lines, "\n")
@@ -133,19 +112,30 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 	return updated, nil
 }
 
-// isMatchingCheckbox checks if a line is a checkbox whose cleaned text matches the given content hash.
-func isMatchingCheckbox(line string, contentHash string) bool {
-	m := toggleCheckboxRegex.FindStringSubmatch(line)
-	if m == nil {
-		return false
+// findToggleLine returns the 1-based line number of the task to toggle.
+// When multiple tasks share the same ContentHash (identical text), it picks
+// the one closest to expectedLine. Returns -1 if no match is found.
+func findToggleLine(tasks []parser.ExtractedTask, contentHash string, expectedLine int) int {
+	best := -1
+	bestDist := int(^uint(0) >> 1) // max int
+	for _, pt := range tasks {
+		if pt.ContentHash != contentHash {
+			continue
+		}
+		dist := pt.LineNumber - expectedLine
+		if dist < 0 {
+			dist = -dist
+		}
+		if dist < bestDist {
+			bestDist = dist
+			best = pt.LineNumber
+		}
 	}
-	rest := line[len(m[0]):]
-	cleaned := parser.CleanTaskText(rest)
-	return models.ContentHash(cleaned) == contentHash
+	return best
 }
 
-// toggleLine flips `- [ ]` to `- [x]` or vice versa.
-func toggleLine(line string) string {
+// flipCheckbox flips `- [ ]` to `- [x]` or vice versa.
+func flipCheckbox(line string) string {
 	return toggleCheckboxRegex.ReplaceAllStringFunc(line, func(match string) string {
 		if strings.Contains(match, "[ ]") {
 			return strings.Replace(match, "[ ]", "[x]", 1)
