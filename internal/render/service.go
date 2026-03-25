@@ -104,7 +104,8 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 	queryBlocks := parser.ExtractQueryBlocks(content)
 	for _, qb := range queryBlocks {
 		if qb.Error != "" {
-			continue // parse error, leave block as-is
+			logger.Info("render: query block parse error", "error", qb.Error)
+			continue
 		}
 
 		rendered, err := s.executeQueryBlock(ctx, vaultID, qb)
@@ -116,6 +117,7 @@ func (s *Service) Enhance(ctx context.Context, vaultID, fileID, content string) 
 		// Find the end of the fenced code block (closing ```).
 		blockEnd := findFencedBlockEnd(content, qb.Index)
 		if blockEnd < 0 {
+			logger.Warn("render: unclosed fenced code block", "offset", qb.Index)
 			continue
 		}
 
@@ -181,6 +183,8 @@ func (s *Service) executeFileQuery(ctx context.Context, vaultID string, qb parse
 			filter.DocType = &cond.Value
 		case cond.Field == "mime_type" && cond.Op == parser.OpEqual:
 			filter.MimeType = &cond.Value
+		default:
+			return "", fmt.Errorf("unsupported condition: %s %s %q", cond.Field, cond.Op, cond.Value)
 		}
 	}
 
@@ -223,6 +227,8 @@ func (s *Service) executeTaskQuery(ctx context.Context, vaultID string, qb parse
 			filter.DueBefore = &cond.Value
 		case cond.Field == "due_after" && cond.Op == parser.OpEqual:
 			filter.DueAfter = &cond.Value
+		default:
+			return "", fmt.Errorf("unsupported task condition: %s %s %q", cond.Field, cond.Op, cond.Value)
 		}
 	}
 
@@ -318,7 +324,8 @@ func renderTable(files []models.File, fields []parser.ShowField, withoutID bool)
 	return sb.String()
 }
 
-// renderTaskList renders tasks as markdown checkboxes.
+// renderTaskList renders tasks as markdown checkboxes with embedded task IDs
+// as HTML comments for programmatic toggling.
 func renderTaskList(tasks []models.TaskWithDoc, withoutID bool) string {
 	var sb strings.Builder
 	for _, t := range tasks {
@@ -335,6 +342,10 @@ func renderTaskList(tasks []models.TaskWithDoc, withoutID bool) string {
 
 		if !withoutID {
 			sb.WriteString(fmt.Sprintf(" — *%s*", t.DocPath))
+		}
+
+		if taskID, err := models.RecordIDString(t.ID); err == nil && taskID != "" {
+			sb.WriteString(fmt.Sprintf("<!-- task:%s -->", taskID))
 		}
 
 		sb.WriteString("\n")
@@ -379,7 +390,7 @@ func queryBlockOrderBy(qb parser.QueryBlock) db.FileOrderBy {
 		if qb.SortDesc {
 			return db.OrderByCreatedAtDesc
 		}
-		return db.OrderByPathAsc // no created_at ASC, fallback
+		return db.OrderByPathAsc // DB only supports created_at DESC; ASC falls back to path ordering
 	default:
 		return db.OrderByPathAsc
 	}

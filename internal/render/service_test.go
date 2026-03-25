@@ -4,9 +4,15 @@ import (
 	"strings"
 	"testing"
 
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
+
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 )
+
+func testRecordID(table, id string) surrealmodels.RecordID {
+	return surrealmodels.RecordID{Table: table, ID: id}
+}
 
 func TestFindFencedBlockEnd(t *testing.T) {
 	tests := []struct {
@@ -115,6 +121,36 @@ func TestRenderList(t *testing.T) {
 	}
 }
 
+func TestRenderList_WithoutID(t *testing.T) {
+	modelFiles := []models.File{
+		{Title: "My Note", Path: "/notes/my-note.md"},
+		{Title: "Other", Path: "/notes/other.md"},
+	}
+
+	result := renderList(modelFiles, []parser.ShowField{{Name: "title"}}, true)
+	if !strings.Contains(result, "- My Note") {
+		t.Errorf("expected plain text 'My Note', got: %s", result)
+	}
+	if strings.Contains(result, "[My Note]") {
+		t.Errorf("expected no link, got: %s", result)
+	}
+}
+
+func TestRenderList_WithExtraField(t *testing.T) {
+	modelFiles := []models.File{
+		{Title: "Project A", Path: "/a.md", Labels: []string{"go", "api"}},
+	}
+
+	fields := []parser.ShowField{{Name: "title"}, {Name: "labels"}}
+	result := renderList(modelFiles, fields, false)
+	if !strings.Contains(result, "[Project A](/a.md)") {
+		t.Errorf("expected link, got: %s", result)
+	}
+	if !strings.Contains(result, "go, api") {
+		t.Errorf("expected labels as extra field, got: %s", result)
+	}
+}
+
 func TestRenderTable(t *testing.T) {
 	modelFiles := []models.File{
 		{Title: "A", Path: "/a.md", MimeType: "text/markdown"},
@@ -131,5 +167,94 @@ func TestRenderTable(t *testing.T) {
 	}
 	if !strings.Contains(result, "| A |") {
 		t.Errorf("expected data row, got: %s", result)
+	}
+}
+
+func TestRenderTable_WithFileColumn(t *testing.T) {
+	modelFiles := []models.File{
+		{Title: "A", Path: "/a.md", MimeType: "text/markdown"},
+	}
+
+	fields := []parser.ShowField{{Name: "mime_type"}}
+	result := renderTable(modelFiles, fields, false)
+	if !strings.Contains(result, "| File |") {
+		t.Errorf("expected File header column, got: %s", result)
+	}
+	if !strings.Contains(result, "[A](/a.md)") {
+		t.Errorf("expected file link in row, got: %s", result)
+	}
+}
+
+func TestRenderTable_WithAlias(t *testing.T) {
+	modelFiles := []models.File{
+		{Title: "A", Path: "/a.md", Labels: []string{"go"}},
+	}
+
+	fields := []parser.ShowField{{Name: "labels", Alias: "Tags"}}
+	result := renderTable(modelFiles, fields, true)
+	if !strings.Contains(result, "| Tags |") {
+		t.Errorf("expected alias header 'Tags', got: %s", result)
+	}
+}
+
+func TestRenderTaskList(t *testing.T) {
+	due := "2025-03-28"
+	tasks := []models.TaskWithDoc{
+		{
+			Task:    models.Task{ID: testRecordID("task", "t1"), Text: "Fix search", Status: models.TaskStatusOpen, DueDate: &due},
+			DocPath: "/bugs/search.md",
+		},
+		{
+			Task:    models.Task{ID: testRecordID("task", "t2"), Text: "Update docs", Status: models.TaskStatusDone},
+			DocPath: "/ops/runbook.md",
+		},
+	}
+
+	result := renderTaskList(tasks, false)
+	if !strings.Contains(result, "- [ ] Fix search") {
+		t.Errorf("expected open checkbox, got: %s", result)
+	}
+	if !strings.Contains(result, "(due: 2025-03-28)") {
+		t.Errorf("expected due date, got: %s", result)
+	}
+	if !strings.Contains(result, "*/bugs/search.md*") {
+		t.Errorf("expected doc path, got: %s", result)
+	}
+	if !strings.Contains(result, "- [x] Update docs") {
+		t.Errorf("expected done checkbox, got: %s", result)
+	}
+	if !strings.Contains(result, "<!-- task:t1 -->") {
+		t.Errorf("expected task ID comment for t1, got: %s", result)
+	}
+	if !strings.Contains(result, "<!-- task:t2 -->") {
+		t.Errorf("expected task ID comment for t2, got: %s", result)
+	}
+}
+
+func TestRenderTaskList_WithoutID(t *testing.T) {
+	tasks := []models.TaskWithDoc{
+		{
+			Task:    models.Task{ID: testRecordID("task", "t1"), Text: "Fix search", Status: models.TaskStatusOpen},
+			DocPath: "/bugs/search.md",
+		},
+	}
+
+	result := renderTaskList(tasks, true)
+	if strings.Contains(result, "/bugs/search.md") {
+		t.Errorf("expected no doc path with withoutID=true, got: %s", result)
+	}
+	if !strings.Contains(result, "<!-- task:t1 -->") {
+		t.Errorf("expected task ID comment even with withoutID=true, got: %s", result)
+	}
+}
+
+func TestRenderTaskList_NoID(t *testing.T) {
+	tasks := []models.TaskWithDoc{
+		{Task: models.Task{Text: "No ID task", Status: models.TaskStatusOpen}, DocPath: "/test.md"},
+	}
+
+	result := renderTaskList(tasks, false)
+	if strings.Contains(result, "<!-- task:") {
+		t.Errorf("expected no task comment for zero-value ID, got: %s", result)
 	}
 }
