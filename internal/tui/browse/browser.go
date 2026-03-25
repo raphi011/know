@@ -149,7 +149,9 @@ func (m Model) Init() tea.Cmd {
 	case TabAllFiles:
 		cmds = append(cmds, m.finder.Init())
 	case TabLinks:
-		cmds = append(cmds, m.links.input.Focus())
+		var cmd tea.Cmd
+		m.links.filterBar, cmd = m.links.filterBar.Focus()
+		cmds = append(cmds, cmd)
 	case TabTags:
 		cmds = append(cmds, m.tags.tagPicker.Input.Focus())
 	case TabTasks:
@@ -172,7 +174,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finder.picker.SetSize(msg.Width, contentHeight)
 		m.links.width = msg.Width
 		m.links.height = contentHeight
-		m.links.input.SetWidth(msg.Width - len(m.links.input.Prompt))
 		m.bookmarks.width = msg.Width
 		m.bookmarks.height = contentHeight
 		m.tags.tagPicker.SetSize(msg.Width, contentHeight)
@@ -469,7 +470,7 @@ func (m *Model) editDocument() tea.Cmd {
 func (m *Model) focusActiveTab() tea.Cmd {
 	m.search.input.Blur()
 	m.finder.picker.Input.Blur()
-	m.links.input.Blur()
+	m.links.filterBar = m.links.filterBar.Blur()
 	m.tags.tagPicker.Input.Blur()
 	m.tags.filePicker.Input.Blur()
 	m.tasks.filterBar = m.tasks.filterBar.Blur()
@@ -479,7 +480,9 @@ func (m *Model) focusActiveTab() tea.Cmd {
 	case TabAllFiles:
 		return m.finder.picker.Input.Focus()
 	case TabLinks:
-		return m.links.input.Focus()
+		var cmd tea.Cmd
+		m.links.filterBar, cmd = m.links.filterBar.Focus()
+		return cmd
 	case TabTags:
 		if m.tags.state == tagStateFiles {
 			return m.tags.filePicker.Input.Focus()

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/raphi011/know/internal/apiclient"
@@ -52,13 +51,6 @@ type linkDeletedMsg struct {
 	err  error
 }
 
-type linksView int
-
-const (
-	linksViewInbox linksView = iota
-	linksViewArchived
-)
-
 type linksModel struct {
 	allLinks []models.FileEntry // all web clips
 	filtered []models.FileEntry // filtered by view (inbox/archived)
@@ -68,8 +60,7 @@ type linksModel struct {
 	width    int
 	height   int
 
-	input     textinput.Model
-	view      linksView
+	filterBar FilterBar
 	loaded    bool
 	statusErr string
 	statusOK  string
@@ -81,21 +72,13 @@ type linksModel struct {
 }
 
 func newLinksModel(client *apiclient.Client, vaultID string) linksModel {
-	ti := textinput.New()
-	ti.Placeholder = "Search links..."
-	ti.CharLimit = 256
-	ti.Prompt = "/ "
-
-	styles := ti.Styles()
-	styles.Cursor.Blink = false
-	styles.Focused.Prompt = pick.PromptStyle
-	ti.SetStyles(styles)
-
 	return linksModel{
-		input:   ti,
+		filterBar: NewFilterBar(FilterBarConfig{
+			SupportedKeys: []string{"label", "host", "status"},
+			Placeholder:   "Filter links... (host:github.com status:archived)",
+		}),
 		client:  client,
 		vaultID: vaultID,
-		view:    linksViewInbox,
 	}
 }
 
@@ -112,20 +95,60 @@ func (l linksModel) loadLinks() tea.Cmd {
 }
 
 func (l *linksModel) applyFilter() {
+	r := l.filterBar.Result()
 	l.filtered = nil
+
+	// status filter: default to inbox if no status specified
+	statusFilter := r.Filter("status")
+
 	for _, link := range l.allLinks {
 		isArchived := slices.Contains(link.Labels, "archived")
-		if l.view == linksViewInbox && !isArchived {
-			l.filtered = append(l.filtered, link)
-		} else if l.view == linksViewArchived && isArchived {
-			l.filtered = append(l.filtered, link)
+
+		// Status filter
+		switch statusFilter {
+		case "archived":
+			if !isArchived {
+				continue
+			}
+		case "inbox":
+			if isArchived {
+				continue
+			}
+		case "":
+			// Default: show inbox
+			if isArchived {
+				continue
+			}
 		}
+
+		// Host filter
+		if host := r.Filter("host"); host != "" {
+			if !strings.Contains(link.Source, host) {
+				continue
+			}
+		}
+
+		// Label filter
+		if labels := r.FilterAll("label"); len(labels) > 0 {
+			matched := true
+			for _, label := range labels {
+				if !slices.Contains(link.Labels, label) {
+					matched = false
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		l.filtered = append(l.filtered, link)
 	}
 	l.refilter()
 }
 
 func (l *linksModel) refilter() {
-	query := l.input.Value()
+	query := l.filterBar.Result().Query
 	if query == "" {
 		l.matches = make([]fuzzy.Match, len(l.filtered))
 		for i := range l.filtered {
@@ -252,13 +275,16 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 			}
 			return l, nil
 		case "v":
-			if l.view == linksViewInbox {
-				l.view = linksViewArchived
+			current := l.filterBar.Value()
+			if strings.Contains(current, "status:archived") {
+				l.filterBar = l.filterBar.SetValue(strings.TrimSpace(strings.Replace(current, "status:archived", "", 1)))
 			} else {
-				l.view = linksViewInbox
+				if current == "" {
+					l.filterBar = l.filterBar.SetValue("status:archived")
+				} else {
+					l.filterBar = l.filterBar.SetValue(current + " status:archived")
+				}
 			}
-			l.cursor = 0
-			l.offset = 0
 			l.applyFilter()
 			return l, nil
 		case "esc":
@@ -286,12 +312,12 @@ func (l linksModel) Update(msg tea.Msg) (linksModel, tea.Cmd) {
 		}
 	}
 
-	// Delegate remaining keys to text input for search.
-	prev := l.input.Value()
+	// Delegate remaining keys to filter bar for search.
+	prev := l.filterBar.Value()
 	var cmd tea.Cmd
-	l.input, cmd = l.input.Update(msg)
-	if l.input.Value() != prev {
-		l.refilter()
+	l.filterBar, cmd = l.filterBar.Update(msg)
+	if l.filterBar.Value() != prev {
+		l.applyFilter()
 	}
 	return l, cmd
 }
@@ -351,16 +377,12 @@ func (l linksModel) View() string {
 		return b.String()
 	}
 
-	// Search input
-	b.WriteString(l.input.View())
+	// Filter bar
+	b.WriteString(l.filterBar.View())
 	b.WriteString("\n")
 
-	// View indicator + count
-	viewLabel := "Inbox"
-	if l.view == linksViewArchived {
-		viewLabel = "Archived"
-	}
-	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %s — %d/%d links", viewLabel, len(l.matches), len(l.filtered))))
+	// Count line
+	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d/%d links", len(l.matches), len(l.filtered))))
 	b.WriteString("\n")
 
 	visible := l.visibleRows()
@@ -411,7 +433,7 @@ func (l linksModel) View() string {
 	} else if l.statusOK != "" {
 		b.WriteString(pick.CountStyle.Render("  " + l.statusOK))
 	} else {
-		b.WriteString(pick.CountStyle.Render("  enter: view  o: open  a: archive  d: delete  v: inbox/archived  esc: quit"))
+		b.WriteString(pick.CountStyle.Render("  enter: view  o: open  a: archive  d: delete  v: toggle archived  esc: quit"))
 	}
 
 	return b.String()
