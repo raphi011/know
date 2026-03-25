@@ -305,6 +305,123 @@ var (
 	taskDoneStyle      = lipgloss.NewStyle().Foreground(pick.MutedColor).Strikethrough(true)
 )
 
+// taskRow represents a single visual row in the grouped tasks view.
+type taskRow struct {
+	isHeader bool
+	docPath  string
+	task     *apiclient.TaskResponse
+	taskIdx  int
+}
+
+// buildGroupedRows builds a flat list of rows (headers + tasks) for the grouped view.
+func (t tasksModel) buildGroupedRows() []taskRow {
+	var rows []taskRow
+	var lastDoc string
+	for i, task := range t.filtered {
+		if task.DocumentPath != lastDoc {
+			rows = append(rows, taskRow{isHeader: true, docPath: task.DocumentPath})
+			lastDoc = task.DocumentPath
+		}
+		rows = append(rows, taskRow{task: &t.filtered[i], taskIdx: i})
+	}
+	return rows
+}
+
+// viewGrouped renders the grouped-by-document task list into sb.
+func (t tasksModel) viewGrouped(sb *strings.Builder, visible int) {
+	rows := t.buildGroupedRows()
+
+	// Find which visual row index corresponds to the cursor task.
+	cursorRowIdx := -1
+	for i, row := range rows {
+		if !row.isHeader && row.taskIdx == t.cursor {
+			cursorRowIdx = i
+			break
+		}
+	}
+
+	// Compute offset for grouped rows: we want cursorRowIdx to be visible.
+	// We reuse t.offset as a row offset for the grouped view. Since ensureCursorVisible
+	// works on t.cursor (task index), we compute a row-level offset here.
+	rowOffset := t.offset
+	// Clamp rowOffset so cursorRowIdx is visible.
+	if cursorRowIdx >= 0 {
+		if cursorRowIdx < rowOffset {
+			rowOffset = cursorRowIdx
+		}
+		if cursorRowIdx >= rowOffset+visible {
+			rowOffset = cursorRowIdx - visible + 1
+		}
+	}
+	if rowOffset < 0 {
+		rowOffset = 0
+	}
+
+	end := min(rowOffset+visible, len(rows))
+	rendered := 0
+	for i := rowOffset; i < end; i++ {
+		row := rows[i]
+		if row.isHeader {
+			sb.WriteString("  " + lipgloss.NewStyle().Bold(true).Render(row.docPath))
+		} else {
+			task := row.task
+			selected := row.taskIdx == t.cursor
+
+			// Cursor / indent prefix
+			prefix := "    "
+			if selected {
+				prefix = "  > "
+			}
+
+			// Checkbox
+			var checkbox string
+			if task.Status == "done" {
+				checkbox = taskAccentStyle.Render("☑ ")
+			} else {
+				checkbox = taskMutedStyle.Render("☐ ")
+			}
+
+			// Task text
+			var taskText string
+			if task.Status == "done" {
+				taskText = taskDoneStyle.Render(task.Text)
+			} else if selected {
+				taskText = pick.SelectedStyle.Render(task.Text)
+			} else {
+				taskText = pick.NormalStyle.Render(task.Text)
+			}
+
+			// Labels
+			var labels strings.Builder
+			for _, label := range task.Labels {
+				labels.WriteString(" " + taskSecondaryStyle.Render("#"+label))
+			}
+
+			// Due date
+			var due string
+			if task.DueDate != nil && *task.DueDate != "" {
+				dueStr := " due:" + *task.DueDate
+				if isOverdue(*task.DueDate) {
+					due = taskOverdueStyle.Render(dueStr)
+				} else if isDueSoon(*task.DueDate) {
+					due = taskDueSoonStyle.Render(dueStr)
+				} else {
+					due = taskMutedStyle.Render(dueStr)
+				}
+			}
+
+			sb.WriteString(prefix + checkbox + taskText + labels.String() + due)
+		}
+		sb.WriteString("\n")
+		rendered++
+	}
+
+	// Pad remaining space
+	for i := rendered; i < visible; i++ {
+		sb.WriteString("\n")
+	}
+}
+
 func (t tasksModel) View() string {
 	var sb strings.Builder
 
@@ -331,79 +448,90 @@ func (t tasksModel) View() string {
 	sb.WriteString(pick.CountStyle.Render("  " + countStr))
 	sb.WriteString("\n")
 
+	groupHint := "g: group"
+	if t.grouped {
+		groupHint = "g: ungroup"
+	}
+	footer := pick.CountStyle.Render("  space: toggle  enter: open  " + groupHint + "  esc: quit")
+
 	if len(t.filtered) == 0 {
 		sb.WriteString("\n  No tasks found.")
 		sb.WriteString("\n")
-		sb.WriteString(pick.CountStyle.Render("  space: toggle  enter: open  g: group  esc: quit"))
+		sb.WriteString(footer)
 		return sb.String()
 	}
 
 	visible := t.visibleRows()
-	end := min(t.offset+visible, len(t.filtered))
-	for i := t.offset; i < end; i++ {
-		task := t.filtered[i]
 
-		// Cursor
-		cursor := "  "
-		if i == t.cursor {
-			cursor = "> "
-		}
+	if t.grouped {
+		t.viewGrouped(&sb, visible)
+	} else {
+		end := min(t.offset+visible, len(t.filtered))
+		for i := t.offset; i < end; i++ {
+			task := t.filtered[i]
 
-		// Checkbox
-		var checkbox string
-		if task.Status == "done" {
-			checkbox = taskAccentStyle.Render("☑ ")
-		} else {
-			checkbox = taskMutedStyle.Render("☐ ")
-		}
-
-		// Task text
-		var taskText string
-		if task.Status == "done" {
-			taskText = taskDoneStyle.Render(task.Text)
-		} else if i == t.cursor {
-			taskText = pick.SelectedStyle.Render(task.Text)
-		} else {
-			taskText = pick.NormalStyle.Render(task.Text)
-		}
-
-		// Labels
-		var labels strings.Builder
-		for _, label := range task.Labels {
-			labels.WriteString(" " + taskSecondaryStyle.Render("#"+label))
-		}
-
-		// Due date
-		var due string
-		if task.DueDate != nil && *task.DueDate != "" {
-			dueStr := " due:" + *task.DueDate
-			if isOverdue(*task.DueDate) {
-				due = taskOverdueStyle.Render(dueStr)
-			} else if isDueSoon(*task.DueDate) {
-				due = taskDueSoonStyle.Render(dueStr)
-			} else {
-				due = taskMutedStyle.Render(dueStr)
+			// Cursor
+			cursor := "  "
+			if i == t.cursor {
+				cursor = "> "
 			}
+
+			// Checkbox
+			var checkbox string
+			if task.Status == "done" {
+				checkbox = taskAccentStyle.Render("☑ ")
+			} else {
+				checkbox = taskMutedStyle.Render("☐ ")
+			}
+
+			// Task text
+			var taskText string
+			if task.Status == "done" {
+				taskText = taskDoneStyle.Render(task.Text)
+			} else if i == t.cursor {
+				taskText = pick.SelectedStyle.Render(task.Text)
+			} else {
+				taskText = pick.NormalStyle.Render(task.Text)
+			}
+
+			// Labels
+			var labels strings.Builder
+			for _, label := range task.Labels {
+				labels.WriteString(" " + taskSecondaryStyle.Render("#"+label))
+			}
+
+			// Due date
+			var due string
+			if task.DueDate != nil && *task.DueDate != "" {
+				dueStr := " due:" + *task.DueDate
+				if isOverdue(*task.DueDate) {
+					due = taskOverdueStyle.Render(dueStr)
+				} else if isDueSoon(*task.DueDate) {
+					due = taskDueSoonStyle.Render(dueStr)
+				} else {
+					due = taskMutedStyle.Render(dueStr)
+				}
+			}
+
+			// Doc path (filename only)
+			docName := ""
+			if task.DocumentPath != "" {
+				docName = " " + taskMutedStyle.Render(path.Base(task.DocumentPath))
+			}
+
+			line := cursor + checkbox + taskText + labels.String() + due + docName
+			sb.WriteString(line)
+			sb.WriteString("\n")
 		}
 
-		// Doc path (filename only)
-		docName := ""
-		if task.DocumentPath != "" {
-			docName = " " + taskMutedStyle.Render(path.Base(task.DocumentPath))
+		// Pad remaining space
+		rendered := end - t.offset
+		for i := rendered; i < visible; i++ {
+			sb.WriteString("\n")
 		}
-
-		line := cursor + checkbox + taskText + labels.String() + due + docName
-		sb.WriteString(line)
-		sb.WriteString("\n")
 	}
 
-	// Pad remaining space
-	rendered := end - t.offset
-	for i := rendered; i < visible; i++ {
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString(pick.CountStyle.Render("  space: toggle  enter: open  g: group  esc: quit"))
+	sb.WriteString(footer)
 
 	return sb.String()
 }
