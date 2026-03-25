@@ -194,7 +194,7 @@ func renderUserMessage(content string, attachments []Attachment) string {
 	sb.WriteString("\n")
 	sb.WriteString(userRoleStyle.Render("you"))
 	sb.WriteString("\n")
-	sb.WriteString(userMsgStyle.MaxWidth(maxTextWidth).Render(content))
+	sb.WriteString(userMsgStyle.Width(maxTextWidth).Render(content))
 	sb.WriteString("\n")
 
 	for _, att := range attachments {
