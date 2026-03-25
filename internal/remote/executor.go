@@ -65,7 +65,7 @@ func (e *Executor) execSearch(ctx context.Context, vaultID, arguments string) (s
 	}
 
 	start := time.Now()
-	results, err := e.client.SearchDocuments(ctx, vaultID, input.Query, 20, false)
+	results, err := e.client.SearchDocuments(ctx, vaultID, input.Query, nil, 20, false)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", nil, fmt.Errorf("remote search: %w", err)

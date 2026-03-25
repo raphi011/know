@@ -64,11 +64,20 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 	// Use the parser's extracted tasks to find the matching line. This avoids
 	// hash mismatches between AST-derived text (used at extraction time) and
 	// raw line text (which retains markdown syntax like [[wiki-links]]).
+	// When multiple tasks share the same ContentHash (identical text), prefer
+	// the one closest to the recorded line number.
 	toggleLine := -1
+	bestDist := int(^uint(0) >> 1) // max int
 	for _, pt := range parsed.Tasks {
 		if pt.ContentHash == task.ContentHash {
-			toggleLine = pt.LineNumber
-			break
+			dist := pt.LineNumber - task.LineNumber
+			if dist < 0 {
+				dist = -dist
+			}
+			if dist < bestDist {
+				bestDist = dist
+				toggleLine = pt.LineNumber
+			}
 		}
 	}
 

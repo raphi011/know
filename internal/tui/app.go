@@ -176,7 +176,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateRenderer()
-		m.input.SetWidth(msg.Width - 4)
+		m.input.SetWidth(max(msg.Width-4, 1))
 		if !m.termReady {
 			m.termReady = true
 			return m, m.tryFocus()
@@ -354,7 +354,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handlePaste adds file paths to the file list or delegates to textinput for normal text.
+// handlePaste adds file paths to the file list or delegates to textarea for normal text.
 func (m Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	content := strings.TrimSpace(msg.Content)
 

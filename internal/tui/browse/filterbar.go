@@ -62,6 +62,16 @@ func NewFilterBar(config FilterBarConfig) FilterBar {
 	styles := ta.Styles()
 	styles.Cursor.Blink = false
 	styles.Focused.Prompt = pick.PromptStyle
+	styles.Blurred.Prompt = lipgloss.NewStyle().Foreground(pick.MutedColor)
+	// Clear default dark-mode styles that cause visual artifacts:
+	// - CursorLine Background("0") paints the entire 1-line textarea black
+	// - EndOfBuffer Foreground("0") can produce rendering artifacts on padding lines
+	styles.Focused.Base = lipgloss.NewStyle()
+	styles.Blurred.Base = lipgloss.NewStyle()
+	styles.Focused.CursorLine = lipgloss.NewStyle()
+	styles.Blurred.CursorLine = lipgloss.NewStyle()
+	styles.Focused.EndOfBuffer = lipgloss.NewStyle()
+	styles.Blurred.EndOfBuffer = lipgloss.NewStyle()
 	ta.SetStyles(styles)
 
 	supported := make(map[string]bool, len(config.SupportedKeys))
@@ -111,7 +121,9 @@ var filterHintStyle = lipgloss.NewStyle().Foreground(pick.MutedColor)
 
 // View renders the filter bar with optional filter hints underneath.
 func (f FilterBar) View() string {
-	s := f.input.View()
+	// TrimRight removes trailing newlines from the textarea's viewport output
+	// to prevent EndOfBuffer padding lines from leaking into the layout.
+	s := strings.TrimRight(f.input.View(), "\n")
 	if f.config.Hints != "" {
 		s += "\n  " + filterHintStyle.Render(f.config.Hints)
 	}
@@ -119,8 +131,9 @@ func (f FilterBar) View() string {
 }
 
 // SetWidth sets the width of the underlying text input.
+// Subtracts 4 for the prompt ("/ ") and surrounding padding.
 func (f *FilterBar) SetWidth(width int) {
-	f.input.SetWidth(width - 4)
+	f.input.SetWidth(max(width-4, 1))
 }
 
 // HeightLines returns the number of lines the filter bar occupies.
@@ -149,15 +162,22 @@ func (f FilterBar) Blur() FilterBar {
 	return f
 }
 
+// Focused returns whether the filter bar's text input is focused.
+func (f FilterBar) Focused() bool {
+	return f.input.Focused()
+}
+
 // Value returns the raw text input value.
 func (f FilterBar) Value() string {
 	return f.input.Value()
 }
 
-// SetValue sets the raw text input value and re-parses.
+// SetValue sets the raw text input value, re-parses, and resizes the textarea.
+// Note: value receiver — cannot call pointer-receiver resizeInput, so resize is inlined.
 func (f FilterBar) SetValue(v string) FilterBar {
 	f.input.SetValue(v)
 	f.result = parseFilterInput(v, f.supported)
+	f.input.SetHeight(min(max(f.input.LineCount(), 1), f.input.MaxHeight))
 	return f
 }
 

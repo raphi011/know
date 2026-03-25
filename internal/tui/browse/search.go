@@ -3,6 +3,7 @@ package browse
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,7 +15,8 @@ import (
 
 // searchResultsMsg is sent when a search API call completes.
 type searchResultsMsg struct {
-	query   string // the query that produced these results
+	query   string   // the query that produced these results
+	labels  []string // the labels that produced these results
 	results []apiclient.SearchResult
 	err     error
 }
@@ -34,6 +36,7 @@ type searchModel struct {
 
 	filterBar   FilterBar
 	searching   bool
+	searched    bool // true after at least one search has completed for current input
 	statusErr   string
 	debounceSeq int
 	lastQuery   string // query that produced current results
@@ -42,17 +45,13 @@ type searchModel struct {
 	vaultID string
 }
 
-var (
-	snippetStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
-	headingPathStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Bold(true)
-)
+var snippetStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
 
 func newSearchModel(client *apiclient.Client, vaultID string) searchModel {
 	return searchModel{
 		filterBar: NewFilterBar(FilterBarConfig{
 			SupportedKeys: []string{"label"},
 			Placeholder:   "Search documents...",
-			Hints:         "label:<name>",
 		}),
 		client:  client,
 		vaultID: vaultID,
@@ -60,14 +59,31 @@ func newSearchModel(client *apiclient.Client, vaultID string) searchModel {
 }
 
 func (s searchModel) doSearch() tea.Cmd {
+	r := s.filterBar.Result()
+	query := r.Query
+	labels := r.FilterAll("label")
 	client := s.client
 	vaultID := s.vaultID
-	query := s.filterBar.Result().Query
+
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		results, err := client.SearchDocuments(ctx, vaultID, query, 20, true)
-		return searchResultsMsg{query: query, results: results, err: err}
+
+		if query != "" {
+			results, err := client.SearchDocuments(ctx, vaultID, query, labels, 20, true)
+			return searchResultsMsg{query: query, labels: labels, results: results, err: err}
+		}
+
+		// Label-only: use list endpoint (no query string to score against).
+		files, err := client.ListFilesByLabels(ctx, vaultID, labels)
+		if err != nil {
+			return searchResultsMsg{labels: labels, err: err}
+		}
+		results := make([]apiclient.SearchResult, len(files))
+		for i, f := range files {
+			results[i] = apiclient.SearchResult{Path: f.Path, Title: f.Title}
+		}
+		return searchResultsMsg{labels: labels, results: results}
 	}
 }
 
@@ -82,10 +98,16 @@ func (s *searchModel) ensureCursorVisible() {
 }
 
 func (s searchModel) visibleRows() int {
-	// filterbar + count line (1) + footer (1) = overhead
-	// Each result takes 2 lines (path+title, snippet).
-	overhead := s.filterBar.HeightLines() + 2
+	// filterbar + count line (1) + footer (2) = overhead
+	// Each result takes 2 lines (path, title).
+	overhead := s.filterBar.HeightLines() + 3
 	return max((s.height-overhead)/2, 1)
+}
+
+// hasSearchInput returns true if the filter bar has a query or any filters.
+func (s searchModel) hasSearchInput() bool {
+	r := s.filterBar.Result()
+	return r.Query != "" || len(r.Filters) > 0
 }
 
 func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
@@ -93,7 +115,8 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	case searchResultsMsg:
 		s.searching = false
 		// Discard stale responses from superseded queries.
-		if msg.query != s.filterBar.Result().Query {
+		r := s.filterBar.Result()
+		if msg.query != r.Query || !slices.Equal(msg.labels, r.FilterAll("label")) {
 			return s, nil
 		}
 		if msg.err != nil {
@@ -104,16 +127,21 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 		s.statusErr = ""
 		s.results = msg.results
 		s.lastQuery = msg.query
+		s.searched = true
 		s.cursor = 0
 		s.offset = 0
+		if len(s.results) == 0 {
+			var cmd tea.Cmd
+			s.filterBar, cmd = s.filterBar.Focus()
+			return s, cmd
+		}
 		return s, nil
 
 	case searchDebounceMsg:
 		if msg.seq != s.debounceSeq {
 			return s, nil // stale tick
 		}
-		query := s.filterBar.Result().Query
-		if query == "" {
+		if !s.hasSearchInput() {
 			return s, nil
 		}
 		s.searching = true
@@ -122,20 +150,74 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	case tea.KeyPressMsg:
 		s.statusErr = ""
 
+		if s.filterBar.Focused() {
+			// Input mode: filter bar gets all keys except navigation out.
+			switch msg.String() {
+			case "down":
+				if len(s.results) > 0 {
+					s.filterBar = s.filterBar.Blur()
+				}
+				return s, nil
+			case "enter":
+				// If we have results, select the first one.
+				if len(s.results) > 0 && s.cursor < len(s.results) {
+					path := s.results[s.cursor].Path
+					return s, func() tea.Msg {
+						return fileSelectedMsg{path: path}
+					}
+				}
+				// Otherwise trigger immediate search.
+				if s.hasSearchInput() {
+					s.debounceSeq++
+					s.searching = true
+					return s, s.doSearch()
+				}
+				return s, nil
+			case "esc":
+				if s.filterBar.Value() != "" {
+					s.filterBar = s.filterBar.SetValue("")
+					s.results = nil
+					s.lastQuery = ""
+					s.searching = false
+					s.searched = false
+					return s, nil
+				}
+				return s, tea.Quit
+			}
+			// All other keys → filter bar.
+			prev := s.filterBar.Value()
+			var cmd tea.Cmd
+			s.filterBar, cmd = s.filterBar.Update(msg)
+			if s.filterBar.Value() != prev {
+				s.searched = false
+				if !s.hasSearchInput() {
+					s.results = nil
+					s.lastQuery = ""
+					s.searching = false
+					return s, cmd
+				}
+				s.debounceSeq++
+				seq := s.debounceSeq
+				debounceCmd := tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
+					return searchDebounceMsg{seq: seq}
+				})
+				return s, tea.Batch(cmd, debounceCmd)
+			}
+			return s, cmd
+		}
+
+		// List mode: hotkeys work here.
 		switch msg.String() {
+		case "/":
+			var cmd tea.Cmd
+			s.filterBar, cmd = s.filterBar.Focus()
+			return s, cmd
 		case "enter":
-			// If we have results and a valid cursor, select the file.
 			if len(s.results) > 0 && s.cursor < len(s.results) {
 				path := s.results[s.cursor].Path
 				return s, func() tea.Msg {
 					return fileSelectedMsg{path: path}
 				}
-			}
-			// Otherwise trigger immediate search if we have a query.
-			if s.filterBar.Result().Query != "" {
-				s.debounceSeq++ // cancel pending debounce
-				s.searching = true
-				return s, s.doSearch()
 			}
 			return s, nil
 		case "esc":
@@ -144,6 +226,10 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 			if s.cursor > 0 {
 				s.cursor--
 				s.ensureCursorVisible()
+			} else {
+				var cmd tea.Cmd
+				s.filterBar, cmd = s.filterBar.Focus()
+				return s, cmd
 			}
 			return s, nil
 		case "down":
@@ -163,28 +249,7 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 		}
 	}
 
-	// Delegate remaining keys to filterBar.
-	prev := s.filterBar.Value()
-	var cmd tea.Cmd
-	s.filterBar, cmd = s.filterBar.Update(msg)
-
-	if s.filterBar.Value() != prev {
-		// Input changed — clear results if query is now empty, otherwise debounce.
-		if s.filterBar.Result().Query == "" {
-			s.results = nil
-			s.lastQuery = ""
-			s.searching = false
-			return s, cmd
-		}
-		s.debounceSeq++
-		seq := s.debounceSeq
-		debounceCmd := tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
-			return searchDebounceMsg{seq: seq}
-		})
-		return s, tea.Batch(cmd, debounceCmd)
-	}
-
-	return s, cmd
+	return s, nil
 }
 
 func (s searchModel) View() string {
@@ -193,49 +258,45 @@ func (s searchModel) View() string {
 	b.WriteString(s.filterBar.View())
 	b.WriteString("\n")
 
-	// Count / status line
-	if s.searching {
-		b.WriteString(pick.CountStyle.Render("  Searching..."))
-	} else if s.filterBar.Result().Query == "" {
+	// Count / status line — only show "No results" after a search has completed
+	// for the current input, not during the debounce period.
+	if !s.hasSearchInput() {
 		b.WriteString(pick.CountStyle.Render("  Type to search documents"))
-	} else if len(s.results) == 0 {
-		b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  No results for %q", s.lastQuery)))
-	} else {
+	} else if len(s.results) > 0 {
 		b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d results", len(s.results))))
+	} else if s.searched {
+		b.WriteString(pick.CountStyle.Render("  No results"))
 	}
 	b.WriteString("\n")
 
 	visible := s.visibleRows()
 	end := min(s.offset+visible, len(s.results))
 
+	listFocused := !s.filterBar.Focused()
 	for i := s.offset; i < end; i++ {
 		result := s.results[i]
 
 		prefix := "  "
-		style := pick.NormalStyle
-		if i == s.cursor {
-			prefix = "> "
-			style = pick.SelectedStyle
+		selected := i == s.cursor && listFocused
+		if selected {
+			prefix = pick.SelectedStyle.Render("> ")
+		} else if i == s.cursor {
+			prefix = pick.CursorDimStyle.Render("> ")
 		}
 
-		// Line 1: path + title
-		line := style.Render(result.Path)
+		// Line 1: path
+		path := result.Path
+		if selected {
+			path = pick.SelectedStyle.Render(path)
+		}
+		b.WriteString(prefix + path + "\n")
+
+		// Line 2: title
 		if result.Title != "" {
-			line += "  " + pick.TitleStyle.Render(result.Title)
+			b.WriteString("  " + snippetStyle.Render(result.Title) + "\n")
+		} else {
+			b.WriteString("\n")
 		}
-		b.WriteString(prefix + line + "\n")
-
-		// Line 2: heading path + snippet (from top matched chunk)
-		snippetLine := "  "
-		if len(result.MatchedChunks) > 0 {
-			chunk := result.MatchedChunks[0]
-			if chunk.HeadingPath != nil && *chunk.HeadingPath != "" {
-				snippetLine += headingPathStyle.Render("## "+*chunk.HeadingPath) + " — "
-			}
-			snippet := truncateSnippet(chunk.Snippet, s.width-len(snippetLine)-4)
-			snippetLine += snippetStyle.Render(snippet)
-		}
-		b.WriteString(snippetLine + "\n")
 	}
 
 	// Pad remaining space (2 lines per result slot).
@@ -249,22 +310,9 @@ func (s searchModel) View() string {
 		b.WriteString(errStyle.Render("  " + s.statusErr))
 	} else {
 		b.WriteString(pick.CountStyle.Render("  enter: open  esc: quit"))
+		b.WriteString("\n")
+		b.WriteString(pick.CountStyle.Render("  label:<name>"))
 	}
 
 	return b.String()
-}
-
-// truncateSnippet shortens a snippet to fit within maxLen runes, adding "…" if truncated.
-func truncateSnippet(s string, maxLen int) string {
-	if maxLen <= 0 {
-		maxLen = 40
-	}
-	// Replace newlines with spaces for single-line display.
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.TrimSpace(s)
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen-1]) + "…"
 }

@@ -31,4 +31,7 @@ var (
 
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(MutedColor)
+
+	CursorDimStyle = lipgloss.NewStyle().
+			Foreground(MutedColor)
 )
