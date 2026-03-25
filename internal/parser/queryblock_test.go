@@ -66,7 +66,7 @@ func TestExtractQueryBlocks_DefaultValues(t *testing.T) {
 	if len(b.Fields) != 0 {
 		t.Errorf("default fields = %v, want empty", b.Fields)
 	}
-	if b.SortField != "title" || b.SortDesc {
+	if b.SortField != DefaultSortField || b.SortDesc {
 		t.Errorf("default sort = %s desc=%v", b.SortField, b.SortDesc)
 	}
 	if b.Limit != 50 {
@@ -75,13 +75,13 @@ func TestExtractQueryBlocks_DefaultValues(t *testing.T) {
 }
 
 func TestExtractQueryBlocks_WhereConditions(t *testing.T) {
-	content := "```know\nLIST\nWHERE labels CONTAIN \"go\"\nWHERE doc_type = \"note\"\nWHERE title CONTAINS \"setup\"\n```"
+	content := "```know\nLIST\nWHERE labels CONTAIN \"go\"\nWHERE doc_type = \"note\"\n```"
 	blocks := ExtractQueryBlocks(content)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if len(blocks[0].Conditions) != 3 {
-		t.Fatalf("expected 3 conditions, got %d", len(blocks[0].Conditions))
+	if len(blocks[0].Conditions) != 2 {
+		t.Fatalf("expected 2 conditions, got %d", len(blocks[0].Conditions))
 	}
 	c := blocks[0].Conditions
 	if c[0].Op != OpContain {
@@ -89,9 +89,6 @@ func TestExtractQueryBlocks_WhereConditions(t *testing.T) {
 	}
 	if c[1].Op != OpEqual {
 		t.Errorf("c[1].Op = %v, want OpEqual", c[1].Op)
-	}
-	if c[2].Op != OpContains {
-		t.Errorf("c[2].Op = %v, want OpContains", c[2].Op)
 	}
 }
 

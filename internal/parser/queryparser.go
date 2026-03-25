@@ -36,8 +36,8 @@ func (p *queryParser) expect(typ tokenType) (token, error) {
 func parseQueryBlock(raw string) QueryBlock {
 	p := newParser(raw)
 	block := QueryBlock{
-		SortField: "title",
-		Limit:     50,
+		SortField: DefaultSortField,
+		Limit:     DefaultLimit,
 	}
 
 	if err := p.parseFormatDecl(&block); err != nil {
@@ -89,6 +89,9 @@ func (p *queryParser) parseListFields(block *QueryBlock) error {
 		field, err := p.parseField()
 		if err != nil {
 			return err
+		}
+		if field.Alias != "" {
+			return fmt.Errorf("AS aliases are only supported in TABLE format")
 		}
 		block.Fields = append(block.Fields, field)
 	}
@@ -230,14 +233,11 @@ func (p *queryParser) parseWhere(block *QueryBlock) error {
 	case tokCONTAIN:
 		cond.Op = OpContain
 		p.advance()
-	case tokCONTAINS:
-		cond.Op = OpContains
-		p.advance()
 	case tokEQ:
 		cond.Op = OpEqual
 		p.advance()
 	default:
-		return fmt.Errorf("expected operator (CONTAIN, CONTAINS, or =) after %q, got %q", field, p.cur.val)
+		return fmt.Errorf("expected operator (CONTAIN or =) after %q, got %q", field, p.cur.val)
 	}
 
 	val, err := p.expect(tokSTRING)
@@ -289,6 +289,8 @@ func (p *queryParser) parseLimit(block *QueryBlock) error {
 
 func tokenName(typ tokenType) string {
 	switch typ {
+	case tokInvalid:
+		return "INVALID"
 	case tokLIST:
 		return "LIST"
 	case tokTABLE:
@@ -309,8 +311,6 @@ func tokenName(typ tokenType) string {
 		return "DESC"
 	case tokCONTAIN:
 		return "CONTAIN"
-	case tokCONTAINS:
-		return "CONTAINS"
 	case tokWITHOUT:
 		return "WITHOUT"
 	case tokID:

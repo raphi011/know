@@ -5,21 +5,20 @@ import "strings"
 type tokenType int
 
 const (
-	// Keywords
-	tokLIST     tokenType = iota
-	tokTABLE              // TABLE
-	tokTASK               // TASK
-	tokFROM               // FROM
-	tokWHERE              // WHERE
-	tokSORT               // SORT
-	tokLIMIT              // LIMIT
-	tokASC                // ASC
-	tokDESC               // DESC
-	tokCONTAIN            // CONTAIN
-	tokCONTAINS           // CONTAINS
-	tokWITHOUT            // WITHOUT
-	tokID                 // ID
-	tokAS                 // AS
+	tokInvalid tokenType = iota // zero value, never produced by lexer
+	tokLIST                     // LIST
+	tokTABLE                    // TABLE
+	tokTASK                     // TASK
+	tokFROM                     // FROM
+	tokWHERE                    // WHERE
+	tokSORT                     // SORT
+	tokLIMIT                    // LIMIT
+	tokASC                      // ASC
+	tokDESC                     // DESC
+	tokCONTAIN                  // CONTAIN
+	tokWITHOUT                  // WITHOUT
+	tokID                       // ID
+	tokAS                       // AS
 
 	// Literals
 	tokSTRING // "double-quoted"
@@ -34,20 +33,19 @@ const (
 )
 
 var keywords = map[string]tokenType{
-	"list":     tokLIST,
-	"table":    tokTABLE,
-	"task":     tokTASK,
-	"from":     tokFROM,
-	"where":    tokWHERE,
-	"sort":     tokSORT,
-	"limit":    tokLIMIT,
-	"asc":      tokASC,
-	"desc":     tokDESC,
-	"contain":  tokCONTAIN,
-	"contains": tokCONTAINS,
-	"without":  tokWITHOUT,
-	"id":       tokID,
-	"as":       tokAS,
+	"list":    tokLIST,
+	"table":   tokTABLE,
+	"task":    tokTASK,
+	"from":    tokFROM,
+	"where":   tokWHERE,
+	"sort":    tokSORT,
+	"limit":   tokLIMIT,
+	"asc":     tokASC,
+	"desc":    tokDESC,
+	"contain": tokCONTAIN,
+	"without": tokWITHOUT,
+	"id":      tokID,
+	"as":      tokAS,
 }
 
 type token struct {

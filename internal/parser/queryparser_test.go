@@ -78,11 +78,11 @@ func TestParseQueryBlock_MultipleWhere(t *testing.T) {
 	assertEqual(t, "cond[1].op", OpEqual, block.Conditions[1].Op)
 }
 
-func TestParseQueryBlock_ContainsOperator(t *testing.T) {
+func TestParseQueryBlock_ContainsIsNotAnOperator(t *testing.T) {
 	block := parseQueryBlock(`LIST WHERE title CONTAINS "setup"`)
-	assertNoError(t, block)
-	assertEqual(t, "conditions", 1, len(block.Conditions))
-	assertEqual(t, "cond op", OpContains, block.Conditions[0].Op)
+	if block.Error == "" {
+		t.Error("expected error for CONTAINS operator (only CONTAIN is supported)")
+	}
 }
 
 func TestParseQueryBlock_SortDesc(t *testing.T) {
@@ -93,19 +93,26 @@ func TestParseQueryBlock_SortDesc(t *testing.T) {
 }
 
 func TestParseQueryBlock_SortDefaultAsc(t *testing.T) {
-	block := parseQueryBlock("LIST SORT title")
+	block := parseQueryBlock("LIST SORT updated_at")
 	assertNoError(t, block)
-	assertEqual(t, "sort field", "title", block.SortField)
+	assertEqual(t, "sort field", "updated_at", block.SortField)
 	assertEqual(t, "sort desc", false, block.SortDesc)
 }
 
 func TestParseQueryBlock_Defaults(t *testing.T) {
 	block := parseQueryBlock("LIST")
 	assertNoError(t, block)
-	assertEqual(t, "sort field", "title", block.SortField)
+	assertEqual(t, "sort field", DefaultSortField, block.SortField)
 	assertEqual(t, "sort desc", false, block.SortDesc)
-	assertEqual(t, "limit", 50, block.Limit)
+	assertEqual(t, "limit", DefaultLimit, block.Limit)
 	assertEqual(t, "fields", 0, len(block.Fields))
+}
+
+func TestParseQueryBlock_ListAliasRejected(t *testing.T) {
+	block := parseQueryBlock(`LIST title AS "Name"`)
+	if block.Error == "" {
+		t.Error("expected error for AS alias in LIST format")
+	}
 }
 
 func TestParseQueryBlock_Errors(t *testing.T) {

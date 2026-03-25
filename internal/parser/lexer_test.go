@@ -21,7 +21,6 @@ func TestLexer_Keywords(t *testing.T) {
 		{"ASC", tokASC},
 		{"DESC", tokDESC},
 		{"CONTAIN", tokCONTAIN},
-		{"CONTAINS", tokCONTAINS},
 		{"WITHOUT", tokWITHOUT},
 		{"ID", tokID},
 		{"AS", tokAS},

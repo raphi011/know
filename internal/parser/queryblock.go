@@ -4,18 +4,51 @@ package parser
 type QueryFormat int
 
 const (
-	FormatList  QueryFormat = iota // bullet list of links
-	FormatTable                    // columnar table
-	FormatTask                     // checkbox list
+	FormatInvalid QueryFormat = iota // zero value, indicates unset
+	FormatList                       // bullet list of links
+	FormatTable                      // columnar table
+	FormatTask                       // checkbox list
 )
+
+// String returns the format keyword.
+func (f QueryFormat) String() string {
+	switch f {
+	case FormatList:
+		return "LIST"
+	case FormatTable:
+		return "TABLE"
+	case FormatTask:
+		return "TASK"
+	default:
+		return "INVALID"
+	}
+}
 
 // ConditionOp is a WHERE condition operator.
 type ConditionOp int
 
 const (
-	OpContain  ConditionOp = iota // labels CONTAIN "x" (label membership)
-	OpEqual                       // field = "x" (exact match)
-	OpContains                    // field CONTAINS "x" (substring)
+	OpInvalid ConditionOp = iota // zero value, indicates unset
+	OpContain                    // labels CONTAIN "x" (label membership)
+	OpEqual                      // field = "x" (exact match)
+)
+
+// String returns the operator keyword.
+func (op ConditionOp) String() string {
+	switch op {
+	case OpContain:
+		return "CONTAIN"
+	case OpEqual:
+		return "="
+	default:
+		return "INVALID"
+	}
+}
+
+// Default query block values.
+const (
+	DefaultSortField = "path"
+	DefaultLimit     = 50
 )
 
 // Condition represents a parsed WHERE clause.
