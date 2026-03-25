@@ -405,7 +405,7 @@ func (m Model) View() tea.View {
 
 	switch m.state {
 	case stateFinding:
-		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items), len(m.tags.tags))
+		tabBar := renderTabs(m.activeTab, len(m.links.allLinks), len(m.bookmarks.items), len(m.tags.tags), 0)
 		switch m.activeTab {
 		case TabSearch:
 			content = tabBar + "\n" + m.search.View()
