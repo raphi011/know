@@ -1,14 +1,18 @@
 package tui
 
-import lipgloss "charm.land/lipgloss/v2"
+import (
+	lipgloss "charm.land/lipgloss/v2"
+
+	"github.com/raphi011/know/internal/tui/pick"
+)
 
 var (
-	// Colors
-	primaryColor   = lipgloss.Color("#7C3AED") // violet
-	secondaryColor = lipgloss.Color("#6B7280") // gray
-	accentColor    = lipgloss.Color("#10B981") // green
-	errorColor     = lipgloss.Color("#EF4444") // red
-	mutedColor     = lipgloss.Color("#9CA3AF") // light gray
+	// Colors — canonical definitions live in pick/styles.go and are re-aliased here.
+	primaryColor   = pick.PrimaryColor
+	secondaryColor = pick.SecondaryColor
+	accentColor    = pick.AccentColor
+	errorColor     = pick.ErrorColor
+	mutedColor     = pick.MutedColor
 
 	// Header style (startup banner)
 	headerStyle = lipgloss.NewStyle().
