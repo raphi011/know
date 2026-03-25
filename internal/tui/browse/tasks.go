@@ -242,6 +242,8 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 		case "g":
 			t.grouped = !t.grouped
 			return t, nil
+		case "esc":
+			return t, tea.Quit
 		}
 
 		// Delegate remaining keys to filterBar.
@@ -294,6 +296,48 @@ func isDueSoon(dueDate string) bool {
 		return false
 	}
 	return t.Before(time.Now().AddDate(0, 0, 7).Truncate(24 * time.Hour))
+}
+
+// renderTaskRow renders checkbox + text + labels + due date for a single task.
+func renderTaskRow(task *apiclient.TaskResponse, selected bool) string {
+	// Checkbox
+	var checkbox string
+	if task.Status == "done" {
+		checkbox = taskAccentStyle.Render("☑ ")
+	} else {
+		checkbox = taskMutedStyle.Render("☐ ")
+	}
+
+	// Task text
+	var taskText string
+	if task.Status == "done" {
+		taskText = taskDoneStyle.Render(task.Text)
+	} else if selected {
+		taskText = pick.SelectedStyle.Render(task.Text)
+	} else {
+		taskText = pick.NormalStyle.Render(task.Text)
+	}
+
+	// Labels
+	var labels strings.Builder
+	for _, label := range task.Labels {
+		labels.WriteString(" " + taskSecondaryStyle.Render("#"+label))
+	}
+
+	// Due date
+	var due string
+	if task.DueDate != nil && *task.DueDate != "" {
+		dueStr := " due:" + *task.DueDate
+		if isOverdue(*task.DueDate) {
+			due = taskOverdueStyle.Render(dueStr)
+		} else if isDueSoon(*task.DueDate) {
+			due = taskDueSoonStyle.Render(dueStr)
+		} else {
+			due = taskMutedStyle.Render(dueStr)
+		}
+	}
+
+	return checkbox + taskText + labels.String() + due
 }
 
 var (
@@ -364,53 +408,12 @@ func (t tasksModel) viewGrouped(sb *strings.Builder, visible int) {
 		if row.isHeader {
 			sb.WriteString("  " + lipgloss.NewStyle().Bold(true).Render(row.docPath))
 		} else {
-			task := row.task
 			selected := row.taskIdx == t.cursor
-
-			// Cursor / indent prefix
 			prefix := "    "
 			if selected {
 				prefix = "  > "
 			}
-
-			// Checkbox
-			var checkbox string
-			if task.Status == "done" {
-				checkbox = taskAccentStyle.Render("☑ ")
-			} else {
-				checkbox = taskMutedStyle.Render("☐ ")
-			}
-
-			// Task text
-			var taskText string
-			if task.Status == "done" {
-				taskText = taskDoneStyle.Render(task.Text)
-			} else if selected {
-				taskText = pick.SelectedStyle.Render(task.Text)
-			} else {
-				taskText = pick.NormalStyle.Render(task.Text)
-			}
-
-			// Labels
-			var labels strings.Builder
-			for _, label := range task.Labels {
-				labels.WriteString(" " + taskSecondaryStyle.Render("#"+label))
-			}
-
-			// Due date
-			var due string
-			if task.DueDate != nil && *task.DueDate != "" {
-				dueStr := " due:" + *task.DueDate
-				if isOverdue(*task.DueDate) {
-					due = taskOverdueStyle.Render(dueStr)
-				} else if isDueSoon(*task.DueDate) {
-					due = taskDueSoonStyle.Render(dueStr)
-				} else {
-					due = taskMutedStyle.Render(dueStr)
-				}
-			}
-
-			sb.WriteString(prefix + checkbox + taskText + labels.String() + due)
+			sb.WriteString(prefix + renderTaskRow(row.task, selected))
 		}
 		sb.WriteString("\n")
 		rendered++
@@ -469,48 +472,11 @@ func (t tasksModel) View() string {
 		end := min(t.offset+visible, len(t.filtered))
 		for i := t.offset; i < end; i++ {
 			task := t.filtered[i]
+			selected := i == t.cursor
 
-			// Cursor
 			cursor := "  "
-			if i == t.cursor {
+			if selected {
 				cursor = "> "
-			}
-
-			// Checkbox
-			var checkbox string
-			if task.Status == "done" {
-				checkbox = taskAccentStyle.Render("☑ ")
-			} else {
-				checkbox = taskMutedStyle.Render("☐ ")
-			}
-
-			// Task text
-			var taskText string
-			if task.Status == "done" {
-				taskText = taskDoneStyle.Render(task.Text)
-			} else if i == t.cursor {
-				taskText = pick.SelectedStyle.Render(task.Text)
-			} else {
-				taskText = pick.NormalStyle.Render(task.Text)
-			}
-
-			// Labels
-			var labels strings.Builder
-			for _, label := range task.Labels {
-				labels.WriteString(" " + taskSecondaryStyle.Render("#"+label))
-			}
-
-			// Due date
-			var due string
-			if task.DueDate != nil && *task.DueDate != "" {
-				dueStr := " due:" + *task.DueDate
-				if isOverdue(*task.DueDate) {
-					due = taskOverdueStyle.Render(dueStr)
-				} else if isDueSoon(*task.DueDate) {
-					due = taskDueSoonStyle.Render(dueStr)
-				} else {
-					due = taskMutedStyle.Render(dueStr)
-				}
 			}
 
 			// Doc path (filename only)
@@ -519,8 +485,7 @@ func (t tasksModel) View() string {
 				docName = " " + taskMutedStyle.Render(path.Base(task.DocumentPath))
 			}
 
-			line := cursor + checkbox + taskText + labels.String() + due + docName
-			sb.WriteString(line)
+			sb.WriteString(cursor + renderTaskRow(&task, selected) + docName)
 			sb.WriteString("\n")
 		}
 

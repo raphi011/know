@@ -144,6 +144,8 @@ func (b bookmarksModel) Update(msg tea.Msg) (bookmarksModel, tea.Cmd) {
 				return b, b.toggleBookmark(b.filtered[b.cursor].Path, false)
 			}
 			return b, nil
+		case "esc":
+			return b, tea.Quit
 		}
 	}
 
