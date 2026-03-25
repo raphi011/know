@@ -3,7 +3,7 @@ package browse
 import (
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/raphi011/know/internal/tui/pick"
@@ -36,9 +36,9 @@ func (r FilterResult) FilterAll(key string) []string {
 	return r.Filters[key]
 }
 
-// FilterBar wraps textinput.Model and parses key:value filter tokens.
+// FilterBar wraps textarea.Model and parses key:value filter tokens.
 type FilterBar struct {
-	input     textinput.Model
+	input     textarea.Model
 	config    FilterBarConfig
 	result    FilterResult
 	supported map[string]bool
@@ -46,15 +46,23 @@ type FilterBar struct {
 
 // NewFilterBar creates a FilterBar with the given config.
 func NewFilterBar(config FilterBarConfig) FilterBar {
-	ti := textinput.New()
-	ti.Placeholder = config.Placeholder
-	ti.CharLimit = 256
-	ti.Prompt = "/ "
+	ta := textarea.New()
+	ta.Placeholder = config.Placeholder
+	ta.CharLimit = 256
+	ta.Prompt = "/ "
+	ta.ShowLineNumbers = false
+	ta.SetHeight(1)
+	ta.MaxHeight = 10
 
-	styles := ti.Styles()
+	// Enter triggers search; shift+enter inserts newline.
+	km := ta.KeyMap
+	km.InsertNewline.SetKeys("shift+enter")
+	ta.KeyMap = km
+
+	styles := ta.Styles()
 	styles.Cursor.Blink = false
 	styles.Focused.Prompt = pick.PromptStyle
-	ti.SetStyles(styles)
+	ta.SetStyles(styles)
 
 	supported := make(map[string]bool, len(config.SupportedKeys))
 	for _, k := range config.SupportedKeys {
@@ -62,7 +70,7 @@ func NewFilterBar(config FilterBarConfig) FilterBar {
 	}
 
 	return FilterBar{
-		input:     ti,
+		input:     ta,
 		config:    config,
 		result:    parseFilterInput("", supported),
 		supported: supported,
@@ -95,6 +103,7 @@ func (f FilterBar) Update(msg tea.Msg) (FilterBar, tea.Cmd) {
 	var cmd tea.Cmd
 	f.input, cmd = f.input.Update(msg)
 	f.result = parseFilterInput(f.input.Value(), f.supported)
+	f.resizeInput()
 	return f, cmd
 }
 
@@ -111,15 +120,16 @@ func (f FilterBar) View() string {
 
 // SetWidth sets the width of the underlying text input.
 func (f *FilterBar) SetWidth(width int) {
-	f.input.SetWidth(width - len(f.input.Prompt))
+	f.input.SetWidth(width - 4)
 }
 
 // HeightLines returns the number of lines the filter bar occupies.
 func (f FilterBar) HeightLines() int {
+	h := max(f.input.LineCount(), 1)
 	if f.config.Hints != "" {
-		return 2
+		h++
 	}
-	return 1
+	return h
 }
 
 // Result returns the current parsed filter result.
@@ -149,4 +159,10 @@ func (f FilterBar) SetValue(v string) FilterBar {
 	f.input.SetValue(v)
 	f.result = parseFilterInput(v, f.supported)
 	return f
+}
+
+// resizeInput adjusts the textarea height to match its content.
+func (f *FilterBar) resizeInput() {
+	h := min(max(f.input.LineCount(), 1), f.input.MaxHeight)
+	f.input.SetHeight(h)
 }

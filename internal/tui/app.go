@@ -434,6 +434,7 @@ func (m *Model) sendMessage() tea.Cmd {
 	vaultID := m.vaultID
 	attachments := chatAttachments
 	resolved := files
+	width := m.width
 
 	startStreamCmd := func() tea.Msg {
 		ch, err := client.Chat(ctx, convID, vaultID, content, attachments, false)
@@ -451,7 +452,7 @@ func (m *Model) sendMessage() tea.Cmd {
 
 	// Print user message to scrollback, then start streaming + spinner
 	return tea.Sequence(
-		tea.Println(renderUserMessage(content, resolved)),
+		tea.Println(renderUserMessage(content, resolved, width)),
 		tea.Batch(startStreamCmd, m.spinner.Tick),
 	)
 }
@@ -712,7 +713,7 @@ func (m *Model) finalizeStream() tea.Cmd {
 	}
 	m.streaming = false
 
-	rendered := renderAssistantMessage(m.renderer, m.streamParts)
+	rendered := renderAssistantMessage(m.renderer, m.streamParts, m.width)
 	m.streamParts = nil
 
 	// Dialog is cleared when the user approves/rejects all pending approvals.
