@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/raphi011/know/internal/tui/pick"
 )
 
@@ -12,6 +13,7 @@ import (
 type FilterBarConfig struct {
 	SupportedKeys []string
 	Placeholder   string
+	Hints         string // e.g. "status:open|done  label:<name>  due:today|week|overdue"
 }
 
 // FilterResult holds the parsed output of the filter input.
@@ -96,9 +98,23 @@ func (f FilterBar) Update(msg tea.Msg) (FilterBar, tea.Cmd) {
 	return f, cmd
 }
 
-// View renders the filter bar.
+var filterHintStyle = lipgloss.NewStyle().Foreground(pick.MutedColor)
+
+// View renders the filter bar with optional filter hints underneath.
 func (f FilterBar) View() string {
-	return f.input.View()
+	s := f.input.View()
+	if f.config.Hints != "" {
+		s += "\n  " + filterHintStyle.Render(f.config.Hints)
+	}
+	return s
+}
+
+// HeightLines returns the number of lines the filter bar occupies.
+func (f FilterBar) HeightLines() int {
+	if f.config.Hints != "" {
+		return 2
+	}
+	return 1
 }
 
 // Result returns the current parsed filter result.

@@ -43,7 +43,8 @@ func newBookmarksModel(client *apiclient.Client, vaultID string) bookmarksModel 
 	return bookmarksModel{
 		filterBar: NewFilterBar(FilterBarConfig{
 			SupportedKeys: []string{"label"},
-			Placeholder:   "Filter bookmarks... (label:docs)",
+			Placeholder:   "Filter bookmarks...",
+			Hints:         "label:<name>",
 		}),
 		client:  client,
 		vaultID: vaultID,
@@ -174,7 +175,7 @@ func (b bookmarksModel) toggleBookmark(path string, add bool) tea.Cmd {
 }
 
 func (b bookmarksModel) visibleRows() int {
-	return max(b.height-4, 1) // filterBar + header + status + padding
+	return max(b.height-b.filterBar.HeightLines()-3, 1) // filterbar + header + status + padding
 }
 
 func (b bookmarksModel) View() string {

@@ -75,7 +75,8 @@ func newLinksModel(client *apiclient.Client, vaultID string) linksModel {
 	return linksModel{
 		filterBar: NewFilterBar(FilterBarConfig{
 			SupportedKeys: []string{"label", "host", "status"},
-			Placeholder:   "Filter links... (host:github.com status:archived)",
+			Placeholder:   "Filter links...",
+			Hints:         "status:inbox|archived  host:<domain>  label:<name>",
 		}),
 		client:  client,
 		vaultID: vaultID,
@@ -175,8 +176,7 @@ func (l *linksModel) ensureCursorVisible() {
 }
 
 func (l linksModel) visibleRows() int {
-	// tab bar (1) + search hint (1) + count line (1) + footer (1) = 4 lines overhead
-	return max(l.height-4, 1)
+	return max(l.height-l.filterBar.HeightLines()-3, 1) // filterbar + count + footer + padding
 }
 
 func (l linksModel) selectedEntry() *models.FileEntry {

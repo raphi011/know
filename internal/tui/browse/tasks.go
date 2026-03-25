@@ -47,7 +47,8 @@ func newTasksModel(client *apiclient.Client, vaultID string) tasksModel {
 	return tasksModel{
 		filterBar: NewFilterBar(FilterBarConfig{
 			SupportedKeys: []string{"status", "label", "due", "from"},
-			Placeholder:   "Filter tasks... (status:open label:go due:overdue)",
+			Placeholder:   "Filter tasks...",
+			Hints:         "status:open|done  label:<name>  due:today|week|overdue  from:<path>",
 		}),
 		client:  client,
 		vaultID: vaultID,
@@ -142,7 +143,7 @@ func (t *tasksModel) sortTasks() {
 }
 
 func (t tasksModel) visibleRows() int {
-	return max(t.height-3, 1) // filterbar + count + footer
+	return max(t.height-t.filterBar.HeightLines()-2, 1) // filterbar + count + footer
 }
 
 func (t *tasksModel) ensureCursorVisible() {

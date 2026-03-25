@@ -51,7 +51,8 @@ func newSearchModel(client *apiclient.Client, vaultID string) searchModel {
 	return searchModel{
 		filterBar: NewFilterBar(FilterBarConfig{
 			SupportedKeys: []string{"label"},
-			Placeholder:   "Search documents... (label:docs)",
+			Placeholder:   "Search documents...",
+			Hints:         "label:<name>",
 		}),
 		client:  client,
 		vaultID: vaultID,
@@ -81,10 +82,10 @@ func (s *searchModel) ensureCursorVisible() {
 }
 
 func (s searchModel) visibleRows() int {
-	// input (1) + count line (1) + footer (1) = 3 lines overhead
+	// filterbar + count line (1) + footer (1) = overhead
 	// Each result takes 2 lines (path+title, snippet).
-	rows := max((s.height-3)/2, 1)
-	return rows
+	overhead := s.filterBar.HeightLines() + 2
+	return max((s.height-overhead)/2, 1)
 }
 
 func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
