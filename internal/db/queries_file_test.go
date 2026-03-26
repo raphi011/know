@@ -240,6 +240,20 @@ func TestDeleteFileAtomic(t *testing.T) {
 		t.Fatalf("SyncFileLabels failed: %v", err)
 	}
 
+	// Create a task linked to the file
+	if _, err := testDB.CreateTask(ctx, models.TaskInput{
+		FileID:      docID,
+		VaultID:     vaultID,
+		Status:      models.TaskStatusOpen,
+		RawLine:     "- [ ] Buy milk",
+		Text:        "Buy milk",
+		Labels:      []string{},
+		LineNumber:  1,
+		ContentHash: "abc123",
+	}); err != nil {
+		t.Fatalf("CreateTask failed: %v", err)
+	}
+
 	// Delete atomically
 	if err := testDB.DeleteFileAtomic(ctx, docID); err != nil {
 		t.Fatalf("DeleteFileAtomic failed: %v", err)
@@ -296,6 +310,15 @@ func TestDeleteFileAtomic(t *testing.T) {
 	}
 	if len(labels) != 0 {
 		t.Errorf("Expected 0 labels after atomic delete, got %d", len(labels))
+	}
+
+	// Verify tasks are gone
+	tasks, err := testDB.GetTasksByFile(ctx, docID)
+	if err != nil {
+		t.Fatalf("GetTasksByFile after atomic delete error: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Errorf("Expected 0 tasks after atomic delete, got %d", len(tasks))
 	}
 }
 
