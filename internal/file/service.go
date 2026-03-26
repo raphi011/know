@@ -203,10 +203,15 @@ func (s *Service) ReadContent(ctx context.Context, contentHash string) (string, 
 }
 
 // ReadFileContent loads content for a file from the blob store.
-// Convenience wrapper that handles nil Hash.
+// If the file has pending task changes (dirty_tasks=true), it reconciles
+// them first: applies checkbox flips to the markdown, persists the updated
+// content, and clears the flag before returning.
 func (s *Service) ReadFileContent(ctx context.Context, f *models.File) (string, error) {
 	if f.Hash == nil {
 		return "", nil
+	}
+	if f.DirtyTasks {
+		return s.reconcileDirtyTasks(ctx, f)
 	}
 	return s.ReadContent(ctx, *f.Hash)
 }
