@@ -6,20 +6,17 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 )
 
 var toggleCheckboxRegex = regexp.MustCompile(`^(\s*- \[)([ xX])(\]\s+)`)
 
-// ToggleTask flips a task's checkbox in the source file and re-ingests it.
-// The vaultID parameter ensures the task belongs to the expected vault,
-// preventing cross-vault task manipulation.
-// Returns the updated task after re-ingestion.
+// ToggleTask flips a task's status in the database and marks the parent file
+// as having dirty tasks. The markdown file is not rewritten immediately —
+// instead, the next ReadFileContent call will reconcile the checkbox state.
 func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*models.Task, error) {
-	logger := logutil.FromCtx(ctx)
-
 	task, err := s.db.GetTaskByID(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("get task: %w", err)
@@ -48,66 +45,44 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 		return nil, fmt.Errorf("task %s does not belong to vault %s", taskID, vaultID)
 	}
 
-	// Load content from blob store.
-	rawContent, err := s.ReadFileContent(ctx, doc)
-	if err != nil {
-		return nil, fmt.Errorf("read content: %w", err)
+	// Flip status.
+	newStatus := models.TaskStatusDone
+	if task.Status == models.TaskStatusDone {
+		newStatus = models.TaskStatusOpen
 	}
 
-	// Find and toggle the checkbox line.
-	// Task LineNumber is relative to content-after-frontmatter (content body),
-	// not the raw content which includes frontmatter.
-	parsed := parser.ParseMarkdown(rawContent)
-	contentBody := parsed.Content
-	lines := strings.Split(contentBody, "\n")
-
-	// Use the parser's extracted tasks to find the matching line. This avoids
-	// hash mismatches between AST-derived text (used at extraction time) and
-	// raw line text (which retains markdown syntax like [[wiki-links]]).
-	toggleLine := findToggleLine(parsed.Tasks, task.ContentHash, task.LineNumber)
-
-	if toggleLine <= 0 || toggleLine > len(lines) {
-		return nil, fmt.Errorf("could not find checkbox for task %s in file %s", taskID, doc.Path)
+	// Update raw_line checkbox marker to match new status.
+	newRawLine := flipCheckbox(task.RawLine)
+	if newRawLine == task.RawLine {
+		// Fallback: if raw_line doesn't match checkbox regex, just update status.
+		newRawLine = task.RawLine
 	}
 
-	idx := toggleLine - 1
-	if toggleLine != task.LineNumber {
-		logger.Info("toggle: task line drifted", "expected", task.LineNumber, "found", toggleLine, "task_id", taskID)
-	}
-	newLine := flipCheckbox(lines[idx])
-	if newLine == lines[idx] {
-		return nil, fmt.Errorf("line %d in file %s is not a checkbox", toggleLine, doc.Path)
-	}
-	lines[idx] = newLine
-
-	// Reconstruct full content: contentBody is always a suffix of rawContent.
-	newBody := strings.Join(lines, "\n")
-	prefix := rawContent[:len(rawContent)-len(contentBody)]
-	newContent := prefix + newBody
-	_, err = s.Create(ctx, models.FileInput{
-		VaultID: docVaultID,
-		Path:    doc.Path,
-		Content: newContent,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("write back: %w", err)
+	// Update task status in DB.
+	if err := s.db.UpdateTask(ctx, taskID, db.TaskUpdate{
+		Status:      newStatus,
+		RawLine:     newRawLine,
+		Text:        task.Text,
+		Labels:      task.Labels,
+		DueDate:     task.DueDate,
+		LineNumber:  task.LineNumber,
+		HeadingPath: task.HeadingPath,
+	}); err != nil {
+		return nil, fmt.Errorf("update task status: %w", err)
 	}
 
-	// Process immediately so the caller gets fresh data.
-	if err := s.ProcessAllPending(ctx, docVaultID); err != nil {
-		return nil, fmt.Errorf("process after toggle: %w", err)
+	// Mark file as having dirty tasks.
+	if err := s.db.SetFileDirtyTasks(ctx, fileID, true); err != nil {
+		return nil, fmt.Errorf("set dirty tasks: %w", err)
 	}
 
-	// Fetch the updated task. Since toggle only changes the checkbox marker (not the
-	// cleaned text), the content hash is stable and syncTasks updates the existing
-	// record rather than deleting/recreating it. A nil result here would indicate the
-	// file was concurrently modified and the task was removed.
+	// Return the updated task.
 	updated, err := s.db.GetTaskByID(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("get updated task: %w", err)
 	}
 	if updated == nil {
-		return nil, fmt.Errorf("task %s not found after toggle — file may have been concurrently modified", taskID)
+		return nil, fmt.Errorf("task %s not found after toggle", taskID)
 	}
 	return updated, nil
 }
