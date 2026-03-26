@@ -20,6 +20,7 @@ import (
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/parser"
 	"github.com/raphi011/know/internal/tools"
@@ -65,6 +66,7 @@ type Service struct {
 	tavily          *tavilyClient
 	apifyClient     *apify.Client
 	checkpointStore *SurrealCheckPointStore
+	metrics         *metrics.Metrics
 }
 
 // SetModel atomically replaces the LLM model (used by SIGHUP reload).
@@ -79,13 +81,14 @@ func (s *Service) getModel() *llm.Model {
 
 // NewService creates a new agent service. The tools slice should contain
 // multi-vault tool wrappers built by the bootstrap layer.
-func NewService(db *db.Client, fileSvc *file.Service, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string, apifyClient *apify.Client) *Service {
+func NewService(db *db.Client, fileSvc *file.Service, model *llm.Model, agentTools []tool.BaseTool, tavilyAPIKey string, apifyClient *apify.Client, m *metrics.Metrics) *Service {
 	s := &Service{
 		db:              db,
 		fileSvc:         fileSvc,
 		tools:           agentTools,
 		apifyClient:     apifyClient,
 		checkpointStore: NewCheckPointStore(db),
+		metrics:         m,
 	}
 	s.model.Store(model)
 	if tavilyAPIKey != "" {
@@ -163,6 +166,8 @@ type ChatRequest struct {
 
 // Chat runs the agent loop using ADK ChatModelAgent and emits SSE events via the callback.
 func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEvent)) error {
+	chatStart := time.Now()
+
 	model := s.getModel()
 	if model == nil {
 		return fmt.Errorf("agent not available: no LLM configured")
@@ -228,7 +233,15 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, emit func(StreamEve
 		return fmt.Errorf("finalize run: %w", err)
 	}
 
-	// 9. Auto-title if first message
+	// 9. Record agent metrics
+	s.metrics.RecordAgentChat(
+		time.Since(chatStart),
+		len(result.ToolRecords),
+		result.TokenUsage.InputTokens,
+		result.TokenUsage.OutputTokens,
+	)
+
+	// 10. Auto-title if first message
 	if len(history) == 0 {
 		go s.autoTitle(context.Background(), req.ConversationID, req.Content)
 	}

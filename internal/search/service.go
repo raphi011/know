@@ -11,6 +11,7 @@ import (
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -19,11 +20,12 @@ import (
 type Service struct {
 	db       *db.Client
 	embedder atomic.Pointer[llm.Embedder] // optional
+	metrics  *metrics.Metrics
 }
 
 // NewService creates a new search service.
-func NewService(db *db.Client, embedder *llm.Embedder) *Service {
-	s := &Service{db: db}
+func NewService(db *db.Client, embedder *llm.Embedder, m *metrics.Metrics) *Service {
+	s := &Service{db: db, metrics: m}
 	s.embedder.Store(embedder)
 	return s
 }
@@ -89,6 +91,8 @@ func truncateSnippet(s string, maxLen int) string {
 // With embedder: hybrid search via SurrealDB's search::rrf() (BM25 + vector, fused in DB).
 // Without embedder: BM25-only chunk search.
 func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult, error) {
+	start := time.Now()
+
 	// Load vault settings for per-vault search tuning. If the vault lookup fails,
 	// fall back to model defaults — the subsequent search query may still succeed,
 	// and using default tuning params is better than blocking search entirely.
@@ -129,6 +133,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		if err != nil {
 			return nil, fmt.Errorf("bm25 chunk search: %w", err)
 		}
+		s.metrics.RecordSearch("bm25", time.Since(start))
 		return assembleResults(ctx, chunks, limit, input.FullContent, false), nil
 	}
 
@@ -142,6 +147,7 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		if bm25Err != nil {
 			return nil, fmt.Errorf("bm25 fallback after embed failure (%v): %w", err, bm25Err)
 		}
+		s.metrics.RecordSearch("fallback", time.Since(start))
 		return assembleResults(ctx, chunks, limit, input.FullContent, true), nil
 	}
 
@@ -152,9 +158,11 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]SearchResult
 		if bm25Err != nil {
 			return nil, fmt.Errorf("bm25 fallback after hybrid failure (%v): %w", err, bm25Err)
 		}
+		s.metrics.RecordSearch("fallback", time.Since(start))
 		return assembleResults(ctx, chunks, limit, input.FullContent, true), nil
 	}
 
+	s.metrics.RecordSearch("hybrid", time.Since(start))
 	return assembleResults(ctx, chunks, limit, input.FullContent, false), nil
 }
 
@@ -171,6 +179,7 @@ func (s *Service) embedQuery(ctx context.Context, embedder llm.Embedder, query s
 	const cacheTimeout = 5 * time.Second
 
 	if cached != nil {
+		s.metrics.RecordEmbeddingCache("hit")
 		go func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), cacheTimeout)
 			defer cancel()
@@ -181,6 +190,7 @@ func (s *Service) embedQuery(ctx context.Context, embedder llm.Embedder, query s
 		return cached.Embedding, nil
 	}
 
+	s.metrics.RecordEmbeddingCache("miss")
 	embedding, err := embedder.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)

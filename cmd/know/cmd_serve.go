@@ -261,6 +261,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 				FileSvc:   app.FileService(),
 				RenderSvc: app.RenderService(),
 				Jina:      app.JinaClient(),
+				Metrics:   app.Metrics(),
 			},
 			app.DBClient(),
 			app.FileService(),
@@ -269,6 +270,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 			app.MemoryService(),
 			app.ApifyClient(),
 			app.JinaClient(),
+			app.Metrics(),
 		)
 		mux.Handle("/mcp", authMw(mcpHandler))
 		slog.Info("MCP endpoint enabled", "path", "/mcp")
@@ -349,6 +351,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 			app.VaultService(),
 			cfg.SSHHostKeyPath,
 			cfg.NoAuth,
+			app.Metrics(),
 		)
 		if err != nil {
 			return fmt.Errorf("create SSH server: %w", err)

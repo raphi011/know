@@ -16,6 +16,7 @@ import (
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/pathutil"
 )
@@ -31,11 +32,12 @@ type Service struct {
 	db         *db.Client
 	docService *file.Service
 	model      *llm.Model
+	metrics    *metrics.Metrics
 }
 
 // NewService creates a new memory service. model may be nil to disable consolidation.
 // Panics if dbClient or docService are nil.
-func NewService(dbClient *db.Client, docService *file.Service, model *llm.Model) *Service {
+func NewService(dbClient *db.Client, docService *file.Service, model *llm.Model, m *metrics.Metrics) *Service {
 	if dbClient == nil {
 		panic("memory.NewService: dbClient must not be nil")
 	}
@@ -46,15 +48,25 @@ func NewService(dbClient *db.Client, docService *file.Service, model *llm.Model)
 		db:         dbClient,
 		docService: docService,
 		model:      model,
+		metrics:    m,
 	}
 }
 
 // Create stores a memory document, optionally scoped to a project.
 // If project is empty, the memory is global (stored directly under the memory path).
-func (s *Service) Create(ctx context.Context, vaultID, project, title, content string, labels []string, settings models.VaultSettings) (*models.File, error) {
+func (s *Service) Create(ctx context.Context, vaultID, project, title, content string, labels []string, settings models.VaultSettings) (doc *models.File, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		s.metrics.RecordMemoryOp("create", status, time.Since(start))
+	}()
+
 	path, fullContent := BuildMemoryDocument(project, title, content, labels, settings)
 
-	doc, err := s.docService.Create(ctx, models.FileInput{
+	doc, err = s.docService.Create(ctx, models.FileInput{
 		VaultID: vaultID,
 		Path:    path,
 		Content: fullContent,
@@ -69,7 +81,15 @@ func (s *Service) Create(ctx context.Context, vaultID, project, title, content s
 // and optional consolidation. If project is empty, returns all memories
 // (optionally filtered by extraLabels). If project is set, returns only
 // memories for that project.
-func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLabels []string, includeArchived bool, settings models.VaultSettings) ([]ScoredMemory, error) {
+func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLabels []string, includeArchived bool, settings models.VaultSettings) (_ []ScoredMemory, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		s.metrics.RecordMemoryOp("retrieve", status, time.Since(start))
+	}()
 	logger := logutil.FromCtx(ctx)
 
 	// Build label filter
@@ -159,7 +179,16 @@ func (s *Service) Retrieve(ctx context.Context, vaultID, project string, extraLa
 }
 
 // Delete removes a memory document by path.
-func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
+func (s *Service) Delete(ctx context.Context, vaultID, path string) (err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		s.metrics.RecordMemoryOp("delete", status, time.Since(start))
+	}()
+
 	path = models.NormalizePath(path)
 	if err := s.docService.Delete(ctx, vaultID, path); err != nil {
 		return fmt.Errorf("delete: %w", err)
@@ -168,7 +197,15 @@ func (s *Service) Delete(ctx context.Context, vaultID, path string) error {
 }
 
 // consolidate finds pairs of memories with high embedding similarity and merges them.
-func (s *Service) consolidate(ctx context.Context, vaultID string, memories []ScoredMemory, settings models.VaultSettings) ([]ScoredMemory, error) {
+func (s *Service) consolidate(ctx context.Context, vaultID string, memories []ScoredMemory, settings models.VaultSettings) (_ []ScoredMemory, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		s.metrics.RecordMemoryOp("consolidate", status, time.Since(start))
+	}()
 	logger := logutil.FromCtx(ctx)
 
 	// Batch fetch first-chunk embeddings for all memories
