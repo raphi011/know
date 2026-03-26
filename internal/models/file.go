@@ -34,6 +34,7 @@ type File struct {
 	Stem           string                 `json:"stem"`
 	IsFolder       bool                   `json:"is_folder"`
 	NoEmbed        bool                   `json:"no_embed"`
+	DirtyTasks     bool                   `json:"dirty_tasks"`
 	MimeType       string                 `json:"mime_type"`
 	Hash           *string                `json:"hash,omitempty"`
 	Labels         []string               `json:"labels"`

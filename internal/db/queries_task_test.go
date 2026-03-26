@@ -679,3 +679,62 @@ func TestListTasks_DocPathAndDocTitle(t *testing.T) {
 	}
 	t.Error("denorm task not found in results")
 }
+
+func TestUpdateTaskAndSetDirtyFlag(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/toggle-dirty-" + suffix + ".md",
+		Title: "Toggle Dirty", Content: "- [ ] Test task", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	task, err := testDB.CreateTask(ctx, models.TaskInput{
+		FileID: fileID, VaultID: vaultID, Status: models.TaskStatusOpen,
+		RawLine: "- [ ] Test task", Text: "Test task", Labels: []string{},
+		LineNumber: 1, ContentHash: "testhash",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	taskID := models.MustRecordIDString(task.ID)
+
+	// Update task status to done (simulates toggle).
+	if err := testDB.UpdateTask(ctx, taskID, TaskUpdate{
+		Status: models.TaskStatusDone, RawLine: "- [x] Test task",
+		Text: "Test task", Labels: []string{}, LineNumber: 1,
+	}); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+
+	// Set dirty flag.
+	if err := testDB.SetFileDirtyTasks(ctx, fileID, true); err != nil {
+		t.Fatalf("SetFileDirtyTasks: %v", err)
+	}
+
+	// Verify file is dirty.
+	updatedFile, err := testDB.GetFileByID(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileByID: %v", err)
+	}
+	if !updatedFile.DirtyTasks {
+		t.Error("expected dirty_tasks=true after toggle")
+	}
+
+	// Verify task status changed.
+	updatedTask, err := testDB.GetTaskByID(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetTaskByID: %v", err)
+	}
+	if updatedTask.Status != models.TaskStatusDone {
+		t.Errorf("expected task status 'done', got %q", updatedTask.Status)
+	}
+}

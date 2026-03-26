@@ -1307,3 +1307,34 @@ func (c *Client) ClearFileHashes(ctx context.Context, vaultID string) (int, erro
 	}
 	return countResults(results), nil
 }
+
+// SetFileDirtyTasks sets or clears the dirty_tasks flag on a file.
+func (c *Client) SetFileDirtyTasks(ctx context.Context, fileID string, dirty bool) error {
+	defer c.logOp(ctx, "file.set_dirty_tasks", time.Now())
+
+	sql := `UPDATE type::record("file", $id) SET dirty_tasks = $dirty`
+	_, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":    bareID("file", fileID),
+		"dirty": dirty,
+	})
+	if err != nil {
+		return fmt.Errorf("set dirty tasks: %w", err)
+	}
+	return nil
+}
+
+// UpdateFileHashAndClearDirty atomically updates the content hash and clears the
+// dirty_tasks flag on a file record.
+func (c *Client) UpdateFileHashAndClearDirty(ctx context.Context, fileID string, hash *string) error {
+	defer c.logOp(ctx, "file.update_hash_clear_dirty", time.Now())
+
+	sql := `UPDATE type::record("file", $id) SET hash = $hash, dirty_tasks = false`
+	_, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":   bareID("file", fileID),
+		"hash": optionalString(hash),
+	})
+	if err != nil {
+		return fmt.Errorf("update file hash and clear dirty: %w", err)
+	}
+	return nil
+}
