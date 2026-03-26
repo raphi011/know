@@ -1307,3 +1307,18 @@ func (c *Client) ClearFileHashes(ctx context.Context, vaultID string) (int, erro
 	}
 	return countResults(results), nil
 }
+
+// SetFileDirtyTasks sets or clears the dirty_tasks flag on a file.
+func (c *Client) SetFileDirtyTasks(ctx context.Context, fileID string, dirty bool) error {
+	defer c.logOp(ctx, "file.set_dirty_tasks", time.Now())
+
+	sql := `UPDATE type::record("file", $id) SET dirty_tasks = $dirty`
+	_, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":    bareID("file", fileID),
+		"dirty": dirty,
+	})
+	if err != nil {
+		return fmt.Errorf("set dirty tasks: %w", err)
+	}
+	return nil
+}

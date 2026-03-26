@@ -1649,3 +1649,50 @@ func TestClearFileHashes(t *testing.T) {
 		t.Errorf("expected hash to be nil after ClearFileHashes, got %q", *fetched.Hash)
 	}
 }
+
+func TestSetFileDirtyTasks(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/dirty-tasks-" + suffix + ".md",
+		Title: "Dirty Tasks Test", Content: "content", Labels: []string{},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	// Initially false
+	if file.DirtyTasks {
+		t.Error("expected dirty_tasks=false initially")
+	}
+
+	// Set to true
+	if err := testDB.SetFileDirtyTasks(ctx, fileID, true); err != nil {
+		t.Fatalf("SetFileDirtyTasks(true): %v", err)
+	}
+	updated, err := testDB.GetFileByID(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileByID: %v", err)
+	}
+	if !updated.DirtyTasks {
+		t.Error("expected dirty_tasks=true after set")
+	}
+
+	// Clear back to false
+	if err := testDB.SetFileDirtyTasks(ctx, fileID, false); err != nil {
+		t.Fatalf("SetFileDirtyTasks(false): %v", err)
+	}
+	cleared, err := testDB.GetFileByID(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileByID: %v", err)
+	}
+	if cleared.DirtyTasks {
+		t.Error("expected dirty_tasks=false after clear")
+	}
+}
