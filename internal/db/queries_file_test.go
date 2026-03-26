@@ -1697,7 +1697,7 @@ func TestSetFileDirtyTasks(t *testing.T) {
 	}
 }
 
-func TestUpdateFileHash(t *testing.T) {
+func TestUpdateFileHashAndClearDirty(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
@@ -1716,9 +1716,14 @@ func TestUpdateFileHash(t *testing.T) {
 	}
 	fileID := models.MustRecordIDString(file.ID)
 
+	// Set dirty first so we can verify it gets cleared.
+	if err := testDB.SetFileDirtyTasks(ctx, fileID, true); err != nil {
+		t.Fatalf("SetFileDirtyTasks: %v", err)
+	}
+
 	newHash := "updatedhash"
-	if err := testDB.UpdateFileHash(ctx, fileID, &newHash); err != nil {
-		t.Fatalf("UpdateFileHash: %v", err)
+	if err := testDB.UpdateFileHashAndClearDirty(ctx, fileID, &newHash); err != nil {
+		t.Fatalf("UpdateFileHashAndClearDirty: %v", err)
 	}
 	updated, err := testDB.GetFileByID(ctx, fileID)
 	if err != nil {
@@ -1726,5 +1731,8 @@ func TestUpdateFileHash(t *testing.T) {
 	}
 	if updated.Hash == nil || *updated.Hash != newHash {
 		t.Errorf("expected hash %q, got %v", newHash, updated.Hash)
+	}
+	if updated.DirtyTasks {
+		t.Error("expected dirty_tasks=false after UpdateFileHashAndClearDirty")
 	}
 }

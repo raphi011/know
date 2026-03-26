@@ -10,17 +10,42 @@ import (
 	"github.com/raphi011/know/internal/parser"
 )
 
+// findToggleLine returns the 1-based line number of the task to toggle.
+// When multiple tasks share the same ContentHash (identical text), it picks
+// the one closest to expectedLine. Returns -1 if no match is found.
+func findToggleLine(tasks []parser.ExtractedTask, contentHash string, expectedLine int) int {
+	best := -1
+	bestDist := int(^uint(0) >> 1) // max int
+	for _, pt := range tasks {
+		if pt.ContentHash != contentHash {
+			continue
+		}
+		dist := pt.LineNumber - expectedLine
+		if dist < 0 {
+			dist = -dist
+		}
+		if dist < bestDist {
+			bestDist = dist
+			best = pt.LineNumber
+		}
+	}
+	return best
+}
+
 // applyTaskChanges takes raw file content and a list of tasks with their
 // current DB status, and returns the content with checkboxes updated to
-// match the DB state. This is a pure function — no side effects.
-func applyTaskChanges(rawContent string, tasks []models.Task) string {
+// match the DB state, plus the names of any tasks that could not be matched
+// to a line. This is a pure function — no side effects.
+func applyTaskChanges(rawContent string, tasks []models.Task) (string, []string) {
 	parsed := parser.ParseMarkdown(rawContent)
 	contentBody := parsed.Content
 	lines := strings.Split(contentBody, "\n")
 
+	var unmatched []string
 	for _, task := range tasks {
 		toggleLine := findToggleLine(parsed.Tasks, task.ContentHash, task.LineNumber)
 		if toggleLine <= 0 || toggleLine > len(lines) {
+			unmatched = append(unmatched, task.Text)
 			continue
 		}
 
@@ -38,7 +63,7 @@ func applyTaskChanges(rawContent string, tasks []models.Task) string {
 
 	newBody := strings.Join(lines, "\n")
 	prefix := rawContent[:len(rawContent)-len(contentBody)]
-	return prefix + newBody
+	return prefix + newBody, unmatched
 }
 
 // reconcileDirtyTasks loads the file content, applies pending task changes,
@@ -61,7 +86,10 @@ func (s *Service) reconcileDirtyTasks(ctx context.Context, f *models.File) (stri
 		return "", fmt.Errorf("get tasks for reconciliation: %w", err)
 	}
 
-	newContent := applyTaskChanges(rawContent, tasks)
+	newContent, unmatched := applyTaskChanges(rawContent, tasks)
+	if len(unmatched) > 0 {
+		logger.Warn("reconcile: could not find lines for tasks", "file", f.Path, "unmatched", unmatched)
+	}
 
 	// If nothing changed, just clear the flag.
 	if newContent == rawContent {
@@ -78,12 +106,9 @@ func (s *Service) reconcileDirtyTasks(ctx context.Context, f *models.File) (stri
 		return "", fmt.Errorf("store reconciled content: %w", err)
 	}
 
-	// Update file hash and clear dirty flag in DB.
-	if err := s.db.UpdateFileHash(ctx, fileID, &newHash); err != nil {
+	// Atomically update file hash and clear dirty flag.
+	if err := s.db.UpdateFileHashAndClearDirty(ctx, fileID, &newHash); err != nil {
 		return "", fmt.Errorf("update file hash: %w", err)
-	}
-	if err := s.db.SetFileDirtyTasks(ctx, fileID, false); err != nil {
-		return "", fmt.Errorf("clear dirty flag: %w", err)
 	}
 
 	// Update the in-memory file struct so callers see the new hash.

@@ -61,11 +61,25 @@ func TestApplyTaskChanges(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyTaskChanges(tt.content, tt.tasks)
+			result, _ := applyTaskChanges(tt.content, tt.tasks)
 			if result != tt.expected {
 				t.Errorf("applyTaskChanges():\ngot:  %q\nwant: %q", result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestApplyTaskChanges_UnmatchedTasks(t *testing.T) {
+	content := "# Tasks\n- [ ] Buy milk\n"
+	tasks := []models.Task{
+		{Status: models.TaskStatusDone, ContentHash: "nonexistent-hash", LineNumber: 99, Text: "Ghost task"},
+	}
+	result, unmatched := applyTaskChanges(content, tasks)
+	if result != content {
+		t.Errorf("expected content unchanged, got %q", result)
+	}
+	if len(unmatched) != 1 || unmatched[0] != "Ghost task" {
+		t.Errorf("expected unmatched=[Ghost task], got %v", unmatched)
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/models"
-	"github.com/raphi011/know/internal/parser"
 )
 
 var toggleCheckboxRegex = regexp.MustCompile(`^(\s*- \[)([ xX])(\]\s+)`)
@@ -53,6 +52,16 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 
 	// Update raw_line checkbox marker to match new status.
 	newRawLine := flipCheckbox(task.RawLine)
+	if newRawLine == task.RawLine {
+		return nil, fmt.Errorf("task %s raw_line is not a valid checkbox: %q", taskID, task.RawLine)
+	}
+
+	// Mark file dirty FIRST — if this fails, nothing has changed yet.
+	// If UpdateTask then fails, the file is dirty unnecessarily but the
+	// next reconciliation finds no diff and clears it (self-healing).
+	if err := s.db.SetFileDirtyTasks(ctx, fileID, true); err != nil {
+		return nil, fmt.Errorf("set dirty tasks: %w", err)
+	}
 
 	// Update task status in DB.
 	if err := s.db.UpdateTask(ctx, taskID, db.TaskUpdate{
@@ -67,42 +76,10 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 		return nil, fmt.Errorf("update task status: %w", err)
 	}
 
-	// Mark file as having dirty tasks.
-	if err := s.db.SetFileDirtyTasks(ctx, fileID, true); err != nil {
-		return nil, fmt.Errorf("set dirty tasks: %w", err)
-	}
-
-	// Return the updated task.
-	updated, err := s.db.GetTaskByID(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("get updated task: %w", err)
-	}
-	if updated == nil {
-		return nil, fmt.Errorf("task %s not found after toggle", taskID)
-	}
-	return updated, nil
-}
-
-// findToggleLine returns the 1-based line number of the task to toggle.
-// When multiple tasks share the same ContentHash (identical text), it picks
-// the one closest to expectedLine. Returns -1 if no match is found.
-func findToggleLine(tasks []parser.ExtractedTask, contentHash string, expectedLine int) int {
-	best := -1
-	bestDist := int(^uint(0) >> 1) // max int
-	for _, pt := range tasks {
-		if pt.ContentHash != contentHash {
-			continue
-		}
-		dist := pt.LineNumber - expectedLine
-		if dist < 0 {
-			dist = -dist
-		}
-		if dist < bestDist {
-			bestDist = dist
-			best = pt.LineNumber
-		}
-	}
-	return best
+	// Return the updated task without re-fetching — only Status and RawLine changed.
+	task.Status = newStatus
+	task.RawLine = newRawLine
+	return task, nil
 }
 
 // flipCheckbox flips `- [ ]` to `- [x]` or vice versa.

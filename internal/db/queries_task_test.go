@@ -680,7 +680,7 @@ func TestListTasks_DocPathAndDocTitle(t *testing.T) {
 	t.Error("denorm task not found in results")
 }
 
-func TestToggleTaskSetsDirtyFlag(t *testing.T) {
+func TestUpdateTaskAndSetDirtyFlag(t *testing.T) {
 	ctx := context.Background()
 	user := createTestUser(t, ctx)
 	userID := models.MustRecordIDString(user.ID)
