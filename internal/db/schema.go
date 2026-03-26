@@ -68,6 +68,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS dirty_tasks ON file TYPE bool DEFAULT false;
     -- Backfill: existing records may have NONE from an older schema.
     UPDATE file SET no_embed = false WHERE no_embed = NONE;
+    UPDATE file SET dirty_tasks = false WHERE dirty_tasks = NONE;
 
     DEFINE INDEX IF NOT EXISTS idx_file_vault_path    ON file FIELDS vault, path UNIQUE;
     DEFINE INDEX IF NOT EXISTS idx_file_labels        ON file FIELDS labels;

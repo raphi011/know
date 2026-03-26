@@ -53,10 +53,6 @@ func (s *Service) ToggleTask(ctx context.Context, vaultID, taskID string) (*mode
 
 	// Update raw_line checkbox marker to match new status.
 	newRawLine := flipCheckbox(task.RawLine)
-	if newRawLine == task.RawLine {
-		// Fallback: if raw_line doesn't match checkbox regex, just update status.
-		newRawLine = task.RawLine
-	}
 
 	// Update task status in DB.
 	if err := s.db.UpdateTask(ctx, taskID, db.TaskUpdate{
