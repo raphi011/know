@@ -329,7 +329,7 @@ func (c *Client) DeleteFile(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteFileAtomic removes a file and all its associated data (wiki links, label edges, chunks)
+// DeleteFileAtomic removes a file and all its associated data (wiki links, label edges, chunks, tasks)
 // in a single transaction. Cascade events remain as a safety net but the primary cleanup is
 // synchronous and atomic. Post-commit steps (stem collision resolution, blob deletion, events)
 // must be handled by the caller.
@@ -350,6 +350,7 @@ func (c *Client) DeleteFileAtomic(ctx context.Context, fileID string) error {
 		{"unresolve incoming wiki links", `UPDATE wiki_link SET to_file = NONE WHERE to_file = type::record("file", $file_id)`},
 		{"delete label edges", `DELETE FROM has_label WHERE in = type::record("file", $file_id)`},
 		{"delete chunks", `DELETE FROM chunk WHERE file = type::record("file", $file_id)`},
+		{"delete tasks", `DELETE FROM task WHERE file = type::record("file", $file_id)`},
 		{"delete file", `DELETE type::record("file", $file_id)`},
 	} {
 		if _, err := surrealdb.Query[any](ctx, tx, step.sql, vars); err != nil {
@@ -365,13 +366,31 @@ func (c *Client) DeleteFileAtomic(ctx context.Context, fileID string) error {
 
 // DeleteFilesByPrefix deletes all non-folder files in a vault whose path starts with the given prefix.
 // Returns the number of deleted files. Folder cleanup is handled separately by DeleteFoldersByPrefix.
+// Associated data (chunks, wiki links, label edges, tasks) is cleaned up explicitly before file deletion.
 func (c *Client) DeleteFilesByPrefix(ctx context.Context, vaultID, pathPrefix string) (int, error) {
 	defer c.logOp(ctx, "file.delete_by_prefix", time.Now())
-	sql := `DELETE FROM file WHERE vault = type::record("vault", $vault_id) AND is_folder = false AND string::starts_with(path, $prefix) RETURN BEFORE`
-	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+
+	vars := map[string]any{
 		"vault_id": bareID("vault", vaultID),
 		"prefix":   pathPrefix,
-	})
+	}
+	fileFilter := `vault = type::record("vault", $vault_id) AND is_folder = false AND string::starts_with(path, $prefix)`
+
+	// Clean up associated data before deleting files
+	for _, sql := range []string{
+		`DELETE FROM wiki_link WHERE from_file IN (SELECT id FROM file WHERE ` + fileFilter + `)`,
+		`UPDATE wiki_link SET to_file = NONE WHERE to_file IN (SELECT id FROM file WHERE ` + fileFilter + `)`,
+		`DELETE FROM has_label WHERE in IN (SELECT id FROM file WHERE ` + fileFilter + `)`,
+		`DELETE FROM chunk WHERE file IN (SELECT id FROM file WHERE ` + fileFilter + `)`,
+		`DELETE FROM task WHERE file IN (SELECT id FROM file WHERE ` + fileFilter + `)`,
+	} {
+		if _, err := surrealdb.Query[any](ctx, c.DB(), sql, vars); err != nil {
+			return 0, fmt.Errorf("delete files by prefix cleanup: %w", err)
+		}
+	}
+
+	sql := `DELETE FROM file WHERE ` + fileFilter + ` RETURN BEFORE`
+	results, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, vars)
 	if err != nil {
 		return 0, fmt.Errorf("delete files by prefix: %w", err)
 	}
