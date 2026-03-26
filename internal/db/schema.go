@@ -65,6 +65,7 @@ func SchemaSQL(dimension int) string {
     DEFINE FIELD IF NOT EXISTS updated_at     ON file TYPE datetime VALUE time::now();
     DEFINE FIELD IF NOT EXISTS stem           ON file TYPE string DEFAULT "";
     DEFINE FIELD IF NOT EXISTS no_embed ON file TYPE bool DEFAULT false;
+    DEFINE FIELD IF NOT EXISTS dirty_tasks ON file TYPE bool DEFAULT false;
     -- Backfill: existing records may have NONE from an older schema.
     UPDATE file SET no_embed = false WHERE no_embed = NONE;
 
