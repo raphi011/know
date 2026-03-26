@@ -260,7 +260,7 @@ Some notes about the beta project.
 	}
 	t.Logf("direct BM25ChunkSearch returned %d results", len(directResults))
 
-	searchSvc := search.NewService(testDB, nil) // no embedder → BM25 only
+	searchSvc := search.NewService(testDB, nil, nil) // no embedder → BM25 only
 
 	results, err := searchSvc.Search(ctx, search.SearchInput{
 		VaultID: vaultID,

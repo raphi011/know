@@ -16,6 +16,7 @@ import (
 	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/logutil"
 	"github.com/raphi011/know/internal/memory"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/remote"
 	"github.com/raphi011/know/internal/tools"
 	"github.com/raphi011/know/internal/vault"
@@ -31,6 +32,7 @@ type mcpTools struct {
 	memoryService *memory.Service
 	apifyClient   *apify.Client
 	jinaClient    *jina.Client
+	metrics       *metrics.Metrics
 	cache         *cache
 }
 
@@ -705,7 +707,7 @@ func (t *mcpTools) fetchWebpage(ctx context.Context, req *mcp.CallToolRequest, i
 
 	if !input.Save {
 		// Read-only mode — fetch directly without going through executor.
-		result, err := webclip.Fetch(ctx, t.jinaClient, input.URL, nil)
+		result, err := webclip.Fetch(ctx, t.jinaClient, input.URL, nil, t.metrics)
 		if err != nil {
 			logutil.FromCtx(ctx).Warn("fetch webpage failed", "url", input.URL, "error", err)
 			return errorResult(fmt.Sprintf("failed to fetch page: %v", err)), nil, nil

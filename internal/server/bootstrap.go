@@ -261,8 +261,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	embedWorkerDone := make(chan struct{})
 	close(embedWorkerDone)
 
-	searchSvc := search.NewService(dbClient, embedder)
-	remoteSvc := remote.NewService(dbClient)
+	searchSvc := search.NewService(dbClient, embedder, m)
+	remoteSvc := remote.NewService(dbClient, m)
 
 	// External API clients.
 	var apifyClient *apify.Client
@@ -280,12 +280,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		RenderSvc: renderSvc,
 		Jina:      jinaClient,
 		Model:     model,
+		Metrics:   m,
 	}
 	vaultSvc := vault.NewService(dbClient)
-	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc)
-	agentSvc := agent.NewService(dbClient, fileSvc, model, agentTools, cfg.TavilyAPIKey, apifyClient)
+	agentTools := buildAgentTools(localExecutor, vaultSvc, remoteSvc, m)
+	agentSvc := agent.NewService(dbClient, fileSvc, model, agentTools, cfg.TavilyAPIKey, apifyClient, m)
 	agentRunner := agent.NewRunner(agentSvc, dbClient)
-	memorySvc := memory.NewService(dbClient, fileSvc, model)
+	memorySvc := memory.NewService(dbClient, fileSvc, model, m)
 
 	app := &App{
 		db:                 dbClient,
@@ -936,7 +937,7 @@ func bootstrapToken() (raw, hash string, err error) {
 // buildAgentTools creates multi-vault tool wrappers for the agent service.
 // The resolvers close over the local executor, vault service, and remote service
 // to route tool calls to the appropriate vault.
-func buildAgentTools(localExecutor *tools.Executor, vaultSvc *vault.Service, remoteSvc *remote.Service) []tool.BaseTool {
+func buildAgentTools(localExecutor *tools.Executor, vaultSvc *vault.Service, remoteSvc *remote.Service, m *metrics.Metrics) []tool.BaseTool {
 	resolver := func(ctx context.Context) ([]tools.VaultRef, error) {
 		localIDs, err := resolveVaultIDs(ctx, vaultSvc)
 		if err != nil {
@@ -968,7 +969,7 @@ func buildAgentTools(localExecutor *tools.Executor, vaultSvc *vault.Service, rem
 			}
 			refs = append(refs, tools.VaultRef{
 				VaultID:   rv.VaultID,
-				Executor:  remote.NewExecutor(client, rv.RemoteName),
+				Executor:  remote.NewExecutor(client, rv.RemoteName, m),
 				Namespace: rv.Namespace,
 			})
 		}
@@ -998,7 +999,7 @@ func buildAgentTools(localExecutor *tools.Executor, vaultSvc *vault.Service, rem
 				if rv.Namespace == vaultName {
 					return tools.VaultRef{
 						VaultID:   rv.VaultID,
-						Executor:  remote.NewExecutor(client, remoteName),
+						Executor:  remote.NewExecutor(client, remoteName, m),
 						Namespace: rv.Namespace,
 					}, nil
 				}

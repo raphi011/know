@@ -12,6 +12,7 @@ import (
 	"github.com/raphi011/know/internal/file"
 	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/llm"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/webclip"
 )
 
@@ -21,6 +22,7 @@ type FetchWebpageTool struct {
 	db      *db.Client
 	fileSvc *file.Service
 	model   *llm.Model
+	metrics *metrics.Metrics
 }
 
 func (t *FetchWebpageTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -75,7 +77,7 @@ func (t *FetchWebpageTool) InvokableRun(ctx context.Context, argumentsInJSON str
 
 	if !args.Save {
 		start := time.Now()
-		result, err := webclip.Fetch(ctx, t.jina, args.URL, model)
+		result, err := webclip.Fetch(ctx, t.jina, args.URL, model, t.metrics)
 		if err != nil {
 			return "", fmt.Errorf("fetch webpage: %w", err)
 		}
@@ -97,7 +99,7 @@ func (t *FetchWebpageTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	settings := v.Defaults()
 
 	start := time.Now()
-	result, err := webclip.FetchAndSave(ctx, t.jina, t.fileSvc, o.VaultID, args.URL, args.Path, settings, model)
+	result, err := webclip.FetchAndSave(ctx, t.jina, t.fileSvc, o.VaultID, args.URL, args.Path, settings, model, t.metrics)
 	if err != nil {
 		return "", fmt.Errorf("fetch webpage: %w", err)
 	}

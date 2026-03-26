@@ -10,6 +10,7 @@ import (
 	"github.com/raphi011/know/internal/apiclient"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -24,6 +25,7 @@ type RemoteVault struct {
 // Service manages remote server configurations and clients.
 type Service struct {
 	db      *db.Client
+	metrics *metrics.Metrics
 	clients sync.Map // remoteName -> *apiclient.Client
 
 	cacheMu      sync.RWMutex
@@ -34,8 +36,8 @@ type Service struct {
 const vaultCacheTTL = 60 * time.Second
 
 // NewService creates a new remote service.
-func NewService(db *db.Client) *Service {
-	return &Service{db: db}
+func NewService(db *db.Client, m *metrics.Metrics) *Service {
+	return &Service{db: db, metrics: m}
 }
 
 // Add registers a new remote server.
@@ -77,9 +79,11 @@ func (s *Service) ListRemoteVaults(ctx context.Context) ([]RemoteVault, error) {
 	if time.Now().Before(s.cacheExpires) && s.vaultCache != nil {
 		cached := s.vaultCache
 		s.cacheMu.RUnlock()
+		s.metrics.RecordRemoteVaultCache("hit")
 		return cached, nil
 	}
 	s.cacheMu.RUnlock()
+	s.metrics.RecordRemoteVaultCache("miss")
 
 	logger := logutil.FromCtx(ctx)
 

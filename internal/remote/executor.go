@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/raphi011/know/internal/apiclient"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/tools"
 )
@@ -19,15 +20,25 @@ import (
 type Executor struct {
 	client     *apiclient.Client
 	remoteName string
+	metrics    *metrics.Metrics
 }
 
 // NewExecutor creates a remote executor for the given remote.
-func NewExecutor(client *apiclient.Client, remoteName string) *Executor {
-	return &Executor{client: client, remoteName: remoteName}
+func NewExecutor(client *apiclient.Client, remoteName string, m *metrics.Metrics) *Executor {
+	return &Executor{client: client, remoteName: remoteName, metrics: m}
 }
 
 // ExecuteTool routes a tool call to the appropriate REST API method on the remote server.
-func (e *Executor) ExecuteTool(ctx context.Context, vaultID, toolName, arguments string) (string, *tools.ToolResultMeta, error) {
+func (e *Executor) ExecuteTool(ctx context.Context, vaultID, toolName, arguments string) (result string, meta *tools.ToolResultMeta, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		e.metrics.RecordRemoteTool(toolName, status, time.Since(start))
+	}()
+
 	switch toolName {
 	case tools.ToolSearch:
 		return e.execSearch(ctx, vaultID, arguments)

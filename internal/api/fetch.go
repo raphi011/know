@@ -67,7 +67,7 @@ func (s *Server) fetchWebpage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := webclip.FetchAndSave(ctx, jinaClient, s.app.FileService(), vaultID, req.URL, req.Path, settings, model)
+	result, err := webclip.FetchAndSave(ctx, jinaClient, s.app.FileService(), vaultID, req.URL, req.Path, settings, model, s.app.Metrics())
 	if err != nil {
 		logger.Warn("fetch: fetch and save failed", "url", req.URL, "error", err)
 		httputil.WriteProblem(w, http.StatusInternalServerError, "failed to fetch and save page")

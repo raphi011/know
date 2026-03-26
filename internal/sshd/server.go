@@ -24,6 +24,7 @@ import (
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -36,6 +37,7 @@ type Server struct {
 	docService *file.Service
 	vaultSvc   *vault.Service
 	noAuth     bool
+	metrics    *metrics.Metrics
 
 	wg        sync.WaitGroup
 	quit      chan struct{}
@@ -51,6 +53,7 @@ func NewServer(
 	vaultSvc *vault.Service,
 	hostKeyPath string,
 	noAuth bool,
+	m *metrics.Metrics,
 ) (*Server, error) {
 	s := &Server{
 		listener:   ln,
@@ -58,6 +61,7 @@ func NewServer(
 		docService: docService,
 		vaultSvc:   vaultSvc,
 		noAuth:     noAuth,
+		metrics:    m,
 		quit:       make(chan struct{}),
 	}
 
@@ -135,9 +139,11 @@ func (s *Server) passwordCallback(conn ssh.ConnMetadata, password []byte) (*ssh.
 			slog.String("protocol", "ssh"),
 			slog.String("ip", conn.RemoteAddr().String()),
 		)
+		s.metrics.RecordSSHConnection("failure")
 		return nil, fmt.Errorf("authentication failed")
 	}
 
+	s.metrics.RecordSSHConnection("success")
 	auth.AuditLog(context.Background(), auth.AuditSuccess,
 		slog.String("protocol", "ssh"),
 		slog.String("user_id", ac.UserID),
@@ -224,7 +230,7 @@ func (s *Server) handleSession(channel ssh.Channel, requests <-chan *ssh.Request
 			}
 
 			ac := authContextFromPermissions(perms)
-			h := newHandler(s.dbClient, s.docService, s.vaultSvc, ac)
+			h := newHandler(s.dbClient, s.docService, s.vaultSvc, ac, s.metrics)
 
 			srv := sftp.NewRequestServer(channel, h.Handlers())
 			if err := srv.Serve(); err != nil {

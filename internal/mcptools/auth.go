@@ -121,7 +121,7 @@ func (t *mcpTools) resolveAllVaults(ctx context.Context) ([]VaultRef, error) {
 		}
 		refs = append(refs, VaultRef{
 			VaultID:   rv.VaultID,
-			Executor:  remote.NewExecutor(client, rv.RemoteName),
+			Executor:  remote.NewExecutor(client, rv.RemoteName, t.metrics),
 			Namespace: rv.Namespace,
 		})
 	}
@@ -156,7 +156,7 @@ func (t *mcpTools) resolveWriteVault(ctx context.Context, vaultName string) (Vau
 			if rv.Namespace == vaultName {
 				return VaultRef{
 					VaultID:   rv.VaultID,
-					Executor:  remote.NewExecutor(client, remoteName),
+					Executor:  remote.NewExecutor(client, remoteName, t.metrics),
 					Namespace: rv.Namespace,
 				}, nil
 			}

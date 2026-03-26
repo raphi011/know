@@ -14,6 +14,7 @@ import (
 	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/logutil"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 )
 
@@ -69,7 +70,16 @@ type Result struct {
 
 // Fetch fetches a URL via Jina Reader and returns the result without persisting.
 // If model is non-nil, the markdown is cleaned up via LLM before returning.
-func Fetch(ctx context.Context, client *jina.Client, url string, model *llm.Model) (*Result, error) {
+func Fetch(ctx context.Context, client *jina.Client, url string, model *llm.Model, m *metrics.Metrics) (_ *Result, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		m.RecordWebClip(model != nil, status, time.Since(start))
+	}()
+
 	r, err := client.Read(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
@@ -103,7 +113,16 @@ func FormatAsMarkdown(r *Result) string {
 // to the vault via FileService.Create. If customPath is nil or empty, the path
 // is derived from the page title and the vault's WebClipPath setting.
 // If model is non-nil, the markdown is cleaned up via LLM before saving.
-func FetchAndSave(ctx context.Context, client *jina.Client, fileSvc *file.Service, vaultID, url string, customPath *string, settings models.VaultSettings, model *llm.Model) (*Result, error) {
+func FetchAndSave(ctx context.Context, client *jina.Client, fileSvc *file.Service, vaultID, url string, customPath *string, settings models.VaultSettings, model *llm.Model, m *metrics.Metrics) (_ *Result, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		m.RecordWebClip(model != nil, status, time.Since(start))
+	}()
+
 	r, err := client.Read(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)

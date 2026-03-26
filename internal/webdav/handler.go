@@ -235,9 +235,11 @@ func NewHandler(
 		davStart := time.Now()
 		wrec := &singleWriteResponseWriter{ResponseWriter: w}
 		davHandler.ServeHTTP(wrec, r)
+		davElapsed := time.Since(davStart)
+		m.RecordWebDAVOp(r.Method, davElapsed)
 		reqLogger.Debug("webdav request",
 			"method", r.Method, "vault", vaultName, "path", filePath,
-			"status", wrec.statusCode, "duration_ms", time.Since(davStart).Milliseconds())
+			"status", wrec.statusCode, "duration_ms", davElapsed.Milliseconds())
 	})
 }
 

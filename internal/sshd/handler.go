@@ -18,6 +18,7 @@ import (
 	"github.com/raphi011/know/internal/auth"
 	"github.com/raphi011/know/internal/db"
 	"github.com/raphi011/know/internal/file"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/vault"
 )
@@ -31,14 +32,16 @@ type handler struct {
 	docService *file.Service
 	vaultSvc   *vault.Service
 	ac         auth.AuthContext
+	metrics    *metrics.Metrics
 }
 
-func newHandler(dbClient *db.Client, docService *file.Service, vaultSvc *vault.Service, ac auth.AuthContext) *handler {
+func newHandler(dbClient *db.Client, docService *file.Service, vaultSvc *vault.Service, ac auth.AuthContext, m *metrics.Metrics) *handler {
 	return &handler{
 		dbClient:   dbClient,
 		docService: docService,
 		vaultSvc:   vaultSvc,
 		ac:         ac,
+		metrics:    m,
 	}
 }
 
@@ -90,6 +93,9 @@ func (h *handler) resolveVault(ctx context.Context, vaultName string) (string, e
 
 // Fileread returns an io.ReaderAt for the requested file.
 func (h *handler) Fileread(r *sftp.Request) (io.ReaderAt, error) {
+	start := time.Now()
+	defer func() { h.metrics.RecordSFTPOp("read", time.Since(start)) }()
+
 	vaultName, docPath := parsePath(r.Filepath)
 	if vaultName == "" {
 		return nil, os.ErrInvalid
@@ -138,11 +144,14 @@ func (h *handler) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 		path:       docPath,
 		vaultID:    vaultID,
 		docService: h.docService,
+		metrics:    h.metrics,
 	}, nil
 }
 
 // Filecmd handles file commands: Mkdir, Remove, Rmdir, Rename, Setstat.
 func (h *handler) Filecmd(r *sftp.Request) error {
+	start := time.Now()
+	defer func() { h.metrics.RecordSFTPOp(strings.ToLower(r.Method), time.Since(start)) }()
 	vaultName, docPath := parsePath(r.Filepath)
 
 	switch r.Method {
@@ -245,6 +254,8 @@ func (h *handler) Filecmd(r *sftp.Request) error {
 
 // Filelist handles List and Stat requests.
 func (h *handler) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
+	start := time.Now()
+	defer func() { h.metrics.RecordSFTPOp(strings.ToLower(r.Method), time.Since(start)) }()
 	vaultName, docPath := parsePath(r.Filepath)
 
 	switch r.Method {
@@ -415,6 +426,7 @@ type writeBuffer struct {
 	path       string
 	vaultID    string
 	docService *file.Service
+	metrics    *metrics.Metrics
 	buf        []byte
 }
 
@@ -436,6 +448,9 @@ func (w *writeBuffer) WriteAt(p []byte, off int64) (int, error) {
 }
 
 func (w *writeBuffer) Close() error {
+	start := time.Now()
+	defer func() { w.metrics.RecordSFTPOp("write", time.Since(start)) }()
+
 	content := string(w.buf)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

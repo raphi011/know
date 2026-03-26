@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/raphi011/know/internal/db"
@@ -11,6 +12,7 @@ import (
 	"github.com/raphi011/know/internal/jina"
 	"github.com/raphi011/know/internal/llm"
 	"github.com/raphi011/know/internal/memory"
+	"github.com/raphi011/know/internal/metrics"
 	"github.com/raphi011/know/internal/models"
 	"github.com/raphi011/know/internal/render"
 	"github.com/raphi011/know/internal/search"
@@ -63,6 +65,7 @@ type Executor struct {
 	RenderSvc *render.Service
 	Jina      *jina.Client
 	Model     *llm.Model
+	Metrics   *metrics.Metrics
 
 	once     sync.Once
 	registry map[string]tool.InvokableTool
@@ -91,7 +94,7 @@ func (e *Executor) initRegistry() {
 			e.registry[ToolToggleTask] = &ToggleTaskTool{docService: e.FileSvc}
 		}
 
-		e.registry[ToolFetchWebpage] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc, model: e.Model}
+		e.registry[ToolFetchWebpage] = &FetchWebpageTool{jina: e.Jina, db: e.DB, fileSvc: e.FileSvc, model: e.Model, metrics: e.Metrics}
 	})
 }
 
@@ -110,13 +113,22 @@ func (e *Executor) Tools() []tool.BaseTool {
 // ExecuteTool runs a tool by canonical name with JSON-encoded arguments
 // scoped to a single vault. Returns the result text, optional metadata,
 // and an error.
-func (e *Executor) ExecuteTool(ctx context.Context, vaultID, toolName, arguments string) (string, *ToolResultMeta, error) {
+func (e *Executor) ExecuteTool(ctx context.Context, vaultID, toolName, arguments string) (_ string, _ *ToolResultMeta, err error) {
 	e.initRegistry()
 
 	t, ok := e.registry[toolName]
 	if !ok {
 		return "", nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
+
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		e.Metrics.RecordToolCall(toolName, status, time.Since(start))
+	}()
 
 	ctx = WithResultMeta(ctx)
 	result, err := t.InvokableRun(ctx, arguments, WithVaultID(vaultID))
