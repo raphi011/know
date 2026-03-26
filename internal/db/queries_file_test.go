@@ -1696,3 +1696,35 @@ func TestSetFileDirtyTasks(t *testing.T) {
 		t.Error("expected dirty_tasks=false after clear")
 	}
 }
+
+func TestUpdateFileHash(t *testing.T) {
+	ctx := context.Background()
+	user := createTestUser(t, ctx)
+	userID := models.MustRecordIDString(user.ID)
+	vault := createTestVault(t, ctx, userID)
+	vaultID := models.MustRecordIDString(vault.ID)
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	hash := "originalhash"
+	file, err := testDB.CreateFile(ctx, models.FileInput{
+		VaultID: vaultID, Path: "/hash-update-" + suffix + ".md",
+		Title: "Hash Update", Content: "content", Labels: []string{},
+		Hash: &hash,
+	})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	fileID := models.MustRecordIDString(file.ID)
+
+	newHash := "updatedhash"
+	if err := testDB.UpdateFileHash(ctx, fileID, &newHash); err != nil {
+		t.Fatalf("UpdateFileHash: %v", err)
+	}
+	updated, err := testDB.GetFileByID(ctx, fileID)
+	if err != nil {
+		t.Fatalf("GetFileByID: %v", err)
+	}
+	if updated.Hash == nil || *updated.Hash != newHash {
+		t.Errorf("expected hash %q, got %v", newHash, updated.Hash)
+	}
+}

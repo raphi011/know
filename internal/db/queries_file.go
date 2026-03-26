@@ -1322,3 +1322,18 @@ func (c *Client) SetFileDirtyTasks(ctx context.Context, fileID string, dirty boo
 	}
 	return nil
 }
+
+// UpdateFileHash updates the content hash on a file record.
+func (c *Client) UpdateFileHash(ctx context.Context, fileID string, hash *string) error {
+	defer c.logOp(ctx, "file.update_hash", time.Now())
+
+	sql := `UPDATE type::record("file", $id) SET hash = $hash`
+	_, err := surrealdb.Query[[]models.File](ctx, c.DB(), sql, map[string]any{
+		"id":   bareID("file", fileID),
+		"hash": optionalString(hash),
+	})
+	if err != nil {
+		return fmt.Errorf("update file hash: %w", err)
+	}
+	return nil
+}
