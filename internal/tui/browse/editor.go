@@ -29,7 +29,8 @@ func editorErr(path string, err error) tea.Cmd {
 
 // openInEditor launches $EDITOR with the document content and returns an
 // ExecProcess command that suspends the TUI while the editor runs.
-func openInEditor(path, content string, client *apiclient.Client, vaultID string) tea.Cmd {
+// line is a 1-based source line number; when > 0, the editor opens at +LINE.
+func openInEditor(path, content string, line int, client *apiclient.Client, vaultID string) tea.Cmd {
 	ext := filepath.Ext(path)
 	tmpFile, err := os.CreateTemp("", "know-*"+ext)
 	if err != nil {
@@ -52,7 +53,11 @@ func openInEditor(path, content string, client *apiclient.Client, vaultID string
 		return editorErr(path, fmt.Errorf("editor %q not found: set $EDITOR", editor))
 	}
 
-	c := exec.Command(editor, tmpPath)
+	args := []string{tmpPath}
+	if line > 0 {
+		args = []string{fmt.Sprintf("+%d", line), tmpPath}
+	}
+	c := exec.Command(editor, args...)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		defer func() {
 			if removeErr := os.Remove(tmpPath); removeErr != nil {

@@ -212,7 +212,7 @@ func (b bookmarksModel) toggleBookmark(path string, add bool) tea.Cmd {
 }
 
 func (b bookmarksModel) visibleRows() int {
-	return max(b.height-b.filterBar.HeightLines()-3, 1) // filterbar + header + status + padding
+	return max(b.height-b.filterBar.HeightLines()-4, 1) // filterbar(+hints) + count + gap + footer(blank+hotkeys)
 }
 
 func (b bookmarksModel) View() string {
@@ -226,18 +226,13 @@ func (b bookmarksModel) View() string {
 		return sb.String()
 	}
 
-	if b.statusErr != "" {
-		sb.WriteString(errStyle.Render(b.statusErr))
-		sb.WriteString("\n")
-	}
-
-	// Header
+	// Count
 	countStr := fmt.Sprintf("%d bookmarks", len(b.filtered))
 	if len(b.filtered) != len(b.allItems) {
 		countStr = fmt.Sprintf("%d of %d bookmarks", len(b.filtered), len(b.allItems))
 	}
-	sb.WriteString(lipgloss.NewStyle().Foreground(pick.MutedColor).Render(countStr))
-	sb.WriteString("\n")
+	sb.WriteString(pick.CountStyle.Render("  " + countStr))
+	sb.WriteString("\n\n")
 
 	if len(b.filtered) == 0 && len(b.allItems) == 0 {
 		sb.WriteString("\n  No bookmarks yet. Use ")
@@ -275,9 +270,11 @@ func (b bookmarksModel) View() string {
 		sb.WriteString("\n")
 	}
 
-	// Footer keybinds
-	sb.WriteString("\n")
-	sb.WriteString(lipgloss.NewStyle().Foreground(pick.MutedColor).Render("  enter: open  d: remove bookmark"))
+	// Footer
+	sb.WriteString(renderFooter(b.statusErr, []hotkey{
+		{"enter", "open"},
+		{"d", "remove bookmark"},
+	}))
 
 	return sb.String()
 }

@@ -205,7 +205,7 @@ func (t tagsModel) View() string {
 }
 
 // renderPickerItems renders the shared item list, padding, and status/footer for a picker.
-func renderPickerItems(b *strings.Builder, p *pick.Model, statusErr, footer string) {
+func renderPickerItems(b *strings.Builder, p *pick.Model, statusErr string, keys []hotkey) {
 	visible := p.VisibleRows()
 	end := min(p.Offset+visible, len(p.Matches))
 
@@ -233,12 +233,7 @@ func renderPickerItems(b *strings.Builder, p *pick.Model, statusErr, footer stri
 		b.WriteString("\n")
 	}
 
-	if statusErr != "" {
-		b.WriteString(errStyle.Render("  " + statusErr))
-		b.WriteString("\n")
-	}
-
-	b.WriteString(pick.CountStyle.Render(footer))
+	b.WriteString(renderFooter(statusErr, keys))
 }
 
 func (t tagsModel) viewTagList() string {
@@ -247,7 +242,7 @@ func (t tagsModel) viewTagList() string {
 	b.WriteString(t.tagPicker.Input.View())
 	b.WriteString("\n")
 	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d/%d tags", len(t.tagPicker.Matches), len(t.tagPicker.AllFiles))))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	if len(t.tagPicker.AllFiles) == 0 {
 		if t.statusErr != "" {
@@ -258,7 +253,10 @@ func (t tagsModel) viewTagList() string {
 		return b.String()
 	}
 
-	renderPickerItems(&b, &t.tagPicker, t.statusErr, "  enter: show files  esc: quit")
+	renderPickerItems(&b, &t.tagPicker, t.statusErr, []hotkey{
+		{"enter", "show files"},
+		{"esc", "quit"},
+	})
 	return b.String()
 }
 
@@ -271,8 +269,11 @@ func (t tagsModel) viewFileList() string {
 	b.WriteString(t.filePicker.Input.View())
 	b.WriteString("\n")
 	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d/%d files", len(t.filePicker.Matches), len(t.filePicker.AllFiles))))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
-	renderPickerItems(&b, &t.filePicker, t.statusErr, "  enter: open  esc: back to tags")
+	renderPickerItems(&b, &t.filePicker, t.statusErr, []hotkey{
+		{"enter", "open"},
+		{"esc", "back"},
+	})
 	return b.String()
 }

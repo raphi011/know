@@ -52,6 +52,7 @@ func newSearchModel(client *apiclient.Client, vaultID string) searchModel {
 		filterBar: NewFilterBar(FilterBarConfig{
 			SupportedKeys: []string{"label"},
 			Placeholder:   "Search documents...",
+			Hints:         "label:<name>",
 		}),
 		client:  client,
 		vaultID: vaultID,
@@ -98,7 +99,7 @@ func (s *searchModel) ensureCursorVisible() {
 }
 
 func (s searchModel) visibleRows() int {
-	// filterbar + count line (1) + footer (2) = overhead
+	// filterbar(+hints) + count + gap + footer(blank+hotkeys) = overhead
 	// Each result takes 2 lines (path, title).
 	overhead := s.filterBar.HeightLines() + 3
 	return max((s.height-overhead)/2, 1)
@@ -269,7 +270,7 @@ func (s searchModel) View() string {
 	} else if s.searched {
 		b.WriteString(pick.CountStyle.Render("  No results"))
 	}
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	visible := s.visibleRows()
 	end := min(s.offset+visible, len(s.results))
@@ -303,13 +304,10 @@ func (s searchModel) View() string {
 	}
 
 	// Footer
-	if s.statusErr != "" {
-		b.WriteString(errStyle.Render("  " + s.statusErr))
-	} else {
-		b.WriteString(pick.CountStyle.Render("  enter: open  esc: quit"))
-		b.WriteString("\n")
-		b.WriteString(pick.CountStyle.Render("  label:<name>"))
-	}
+	b.WriteString(renderFooter(s.statusErr, []hotkey{
+		{"enter", "open"},
+		{"esc", "quit"},
+	}))
 
 	return b.String()
 }
