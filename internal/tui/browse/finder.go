@@ -12,8 +12,10 @@ import (
 )
 
 // fileSelectedMsg is sent when the user presses Enter on a file.
+// line is the 1-based source line number to scroll to (0 = top).
 type fileSelectedMsg struct {
 	path string
+	line int
 }
 
 type finderModel struct {

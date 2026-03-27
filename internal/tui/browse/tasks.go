@@ -284,7 +284,7 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 				return t, nil
 			}
 			return t, func() tea.Msg {
-				return fileSelectedMsg{path: task.DocumentPath}
+				return fileSelectedMsg{path: task.DocumentPath, line: task.LineNumber}
 			}
 		case "g":
 			t.grouped = !t.grouped
@@ -297,11 +297,23 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 	return t, nil
 }
 
-// replaceTask finds a task by ID in the slice and replaces it in place.
+// replaceTask finds a task by ID in the slice and merges the toggle response.
+// The toggle API only returns core fields (status, text, labels, etc.) but not
+// document context (path, title), so we preserve those from the original.
 // Returns true if a matching task was found.
 func replaceTask(tasks []apiclient.TaskResponse, updated apiclient.TaskResponse) bool {
 	for i, task := range tasks {
 		if task.ID == updated.ID {
+			// Preserve document context not returned by the toggle endpoint.
+			if updated.DocumentPath == "" {
+				updated.DocumentPath = task.DocumentPath
+			}
+			if updated.DocumentTitle == "" {
+				updated.DocumentTitle = task.DocumentTitle
+			}
+			if updated.LineNumber == 0 {
+				updated.LineNumber = task.LineNumber
+			}
 			tasks[i] = updated
 			return true
 		}
