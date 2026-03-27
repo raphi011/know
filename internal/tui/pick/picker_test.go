@@ -216,8 +216,8 @@ func TestRenderHighlighted_WithMatches(t *testing.T) {
 
 func TestVisibleRows(t *testing.T) {
 	m := Model{Height: 10}
-	if got := m.VisibleRows(); got != 6 {
-		t.Errorf("VisibleRows() = %d, want 6", got)
+	if got := m.VisibleRows(); got != 5 {
+		t.Errorf("VisibleRows() = %d, want 5", got)
 	}
 }
 
@@ -273,7 +273,7 @@ func TestSetSize_PropagatesWidthToInput(t *testing.T) {
 
 func TestUpdate_PageDown_MovesFullPage(t *testing.T) {
 	m := NewModel(testFiles) // 4 files
-	m.Height = 6             // visibleRows = max(6-4, 1) = 2
+	m.Height = 7             // visibleRows = max(7-5, 1) = 2
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
 	m = result.(Model)
@@ -297,7 +297,7 @@ func TestUpdate_PageDown_ClampsAtEnd(t *testing.T) {
 
 func TestUpdate_PageUp_MovesFullPage(t *testing.T) {
 	m := NewModel(testFiles) // 4 files
-	m.Height = 6             // visibleRows = 2
+	m.Height = 7             // visibleRows = 2
 	m.Cursor = 3
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})

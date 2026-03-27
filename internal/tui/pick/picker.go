@@ -162,7 +162,7 @@ func (m *Model) SetSize(width, height int) {
 }
 
 func (m Model) VisibleRows() int {
-	return max(m.Height-4, 1)
+	return max(m.Height-5, 1) // input + count + gap + footer(blank+hotkeys)
 }
 
 func (m *Model) Refilter() {

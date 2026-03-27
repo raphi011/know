@@ -38,7 +38,6 @@ type tasksModel struct {
 	toggling  bool
 	grouped   bool
 	statusErr string
-	statusOK  string
 	filterBar FilterBar
 	client    *apiclient.Client
 	vaultID   string
@@ -76,8 +75,10 @@ func (t tasksModel) buildFilter() (apiclient.TaskFilter, string) {
 	r := t.filterBar.Result()
 	f := apiclient.TaskFilter{}
 	var filterErr string
-	if v := r.Filter("status"); v != "" {
+	if v := r.Filter("status"); v == "open" || v == "done" {
 		f.Status = v
+	} else if v != "" {
+		filterErr = fmt.Sprintf("Unknown status:%s (use open or done)", v)
 	}
 	if v := r.Filter("from"); v != "" {
 		f.Path = v
@@ -148,7 +149,7 @@ func (t *tasksModel) sortTasks() {
 }
 
 func (t tasksModel) visibleRows() int {
-	return max(t.height-t.filterBar.HeightLines()-2, 1) // filterbar + count + footer
+	return max(t.height-t.filterBar.HeightLines()-4, 1) // filterbar(+hints) + count + gap + footer(blank+hotkeys)
 }
 
 func (t *tasksModel) ensureCursorVisible() {
@@ -199,22 +200,27 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 			return t, nil
 		}
 		t.statusErr = ""
-		t.statusOK = "Task updated"
-		return t, t.loadTasks()
+		// Update task in place — no reload, no cursor change.
+		if !replaceTask(t.allTasks, msg.resp.TaskResponse) {
+			// Task ID changed during re-ingestion — fall back to reload.
+			return t, t.loadTasks()
+		}
+		replaceTask(t.filtered, msg.resp.TaskResponse)
+		return t, nil
 
 	case tea.KeyPressMsg:
 		t.statusErr = ""
-		t.statusOK = ""
 
 		if t.filterBar.Focused() {
 			// Input mode: filter bar gets all keys except navigation out.
+			// Structured filters (status:, due:, label:) only reload on
+			// commit (enter/down/esc-clear) to avoid 400s from partial input.
 			switch msg.String() {
 			case "down":
 				t.filterBar = t.filterBar.Blur()
-				return t, nil
+				return t, t.loadTasks()
 			case "enter":
-				// No special action in filter bar for tasks.
-				return t, nil
+				return t, t.loadTasks()
 			case "esc":
 				if t.filterBar.Value() != "" {
 					t.filterBar = t.filterBar.SetValue("")
@@ -223,15 +229,11 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 				}
 				return t, tea.Quit
 			}
-			// All other keys → filter bar.
-			prevFilter, _ := t.buildFilter()
+			// All other keys → filter bar (local fuzzy filter only).
 			var cmd tea.Cmd
 			t.filterBar, cmd = t.filterBar.Update(msg)
-			newFilter, filterErr := t.buildFilter()
+			_, filterErr := t.buildFilter()
 			t.statusErr = filterErr
-			if !filtersEqual(prevFilter, newFilter) {
-				return t, t.loadTasks()
-			}
 			t.applyFilter()
 			return t, cmd
 		}
@@ -295,21 +297,16 @@ func (t tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 	return t, nil
 }
 
-// filtersEqual compares two TaskFilter structs for equality (ignores query text).
-// NOTE: update this function when adding new fields to TaskFilter.
-func filtersEqual(a, b apiclient.TaskFilter) bool {
-	if a.Status != b.Status || a.Path != b.Path || a.DueAfter != b.DueAfter || a.DueBefore != b.DueBefore {
-		return false
-	}
-	if len(a.Labels) != len(b.Labels) {
-		return false
-	}
-	for i := range a.Labels {
-		if a.Labels[i] != b.Labels[i] {
-			return false
+// replaceTask finds a task by ID in the slice and replaces it in place.
+// Returns true if a matching task was found.
+func replaceTask(tasks []apiclient.TaskResponse, updated apiclient.TaskResponse) bool {
+	for i, task := range tasks {
+		if task.ID == updated.ID {
+			tasks[i] = updated
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // isOverdue reports whether a due date string (YYYY-MM-DD) is before today.
@@ -344,11 +341,14 @@ func renderTaskRow(task *apiclient.TaskResponse, selected bool) string {
 
 	// Task text
 	var taskText string
-	if task.Status == "done" {
+	switch {
+	case task.Status == "done" && selected:
+		taskText = taskDoneSelectedStyle.Render(task.Text)
+	case task.Status == "done":
 		taskText = taskDoneStyle.Render(task.Text)
-	} else if selected {
+	case selected:
 		taskText = pick.SelectedStyle.Render(task.Text)
-	} else {
+	default:
 		taskText = pick.NormalStyle.Render(task.Text)
 	}
 
@@ -380,7 +380,13 @@ var (
 	taskSecondaryStyle = lipgloss.NewStyle().Foreground(pick.SecondaryColor)
 	taskOverdueStyle   = lipgloss.NewStyle().Foreground(pick.ErrorColor)
 	taskDueSoonStyle   = lipgloss.NewStyle().Foreground(pick.MatchColor)
-	taskDoneStyle      = lipgloss.NewStyle().Foreground(pick.MutedColor).Strikethrough(true)
+	taskDoneStyle      = lipgloss.NewStyle().
+				Foreground(pick.MutedColor).
+				Strikethrough(true)
+	taskDoneSelectedStyle = lipgloss.NewStyle().
+				Foreground(pick.PrimaryColor).
+				Bold(true).
+				Strikethrough(true)
 )
 
 // taskRow represents a single visual row in the grouped tasks view.
@@ -467,14 +473,6 @@ func (t tasksModel) View() string {
 		return sb.String()
 	}
 
-	if t.statusErr != "" {
-		sb.WriteString(errStyle.Render("  " + t.statusErr))
-		sb.WriteString("\n")
-	} else if t.statusOK != "" {
-		sb.WriteString(pick.CountStyle.Render("  " + t.statusOK))
-		sb.WriteString("\n")
-	}
-
 	sb.WriteString(t.filterBar.View())
 	sb.WriteString("\n")
 
@@ -483,18 +481,23 @@ func (t tasksModel) View() string {
 		countStr = fmt.Sprintf("%d of %d tasks", len(t.filtered), len(t.allTasks))
 	}
 	sb.WriteString(pick.CountStyle.Render("  " + countStr))
-	sb.WriteString("\n")
+	sb.WriteString("\n\n")
 
-	groupHint := "g: group"
+	groupLabel := "group"
 	if t.grouped {
-		groupHint = "g: ungroup"
+		groupLabel = "ungroup"
 	}
-	footer := pick.CountStyle.Render("  space: toggle  enter: open  " + groupHint + "  esc: quit")
+	footerKeys := []hotkey{
+		{"space", "toggle"},
+		{"enter", "open"},
+		{"g", groupLabel},
+		{"esc", "quit"},
+	}
 
 	if len(t.filtered) == 0 {
 		sb.WriteString("\n  No tasks found.")
 		sb.WriteString("\n")
-		sb.WriteString(footer)
+		sb.WriteString(renderFooter(t.statusErr, footerKeys))
 		return sb.String()
 	}
 
@@ -528,7 +531,7 @@ func (t tasksModel) View() string {
 		}
 	}
 
-	sb.WriteString(footer)
+	sb.WriteString(renderFooter(t.statusErr, footerKeys))
 
 	return sb.String()
 }
