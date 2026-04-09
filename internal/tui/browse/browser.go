@@ -24,14 +24,16 @@ const (
 
 // documentFetchedMsg is the result of an async document fetch.
 type documentFetchedMsg struct {
-	doc *apiclient.Document
-	err error
+	doc  *apiclient.Document
+	line int // 1-based source line to scroll to (0 = top)
+	err  error
 }
 
 // editReadyMsg is sent when raw document content has been fetched for editing.
 type editReadyMsg struct {
 	path    string
 	content string
+	line    int // 1-based source line for +LINE (0 = none)
 	err     error
 }
 
@@ -211,8 +213,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fileSelectedMsg:
-		slog.Debug("file selected", "path", msg.path, "tab", m.activeTab)
-		return m, m.fetchDocument(msg.path)
+		slog.Debug("file selected", "path", msg.path, "line", msg.line, "tab", m.activeTab)
+		return m, m.fetchDocument(msg.path, msg.line)
 
 	case documentFetchedMsg:
 		if msg.err != nil {
@@ -247,7 +249,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		slog.Debug("document fetched", "path", msg.doc.Path, "content_len", len(msg.doc.Content), "mime", msg.doc.MimeType)
-		m.viewer = newViewer(msg.doc.Path, renderContent(m.renderer, msg.doc), m.width, m.height)
+		rendered := renderContent(m.renderer, msg.doc)
+		m.viewer = newViewer(msg.doc.Path, rendered, m.width, m.height)
+		if msg.line > 0 {
+			srcLines := strings.Count(msg.doc.Content, "\n") + 1
+			renderedLines := strings.Count(rendered, "\n") + 1
+			targetLine := int(float64(msg.line) / float64(srcLines) * float64(renderedLines))
+			targetLine = min(targetLine, max(renderedLines-1, 0))
+			m.viewer.viewport.SetYOffset(targetLine)
+			m.viewer.sourceLine = msg.line
+		}
 		// Initialize bookmark state from loaded bookmarks.
 		for _, bm := range m.bookmarks.allItems {
 			if bm.Path == msg.doc.Path {
@@ -317,7 +328,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewer.statusMsg = fmt.Sprintf("Edit failed: %v", msg.err)
 			return m, nil
 		}
-		return m, openInEditor(msg.path, msg.content, m.client, m.vaultID)
+		return m, openInEditor(msg.path, msg.content, msg.line, m.client, m.vaultID)
 
 	case editorFinishedMsg:
 		if msg.err != nil {
@@ -448,6 +459,7 @@ func (m Model) View() tea.View {
 // or query block execution) and opens it in $EDITOR.
 func (m *Model) editDocument() tea.Cmd {
 	path := m.viewer.path
+	line := m.viewer.sourceLine
 	client := m.client
 	vaultID := m.vaultID
 	return func() tea.Msg {
@@ -455,7 +467,7 @@ func (m *Model) editDocument() tea.Cmd {
 		if err != nil {
 			return editReadyMsg{path: path, err: fmt.Errorf("edit: %w", err)}
 		}
-		return editReadyMsg{path: path, content: doc.Content}
+		return editReadyMsg{path: path, content: doc.Content, line: line}
 	}
 }
 
@@ -497,7 +509,7 @@ func (m *Model) focusActiveTab() tea.Cmd {
 	}
 }
 
-func (m *Model) fetchDocument(path string) tea.Cmd {
+func (m *Model) fetchDocument(path string, line int) tea.Cmd {
 	client := m.client
 	vaultID := m.vaultID
 	return func() tea.Msg {
@@ -505,7 +517,7 @@ func (m *Model) fetchDocument(path string) tea.Cmd {
 		if err != nil {
 			return documentFetchedMsg{err: fmt.Errorf("fetch %s: %w", path, err)}
 		}
-		return documentFetchedMsg{doc: doc}
+		return documentFetchedMsg{doc: doc, line: line}
 	}
 }
 

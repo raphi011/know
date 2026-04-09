@@ -17,6 +17,7 @@ type viewerModel struct {
 	viewport    viewport.Model
 	audioPlayer *audioPlayerModel
 	path        string
+	sourceLine  int // 1-based source line for editor +LINE (0 = none)
 	width       int
 	height      int
 	bookmarked  bool

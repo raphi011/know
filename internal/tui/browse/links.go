@@ -176,7 +176,7 @@ func (l *linksModel) ensureCursorVisible() {
 }
 
 func (l linksModel) visibleRows() int {
-	return max(l.height-l.filterBar.HeightLines()-3, 1) // filterbar + count + footer + padding
+	return max(l.height-l.filterBar.HeightLines()-4, 1) // filterbar(+hints) + count + gap + footer(blank+hotkeys)
 }
 
 func (l linksModel) selectedEntry() *models.FileEntry {
@@ -411,7 +411,7 @@ func (l linksModel) View() string {
 
 	// Count line
 	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d/%d links", len(l.matches), len(l.filtered))))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	listFocused := !l.filterBar.Focused()
 	visible := l.visibleRows()
@@ -453,16 +453,20 @@ func (l linksModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Status messages
+	// Footer: status + hotkeys
+	statusOK := l.statusOK
+	statusErr := l.statusErr
 	if l.confirmDelete {
-		b.WriteString(errStyle.Render("  Delete this link? y/n"))
-	} else if l.statusErr != "" {
-		b.WriteString(errStyle.Render("  " + l.statusErr))
-	} else if l.statusOK != "" {
-		b.WriteString(pick.CountStyle.Render("  " + l.statusOK))
-	} else {
-		b.WriteString(pick.CountStyle.Render("  enter: view  o: open  a: archive  d: delete  v: toggle archived  esc: quit"))
+		statusErr = "Delete this link? y/n"
 	}
+	b.WriteString(renderFooterStatus(statusErr, statusOK, []hotkey{
+		{"enter", "view"},
+		{"o", "open"},
+		{"a", "archive"},
+		{"d", "delete"},
+		{"v", "toggle archived"},
+		{"esc", "quit"},
+	}))
 
 	return b.String()
 }

@@ -12,8 +12,10 @@ import (
 )
 
 // fileSelectedMsg is sent when the user presses Enter on a file.
+// line is the 1-based source line number to scroll to (0 = top).
 type fileSelectedMsg struct {
 	path string
+	line int
 }
 
 type finderModel struct {
@@ -116,7 +118,7 @@ func (f finderModel) View() string {
 	b.WriteString("\n")
 
 	b.WriteString(pick.CountStyle.Render(fmt.Sprintf("  %d/%d files", len(f.picker.Matches), len(f.picker.AllFiles))))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	visible := f.picker.VisibleRows()
 	end := min(f.picker.Offset+visible, len(f.picker.Matches))
@@ -146,12 +148,10 @@ func (f finderModel) View() string {
 		b.WriteString("\n")
 	}
 
-	if f.statusErr != "" {
-		b.WriteString(errStyle.Render("  " + f.statusErr))
-		b.WriteString("\n")
-	}
-
-	b.WriteString(pick.CountStyle.Render("  enter: open  esc: quit"))
+	b.WriteString(renderFooter(f.statusErr, []hotkey{
+		{"enter", "open"},
+		{"esc", "quit"},
+	}))
 
 	return b.String()
 }

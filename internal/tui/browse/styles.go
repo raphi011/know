@@ -37,4 +37,12 @@ var (
 
 	separatorStyle = lipgloss.NewStyle().
 			Foreground(pick.MutedColor)
+
+	// Hotkey rendering for tab footers.
+	hotkeyKeyStyle = lipgloss.NewStyle().
+			Foreground(pick.SecondaryColor).
+			Bold(true)
+
+	hotkeyDescStyle = lipgloss.NewStyle().
+			Foreground(pick.MutedColor)
 )
